@@ -4,7 +4,7 @@
  * with the host); the rest run in the engine
  * (`crates/wasm-bridge/src/tools/inspect.rs`, S3), routed by `../executor.js`.
  */
-import { noArguments, uuid } from './common.js';
+import { noArguments, sketchRegionsSchema, sketchStateSchema, uuid } from './common.js';
 import { defsFor, engineRef } from './engineSchemas.js';
 
 const readOnly = (title) => ({ title, readOnlyHint: true });
@@ -739,6 +739,36 @@ export const sketchRegionsTool = {
 		required: ['feature_id', 'regions']
 	},
 	annotations: readOnly('Sketch regions')
+};
+
+export const sketchSolveStateTool = {
+	name: 'sketch_solve_state',
+	description:
+		'Solve a stored sketch and report the solver\'s own state, changing nothing: degrees of freedom and ' +
+		'which directions they are (free), the per-constraint residuals, the conflicting constraints, the ' +
+		'constraints that are redundant rather than contradictory, which points the solve displaced, the ' +
+		'solved coordinates of every point and radius, and why the solver stopped. This is the question ' +
+		'"is this sketch fully constrained, and if not, what is still loose?" answered with numbers instead ' +
+		'of a status word. Use sketch_edit to change the sketch.',
+	inputSchema: {
+		type: 'object',
+		properties: { feature_id: uuid('Id of a Sketch feature.') },
+		required: ['feature_id'],
+		additionalProperties: false
+	},
+	outputSchema: {
+		type: 'object',
+		properties: {
+			feature_id: { type: 'string' },
+			solve_status: { type: 'string', description: 'FullyConstrained | UnderConstrained | OverConstrained | SolveFailed' },
+			dof: { type: 'integer' },
+			state: sketchStateSchema,
+			regions: sketchRegionsSchema,
+			regions_error: { type: 'string', description: 'Present when the regions query failed; the state above is unaffected.' }
+		},
+		required: ['feature_id', 'solve_status', 'dof', 'state', 'regions']
+	},
+	annotations: readOnly('Sketch solve state')
 };
 
 export const sketch3dGetTool = {

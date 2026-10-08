@@ -295,7 +295,13 @@ test.describe('Authoring tools run in the engine and still answer as the page di
 				// spec's table.
 				'drawing_view_delete',
 				'drawing_annotation_edit',
-				'drawing_annotation_delete'
+				'drawing_annotation_delete',
+				// S3 (`specs/agent_mechanical_design.md` §10.3, 2026-10-08):
+				// the sketch door's edit half. One batch of operations is one
+				// solve and one undo step, so it is an authoring tool;
+				// `sketch_solve_state`, which solves and commits nothing, is
+				// read-only and lives in the other spec.
+				'sketch_edit'
 			].sort()
 		);
 	});

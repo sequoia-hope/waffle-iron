@@ -2651,7 +2651,7 @@ Where the tree suggests a different route than the document's wording.
 | V3 | determinism oracle | V1 | app tests |
 | S1 | sketch ops in Rust; UI rewired | — | sketch-solver, waffle-types, app |
 | S2 | solver state: residuals, moved, free, redundant | — | sketch-solver, waffle-types |
-| S3 | `sketch_edit`, `sketch_solve_state` | S1, S2 | wasm-bridge, feature-engine |
+| S3 | `sketch_edit`, `sketch_solve_state` | S1, S2 | wasm-bridge — **LANDED 2026-10-08** (notes below) |
 | S4 | sketch corpus, independent rank oracle, prospector | S2 | test-harness, app |
 | L1 | catalogue and first families | K3 tables | feature-engine |
 | L2 | `library_list`, `library_insert` | L1 | wasm-bridge |
@@ -2866,6 +2866,83 @@ Still open, measured in the same review and NOT fixed here:
 - **`failed_result` returns an EMPTY `residuals`**, against the field's "one
   entry per constraint" contract, so on the one path that most needs it the
   offending constraint is named only in a prose string.
+
+### S3 — the tools
+
+Landed 2026-10-08. `sketch_edit` and `sketch_solve_state` in
+`crates/wasm-bridge/src/tools/sketch.rs`, beside `sketch_create`; the three
+are one door and answer with one `state` object. Pinned by
+`crates/wasm-bridge/tests/tool_sketch_edit.rs` (19 tests) and, for the page's
+routing, by `agent-rust-tools.spec.js` (the query) and
+`agent-rust-authoring.spec.js` (the command).
+
+`sketch_edit` reads the stored `Operation::Sketch`, runs
+`sketch_solver::ops::apply_ops` against it, solves the result ONCE, writes the
+solution back into the entities and re-derives `solved_positions` /
+`solved_profiles` from them, then commits one `EditFeature` — the same order
+`feature_engine::params` uses when a dimension expression re-solves a sketch
+already in the tree, so an agent's edit and a parameter change leave the
+document in the same shape. The engine's sketch MODE is never entered.
+
+Four decisions that are not in §10.3:
+
+1. **`regions` is beside the state, not inside it.** §10.3 lists `regions` as a
+   field of `SketchState`. It is a top-level field of all three answers
+   instead, because that is where `sketch_create` and `sketch_regions` already
+   put it and an agent should read regions the same way from every tool. For
+   the same back-compatibility reason `sketch_create` keeps its flat
+   `solve_status` and `dof`: its `dof` is `null` on a failed solve, where
+   `state.dof` is the number the solver computed, and quietly changing a field
+   the recorded goldens read would be a worse trade than two spellings with a
+   documented difference.
+2. **Transient constraints are NAMED, not hidden.** A `MovePoint` becomes a
+   `Pinned` for exactly one solve (S1), which means the array the solver saw is
+   longer than the array the sketch stores. Rather than remap or drop those
+   rows — inventing a second index space, which is the defect S2 removed from
+   three callers — the state reports `constraints` (how many the sketch stores)
+   and, when the batch held a move, `transient_constraints` naming the extra
+   indices. An index below `constraints` is a stored constraint; a drag whose
+   own pin is the offender can say so. This matters because of a defect S2's
+   notes already record and S3 does not fix: `conflicts` is computed on
+   WEIGHTED rows while `residuals` are unweighted, so an ordinary drag names
+   the pin PLUS innocent stored constraints. The UI is shielded by an index
+   filter; an agent reading `conflicts` is not, and now at least it can tell
+   which index is the pin.
+3. **A failed solve is refused BEFORE the commit.** `sketch_create` has to
+   commit and then roll back on `rollback`, because `FinishSketch` is what
+   produces the feature. `sketch_edit` solves first and sends nothing when the
+   verdict is `OverConstrained` or `SolveFailed`, so the default path never
+   moves the document at all — there is no rollback to verify. The refusal
+   carries the whole `state`, so a caller learns which constraint conflicts
+   without a second call.
+4. **A failed `keep` does not write the positions back.** Where LM stopped is
+   not a solution, and `keep` exists to preserve what the caller asked for.
+   The status is still recorded on the sketch, so the document, the UI and the
+   agent agree about the failure.
+
+**One defect fixed on the way, in `sketch_create`.** It filtered reference
+dimensions out of the constraint array BEFORE sending it to `SolveSketch`, so
+every index it reported — `conflicts` in particular — was in the filtered
+space: with a reference dimension declared ahead of a conflict, the conflict
+named the wrong constraint. `solve_sketch` has filtered them itself since S2
+and maps its indices back to the caller's full array, so the tool's own filter
+was both redundant and the third of the three places S2's notes describe.
+Removed; pinned by `a_reference_dimension_is_reported_and_never_an_offender`.
+
+**The `SketchOp` input schema is generated, like every other engine type.**
+`SketchOp` is a WIRE type, so it is not reachable from
+`docs/schema/waffle-v5.schema.json` (which is derived from the document tree)
+and putting it there would claim an operation is part of the saved format. It
+gets its own golden, `docs/schema/sketch-op.schema.json`
+(`crates/waffle-types/tests/sketch_op_schema_golden.rs`), which
+`app/scripts/gen-agent-manifest.mjs` merges into the tools' `$defs` — refusing
+the merge if the two goldens ever disagree about a shared definition, since
+both derive from one set of Rust types and a difference means one is stale.
+
+Not done here, and not blocking S4: the UI does not call `sketch_edit` (it has
+`ApplySketchOps` with the live sketch, which is the right message for an
+in-progress sketch), and `Project` through this door needs the engine-side
+`GeomRef` resolution `ProjectedPoint` expects the caller to have done.
 
 ### The 1,172 corpus sketches with zero constraints (§2.2 item 11)
 

@@ -736,6 +736,14 @@ export const ENGINE_DEFS = {
       }
     ]
   },
+  "End": {
+    "description": "Which end of a curve an operation acts on.",
+    "enum": [
+      "Start",
+      "End"
+    ],
+    "type": "string"
+  },
   "ExtrudeParams": {
     "description": "Parameters for an extrude operation.",
     "properties": {
@@ -2201,6 +2209,41 @@ export const ENGINE_DEFS = {
       }
     ]
   },
+  "ProjectShape": {
+    "description": "What to build from a set of projected points.",
+    "oneOf": [
+      {
+        "description": "Loose points only (a projected vertex).",
+        "properties": {
+          "type": {
+            "const": "Points",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A polyline through the points in order; `closed` joins the last back\nto the first (a projected edge is the two-point open case; a face\nboundary is the closed one).",
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "Polyline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "closed"
+        ],
+        "type": "object"
+      }
+    ]
+  },
   "ProjectedEntity": {
     "description": "A binding from a local sketch Point to the external geometry it projects.\nThe point remains an ordinary `SketchEntity::Point`; this side-table marks it\nas externally driven so rebuild can re-derive its 2D position.",
     "properties": {
@@ -2256,6 +2299,36 @@ export const ENGINE_DEFS = {
         "type": "object"
       }
     ]
+  },
+  "ProjectedPoint": {
+    "description": "One point to project into the sketch, already resolved to world space by\nthe engine.\n\nThe op does the PLANE mapping (world → sketch uv) and mints the entities;\nresolving a `GeomRef` to a position needs the model and stays on the\nengine side of the boundary. `source` carries the binding the sketch\nstores so a rebuild can reproject\n(`specs/projected_sketch_geometry.md`).",
+    "properties": {
+      "source": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ProjectedSource"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "The binding to re-derive it on rebuild, when the caller has one."
+      },
+      "world": {
+        "description": "The resolved 3D world position.",
+        "items": {
+          "format": "double",
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      }
+    },
+    "required": [
+      "world"
+    ],
+    "type": "object"
   },
   "ProjectedSource": {
     "description": "The external source a projected point reprojects from.",
@@ -3119,6 +3192,14 @@ export const ENGINE_DEFS = {
       "thickness"
     ],
     "type": "object"
+  },
+  "Side": {
+    "description": "Which side of a chain an offset goes to, in traversal terms.\n\n`Left` is the positive signed distance of the offset construction. A\ncaller that knows a cursor position rather than a traversal direction\n(every interactive one) gets the sign from\n`sketch_solver::ops::offset::signed_distance_to_chain` instead of guessing.",
+    "enum": [
+      "Left",
+      "Right"
+    ],
+    "type": "string"
   },
   "Sketch": {
     "description": "A 2D sketch on a plane. Contains geometric entities and constraints.",
@@ -4476,6 +4557,337 @@ export const ENGINE_DEFS = {
       "signature"
     ],
     "type": "object"
+  },
+  "SketchOp": {
+    "description": "One sketch operation. Applied in order, with a single solve at the end and\na single undo step for the batch (§10.3).",
+    "oneOf": [
+      {
+        "description": "Add an entity. Ids of `0` are allocated by the engine, so a caller\nthat does not track ids (an agent) can still build a line by naming\nits points — see `sketch_solver::ops::apply_ops`.",
+        "properties": {
+          "entity": {
+            "$ref": "#/$defs/SketchEntity"
+          },
+          "type": {
+            "const": "AddEntity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entity"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Remove entities, cascading to the constraints and orphaned points\nthat reference them.",
+        "properties": {
+          "ids": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "RemoveEntity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "ids"
+        ],
+        "type": "object"
+      },
+      {
+        "properties": {
+          "constraint": {
+            "$ref": "#/$defs/SketchConstraint"
+          },
+          "type": {
+            "const": "AddConstraint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "constraint"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Remove the constraint at this index in the sketch's constraint array.",
+        "properties": {
+          "index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "RemoveConstraint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "index"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Retarget a dimension: a literal value, a driving expression, or both\n(the expression's last evaluated result is the value).",
+        "properties": {
+          "expression": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "SetDimension",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "index"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Flip an entity's construction flag.",
+        "properties": {
+          "construction": {
+            "type": "boolean"
+          },
+          "entity": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "SetConstruction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entity",
+          "construction"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Move a point to a position. A drag: the solve that follows sees a\n`Pinned` constraint on the point at `to`, which is dropped afterwards,\nso the move lasts exactly one solve and leaves nothing behind.\n\n`Pinned`, not `Dragged`: a full-weight lock, so the point lands where\nthe caller asked and the rest of the sketch gives way around it. That\nis what `specs/agent_mechanical_design.md` §10.3 specifies and what\n`ops::apply_ops` emits (pinned:\n`a_move_point_is_a_transient_pin_and_not_a_stored_constraint`).\n`Dragged`'s 1/20 weight is the interaction hint the UI's own pointer\ndrag uses, and it is a different thing.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": {
+            "const": "MovePoint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "to"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Trim the piece of `entity` that contains `at`, cutting at the\nintersections with every other entity. With no intersection the whole\nentity goes.",
+        "properties": {
+          "at": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "entity": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "Trim",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entity",
+          "at"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Extend `entity` past `end` until it meets `to` (or the nearest\nreachable entity when `to` is absent).",
+        "properties": {
+          "end": {
+            "$ref": "#/$defs/End"
+          },
+          "entity": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "to": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "Extend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entity",
+          "end"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Offset a connected chain (or a single circle) by `distance` to `side`.",
+        "properties": {
+          "chain": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "distance": {
+            "format": "double",
+            "type": "number"
+          },
+          "side": {
+            "$ref": "#/$defs/Side"
+          },
+          "type": {
+            "const": "Offset",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "chain",
+          "distance",
+          "side"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Round the corner at a point shared by exactly two lines.",
+        "properties": {
+          "corner": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "radius": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": {
+            "const": "Fillet",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "corner",
+          "radius"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Mirror entities across a line, adding the images as new geometry.",
+        "properties": {
+          "axis": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "entities": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "Mirror",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entities",
+          "axis"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Bring external geometry in, mapped onto the sketch plane.",
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/$defs/ProjectedPoint"
+            },
+            "type": "array"
+          },
+          "shape": {
+            "$ref": "#/$defs/ProjectShape"
+          },
+          "type": {
+            "const": "Project",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "points",
+          "shape"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "SketchOp"
   },
   "SolveStatus": {
     "description": "Result of running the constraint solver.",

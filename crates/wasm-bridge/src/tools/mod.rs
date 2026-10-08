@@ -83,6 +83,8 @@ pub const MIGRATED: &[&str] = &[
     "undo",
     "redo",
     "sketch_create",
+    "sketch_edit",
+    "sketch_solve_state",
     "sketch3d_get",
     "script_run_check",
     "script_source_add",
@@ -143,6 +145,7 @@ pub fn mutates(name: &str) -> bool {
             | "undo"
             | "redo"
             | "sketch_create"
+            | "sketch_edit"
             | "script_source_add"
             | "script_source_update"
             | "script_feature_add"
@@ -348,6 +351,8 @@ fn run(
         "undo" => author::undo(state, kb),
         "redo" => author::redo(state, kb),
         "sketch_create" => sketch::sketch_create(state, kb, args, context),
+        "sketch_edit" => sketch::sketch_edit(state, kb, args, context),
+        "sketch_solve_state" => sketch::sketch_solve_state(state, kb, args),
         "sketch3d_get" => sketch3d::sketch3d_get(state, args),
         "script_run_check" => script::script_run_check(state, args),
         "script_source_add" => script::script_source_add(state, kb, args),

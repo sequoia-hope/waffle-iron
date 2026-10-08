@@ -4,7 +4,14 @@
  * S3), routed by `../executor.js`. Every command is one undo step
  * for the user (I5) unless its description says otherwise.
  */
-import { UNITS_NOTE, commandOutputSchema, onErrorSchema, uuid } from './common.js';
+import {
+	UNITS_NOTE,
+	commandOutputSchema,
+	onErrorSchema,
+	sketchRegionsSchema,
+	sketchStateSchema,
+	uuid
+} from './common.js';
 import { defsFor, engineRef } from './engineSchemas.js';
 
 const vec3 = (description) => ({ type: 'array', items: { type: 'number' }, minItems: 3, maxItems: 3, description });
@@ -77,18 +84,73 @@ export const sketchCreateTool = {
 			},
 			required: ['origin', 'normal', 'x_axis', 'y_axis']
 		},
-		regions: {
-			type: 'array',
-			items: {
-				type: 'object',
-				properties: {
-					profile_entity_ids: { type: ['array', 'null'], items: { type: 'integer' } },
-					area_m2: { type: 'number' }
-				}
-			}
-		}
+		regions: sketchRegionsSchema,
+		state: sketchStateSchema
 	}),
 	annotations: edit('Create sketch')
+};
+
+export const sketchEditTool = {
+	name: 'sketch_edit',
+	description:
+		'Change a sketch that already exists: apply a batch of operations to the stored sketch, solve once, ' +
+		'commit once (one undo step). This is the incremental alternative to reading the whole Sketch back with ' +
+		'feature_get and handing all of it to feature_edit — it allocates ids, it has the operations the ' +
+		'sketcher has (trim, extend, offset, fillet, mirror, project), and it tells you whether the result ' +
+		'still solves. Ops apply IN ORDER, each against what the one before it produced, so a trim followed by ' +
+		'a fillet at the new vertex works. An AddEntity with id 0 gets an id allocated; the ids it was given ' +
+		'come back in edit.added. MovePoint is a drag: the point is pinned at `to` for this solve only and the ' +
+		'rest of the sketch gives way around it, with nothing left behind in the sketch. An over-constrained or ' +
+		'failed solve is refused before anything is committed (SketchSolveFailed) unless on_error is "keep". ' +
+		'A refused operation names itself (SketchOpRefused with a typed reason) rather than doing nothing ' +
+		'quietly. ' +
+		UNITS_NOTE,
+	inputSchema: {
+		type: 'object',
+		properties: {
+			feature_id: uuid('The Sketch feature to edit.'),
+			ops: {
+				type: 'array',
+				items: engineRef('SketchOp'),
+				minItems: 1,
+				description: 'Operations, applied in order, as one solve and one undo step.'
+			},
+			on_error: onErrorSchema
+		},
+		required: ['feature_id', 'ops'],
+		additionalProperties: false,
+		$defs: defsFor('SketchOp')
+	},
+	outputSchema: commandOutputSchema({
+		feature_id: { type: 'string' },
+		solve_status: { type: 'string', description: 'FullyConstrained | UnderConstrained | OverConstrained | SolveFailed' },
+		dof: { type: 'integer' },
+		state: sketchStateSchema,
+		edit: {
+			type: 'object',
+			description: 'What the batch did, by id — the ids you need to address what it just made.',
+			properties: {
+				added: {
+					type: 'array',
+					items: { type: 'object', properties: { id: { type: 'integer' }, type: { type: 'string' } }, required: ['id', 'type'] }
+				},
+				removed: { type: 'array', items: { type: 'integer' } },
+				changed: {
+					type: 'array',
+					items: { type: 'object', properties: { id: { type: 'integer' }, type: { type: 'string' } }, required: ['id', 'type'] }
+				},
+				constraints_added: { type: 'integer' },
+				constraints_removed: {
+					type: 'array',
+					items: { type: 'integer' },
+					description: 'Indices in the constraint array AS IT WAS when the op that removed them ran.'
+				}
+			},
+			required: ['added', 'removed', 'changed', 'constraints_added', 'constraints_removed']
+		},
+		regions: sketchRegionsSchema
+	}),
+	annotations: edit('Edit sketch')
 };
 
 const operationNote =

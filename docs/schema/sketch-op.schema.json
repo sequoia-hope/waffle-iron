@@ -1,0 +1,2587 @@
+{
+  "$defs": {
+    "Anchor": {
+      "description": "Identifies which feature output contains the target entity.",
+      "oneOf": [
+        {
+          "description": "References an output of a specific feature in the tree.",
+          "properties": {
+            "feature_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "output_key": {
+              "$ref": "#/$defs/OutputKey"
+            },
+            "type": {
+              "const": "FeatureOutput",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "feature_id",
+            "output_key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "References a datum (construction plane, axis, or point).",
+          "properties": {
+            "datum_id": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "Datum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "datum_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AxisDescriptor": {
+      "description": "The rotation-invariant content of a face on a surface of revolution: what\nidentifies that face no matter where around the axis you look at it.\n\n**Why a fingerprint needs this** (N0 of `specs/agent_mechanical_design.md`\n§5.1). A face that goes all the way round its axis has no distinguished\npoint: its area-weighted centroid lies ON the axis, where the surface\nnormal is not defined and the direction from the axis to \"the centroid\" is\nwhatever f64 summation rounding left behind — measured at 3.1e-17 m off a\ncylinder's axis, so changing that cylinder's height from 2 to 2.0001 swung\nthe reported centroid 58° round the axis and flipped the reported normal.\nA fingerprint exists to be STABLE, so such a face reports no point normal\nat all and carries this instead: the axis, the on-axis centroid (in\n[`TopoSignature::centroid`], which is a feature — it pins the axial\nposition), and the surface's own radii.\n\nEvery cylinder, cone, sphere and torus face carries one, full turn or not;\nit is read straight off the analytic surface, so it is exact either way.\nWhether the face ALSO has a point normal is what says where its centroid\nis: a face with a normal has its centroid projected onto the surface, a\nface without has it on the axis.",
+      "properties": {
+        "direction": {
+          "description": "Unit axis direction, canonicalised into one half-space so the value\ndoes not depend on which way round the constructor ran the axis.\n`None` for a sphere, which has no distinguished axis.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "extent": {
+          "description": "How far this FACE reaches along the axis, in meters — the one field\nhere that is about the trim rather than the surface, so a short band\nand a long one on the same cylinder are told apart. `None` for a\nsphere (no axis to measure along).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "half_angle": {
+          "description": "A cone's half-angle, in radians.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "minor_radius": {
+          "description": "A torus's tube radius.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "radius": {
+          "description": "Distance from the axis: a cylinder's radius, a torus's MAJOR radius, a\nsphere's radius. `None` for a cone, whose radius varies along the axis.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "End": {
+      "description": "Which end of a curve an operation acts on.",
+      "enum": [
+        "Start",
+        "End"
+      ],
+      "type": "string"
+    },
+    "Filter": {
+      "description": "Filter predicate for TopoQuery.",
+      "oneOf": [
+        {
+          "description": "Entity's surface/curve type must match.",
+          "properties": {
+            "surface_type": {
+              "type": "string"
+            },
+            "type": {
+              "const": "SurfaceType",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "surface_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity's normal must be within `tolerance` radians of `direction`.",
+          "properties": {
+            "direction": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "tolerance": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "NormalDirection",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "direction",
+            "tolerance"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity must be within `distance` of `point`.",
+          "properties": {
+            "distance": {
+              "format": "double",
+              "type": "number"
+            },
+            "point": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "NearPoint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "distance"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Entity's area must be in range [min, max].",
+          "properties": {
+            "max": {
+              "format": "double",
+              "type": "number"
+            },
+            "min": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "AreaRange",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "min",
+            "max"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "GearParams": {
+      "description": "Parameters for generating an involute gear profile.",
+      "properties": {
+        "backlash": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "centerX": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "centerY": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "internal": {
+          "default": false,
+          "description": "Internal (ring) gear: teeth point INWARD. The profile is the toothed\ninner boundary (a hole), to be combined with a user-drawn outer rim.\nStandard offsets: tip (inner) at `pitch − module`, body/root (outer) at\n`pitch + 1.25·module`; tooth = the conjugate of a meshing external gear's\nspace (`half_tooth_angle = angular_pitch/4 − inv α`).",
+          "type": "boolean"
+        },
+        "module": {
+          "format": "double",
+          "type": "number"
+        },
+        "pressureAngleDeg": {
+          "default": 20.0,
+          "format": "double",
+          "type": "number"
+        },
+        "rotationOffset": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "toothCount": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "toothCount",
+        "module"
+      ],
+      "type": "object"
+    },
+    "GeomRef": {
+      "description": "Persistent geometry reference. The core of the persistent naming system.\nA GeomRef identifies a specific topological entity across parametric rebuilds.",
+      "properties": {
+        "anchor": {
+          "$ref": "#/$defs/Anchor",
+          "description": "Which feature's output contains this entity."
+        },
+        "kind": {
+          "$ref": "#/$defs/TopoKind",
+          "description": "What kind of topological entity this references."
+        },
+        "policy": {
+          "$ref": "#/$defs/ResolvePolicy",
+          "default": {
+            "type": "BestEffort"
+          },
+          "description": "What to do when resolution is ambiguous or fails."
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefScope"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the anchor lives when it is NOT in the current tab (v4 §2.8,\nin-context editing): the assembly whose instance owns the geometry\nand the chain of instance ids down to it. Absent ⇒ local (the current\ntab). A reader that does not know this field would silently resolve\nthe anchor locally, so its arrival bumped the reader floor (format v5)."
+        },
+        "selector": {
+          "$ref": "#/$defs/Selector",
+          "description": "How to find the specific entity within the anchor's output."
+        }
+      },
+      "required": [
+        "kind",
+        "anchor",
+        "selector"
+      ],
+      "type": "object"
+    },
+    "OutputKey": {
+      "description": "Identifies which output of a feature to look in.",
+      "oneOf": [
+        {
+          "description": "The primary solid body output.",
+          "properties": {
+            "type": {
+              "const": "Main",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A secondary body (e.g., from boolean split).",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Body",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A sketch profile (closed loop suitable for extrusion).",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Profile",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A datum plane/axis/point output.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Datum",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A body a custom feature script named in its return value\n(`specs/custom_features_and_modeling_roadmap.md` §A6: `#{ hub: … }`\n⇒ `Named { name: \"hub\" }`). The script's `main` body stays `Main`.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Named",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectShape": {
+      "description": "What to build from a set of projected points.",
+      "oneOf": [
+        {
+          "description": "Loose points only (a projected vertex).",
+          "properties": {
+            "type": {
+              "const": "Points",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A polyline through the points in order; `closed` joins the last back\nto the first (a projected edge is the two-point open case; a face\nboundary is the closed one).",
+          "properties": {
+            "closed": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Polyline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "closed"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectedKind": {
+      "description": "How a projected point is derived from its resolved source entity.",
+      "oneOf": [
+        {
+          "description": "Source is a vertex; use its position directly.",
+          "properties": {
+            "type": {
+              "const": "Vertex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Source is an edge; use the point at parameter `t` along it\n(`t = 0` / `t = 1` are the endpoints; interior is exact for straight edges).",
+          "properties": {
+            "t": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "EdgeSample",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "t"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProjectedPoint": {
+      "description": "One point to project into the sketch, already resolved to world space by\nthe engine.\n\nThe op does the PLANE mapping (world → sketch uv) and mints the entities;\nresolving a `GeomRef` to a position needs the model and stays on the\nengine side of the boundary. `source` carries the binding the sketch\nstores so a rebuild can reproject\n(`specs/projected_sketch_geometry.md`).",
+      "properties": {
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProjectedSource"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The binding to re-derive it on rebuild, when the caller has one."
+        },
+        "world": {
+          "description": "The resolved 3D world position.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        }
+      },
+      "required": [
+        "world"
+      ],
+      "type": "object"
+    },
+    "ProjectedSource": {
+      "description": "The external source a projected point reprojects from.",
+      "properties": {
+        "geom_ref": {
+          "$ref": "#/$defs/GeomRef",
+          "description": "Reference to the source vertex/edge/face in an upstream feature output."
+        },
+        "kind": {
+          "$ref": "#/$defs/ProjectedKind",
+          "description": "How to derive a 3D point from the resolved source entity."
+        }
+      },
+      "required": [
+        "geom_ref",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "RefScope": {
+      "description": "Scope of a geometry reference into another tab's instance (v4 §2.8).\n\n`source_id` absent ⇒ this document; `tab_id` absent ⇒ the current tab;\n`instance_path` = the chain of assembly-instance ids from the referencing\nassembly (`tab_id`) down to the part instance whose feature output the\nanchor names. A Part feature edited in the context of an assembly\nreferences the OTHER instances this way; the engine resolves such a\nreference through its edit context (the `feature_engine::context`\nmodule) and reports it loudly when the context is not open.",
+      "properties": {
+        "instance_path": {
+          "description": "Chain of assembly-instance ids down to the owning part instance.",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "source_id": {
+          "description": "The document the assembly lives in; absent ⇒ this document.",
+          "format": "uuid",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tab_id": {
+          "description": "The assembly tab the instance path starts from; absent ⇒ the current tab.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ResolvePolicy": {
+      "description": "What to do when GeomRef resolution is ambiguous or fails.",
+      "oneOf": [
+        {
+          "description": "Fail the rebuild if the reference cannot be uniquely resolved.",
+          "properties": {
+            "type": {
+              "const": "Strict",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Use the closest match and emit a warning.",
+          "properties": {
+            "type": {
+              "const": "BestEffort",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Role": {
+      "description": "Semantic role assigned to topological entities by modeling operations.\nRoles provide stable, meaningful names for geometry that survive topology changes.",
+      "oneOf": [
+        {
+          "description": "The face on the positive extrusion direction end.",
+          "properties": {
+            "type": {
+              "const": "EndCapPositive",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face on the negative extrusion direction end (original sketch plane face).",
+          "properties": {
+            "type": {
+              "const": "EndCapNegative",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A lateral face created by sweeping a profile edge.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "SideFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face at the start of a revolution.",
+          "properties": {
+            "type": {
+              "const": "RevStartFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The face at the end of a revolution (if not full 360).",
+          "properties": {
+            "type": {
+              "const": "RevEndFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face created by a fillet operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "FilletFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face created by a chamfer operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "ChamferFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An inner face created by a shell operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "ShellInnerFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The original profile face (sketch plane) of an extrude/revolve.",
+          "properties": {
+            "type": {
+              "const": "ProfileFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An instance in a pattern operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "PatternInstance",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face from the first body in a boolean operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "BooleanBodyAFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face from the second body in a boolean operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "BooleanBodyBFace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A face or edge a custom feature script named in its return value\n(`#{ hub_face: query }` ⇒ `Named { name: \"hub_face\" }` on the entity\nthe query resolved to). Later features select it by name without\nknowing the script's private sub-tree.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Named",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Selector": {
+      "description": "How to find a specific entity within a feature's output.",
+      "oneOf": [
+        {
+          "description": "Select by semantic role assigned during the operation.",
+          "properties": {
+            "index": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "role": {
+              "$ref": "#/$defs/Role"
+            },
+            "type": {
+              "const": "Role",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "role",
+            "index"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by geometric signature matching.",
+          "properties": {
+            "signature": {
+              "$ref": "#/$defs/TopoSignature"
+            },
+            "type": {
+              "const": "Signature",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "signature"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by user-specified geometric query.",
+          "properties": {
+            "query": {
+              "$ref": "#/$defs/TopoQuery"
+            },
+            "type": {
+              "const": "Query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by 3D position (nearest entity within tolerance).",
+          "properties": {
+            "type": {
+              "const": "Position",
+              "type": "string"
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            },
+            "z": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "z"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Select by **persistent id** — the preferred selector for anything\nthat must stay attached to one specific entity across rebuilds: a\ndrawing dimension's anchor, a PMI item, an `UpTo` termination, a\n3D-sketch attachment (drawings spec D0,\n`specs/drawings_and_mbd.md` §4 item 4).\n\nBoth ids come from `waffle_types::kernel::EntityPid`. `pid` names the\nentity; `root_pid` names where its geometry was introduced, so the\nreference still resolves when a later boolean rebuilt the face it\npointed at. For edges and vertices the two are equal — their ids are\ncontent-seeded through the faces' roots already.\n\nBoth are `u64` in Rust and **decimal STRINGS on the wire** — in a\n`.waffle` file (format v10) and in every message and tool payload\nalike. A content-seeded id routinely exceeds `2^53`, where a JSON\nnumber stops being exact in JavaScript; see [`crate::pid_str`] for\nthe measurement and for why there is one representation rather than\none per boundary. Reading accepts a bare number too, so every file\nwritten before the flip still loads.\n\nUnlike every other selector this one NEVER rebinds: an entity whose\nid and root are both gone is a loud `ResolutionFailed`, under either\n`ResolvePolicy`. A nearest-match fallback is exactly how an\nannotation ends up dimensioning the wrong edge, and the whole point\nof a persistent id is that its absence is information.",
+          "properties": {
+            "pid": {
+              "type": "string"
+            },
+            "root_pid": {
+              "type": "string"
+            },
+            "type": {
+              "const": "Pid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "pid",
+            "root_pid"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Side": {
+      "description": "Which side of a chain an offset goes to, in traversal terms.\n\n`Left` is the positive signed distance of the offset construction. A\ncaller that knows a cursor position rather than a traversal direction\n(every interactive one) gets the sign from\n`sketch_solver::ops::offset::signed_distance_to_chain` instead of guessing.",
+      "enum": [
+        "Left",
+        "Right"
+      ],
+      "type": "string"
+    },
+    "SketchConstraint": {
+      "description": "A constraint between sketch entities.",
+      "oneOf": [
+        {
+          "properties": {
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Coincident",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Horizontal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entity"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Vertical",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entity"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Two points share a Y coordinate (a horizontal line passes through both).\nPoint-pair analogue of `Horizontal`, which acts on a single line's\nendpoints. See specs/point_pair_horizontal_vertical.md.",
+          "properties": {
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "HorizontalPoints",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Two points share an X coordinate (a vertical line passes through both).\nPoint-pair analogue of `Vertical`.",
+          "properties": {
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "VerticalPoints",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "line_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Parallel",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "line_a",
+            "line_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "line_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Perpendicular",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "line_a",
+            "line_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "curve": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Tangent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "line",
+            "curve"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Equal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entity_a",
+            "entity_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "symmetry_line": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Symmetric",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entity_a",
+            "entity_b",
+            "symmetry_line"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "SymmetricH",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "SymmetricV",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "line": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Midpoint",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "line"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expression": {
+              "description": "Optional driving expression over the design parameters (see\n`feature_engine` parameters). When present, rebuild re-evaluates it\nand writes the result into `value` (mm-space → meters). `value`\nalways holds the last evaluated result so downstream consumers and\nold readers see a plain number.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reference": {
+              "description": "Reference (driven) dimension: displays a measured value and must be\nEXCLUDED from any driving-constraint set handed to the solver.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Distance",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "entity_a",
+            "entity_b",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Perpendicular distance between a point and a line. Equivalent to a\n`Distance` constraint over a (point, line) pair, but emitted directly by\nthe dimension tool's point–line and parallel-line measurements (for the\nlatter, `point` is one line's endpoint). See specs/dimension_tool.md.",
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expression": {
+              "description": "See `Distance::expression`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "point": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "PointLineDistance",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "entity",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Horizontal (x-axis) distance between two points: constrains `|Δx|`,\nleaving the vertical offset free. Emitted by the dimension tool when the\nplacement leader selects a horizontal orientation. See specs/dimension_tool.md.",
+          "properties": {
+            "expression": {
+              "description": "See `Distance::expression`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "HDistance",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Vertical (y-axis) distance between two points: constrains `|Δy|`, leaving\nthe horizontal offset free. Point-pair analogue of `HDistance`.",
+          "properties": {
+            "expression": {
+              "description": "See `Distance::expression`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "VDistance",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "expression": {
+              "description": "See `Distance::expression`. Evaluates to DEGREES (no unit scaling).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "line_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Angle",
+              "type": "string"
+            },
+            "value_degrees": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "line_a",
+            "line_b",
+            "value_degrees"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expression": {
+              "description": "See `Distance::expression`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Radius",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "entity",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "expression": {
+              "description": "See `Distance::expression`. Drives the DIAMETER value (the radius-\nstyle dimension editors wrap user input as `2*(…)` when storing).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reference": {
+              "description": "See `Distance::reference`.",
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Diameter",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "entity",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "OnEntity",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "entity"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "point": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Dragged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pin a point at an explicit target position (weight 1.0 — a real lock,\nunlike `Dragged`'s 1/20 interaction hint which snapshots the point's\ncurrent position). Emitted by the bridge for origin/reference-point\nsnap pins. See specs/pinned_constraint.md.",
+          "properties": {
+            "point": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Pinned",
+              "type": "string"
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "point",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "line_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_c": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "line_d": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "EqualAngle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "line_a",
+            "line_b",
+            "line_c",
+            "line_d"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Ratio",
+              "type": "string"
+            },
+            "value": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "entity_a",
+            "entity_b",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "line": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "EqualPointToLine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point_a",
+            "point_b",
+            "line"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entity_a": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "entity_b": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "SameOrientation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entity_a",
+            "entity_b"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SketchEntity": {
+      "description": "A geometric entity in a sketch.",
+      "oneOf": [
+        {
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Point",
+              "type": "string"
+            },
+            "x": {
+              "format": "double",
+              "type": "number"
+            },
+            "y": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "x",
+            "y"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "end_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Line",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "start_id",
+            "end_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "center_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "radius": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": {
+              "const": "Circle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "center_id",
+            "radius"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "center_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "end_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start_id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "Arc",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "center_id",
+            "start_id",
+            "end_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "point_ids": {
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "Spline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "point_ids"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A parametric gear profile. Stored compactly; expanded to primitives on demand.",
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "params": {
+              "$ref": "#/$defs/GearParams"
+            },
+            "type": {
+              "const": "Gear",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A parametric roller-chain sprocket profile (ISO 606 tooth form). Stored\ncompactly; expanded to points and arcs on demand\n(`generate_sprocket_profile`).",
+          "properties": {
+            "construction": {
+              "default": false,
+              "type": "boolean"
+            },
+            "id": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "params": {
+              "$ref": "#/$defs/SprocketParams"
+            },
+            "type": {
+              "const": "Sprocket",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "params"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SprocketParams": {
+      "description": "Parameters for generating a roller-chain sprocket profile.\n\nLengths are metres (model units), like `GearParams`. camelCase on the wire.",
+      "properties": {
+        "centerX": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "centerY": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "flankRadius": {
+          "description": "Tooth flank radius `re` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pitch": {
+          "description": "Chain pitch `p` (m). ISO 08B is 12.7 mm.",
+          "format": "double",
+          "type": "number"
+        },
+        "rollerDiameter": {
+          "description": "Roller diameter `d1` (m). ISO 08B is 8.51 mm.",
+          "format": "double",
+          "type": "number"
+        },
+        "rotationOffset": {
+          "default": 0.0,
+          "description": "Rotation of the whole profile about its centre (radians). At zero the\nfirst tooth GAP (roller seat) is centred on the +u axis.",
+          "format": "double",
+          "type": "number"
+        },
+        "seatingAngleDeg": {
+          "description": "Roller seating angle `α` override (degrees). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "seatingRadius": {
+          "description": "Roller seating radius `ri` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "standard": {
+          "$ref": "#/$defs/SprocketStandard",
+          "default": "Iso606"
+        },
+        "tipDiameter": {
+          "description": "Tip diameter `da` override (m). Default: mid-range.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "toothCount": {
+          "description": "Number of teeth `z` (≥ 5).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "toothCount",
+        "pitch",
+        "rollerDiameter"
+      ],
+      "type": "object"
+    },
+    "SprocketStandard": {
+      "description": "Which tooth-form standard a sprocket is cut to.",
+      "oneOf": [
+        {
+          "const": "Iso606",
+          "description": "ISO 606 tooth gap form (the only form implemented).",
+          "type": "string"
+        }
+      ]
+    },
+    "TieBreak": {
+      "description": "Tie-breaking strategy when multiple entities match a query.",
+      "oneOf": [
+        {
+          "description": "Pick the entity with the largest area.",
+          "properties": {
+            "type": {
+              "const": "LargestArea",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity nearest to the given point.",
+          "properties": {
+            "point": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "NearestTo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "point"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity whose centroid lies farthest along `direction`\n(the top face of a boss: `[0, 0, 1]`). Ties keep the first.",
+          "properties": {
+            "direction": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "type": {
+              "const": "FarthestAlong",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "direction"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Pick the entity with the smallest index (arbitrary but deterministic).",
+          "properties": {
+            "type": {
+              "const": "SmallestIndex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TopoKind": {
+      "description": "The kind of topological entity.",
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "Vertex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Edge",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Face",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Shell",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "Solid",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TopoQuery": {
+      "description": "User-specified geometric query for selecting entities.",
+      "properties": {
+        "filters": {
+          "description": "Filters to narrow down candidate entities.",
+          "items": {
+            "$ref": "#/$defs/Filter"
+          },
+          "type": "array"
+        },
+        "tie_break": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TieBreak"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "How to break ties if multiple entities match."
+        }
+      },
+      "required": [
+        "filters"
+      ],
+      "type": "object"
+    },
+    "TopoSignature": {
+      "description": "Geometric signature of a topological entity.\nUsed for signature-based matching when role-based resolution fails.",
+      "properties": {
+        "adjacency_hash": {
+          "description": "Hash of the adjacency structure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "area": {
+          "description": "Surface area (for faces).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "axis": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AxisDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rotation-invariant content of a surface of revolution. Serde-\ndefaulted: a document written before N0 simply has no key here."
+        },
+        "bbox": {
+          "description": "Axis-aligned bounding box [min_x, min_y, min_z, max_x, max_y, max_z].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 6,
+          "minItems": 6,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "centroid": {
+          "description": "Centroid position [x, y, z]. For a face on a surface of revolution\nthat goes all the way round, this is the area centroid ON THE AXIS and\n`normal` is `None`; a consumer that needs a point on the face itself\nmust require `normal` alongside it (see [`AxisDescriptor`]).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "length": {
+          "description": "Edge length (for edges).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "normal": {
+          "description": "Outward-pointing normal at centroid (for faces). `None` where there is\nno single one: a full-turn surface of revolution, whose centroid lies\non its axis (see [`AxisDescriptor`]).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "surface_type": {
+          "description": "Surface type (planar, cylindrical, conical, spherical, toroidal, nurbs).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One sketch operation. Applied in order, with a single solve at the end and\na single undo step for the batch (§10.3).",
+  "oneOf": [
+    {
+      "description": "Add an entity. Ids of `0` are allocated by the engine, so a caller\nthat does not track ids (an agent) can still build a line by naming\nits points — see `sketch_solver::ops::apply_ops`.",
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/SketchEntity"
+        },
+        "type": {
+          "const": "AddEntity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "entity"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove entities, cascading to the constraints and orphaned points\nthat reference them.",
+      "properties": {
+        "ids": {
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "RemoveEntity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "ids"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "constraint": {
+          "$ref": "#/$defs/SketchConstraint"
+        },
+        "type": {
+          "const": "AddConstraint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "constraint"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Remove the constraint at this index in the sketch's constraint array.",
+      "properties": {
+        "index": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "RemoveConstraint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "index"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Retarget a dimension: a literal value, a driving expression, or both\n(the expression's last evaluated result is the value).",
+      "properties": {
+        "expression": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "SetDimension",
+          "type": "string"
+        },
+        "value": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "index"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Flip an entity's construction flag.",
+      "properties": {
+        "construction": {
+          "type": "boolean"
+        },
+        "entity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "SetConstruction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "entity",
+        "construction"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Move a point to a position. A drag: the solve that follows sees a\n`Pinned` constraint on the point at `to`, which is dropped afterwards,\nso the move lasts exactly one solve and leaves nothing behind.\n\n`Pinned`, not `Dragged`: a full-weight lock, so the point lands where\nthe caller asked and the rest of the sketch gives way around it. That\nis what `specs/agent_mechanical_design.md` §10.3 specifies and what\n`ops::apply_ops` emits (pinned:\n`a_move_point_is_a_transient_pin_and_not_a_stored_constraint`).\n`Dragged`'s 1/20 weight is the interaction hint the UI's own pointer\ndrag uses, and it is a different thing.",
+      "properties": {
+        "id": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "type": {
+          "const": "MovePoint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Trim the piece of `entity` that contains `at`, cutting at the\nintersections with every other entity. With no intersection the whole\nentity goes.",
+      "properties": {
+        "at": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "entity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "Trim",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "entity",
+        "at"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Extend `entity` past `end` until it meets `to` (or the nearest\nreachable entity when `to` is absent).",
+      "properties": {
+        "end": {
+          "$ref": "#/$defs/End"
+        },
+        "entity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "type": {
+          "const": "Extend",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "entity",
+        "end"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Offset a connected chain (or a single circle) by `distance` to `side`.",
+      "properties": {
+        "chain": {
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "distance": {
+          "format": "double",
+          "type": "number"
+        },
+        "side": {
+          "$ref": "#/$defs/Side"
+        },
+        "type": {
+          "const": "Offset",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "chain",
+        "distance",
+        "side"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Round the corner at a point shared by exactly two lines.",
+      "properties": {
+        "corner": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "radius": {
+          "format": "double",
+          "type": "number"
+        },
+        "type": {
+          "const": "Fillet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "corner",
+        "radius"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Mirror entities across a line, adding the images as new geometry.",
+      "properties": {
+        "axis": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entities": {
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "type": {
+          "const": "Mirror",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "entities",
+        "axis"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Bring external geometry in, mapped onto the sketch plane.",
+      "properties": {
+        "points": {
+          "items": {
+            "$ref": "#/$defs/ProjectedPoint"
+          },
+          "type": "array"
+        },
+        "shape": {
+          "$ref": "#/$defs/ProjectShape"
+        },
+        "type": {
+          "const": "Project",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "points",
+        "shape"
+      ],
+      "type": "object"
+    }
+  ],
+  "title": "SketchOp"
+}

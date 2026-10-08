@@ -469,7 +469,11 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
     // quartet for the same reason they sit together: a material is referred
     // to BY NAME, `body_material_set` is keyed by the same body id
     // `body_rename` is, and an agent that just named a body is the one about
-    // to say what it is made of.
+    // to say what it is made of. S3's sketch pair (`sketch_edit`,
+    // `sketch_solve_state`, `specs/agent_mechanical_design.md` §10.3,
+    // 2026-10-08) sits with `sketch_create`: the three are one door onto a
+    // sketch — author it, change it, ask what the solver makes of it — and
+    // they answer with the same `state` object.
     assert_eq!(
         wasm_bridge::tools::MIGRATED,
         &[
@@ -508,6 +512,8 @@ fn the_migrated_list_is_exactly_what_this_checkpoint_implements() {
             "undo",
             "redo",
             "sketch_create",
+            "sketch_edit",
+            "sketch_solve_state",
             "sketch3d_get",
             "script_run_check",
             "script_source_add",

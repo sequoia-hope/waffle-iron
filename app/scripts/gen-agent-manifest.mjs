@@ -8,7 +8,12 @@
  *   node app/scripts/gen-agent-manifest.mjs --stdout   # print the manifest; exit 1 if engineSchemas.generated.js is stale
  *
  * `engineSchemas.generated.js` holds the definitions of ENGINE_ROOTS and
- * everything they reference, copied from docs/schema/waffle-v5.schema.json.
+ * everything they reference, copied from docs/schema/waffle-v5.schema.json and
+ * docs/schema/sketch-op.schema.json (the wire types, which the document schema
+ * does not reach — see that golden's test). Both goldens are generated from the
+ * same Rust types by schemars, so a definition they share must be identical;
+ * this script refuses to merge two spellings of one name rather than letting
+ * whichever it read last win.
  * Output is deterministic: keys sorted recursively, 2-space indent, trailing newline.
  */
 import { createHash } from 'node:crypto';
@@ -19,6 +24,7 @@ import { buildManifest, sortKeysDeep } from '../src/lib/agent/tools/manifest.js'
 
 const here = dirname(fileURLToPath(import.meta.url));
 const golden = resolve(here, '../../docs/schema/waffle-v5.schema.json');
+const wireGolden = resolve(here, '../../docs/schema/sketch-op.schema.json');
 const engineSchemasFile = resolve(here, '../src/lib/agent/tools/engineSchemas.generated.js');
 const toolsIndex = resolve(here, '../src/lib/agent/tools/index.js');
 const target = resolve(here, '../../relay/src/waffle_mcp_relay/agent-tools.manifest.json');
@@ -33,17 +39,47 @@ const ENGINE_ROOTS = [
 	'DesignParameter',
 	'Transform',
 	'Frame',
-	'AxialAnchor'
+	'AxialAnchor',
+	'SketchOp'
 ];
 
+/**
+ * Every definition the tool schemas can refer to: the document schema's
+ * `$defs`, plus the wire goldens, each of which is a schema whose ROOT is the
+ * type it names (so the root becomes a `$defs` entry of its own).
+ *
+ * A name defined by two goldens must be defined identically — they derive from
+ * one set of Rust types, so a difference means one golden is stale, and
+ * silently picking either one would hand agents a schema the engine does not
+ * implement.
+ */
+function allDefs() {
+	const out = { ...JSON.parse(readFileSync(golden, 'utf8')).$defs };
+	for (const [rootName, path] of [['SketchOp', wireGolden]]) {
+		const schema = JSON.parse(readFileSync(path, 'utf8'));
+		const { $schema, $defs: nested = {}, ...root } = schema;
+		for (const [name, def] of [...Object.entries(nested), [rootName, root]]) {
+			const seen = out[name];
+			if (seen && JSON.stringify(sortKeysDeep(seen)) !== JSON.stringify(sortKeysDeep(def))) {
+				throw new Error(
+					`${path} and an earlier golden disagree about $defs/${name}; ` +
+						'regenerate both with UPDATE_SCHEMA=1 (see each golden test)'
+				);
+			}
+			out[name] = def;
+		}
+	}
+	return out;
+}
+
 function engineSchemasText() {
-	const defs = JSON.parse(readFileSync(golden, 'utf8')).$defs;
+	const defs = allDefs();
 	const picked = {};
 	const stack = [...ENGINE_ROOTS];
 	while (stack.length > 0) {
 		const name = stack.pop();
 		if (name in picked) continue;
-		if (!defs[name]) throw new Error(`${golden} has no $defs/${name}`);
+		if (!defs[name]) throw new Error(`no $defs/${name} in ${golden} or ${wireGolden}`);
 		picked[name] = defs[name];
 		for (const m of JSON.stringify(defs[name]).matchAll(/"#\/\$defs\/([A-Za-z0-9_]+)"/g)) stack.push(m[1]);
 	}

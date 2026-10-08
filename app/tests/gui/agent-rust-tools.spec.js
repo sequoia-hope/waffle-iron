@@ -72,6 +72,11 @@ const READ_ONLY = [
 	// `crates/wasm-bridge/tests/tool_entity_list.rs`.
 	'entity_list',
 	'sketch_regions',
+	// S3 of `specs/agent_mechanical_design.md` §10.3 (2026-10-08): the solver
+	// state of the same sketch, called by the sequence below so the page's
+	// routing of it is exercised here. The numbers are pinned in
+	// `crates/wasm-bridge/tests/tool_sketch_edit.rs`.
+	'sketch_solve_state',
 	// N1 of `specs/agent_mechanical_design.md` §5.2 (2026-10-03). Called by
 	// the sequence below after a face has been named, so the page's routing of
 	// it is exercised here; the answers are pinned in
@@ -174,6 +179,9 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 				// one of them must come back `exact`.
 				const entities = await call('entity_list', { body_id: bodyId, kind: 'edge' });
 				const regions = await call('sketch_regions', { feature_id: sketch.structuredContent.feature_id });
+				// S3: the same sketch's solver state. It changes nothing, so
+				// it sits with the queries.
+				const solveState = await call('sketch_solve_state', { feature_id: sketch.structuredContent.feature_id });
 				// N1: name one of the faces just listed, then read the name
 				// table back. `entity_name` is a mutating tool, so the
 				// authoring spec pins its routing; it is called here because
@@ -194,6 +202,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 					['face_list', faces],
 					['entity_list', entities],
 					['sketch_regions', regions],
+					['sketch_solve_state', solveState],
 					['entity_name', entityName],
 					['names_list', names],
 					['expression_evaluate', expression],
@@ -255,6 +264,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 			'face_list',
 			'entity_list',
 			'sketch_regions',
+			'sketch_solve_state',
 			'entity_name',
 			'names_list',
 			'expression_evaluate',
@@ -373,7 +383,7 @@ test.describe('Read-only agent tools run in the engine (S3 C5b)', () => {
 		// `Sketch3d` feature, and `assembly_get` (2026-09-23) needs an
 		// Assembly tab.
 		const expected = [...READ_ONLY];
-		expected.splice(expected.indexOf('sketch_regions') + 1, 0, 'sketch3d_get');
+		expected.splice(expected.indexOf('sketch_solve_state') + 1, 0, 'sketch3d_get');
 		// `entity_meta` (2026-09-26, `specs/kicad_board_link.md` C4) needs a
 		// linked KiCad board, so it is named here too. Two more are named
 		// here rather than in READ_ONLY, each for its own reason.

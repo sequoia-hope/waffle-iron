@@ -18,6 +18,7 @@ import {
 	redoTool,
 	rollbackSetTool,
 	sketchCreateTool,
+	sketchEditTool,
 	undoTool
 } from './authoring.js';
 import {
@@ -58,7 +59,8 @@ import {
 	parametersGetTool,
 	selectionGetTool,
 	sketch3dGetTool,
-	sketchRegionsTool
+	sketchRegionsTool,
+	sketchSolveStateTool
 } from './inspection.js';
 import {
 	entityMetaTool,
@@ -115,6 +117,7 @@ export const TOOLS = [
 	faceListTool,
 	entityListTool,
 	sketchRegionsTool,
+	sketchSolveStateTool,
 	sketch3dGetTool,
 	namesListTool,
 	expressionEvaluateTool,
@@ -122,6 +125,7 @@ export const TOOLS = [
 	viewportViewTool,
 	viewportCaptureTool,
 	sketchCreateTool,
+	sketchEditTool,
 	featureAddTool,
 	featureEditTool,
 	featureDeleteTool,
