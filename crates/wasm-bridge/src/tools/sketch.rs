@@ -817,12 +817,11 @@ pub(super) fn sketch_edit(
         ));
     }
 
-    // The solution is written back into the entities and the derived data
-    // re-derived from them — the same order `feature_engine::params` uses when
-    // a dimension expression re-solves a stored sketch. A failed solve's
-    // positions are not written back: they are wherever LM stopped, and the
-    // `keep` path is meant to preserve what the caller asked for, not a
-    // half-solved relocation of it.
+    // The solution is written back into the entities, so the stored sketch's
+    // own coordinates are the solved ones. A failed solve's positions are NOT
+    // written back: they are wherever LM stopped, and the `keep` path is meant
+    // to preserve what the caller asked for, not a half-solved relocation of
+    // it.
     let mut edited = applied.sketch;
     if !failed_solve {
         for e in &mut edited.entities {
@@ -843,9 +842,47 @@ pub(super) fn sketch_edit(
         }
     }
     edited.solve_status = solved.status.clone();
-    edited.solved_positions.clear();
-    edited.solved_profiles.clear();
-    edited.recompute_derived();
+
+    // The derived data comes from `build_finish_profiles`, the same builder
+    // `sketch_create` commits through — NOT from `Sketch::recompute_derived`.
+    //
+    // This is not interchangeable, and the difference is silent.
+    // `recompute_derived` re-derives profiles with `extract_profiles`, which
+    // leaves `arc_segments`, `spline_segments` and `circle` EMPTY; the kernel
+    // then builds the loop as a polygon through its vertices, so a filleted
+    // corner extrudes as a CHAMFER. Measured through the agent link before
+    // this was fixed: a 60 × 40 × 6 mm plate with one 4 mm fillet came out
+    // 14.352 mm³ — exactly the rectangle less r²/2 × t, the one-chord
+    // triangle — instead of 14.379 mm³. No error, no warning: the solid was
+    // simply the wrong shape. `build_finish_profiles` is what records the arc,
+    // which is why `sketch_create` has always called it.
+    //
+    // The same loss is open on `feature_engine::params::apply_sketch`, which
+    // re-derives the same way when a dimension EXPRESSION re-solves a stored
+    // sketch (`specs/agent_mechanical_design.md` §10.3's S3 notes).
+    let positions = if failed_solve {
+        edited
+            .entities
+            .iter()
+            .filter_map(|e| match e {
+                SketchEntity::Point { id, x, y, .. } => Some((*id, (*x, *y))),
+                _ => None,
+            })
+            .collect()
+    } else {
+        solved.positions.clone()
+    };
+    let extracted = waffle_types::extract_profiles(&edited.entities, &positions);
+    let finished = build_finish_profiles(&extracted, &edited.entities, &positions);
+    edited.solved_positions = finished.solved_positions;
+    edited.solved_profiles = finished.profiles;
+    // And nothing else: `recompute_derived` is deliberately NOT called here.
+    // Besides re-deriving the profiles it would EXPAND generators, replacing a
+    // `Gear` or `Sprocket` entity in the stored sketch with the primitives it
+    // stands for — turning a parametric gear into dumb geometry as a side
+    // effect of editing something else. A generator's own profiles are
+    // expanded on demand downstream (`tools::inspect::region_inputs`, the
+    // rebuild), which is why `finish_sketch` stores the `Gear` itself.
 
     let step = apply_step(
         state,

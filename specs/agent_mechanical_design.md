@@ -2939,6 +2939,40 @@ gets its own golden, `docs/schema/sketch-op.schema.json`
 the merge if the two goldens ever disagree about a shared definition, since
 both derive from one set of Rust types and a difference means one is stale.
 
+**The end-to-end measurement is `docs/notes/sketch_mcp_e2e/`** — 87 checks
+through a local relay and a headless page, oracles by closed form (87/0 on
+2026-10-08). It found two things, both recorded there in full:
+
+1. **A silent wrong, fixed.** `sketch_edit` first re-derived its profiles with
+   `Sketch::recompute_derived`, which goes through `extract_profiles` — and
+   that leaves `arc_segments`, `spline_segments` and `circle` EMPTY. The kernel
+   then builds the loop as a polygon through its vertices, so a filleted corner
+   extruded as a CHAMFER: a 60 × 40 × 6 mm plate with one 4 mm fillet measured
+   14.352 mm³, exactly the rectangle less r²/2 × t, where the arc gives
+   14.379 mm³. No error, no warning. It now commits through
+   `build_finish_profiles`, the builder `sketch_create` has always used, and
+   the volume is exact to 1.2e-16 relative — the kernel builds a true
+   cylindrical face from the arc. Pinned by
+   `a_filleted_profile_keeps_the_arc_the_kernel_needs`.
+
+   **The same loss is OPEN on `feature_engine::params::apply_sketch`**, which
+   re-derives identically (`clear(); clear(); recompute_derived()`) when a
+   dimension EXPRESSION re-solves a stored sketch. Same mechanism, same
+   silence, different sub-project; it will move stored bytes, so it wants its
+   own increment.
+
+2. **An agent's extrude cannot survive an edit to its own sketch** (loud, not
+   silent). Rounding a corner under an existing extrude fails
+   `ProfileNotFound{entity_ids: [5,6,7,8]}` and rolls back: the fillet makes the
+   loop `{5,6,12,7,8}` and `rebuild::resolve_profile_index` matches the stored
+   id set EXACTLY. `rebuild::resolve_extrude_regions` already re-resolves a
+   stored `Region` by boundary identity and warns when it cannot — but only on
+   the `region`/`regions` path the APP's writers use, while the agent is told to
+   address by `profile_entity_ids`. S3 did not cause this; it made sketch
+   editing routine, which brought a latent gap into reach. The fix is to put
+   the agent on the identity-resolved path, and it is a profile-addressing
+   increment, not a tolerance.
+
 Not done here, and not blocking S4: the UI does not call `sketch_edit` (it has
 `ApplySketchOps` with the live sketch, which is the right message for an
 in-progress sketch), and `Project` through this door needs the engine-side

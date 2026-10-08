@@ -598,6 +598,91 @@ fn a_redundant_constraint_is_named_without_un_greening_the_sketch() {
     assert_eq!(out["state"]["rows"], 2);
 }
 
+// ── The committed geometry, not just the verdict ────────────────────────
+
+#[test]
+fn a_filleted_profile_keeps_the_arc_the_kernel_needs() {
+    // The defect this exists for was SILENT and cost a measurement to find.
+    //
+    // `Sketch::recompute_derived` re-derives profiles with `extract_profiles`,
+    // which leaves `arc_segments` empty. With no arc record the kernel builds
+    // the loop as a polygon through its vertices, so a filleted corner comes
+    // out as a CHAMFER — one chord across the corner. Measured through the
+    // agent link: a 60 × 40 × 6 mm plate with one 4 mm fillet extruded to
+    // 14.352 mm³, which is the rectangle less r²/2 × t (the chord triangle),
+    // where the arc gives 14.379 mm³. No error, no warning.
+    //
+    // So `sketch_edit` commits through `build_finish_profiles`, the builder
+    // `sketch_create` has always used. This test is the floor under that: a
+    // profile with an arc in it must carry the arc.
+    let mut state = EngineState::new();
+    let id = sketch(&mut state, rectangle(), vec![]);
+    let out = ok(
+        &mut state,
+        "sketch_edit",
+        json!({
+            "feature_id": id,
+            "ops": [{ "type": "Fillet", "corner": 2, "radius": 0.002 }],
+        }),
+    );
+    assert_eq!(out["solve_status"], "UnderConstrained");
+
+    let after = stored(&state, &id);
+    let profile = after
+        .solved_profiles
+        .iter()
+        .find(|p| p.is_outer)
+        .expect("the outer loop");
+    assert_eq!(
+        profile.arc_segments.len(),
+        1,
+        "the fillet's arc is recorded: {:?}",
+        profile.arc_segments
+    );
+    assert!(
+        !profile.vertex_ids.is_empty(),
+        "and the polygon the kernel needs beside it is there too"
+    );
+    // The arc's recorded radius is the one asked for.
+    let r = profile.arc_segments[0].radius;
+    assert!((r - 0.002).abs() < 1e-9, "radius {r}");
+}
+
+#[test]
+fn a_circle_profile_survives_an_edit_as_a_circle() {
+    // Same mechanism, the other record `extract_profiles` drops: a standalone
+    // circle carries `circle: Some(..)` so the kernel builds a true circular
+    // wire instead of a many-sided polygon.
+    let mut state = EngineState::new();
+    let id = sketch(
+        &mut state,
+        vec![
+            point(1, 0.0, 0.0),
+            json!({ "type": "Circle", "id": 2, "center_id": 1, "radius": 0.01 }),
+            point(3, 0.05, 0.0),
+        ],
+        vec![],
+    );
+    let out = ok(
+        &mut state,
+        "sketch_edit",
+        json!({ "feature_id": id, "ops": [{ "type": "RemoveEntity", "ids": [3] }] }),
+    );
+    assert_eq!(out["edit"]["removed"], json!([3]));
+
+    let after = stored(&state, &id);
+    let profile = after
+        .solved_profiles
+        .iter()
+        .find(|p| p.entity_ids == vec![2])
+        .expect("the circle's loop");
+    let circle = profile
+        .circle
+        .as_ref()
+        .expect("the circle record the kernel needs");
+    assert!((circle.radius - 0.01).abs() < 1e-12, "radius {circle:?}");
+}
+
 // ── The answer's own shape ──────────────────────────────────────────────
 
 #[test]

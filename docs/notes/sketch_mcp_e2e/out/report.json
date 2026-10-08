@@ -1,0 +1,832 @@
+{
+  "checks": [
+    {
+      "name": "tools/list carries the whole sketch family",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "a free rectangle has 8 degrees of freedom",
+      "ok": true,
+      "detail": 8
+    },
+    {
+      "name": "and eight free directions, one per freedom",
+      "ok": true,
+      "detail": 8
+    },
+    {
+      "name": "with no constraint rows at all",
+      "ok": true,
+      "detail": {
+        "rows": 0,
+        "rank": 0
+      }
+    },
+    {
+      "name": "nothing moved, because nothing had to",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "the positions are the ones authored",
+      "ok": true,
+      "detail": {
+        "1": [
+          0,
+          0
+        ],
+        "2": [
+          0.06,
+          0
+        ],
+        "3": [
+          0.06,
+          0.04
+        ],
+        "4": [
+          0,
+          0.04
+        ]
+      }
+    },
+    {
+      "name": "the loop closes at the authored area",
+      "ok": true,
+      "detail": {
+        "area": 0.0024000000044703484,
+        "expected": 0.0024,
+        "relative": 1.8626452377018543e-9
+      }
+    },
+    {
+      "name": "sketch_solve_state answers what sketch_create answered",
+      "ok": true
+    },
+    {
+      "name": "Pinned takes the sketch to 6 dof",
+      "ok": true,
+      "detail": {
+        "got": 6,
+        "free": 6
+      }
+    },
+    {
+      "name": "and free names exactly 6 directions",
+      "ok": true,
+      "detail": 6
+    },
+    {
+      "name": "the report counts 1 stored constraints",
+      "ok": true,
+      "detail": 1
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "Horizontal takes the sketch to 5 dof",
+      "ok": true,
+      "detail": {
+        "got": 5,
+        "free": 5
+      }
+    },
+    {
+      "name": "and free names exactly 5 directions",
+      "ok": true,
+      "detail": 5
+    },
+    {
+      "name": "the report counts 2 stored constraints",
+      "ok": true,
+      "detail": 2
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "Vertical takes the sketch to 4 dof",
+      "ok": true,
+      "detail": {
+        "got": 4,
+        "free": 4
+      }
+    },
+    {
+      "name": "and free names exactly 4 directions",
+      "ok": true,
+      "detail": 4
+    },
+    {
+      "name": "the report counts 3 stored constraints",
+      "ok": true,
+      "detail": 3
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "Horizontal takes the sketch to 3 dof",
+      "ok": true,
+      "detail": {
+        "got": 3,
+        "free": 3
+      }
+    },
+    {
+      "name": "and free names exactly 3 directions",
+      "ok": true,
+      "detail": 3
+    },
+    {
+      "name": "the report counts 4 stored constraints",
+      "ok": true,
+      "detail": 4
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "Vertical takes the sketch to 2 dof",
+      "ok": true,
+      "detail": {
+        "got": 2,
+        "free": 2
+      }
+    },
+    {
+      "name": "and free names exactly 2 directions",
+      "ok": true,
+      "detail": 2
+    },
+    {
+      "name": "the report counts 5 stored constraints",
+      "ok": true,
+      "detail": 5
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "HDistance takes the sketch to 1 dof",
+      "ok": true,
+      "detail": {
+        "got": 1,
+        "free": 1
+      }
+    },
+    {
+      "name": "and free names exactly 1 directions",
+      "ok": true,
+      "detail": 1
+    },
+    {
+      "name": "the report counts 6 stored constraints",
+      "ok": true,
+      "detail": 6
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "VDistance takes the sketch to 0 dof",
+      "ok": true,
+      "detail": {
+        "got": 0,
+        "free": 0
+      }
+    },
+    {
+      "name": "and free names exactly 0 directions",
+      "ok": true,
+      "detail": 0
+    },
+    {
+      "name": "the report counts 7 stored constraints",
+      "ok": true,
+      "detail": 7
+    },
+    {
+      "name": "no conflicts on the way down",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "the railed rectangle is FullyConstrained",
+      "ok": true,
+      "detail": "FullyConstrained"
+    },
+    {
+      "name": "and sits exactly where its dimensions put it",
+      "ok": true,
+      "detail": {
+        "1": [
+          0,
+          0
+        ],
+        "2": [
+          0.06,
+          0
+        ],
+        "3": [
+          0.06,
+          0.04
+        ],
+        "4": [
+          0,
+          0.04
+        ]
+      }
+    },
+    {
+      "name": "every constraint is satisfied, and none is redundant",
+      "ok": true,
+      "detail": {
+        "redundant": []
+      }
+    },
+    {
+      "name": "a duplicate constraint leaves the sketch green",
+      "ok": true,
+      "detail": "FullyConstrained"
+    },
+    {
+      "name": "it is reported as redundant",
+      "ok": true,
+      "detail": [
+        7
+      ]
+    },
+    {
+      "name": "and it is the LATER one that is named",
+      "ok": true,
+      "detail": {
+        "redundant": [
+          7
+        ],
+        "constraints": 8
+      }
+    },
+    {
+      "name": "with no conflicts: it contradicts nothing",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "undo took the duplicate back out",
+      "ok": true,
+      "detail": 7
+    },
+    {
+      "name": "and the sketch is unchanged otherwise",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "a second, different width is refused",
+      "ok": true,
+      "detail": "SketchSolveFailed"
+    },
+    {
+      "name": "the refusal is SketchSolveFailed",
+      "ok": true,
+      "detail": "SketchSolveFailed"
+    },
+    {
+      "name": "it names offending constraints",
+      "ok": true,
+      "detail": [
+        7,
+        5
+      ]
+    },
+    {
+      "name": "and carries the whole state, so no second call is needed",
+      "ok": true
+    },
+    {
+      "name": "the sketch is byte-identical: nothing was committed",
+      "ok": true
+    },
+    {
+      "name": "on_error keep commits a sketch that did not solve",
+      "ok": true,
+      "detail": "OverConstrained"
+    },
+    {
+      "name": "the drag lands the point where it was asked for in x",
+      "ok": true,
+      "detail": [
+        0.09,
+        0.004999999999500001
+      ]
+    },
+    {
+      "name": "the Horizontal held, so the line is still flat",
+      "ok": true,
+      "detail": [
+        [
+          0,
+          0.0049999999990000005
+        ],
+        [
+          0.09,
+          0.004999999999500001
+        ]
+      ]
+    },
+    {
+      "name": "the solve says which points it displaced",
+      "ok": true,
+      "detail": [
+        {
+          "distance": 0.0049999999990000005,
+          "dx": 0,
+          "dy": 0.0049999999990000005,
+          "id": 1
+        }
+      ]
+    },
+    {
+      "name": "the pin is named as transient, at the index past the stored constraints",
+      "ok": true,
+      "detail": [
+        {
+          "index": 1,
+          "kind": "Pinned"
+        }
+      ]
+    },
+    {
+      "name": "and the sketch still stores only its one Horizontal",
+      "ok": true,
+      "detail": 1
+    },
+    {
+      "name": "no Pinned reached the document",
+      "ok": true,
+      "detail": [
+        "Horizontal"
+      ]
+    },
+    {
+      "name": "the fillet mints an arc",
+      "ok": true,
+      "detail": [
+        {
+          "id": 9,
+          "type": "Point"
+        },
+        {
+          "id": 10,
+          "type": "Point"
+        },
+        {
+          "id": 11,
+          "type": "Point"
+        },
+        {
+          "id": 12,
+          "type": "Arc"
+        }
+      ]
+    },
+    {
+      "name": "and repoints the two legs rather than re-creating them",
+      "ok": true,
+      "detail": [
+        {
+          "id": 6,
+          "type": "Line"
+        },
+        {
+          "id": 7,
+          "type": "Line"
+        }
+      ]
+    },
+    {
+      "name": "with two tangents to hold it",
+      "ok": true,
+      "detail": 2
+    },
+    {
+      "name": "the filleted region area is the analytic area, less the chords",
+      "ok": true,
+      "detail": {
+        "area": 0.0023965504312323826,
+        "analytic": 0.002396566370614359,
+        "deficit": 1.5939381976196737e-8,
+        "ppm": 6.641409156748641
+      }
+    },
+    {
+      "name": "one undo takes the arc, the repointed legs and both tangents",
+      "ok": true,
+      "detail": {
+        "constraints": 7,
+        "area": 0.0024000000044703484
+      }
+    },
+    {
+      "name": "the trim reports what it changed",
+      "ok": true,
+      "detail": {
+        "added": [
+          {
+            "id": 7,
+            "type": "Point"
+          }
+        ],
+        "changed": [
+          {
+            "id": 3,
+            "type": "Line"
+          }
+        ],
+        "constraints_added": 0,
+        "constraints_removed": [],
+        "removed": [
+          2
+        ]
+      }
+    },
+    {
+      "name": "the surviving line stops at the crossing",
+      "ok": true,
+      "detail": {
+        "line": {
+          "construction": false,
+          "end_id": 7,
+          "id": 3,
+          "start_id": 1,
+          "type": "Line"
+        },
+        "far": [
+          0.05,
+          0
+        ]
+      }
+    },
+    {
+      "name": "extend either reaches something or says there is nothing to reach",
+      "ok": true,
+      "detail": {
+        "code": "SketchOpRefused",
+        "details": {
+          "reason": {
+            "entity": 3,
+            "type": "NothingToExtendTo"
+          }
+        },
+        "message": "entity 3 has nothing to extend to"
+      }
+    },
+    {
+      "name": "the offset adds geometry",
+      "ok": true,
+      "detail": [
+        {
+          "id": 8,
+          "type": "Point"
+        },
+        {
+          "id": 9,
+          "type": "Point"
+        },
+        {
+          "id": 10,
+          "type": "Line"
+        }
+      ]
+    },
+    {
+      "name": "the mirror adds an image",
+      "ok": true,
+      "detail": [
+        {
+          "id": 11,
+          "type": "Point"
+        },
+        {
+          "id": 12,
+          "type": "Point"
+        },
+        {
+          "id": 13,
+          "type": "Line"
+        }
+      ]
+    },
+    {
+      "name": "the construction flag is a change, not an add",
+      "ok": true,
+      "detail": {
+        "added": [],
+        "changed": [
+          {
+            "id": 6,
+            "type": "Line"
+          }
+        ],
+        "constraints_added": 0,
+        "constraints_removed": [],
+        "removed": []
+      }
+    },
+    {
+      "name": "a retargeted dimension moves the geometry and the area follows",
+      "ok": true,
+      "detail": {
+        "area": 0.003200000005960465,
+        "expected": 0.0032
+      }
+    },
+    {
+      "name": "the removal reports the id it took",
+      "ok": true,
+      "detail": [
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "name": "a fillet of radius 1 m is refused",
+      "ok": true,
+      "detail": "SketchOpRefused"
+    },
+    {
+      "name": "a fillet that does not fit says so by name",
+      "ok": true,
+      "detail": {
+        "corner": 1,
+        "radius": 1,
+        "type": "FilletDoesNotFit"
+      }
+    },
+    {
+      "name": "trimming an entity that is not there is refused",
+      "ok": true,
+      "detail": "SketchOpRefused"
+    },
+    {
+      "name": "an unknown entity id is named",
+      "ok": true,
+      "detail": {
+        "id": 999,
+        "type": "NoSuchEntity"
+      }
+    },
+    {
+      "name": "removing constraint 99 is refused",
+      "ok": true,
+      "detail": "SketchOpRefused"
+    },
+    {
+      "name": "an unknown constraint index is named",
+      "ok": true,
+      "detail": {
+        "index": 99,
+        "type": "NoSuchConstraint"
+      }
+    },
+    {
+      "name": "an empty batch is refused",
+      "ok": true,
+      "detail": "SchemaRejected"
+    },
+    {
+      "name": "an empty batch is a schema miss at the relay",
+      "ok": true,
+      "detail": "SchemaRejected"
+    },
+    {
+      "name": "a feature that is not there is refused",
+      "ok": true,
+      "detail": "FeatureNotFound"
+    },
+    {
+      "name": "a missing feature is FeatureNotFound",
+      "ok": true,
+      "detail": "FeatureNotFound"
+    },
+    {
+      "name": "the body an edited sketch extrudes to has the volume arithmetic says",
+      "ok": true,
+      "detail": {
+        "volume": 0.0000144000000012,
+        "expected": 0.0000144,
+        "relative": 8.333333657671111e-11
+      }
+    },
+    {
+      "name": "rounding a corner under an extrude that named the loop by its entity ids is refused",
+      "ok": true,
+      "detail": "FeatureRebuildFailed"
+    },
+    {
+      "name": "the break is ProfileNotFound, naming the ids the extrude asked for",
+      "ok": true,
+      "detail": {
+        "count": 1,
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "type": "ProfileNotFound"
+      }
+    },
+    {
+      "name": "and the edit rolled back",
+      "ok": true,
+      "detail": true
+    },
+    {
+      "name": "the plate is still one body with no errors",
+      "ok": true,
+      "detail": {
+        "bodies": 1,
+        "errors": []
+      }
+    },
+    {
+      "name": "the rounded profile reaches the solid as an ARC, by its exact volume",
+      "ok": true,
+      "detail": {
+        "volume": 0.000014379398223686154,
+        "analytic": 0.000014379398223686153,
+        "deficit": -1.6940658945086007e-21,
+        "relative": -1.1781201606323742e-16
+      }
+    },
+    {
+      "name": "the document saved",
+      "ok": true,
+      "detail": {
+        "provider": "local",
+        "id": "6b166700-689f-4be4-b32c-179721a7a4ed",
+        "saved_at": "2026-10-08T18:31:49.820Z"
+      }
+    }
+  ],
+  "tools": [
+    "body_measure",
+    "document_new",
+    "document_save",
+    "feature_add",
+    "feature_get",
+    "model_summary",
+    "sketch_create",
+    "sketch_edit",
+    "sketch_regions",
+    "sketch_solve_state",
+    "undo"
+  ],
+  "measured": {
+    "free_rectangle_area_m2": 0.0024000000044703484,
+    "free_rectangle_area_grid_error": 1.8626452377018543e-9,
+    "dof_ladder": [
+      {
+        "constraint": "Pinned",
+        "dof": 6,
+        "expected": 6,
+        "free": 6
+      },
+      {
+        "constraint": "Horizontal",
+        "dof": 5,
+        "expected": 5,
+        "free": 5
+      },
+      {
+        "constraint": "Vertical",
+        "dof": 4,
+        "expected": 4,
+        "free": 4
+      },
+      {
+        "constraint": "Horizontal",
+        "dof": 3,
+        "expected": 3,
+        "free": 3
+      },
+      {
+        "constraint": "Vertical",
+        "dof": 2,
+        "expected": 2,
+        "free": 2
+      },
+      {
+        "constraint": "HDistance",
+        "dof": 1,
+        "expected": 1,
+        "free": 1
+      },
+      {
+        "constraint": "VDistance",
+        "dof": 0,
+        "expected": 0,
+        "free": 0
+      }
+    ],
+    "filleted_area_m2": 0.0023965504312323826,
+    "filleted_area_analytic_m2": 0.002396566370614359,
+    "filleted_area_chord_deficit_m2": 1.5939381976196737e-8,
+    "trimmed_line": {
+      "line": {
+        "construction": false,
+        "end_id": 7,
+        "id": 3,
+        "start_id": 1,
+        "type": "Line"
+      },
+      "positions": {
+        "1": [
+          0,
+          0
+        ],
+        "4": [
+          0.05,
+          -0.02
+        ],
+        "5": [
+          0.05,
+          0.02
+        ],
+        "7": [
+          0.05,
+          0
+        ]
+      }
+    },
+    "extend": {
+      "code": "SketchOpRefused",
+      "details": {
+        "reason": {
+          "entity": 3,
+          "type": "NothingToExtendTo"
+        }
+      },
+      "message": "entity 3 has nothing to extend to"
+    },
+    "volume_m3": 0.0000144000000012,
+    "volume_expected_m3": 0.0000144,
+    "profile_binding_break": {
+      "code": "FeatureRebuildFailed",
+      "details": {
+        "engine_error": {
+          "kind": {
+            "count": 1,
+            "entity_ids": [
+              5,
+              6,
+              7,
+              8
+            ],
+            "type": "ProfileNotFound"
+          },
+          "message": "no profile is bounded by entities [5, 6, 7, 8] (sketch has 1 profiles)"
+        },
+        "errors": [
+          {
+            "feature_id": "5d8388b2-666d-4c92-a261-a38fadf698a7",
+            "kind": {
+              "count": 1,
+              "entity_ids": [
+                5,
+                6,
+                7,
+                8
+              ],
+              "type": "ProfileNotFound"
+            },
+            "message": "no profile is bounded by entities [5, 6, 7, 8] (sketch has 1 profiles)"
+          }
+        ],
+        "feature_id": "5d8388b2-666d-4c92-a261-a38fadf698a7",
+        "rolled_back": true
+      },
+      "message": "no profile is bounded by entities [5, 6, 7, 8] (sketch has 1 profiles)"
+    },
+    "rounded_volume_m3": 0.000014379398223686154,
+    "rounded_volume_analytic_m3": 0.000014379398223686153
+  },
+  "passed": 87,
+  "failed": 0
+}
