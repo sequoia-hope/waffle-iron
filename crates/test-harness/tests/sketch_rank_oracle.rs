@@ -1090,44 +1090,39 @@ fn report_indices_are_in_the_callers_full_array_including_reference_dimensions()
 // ── A signed residual behind an unsigned dimension ──────────────────────────
 
 #[test]
-fn a_point_line_distance_dimension_mirrors_the_point_across_the_line() {
-    // DEFECT, pinned at the current measured behaviour and NOT fixed here.
+fn a_point_line_dimension_leaves_a_point_that_already_measures_it() {
+    // The regression test for the defect this oracle was built to find, now
+    // fixed (2026-10-08). It is the simplest thing a dimension must do: state
+    // the distance the geometry already has, and change nothing.
     //
-    // `PointLineDistance`'s doc says "Perpendicular distance between a point
-    // and a line", and both places the app mints one emit an UNSIGNED value:
+    // What it used to do. `PointLineDistance` carries an UNSIGNED value —
     // `dimensionHeuristic.js`'s `pointLineDistance` and `constraintLogic.js`'s
-    // `result.pointLineDistance` are each `Math.abs(cross)/len`. The solver's
-    // residual subtracts that value from a SIGNED perpendicular distance, so
-    // on whichever side of the line the sign comes out negative the dimension
-    // is unsatisfiable WHERE THE GEOMETRY ALREADY IS, and the solve satisfies
-    // it by mirroring the point across the line instead.
+    // `result.pointLineDistance` are each `Math.abs(cross)/len` — while
+    // `constraint_mapping.rs` subtracted that value from a SIGNED perpendicular
+    // distance. On whichever side of the line the sign came out negative the
+    // dimension was unsatisfiable WHERE THE GEOMETRY ALREADY WAS, and the solve
+    // satisfied it by MIRRORING the point across the line: point 3 below went
+    // from its authored (5, 7) to (5, -6.999999997900005), residual 1.4e-9,
+    // reported satisfied. Only `value = -7.0` left it alone, which is what
+    // identified the convention as `cross(p - s, d)/|d|`.
+    //
+    // The residual is now `|signed_dist| - value`, the same shape `HDistance`
+    // and `VDistance` have always had for the same reason — the other two
+    // dimensions the UI emits as magnitudes. The oracle's arm was unsigned from
+    // the start (it is what the stored value MEANS), which is how the two
+    // computations came to disagree at all.
     //
     // By hand. Line 10 runs 1→2 from (0, 0) to (10, 0), so d = (10, 0) and
-    // |d| = 10. Point 3 is authored at (5, 7), seven above the line. Both
-    // endpoints are pinned, so the line cannot move. The dimension asks for 7
-    // — the distance the point is ALREADY at.
-    //
-    //   measured: the solve puts point 3 at (5, -6.999999997900005) and calls
-    //   the constraint satisfied (residual 1.4e-9).
-    //
-    // That is the mirror image, 7 BELOW the line. Flipping the sign of the
-    // request (value = -7.0) leaves the point exactly where it was authored,
-    // with residual 0.0 — which identifies the solver's convention as
-    // cross(p - s, d)/|d|, positive to the RIGHT of start→end, the opposite
-    // handedness from the app's magnitude.
-    //
-    // The oracle's arm is the unsigned form (the stored value's meaning), so
-    // it disagrees — and the disagreement is the solver's: a dimension that
-    // reports the distance the geometry already has must not move the
-    // geometry. Note the solver's own
-    // `distance_point_line_and_line_point_compile_identically` cannot see
-    // this: it asserts `|forward| == 7.0`, discarding the sign.
-    let authored = |value: f64| {
+    // |d| = 10. Point 3 is authored at (5, 7). Both endpoints are pinned, so
+    // the line cannot move, and the dimension asks for 7 — what the point
+    // already measures. The residual is |70/10| - 7 = 0, so nothing moves, from
+    // EITHER side.
+    let authored = |py: f64, value: f64| {
         make_sketch(
             vec![
                 point(1, 0.0, 0.0),
                 point(2, 10.0, 0.0),
-                point(3, 5.0, 7.0),
+                point(3, 5.0, py),
                 line(10, 1, 2),
             ],
             vec![
@@ -1144,28 +1139,40 @@ fn a_point_line_distance_dimension_mirrors_the_point_across_the_line() {
         )
     };
 
-    let positive = solve_sketch(&authored(7.0));
-    let p3 = positive.positions[&3];
+    // Above the line — the side that used to flip.
+    let above = solve_sketch(&authored(7.0, 7.0));
+    let p3 = above.positions[&3];
     assert!(
-        (p3.0 - 5.0).abs() < 1e-9 && (p3.1 + 7.0).abs() < 1e-8,
-        "DEFECT PIN: expected the measured mirror image (5, -7), got {p3:?}. \
-         If this now reports (5, +7) the signed residual has been fixed — \
-         delete this pin and assert the fix instead."
+        (p3.0 - 5.0).abs() < 1e-12 && (p3.1 - 7.0).abs() < 1e-12,
+        "a dimension stating the distance the point already has must not move it; got {p3:?}"
     );
+    assert_eq!(above.report.residuals[2].residual, Some(0.0));
+    assert!(above.report.residuals[2].satisfied);
+
+    // Below it, where the signed form happened to agree: unchanged, as before.
+    let below = solve_sketch(&authored(-7.0, 7.0));
+    let q3 = below.positions[&3];
     assert!(
-        positive.report.residuals[2].satisfied,
-        "the solver considers the mirrored configuration satisfied"
+        (q3.0 - 5.0).abs() < 1e-12 && (q3.1 + 7.0).abs() < 1e-12,
+        "and the other side is left alone too; got {q3:?}"
+    );
+    assert_eq!(below.report.residuals[2].residual, Some(0.0));
+
+    // A real request DOES move the point, and keeps it on its own side: from 7
+    // above, asked for 3, it lands 3 above — not 3 below, which is the same
+    // distance and would be the mirror the defect used to produce.
+    let moved = solve_sketch(&authored(7.0, 3.0));
+    let m3 = moved.positions[&3];
+    assert!(
+        (m3.0 - 5.0).abs() < 1e-9 && (m3.1 - 3.0).abs() < 1e-7,
+        "the shortest way to a 3 mm offset is to stay above the line; got {m3:?}"
     );
 
-    // The negative request is the one that leaves the authored geometry alone,
-    // which is what identifies the handedness.
-    let negative = solve_sketch(&authored(-7.0));
-    let q3 = negative.positions[&3];
-    assert!(
-        (q3.0 - 5.0).abs() < 1e-12 && (q3.1 - 7.0).abs() < 1e-12,
-        "a value of -7 should leave the authored point untouched, got {q3:?}"
-    );
-    assert_eq!(negative.report.residuals[2].residual, Some(0.0));
+    // And the two computations agree on the structure in all three, which they
+    // now can: the oracle's unsigned arm and the solver's are the same metric.
+    differential("point-line dimension, above", &authored(7.0, 7.0));
+    differential("point-line dimension, below", &authored(-7.0, 7.0));
+    differential("point-line dimension, moved", &authored(7.0, 3.0));
 }
 
 // ── Scale ───────────────────────────────────────────────────────────────────

@@ -2867,9 +2867,9 @@ Still open, measured in the same review and NOT fixed here:
   entry per constraint" contract, so on the one path that most needs it the
   offending constraint is named only in a prose string.
 
-- **`PointLineDistance` mirrors the point across the line** — found 2026-10-08
-  by S4's independent rank oracle, which is the first thing in the repo that
-  could contradict the solver's own report. The solver's residual is SIGNED
+- ~~**`PointLineDistance` mirrors the point across the line**~~ — **FIXED
+  2026-10-08 (unsigned residual).** Found by S4's independent rank oracle, which
+  is the first thing in the repo that could contradict the solver's own report. The solver's residual is SIGNED
   (`cross(p − s, d)/|d| − value`) while both app emitters store an UNSIGNED
   magnitude (`constraintLogic.js` uses `Math.abs` outright;
   `dimensionHeuristic.js` goes through a `pointLineDistance` helper), so a
@@ -2883,13 +2883,21 @@ Still open, measured in the same review and NOT fixed here:
   behaviour by
   `test-harness/tests/sketch_rank_oracle.rs::a_point_line_distance_dimension_mirrors_the_point_across_the_line`.
 
-  **The fix is a design call, not a patch.** Capturing the side at creation
-  (the emitter stores a signed value) keeps the solver's signed residual, which
-  is better conditioned and lets a dimension HOLD a side — but every stored
-  document with an unsigned value still flips on its next re-solve. Making the
-  residual unsigned (`|cross|/|d| − value`) repairs every stored document at
-  once and gives up side-holding, with no gradient for a point exactly on the
-  line. Not decided here.
+  **Resolved by going unsigned** (`|cross|/|d| − value`), which repairs every
+  stored document at once rather than leaving saved sketches to flip on their
+  next re-solve — the cost being that a point-line dimension can no longer HOLD
+  a side. That cost is small and the shape is the family's: `HDistance` and
+  `VDistance` are `|Δx| − v` already, for exactly the same reason (the UI emits
+  all three as magnitudes), so this ends an exception rather than making one.
+  The kink at zero takes sign(0) = +1, as `HDistance` does, so a point exactly
+  on the line is pushed off instead of stalling on a zero gradient; `OnEntity`
+  keeps the SIGNED form, since its target is zero and the smooth version is
+  better conditioned where it lives. The regression test is
+  `a_point_line_dimension_leaves_a_point_that_already_measures_it`, which also
+  checks that a real request moves the point along its OWN side (7 above, asked
+  for 3, lands 3 above — not the equidistant mirror). The published equation
+  table in `specs/sketch_solver_rewrite.md` — the row that authorised the
+  signed form — is corrected with a note.
 
 ### S3 — the tools
 

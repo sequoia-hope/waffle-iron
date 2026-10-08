@@ -664,9 +664,36 @@ impl CompiledConstraint {
                 let dx = p[*bx] - p[*ax];
                 let dy = p[*by] - p[*ay];
                 let len = (dx * dx + dy * dy).sqrt();
-                // Signed perpendicular distance: ((P-A) × d) / ℓ
+                // UNSIGNED perpendicular distance: |(P-A) × d| / ℓ.
+                //
+                // Unsigned because the stored `value` is unsigned. Every emitter
+                // writes a magnitude — `constraintLogic.js` uses `Math.abs`
+                // outright, `dimensionHeuristic.js` goes through a
+                // `pointLineDistance` helper — so a signed residual here meant a
+                // dimension stating the distance the geometry ALREADY HAD was
+                // violated by twice that distance, and the solve "satisfied" it
+                // by MIRRORING the point across the line. Measured 2026-10-08 by
+                // the independent rank oracle: a point at (5, 7) over a line
+                // along y = 0, given `value: 7.0`, landed at (5, −7) and the
+                // solve called it satisfied; only `value: −7.0` left it alone.
+                // (Pinned: `a_point_line_dimension_leaves_a_point_that_already_measures_it`.)
+                //
+                // This is the same shape `HDistance` and `VDistance` already
+                // have — `|Δx| − v`, the other two dimensions the UI emits as
+                // magnitudes — so the family is now consistent rather than one
+                // member being the exception.
+                //
+                // The kink at zero: `|·|` has no derivative where the point lies
+                // ON the line, and the Jacobian arm takes sign(0) = +1 there, so
+                // a point starting exactly on the line is pushed to one definite
+                // side instead of stalling on a zero gradient. Which side is
+                // arbitrary and the solve is free to be dragged to the other;
+                // what matters is that it moves. A point-line DIMENSION of zero
+                // is `OnEntity`'s job, and that arm stays signed (its target is
+                // zero, so the sign cannot flip an answer and the smooth form is
+                // better conditioned).
                 let cross = (p[*px] - p[*ax]) * dy - (p[*py] - p[*ay]) * dx;
-                r[0] = cross / len - value;
+                r[0] = (cross / len).abs() - value;
                 r
             }
             CompiledConstraint::HDistance { ax, bx, value } => {
@@ -1044,10 +1071,10 @@ impl CompiledConstraint {
                 j
             }
 
-            // ── DistancePL: r = ((P-A)×d)/ℓ - v ─────────────────────────
-            // d = (bx-ax, by-ay), ℓ = ‖d‖
+            // ── DistancePL: r = |((P-A)×d)/ℓ| - v ───────────────────────
+            // d = (bx-ax, by-ay), ℓ = ‖d‖, g = cross/ℓ (the SIGNED distance)
             // cross = (px-ax)*dy - (py-ay)*dx  (where dx,dy depend on ax,ay,bx,by)
-            // r = cross/ℓ - v
+            // r = |g| - v, so ∂r/∂i = sign(g) · ∂g/∂i.
             //
             // ∂cross/∂px = dy,  ∂cross/∂py = -dx
             // ∂cross/∂ax = (py-ay) - dy   [chain rule through dx,dy]
@@ -1057,7 +1084,12 @@ impl CompiledConstraint {
             // ∂ℓ/∂px = 0, ∂ℓ/∂py = 0
             // ∂ℓ/∂ax = -dx/ℓ, ∂ℓ/∂ay = -dy/ℓ
             // ∂ℓ/∂bx = dx/ℓ,  ∂ℓ/∂by = dy/ℓ
-            // ∂r/∂i = (∂cross/∂i)/ℓ - cross*(∂ℓ/∂i)/ℓ²
+            // ∂g/∂i = (∂cross/∂i)/ℓ - cross*(∂ℓ/∂i)/ℓ²
+            //
+            // sign(0) → +1, as `HDistance` does for the same reason: the kink is
+            // only reachable with the point exactly ON the line, where a zero
+            // gradient would stall the solve instead of moving it off. See the
+            // residual arm for why this metric is unsigned at all.
             CompiledConstraint::DistancePL { px, py, ax, ay, bx, by, value: _ } => {
                 let mut j = DMatrix::zeros(1, n_params);
                 let dx = p[*bx] - p[*ax];
@@ -1069,12 +1101,13 @@ impl CompiledConstraint {
                     let inv_l2 = 1.0 / (len * len);
                     let pmay = p[*py] - p[*ay];
                     let pmax = p[*px] - p[*ax];
-                    j[(0, *px)] = dy * inv_l;
-                    j[(0, *py)] = -dx * inv_l;
-                    j[(0, *ax)] = (pmay - dy) * inv_l + cross * dx * inv_l2 * inv_l;
-                    j[(0, *ay)] = (dx - pmax) * inv_l + cross * dy * inv_l2 * inv_l;
-                    j[(0, *bx)] = (-pmay) * inv_l - cross * dx * inv_l2 * inv_l;
-                    j[(0, *by)] = pmax * inv_l - cross * dy * inv_l2 * inv_l;
+                    let s = if cross < 0.0 { -1.0 } else { 1.0 };
+                    j[(0, *px)] = s * (dy * inv_l);
+                    j[(0, *py)] = s * (-dx * inv_l);
+                    j[(0, *ax)] = s * ((pmay - dy) * inv_l + cross * dx * inv_l2 * inv_l);
+                    j[(0, *ay)] = s * ((dx - pmax) * inv_l + cross * dy * inv_l2 * inv_l);
+                    j[(0, *bx)] = s * ((-pmay) * inv_l - cross * dx * inv_l2 * inv_l);
+                    j[(0, *by)] = s * (pmax * inv_l - cross * dy * inv_l2 * inv_l);
                 }
                 j
             }
@@ -1148,7 +1181,11 @@ impl CompiledConstraint {
                 j
             }
 
-            // ── OnEntityLine: r = ((P-A)×d)/ℓ (same as DistancePL with v=0)
+            // ── OnEntityLine: r = ((P-A)×d)/ℓ — the SIGNED distance, target 0.
+            // Deliberately not `DistancePL`'s unsigned form: at the target the
+            // sign cannot change the answer, and the signed version is smooth
+            // through zero where `|·|` has a kink exactly where this constraint
+            // spends its time.
             CompiledConstraint::OnEntityLine { px, py, ax, ay, bx, by } => {
                 let mut j = DMatrix::zeros(1, n_params);
                 let dx = p[*bx] - p[*ax];

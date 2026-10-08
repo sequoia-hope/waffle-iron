@@ -186,13 +186,27 @@ Every constraint is an equation `f(params) = 0` with an analytic gradient.
 | Constraint | Equation | DOF removed |
 |-----------|----------|-------------|
 | Distance(P₁, P₂, d) | `‖P₁ - P₂‖ - d = 0` | 1 |
-| PointLineDistance(P, L, d) | `signed_dist(P, L) - d = 0` | 1 |
+| PointLineDistance(P, L, d) | `\|signed_dist(P, L)\| - d = 0` | 1 |
 | HDistance(P₁, P₂, d) | `x₂ - x₁ - d = 0` | 1 |
 | VDistance(P₁, P₂, d) | `y₂ - y₁ - d = 0` | 1 |
 | Radius(C, r) | `r_c - r = 0` | 1 |
 | Diameter(C, d) | `r_c - d/2 = 0` | 1 |
 | Angle(L₁, L₂, θ) | `atan2(cross, dot) - θ = 0` | 1 |
 | LengthRatio(L₁, L₂, k) | `‖L₁‖ - k·‖L₂‖ = 0` | 1 |
+
+**`PointLineDistance` is UNSIGNED, corrected 2026-10-08.** This table said
+`signed_dist(P, L) - d = 0` and the implementation followed it, but every
+emitter stores a MAGNITUDE (`constraintLogic.js` uses `Math.abs`), so a
+dimension stating the distance a point already had was violated by twice that
+distance and the solve satisfied it by mirroring the point across the line.
+Found by `test-harness`'s independent rank oracle, which had written the arm
+from the field's meaning rather than from this row. `HDistance` and
+`VDistance` above are written signed here and implemented as `|Δx| - d` for
+the same reason — the type's own doc comment says "constrains |Δx|" — so the
+unsigned reading is the family's, not an exception. The kink at zero takes
+sign(0) = +1 so a point exactly on the line moves off instead of stalling;
+a point-line dimension of zero is `OnEntity`'s job, and that constraint stays
+signed because its target is zero.
 
 ### Interaction Constraints (temporary)
 
