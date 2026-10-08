@@ -2867,6 +2867,30 @@ Still open, measured in the same review and NOT fixed here:
   entry per constraint" contract, so on the one path that most needs it the
   offending constraint is named only in a prose string.
 
+- **`PointLineDistance` mirrors the point across the line** — found 2026-10-08
+  by S4's independent rank oracle, which is the first thing in the repo that
+  could contradict the solver's own report. The solver's residual is SIGNED
+  (`cross(p − s, d)/|d| − value`) while both app emitters store an UNSIGNED
+  magnitude (`constraintLogic.js` uses `Math.abs` outright;
+  `dimensionHeuristic.js` goes through a `pointLineDistance` helper), so a
+  dimension reporting the distance the geometry ALREADY HAS flips the point to
+  the other side. Measured, twice independently: a point authored at (5, 7)
+  between two pinned endpoints of a line along y = 0, with `value: 7.0`, is
+  moved to (5, −6.999999998) and the solve is called satisfied; with
+  `value: −7.0` it stays at (5, 7) with residual exactly 0. It is user-reachable
+  from the dimension tool, and `distance_point_line_and_line_point_compile_identically`
+  cannot catch it because it asserts `|forward| == 7.0`. Pinned at the measured
+  behaviour by
+  `test-harness/tests/sketch_rank_oracle.rs::a_point_line_distance_dimension_mirrors_the_point_across_the_line`.
+
+  **The fix is a design call, not a patch.** Capturing the side at creation
+  (the emitter stores a signed value) keeps the solver's signed residual, which
+  is better conditioned and lets a dimension HOLD a side — but every stored
+  document with an unsigned value still flips on its next re-solve. Making the
+  residual unsigned (`|cross|/|d| − value`) repairs every stored document at
+  once and gives up side-holding, with no gradient for a point exactly on the
+  line. Not decided here.
+
 ### S3 — the tools
 
 Landed 2026-10-08. `sketch_edit` and `sketch_solve_state` in
