@@ -11,6 +11,9 @@
 //! - [`stl`] — STL export from RenderMesh
 //! - [`helpers`] — GeomRef constructors, profile builders, mesh math
 //! - [`assertions`] — Rich assertion helpers with diagnostics
+//! - [`sketch_rank`] — Independent structural oracle for the sketch constraint
+//!   solver (S4): a second computation of `params`, `rows`, `rank`, `dof` and
+//!   the null space, by finite differences and an SVD
 
 pub mod assay;
 pub mod assertions;
@@ -19,6 +22,7 @@ pub mod helpers;
 pub mod kv2_adapter;
 pub mod oracle;
 pub mod report;
+pub mod sketch_rank;
 pub mod stl;
 pub mod workflow;
 

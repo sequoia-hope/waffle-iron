@@ -24,9 +24,18 @@ proptest = "1.6"
 i_overlay = { version = "4.4", default-features = false }
 rand = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
+# S4 sketch rank oracle (`src/sketch_rank.rs`): an SVD of a FINITE-DIFFERENCE
+# constraint Jacobian, deliberately different algebra from sketch-solver's
+# column-pivoted QR of an analytic one. Pinned to the solver's own nalgebra
+# version so the workspace resolves a single copy.
+nalgebra = "0.34"
 
 [dev-dependencies]
 tempfile = "3"
+# S4 differential test (`tests/sketch_rank_oracle.rs`): the subject under test.
+# Dev-only, and only the TEST depends on it — `src/sketch_rank.rs` never calls
+# the solver, which is what keeps the oracle independent.
+sketch-solver = { path = "../sketch-solver" }
 libc = "0.2"
 # M8 Stage-0 operand diagnosis (spec m8_stage0_inputcheck_clean_emission §6):
 # the native five-axiom census + the sidecar inputcheck harness. Dev-only —
