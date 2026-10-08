@@ -1,8 +1,8 @@
 {
-  "errored": 22,
+  "errored": 21,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 324,
+  "passed": 325,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2021,10 +2021,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 4a2ed8af-0245-4504-967e-347af76eb787: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 3 is invalid: LocalRefinementRequired\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0025",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

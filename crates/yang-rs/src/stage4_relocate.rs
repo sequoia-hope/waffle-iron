@@ -698,6 +698,40 @@ pub(crate) fn circles_coplanar(c_a: Point3, n_a: Vector3, c_b: Point3, n_b: Vect
     !(cross_mag > cad_primitives::MIN_FEATURE_SIZE || off_plane > cad_primitives::MIN_FEATURE_SIZE)
 }
 
+/// P0025 (2026-10-08, spec `yang_stage4_conic_triple_junction`, "Junction-map
+/// candidates — the coplanar ellipse pair"): do two ellipse records lie in
+/// the SAME cutting plane? The PR-KV9 ellipse×ellipse junction closed form is
+/// `(plane₁ ∩ plane₂) ∩ cylinder` — two DISTINCT planes cutting ONE cylinder
+/// (the Steinmetz / box-edge crossing). Its dual — ONE plane cutting two
+/// DIFFERENT cylinders, the point where a cylinder×cylinder crease of one
+/// operand pierces a planar face of the other — has no plane-pair line
+/// (`|n₁ × n₂| < MIN_FEATURE_SIZE`, the `stage4_correct.rs` STOP 14 of 32
+/// seed-3 ERROR rows raised at) and IS the `{plane, cyl_A, cyl_B}` corner the
+/// triple block solves. Plane identity is orientation-free (`(−n, −d)` is the
+/// same plane): parallel normals AND the second record's centre on the first
+/// record's plane, both against `MIN_FEATURE_SIZE` — the same identity band
+/// as [`circles_coplanar`]. (Same plane AND same cylinder is the same ellipse,
+/// which `insert_ellipse_or_junction` never demotes, so a coplanar pair in
+/// the junction map always carries two different cylinders.)
+pub(crate) fn ellipse_pair_coplanar(a: &EllipseReloc, b: &EllipseReloc) -> bool {
+    let na = normalize3(a.plane_n.as_array());
+    let nb = normalize3(b.plane_n.as_array());
+    let cross = [
+        na[1] * nb[2] - na[2] * nb[1],
+        na[2] * nb[0] - na[0] * nb[2],
+        na[0] * nb[1] - na[1] * nb[0],
+    ];
+    let cross_mag = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+    // `a`'s plane offset expressed for ITS unit normal.
+    let la = {
+        let r = a.plane_n.as_array();
+        (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+    };
+    let cb = b.center.as_array();
+    let off_plane = (na[0] * cb[0] + na[1] * cb[1] + na[2] * cb[2] + a.plane_d / la).abs();
+    !(cross_mag > cad_primitives::MIN_FEATURE_SIZE || off_plane > cad_primitives::MIN_FEATURE_SIZE)
+}
+
 /// M8 disc∩disc CROSSING: the exact intersection of two COPLANAR circles
 /// `(c_a, n_a, r_a)` and `(c_b, n_b, r_b)`, picking the root nearest `near`.
 /// Two coplanar circles meet in ≤ 2 points (the lens corners); closed-form 2D

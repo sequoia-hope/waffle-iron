@@ -43,6 +43,46 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-08 — P0025 CONVERTED: the coplanar ellipse-pair corner; all 14 seed-3 rows at `stage4_correct.rs:12318` move
+
+**Diagnosis (probes `YANG_V_PROBE=3`, `YANG_LRR_PROBE`, `[triple-gate]`).**
+P0025's STOP named "two cutting planes PARALLEL" — true, and misleading: the
+two planes were the SAME plane (bit-identical `plane_n`, `plane_d`), and the
+two ellipses were sections of two DIFFERENT cylinders (A: axis ŷ r 30; B:
+oblique axis r 60) by the triangle prism's lateral face. The vertex is the
+point where the cylinder×cylinder CREASE of the previous union (two bosses)
+pierces the other operand's planar face — `{cyl_A, cyl_B, plane}`, exactly
+three surfaces, the plain triple corner the Stage-4 triple block resolves
+(R0035 v194/195's shape). It never reached that block: `insert_ellipse_or_
+junction` demoted it into `vert_ell_junction` (two different ellipse
+records), the KV9 ellipse×ellipse closed form `(plane₁ ∩ plane₂) ∩ cylinder`
+is for two DISTINCT planes of ONE cylinder, and the junction map counted
+ZERO toward the block's `n_maps` — the sixth such exclusion (spec
+`yang_stage4_conic_triple_junction.md`, top blockquote).
+
+**Fix.** The block scans `vert_ell_junction` and admits a COPLANAR pair
+(`stage4_relocate::ellipse_pair_coplanar`, orientation-free, the
+`circles_coplanar` identity band with the eligibility inverted); the
+non-coplanar pair keeps the KV9 closed form byte-identically; a resolved
+vertex leaves the junction map. Knob `YANG_ELL_PAIR_CORNER=0|off` = pre-flip.
+v3 moves ρ 7.3033e-2 against the slab gate 6.0690e1.
+
+**Measured.** P0025 ⇒ SUPPORTED_CORRECT (1.4 s). The un-minimized index 126
+and all 13 sibling seed-3 lineages at this site replayed
+(`user_case_probe replay_waffle_env`):
+
+| seed-3 index | after the fix |
+|---|---|
+| 126 (P0025's lineage), 0, 56, 66, 86, 87, 100, 103, 112, 153 | build to completion, every render oracle green (112: 200 s) |
+| 3, 36 | advance to an auto-union `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"` (face 871 / 152) — P0036's text, a later wall |
+| 156 | advance to a subtract `ring rejected by CDT` (face 44) — same text |
+| 159 | advance to the M8 `coplanar input face pair` NotSupported wall |
+
+Pins: `yang-rs tests_unit/s4_ellipse_pair_corner.rs`, kernel-v2
+`tests/s4_ellipse_pair_corner_chain.rs` (mutation-checked RED/GREEN), smoke
+pin `P0025 → SupportedCorrect`. Corpus: see the roadmap refresh blockquote
+of the same date.
+
 ## 2026-10-03 (late night) — prospector seed 3 (200 candidates) adjudicated: the 32 ERROR rows are **twelve** families at **fifteen distinct STOP sites**; all **three** `wrong[exact_volume]` rows are ORACLE defects (one of them NEW); promoted P0025–P0039; **corpus not re-measured this session**
 
 `PROSPECT_SEED=3 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`
@@ -153,7 +193,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 
 | case | source | ops | error text | SITE (the thing that distinguishes it) | single_case |
 |---|---|---|---|---|---|
-| **P0025** | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ERROR 4.5 s |
+| ~~**P0025**~~ | #126, min 5→4 `convex4:boss circle:boss circle:boss convex3:∩` | 4 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:12318` — the PR-KV9 ellipse×ellipse junction relocation, whose two cutting planes are PARALLEL, so `|n₁ × n₂| < MIN_FEATURE_SIZE` and the plane-pair line is underivable. **14 of the 32 ERROR rows raise here** | ~~ERROR 4.5 s~~ **CONVERTED 2026-10-08** → SUPPORTED_CORRECT 1.4 s (coplanar ellipse-pair admission to the triple block; see the 2026-10-08 section) |
 | **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s |
 | **P0027** | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ERROR 5.2 s |
 | **P0028** | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ERROR 0.2 s |

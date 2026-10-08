@@ -11003,6 +11003,7 @@ fn stage4_relocate_and_correct_inner(
             .chain(vert_line.keys())
             .chain(vert_surface_pair.keys())
             .chain(vert_circle_junction.keys())
+            .chain(vert_ell_junction.keys())
             .chain(torus_edge_verts.iter())
         {
             cand.insert(*v);
@@ -11107,9 +11108,36 @@ fn stage4_relocate_and_correct_inner(
             // Monotone: every vertex this admits was relocated WRONG before
             // (single-curve arm), never STOPped.
             let pp_conic_corner = vert_pp_planes.contains_key(&v) && n_maps >= 1;
+            // P0025 (2026-10-08, spec `yang_stage4_conic_triple_junction`,
+            // "Junction-map candidates — the coplanar ellipse pair"): the
+            // ellipse analog of the C0067 circle-pair corner, with the
+            // eligibility inverted. `insert_ellipse_or_junction` demotes a
+            // vertex carrying two DIFFERENT ellipses into `vert_ell_junction`,
+            // whose PR-KV9 closed form is `(plane₁ ∩ plane₂) ∩ cylinder` —
+            // two planes, ONE cylinder. A pair in the SAME plane on two
+            // DIFFERENT cylinders (the cylinder×cylinder crease of a previous
+            // boolean — two bosses — pierced by the other operand's planar
+            // face) has no plane-pair line: the junction arm STOPped
+            // `LocalRefinementRequired` at `|n₁ × n₂| < MIN_FEATURE_SIZE`
+            // (P0025 v3, 14 of 32 seed-3 ERROR rows), although with exactly
+            // three incident surfaces it is the plain {plane, cyl_A, cyl_B}
+            // corner this block already solves (R0035 v194/195's shape). The
+            // sixth junction map found counting ZERO toward `n_maps`. The
+            // NON-coplanar pair keeps its closed form byte-identically.
+            // Monotone: the coplanar pair STOPped unconditionally, so only a
+            // STOP can change.
+            // Household knob (dev A/B only): `YANG_ELL_PAIR_CORNER=0|off`
+            // restores the pre-flip path byte-identically.
+            let ell_pair_corner = !matches!(
+                std::env::var("YANG_ELL_PAIR_CORNER").as_deref(),
+                Ok("0") | Ok("off")
+            ) && vert_ell_junction
+                .get(&v)
+                .is_some_and(|(ea, eb)| crate::stage4_relocate::ellipse_pair_coplanar(ea, eb));
             if n_maps < 2
                 && !same_type_junction.contains(&v)
                 && !circle_pair_corner
+                && !ell_pair_corner
                 && !torus_conic_mix
                 && !pp_conic_corner
             {
@@ -11806,6 +11834,10 @@ fn stage4_relocate_and_correct_inner(
             // not reach the M8 disc∩disc arm (whose closed form would STOP
             // on the non-coplanarity) nor its no-skip audit.
             vert_circle_junction.remove(&v);
+            // P0025: a coplanar ellipse∩ellipse corner resolved here must not
+            // reach the PR-KV9 junction arm (whose plane-pair line is
+            // underivable for it — the very STOP this admission converts).
+            vert_ell_junction.remove(&v);
             endpoints.retain(|&u| u != v);
             triple_resolved.insert(v);
             if rho > cad_primitives::TAU_WORK {

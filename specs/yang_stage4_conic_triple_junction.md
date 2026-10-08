@@ -1,5 +1,62 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **Junction-map candidates — the coplanar ellipse pair (2026-10-08,
+> P0025).** `insert_ellipse_or_junction` demotes a vertex carrying two
+> DIFFERENT ellipse records out of `vert_ellipse` into `vert_ell_junction`,
+> whose PR-KV9 closed form is `(plane₁ ∩ plane₂) ∩ cylinder` — two DISTINCT
+> cutting planes of ONE cylinder (the box-edge crossing of two cylinder∩plane
+> sections, or the Steinmetz cyl×cyl crossing). The dual configuration — ONE
+> plane cutting two DIFFERENT cylinders — also arrives as two different
+> ellipse records (the `same` test compares plane AND centre, and the two
+> ellipses' centres differ), but has no plane-pair line: the junction arm
+> STOPped `LocalRefinementRequired` at `|n₁ × n₂| < MIN_FEATURE_SIZE`
+> (`stage4_correct.rs:12318`), the site **14 of the 32 seed-3 ERROR rows**
+> raised at. Measured on P0025 (prospector seed 3 index 126, minimized to
+> square boss, circle boss, circle boss, triangle intersect; `YANG_V_PROBE=3`,
+> `YANG_LRR_PROBE`, 2026-10-08; scale 200): in the intersect, Stage-4 v3 =
+> (−39.283, 35.584, 26.366) is the endpoint of two `Curve::Ellipse` edges —
+> cylinder A (axis ŷ, r 30) ∩ the prism's lateral plane n = (0.5269, −0.0456,
+> −0.8487), and cylinder B (oblique axis, r 60) ∩ the SAME plane (bit-identical
+> `plane_n`, `plane_d`) — with `ell_junction=true` and every other flag false;
+> its incident surfaces dedup to exactly three {cyl_A, cyl_B, plane}: the
+> cylinder×cylinder CREASE of the previous union (two bosses) pierced by the
+> other operand's planar face, the R0035 v194/195 shape ({cyl_A, cyl_B,
+> plane_B}) this block already solves. The sixth junction map found counting
+> ZERO toward `n_maps` (after KV16 same-type, R0044 pair, M5 K11 line×circle,
+> C0067 circle-pair and R0070/P0004 plane-pair). Wired: the candidate chain
+> adds `vert_ell_junction.keys()`; the `n_maps < 2` skip is bypassed when the
+> pair IS coplanar (`stage4_relocate::ellipse_pair_coplanar` — parallel
+> normals AND the second record's centre on the first record's plane, both
+> against `MIN_FEATURE_SIZE`, orientation-free so `(−n, −d)` is the same
+> plane; the same identity band as `circles_coplanar`, eligibility inverted:
+> the circle arm's closed form serves the COPLANAR pair and declines the
+> other, the ellipse arm's serves the NON-coplanar pair and declines this);
+> the bookkeeping tail removes the vertex from `vert_ell_junction` so the
+> KV9 arm never sees it. The non-coplanar pair is untouched (its closed form
+> stays the owner; byte-identical), as is every ≠ 3-surface junction (a
+> coplanar pair the block bails on stays in the junction map and STOPs there,
+> loud as before). Household knob `YANG_ELL_PAIR_CORNER=0|off` = the
+> pre-flip path (dev A/B). Monotone by construction: the coplanar pair
+> STOPped unconditionally, so only a STOP can change. Result: v3 relocates
+> with ρ 7.3033e-2 against the three-slab gate 6.0690e1 (d_ε 3.4604, sin θ
+> 0.11403, `metric=slab`), P0025 ⇒ SUPPORTED_CORRECT (1.4 s release); the
+> un-minimized seed-3 index 126 and **all 13 sibling lineages** at this site
+> (indices 0, 3, 36, 56, 66, 86, 87, 100, 103, 112, 153, 156, 159) replay
+> past it — 9 build clean with every oracle green (112 in 200 s), 3 and 36
+> advance to an auto-union `ring rejected by CDT` wall (P0036's text), 156 to
+> the same text on a subtract, 159 to the M8 `coplanar input face pair`
+> NotSupported wall — later, different signatures, each recorded in the
+> triage ledger. Pins: `tests_unit/s4_ellipse_pair_corner.rs` (the P0025
+> pair is coplanar and on two cylinders; the predicate is orientation-free;
+> a box-edge pair and a parallel-OFFSET pair are declined; the Newton lands
+> v3 on all three surfaces within the slab corridor), kernel-v2
+> `tests/s4_ellipse_pair_corner_chain.rs` (two bosses of different radii on
+> non-parallel axes unioned, then intersected with a slab oblique to both
+> axes: RED at `LocalRefinementRequired` v29 with the knob off —
+> mutation-checked — GREEN with it, every crease corner on a slab face an
+> exact output vertex on all three surfaces) and the `assay_kv2` smoke pin
+> `P0025 → SupportedCorrect`.
+
 > **Junction-map candidates — the conic × plane-pair corner (2026-09-28,
 > P0004).** The R0070 amendment below admitted a `vert_line` endpoint that
 > also terminates an exact plane∩plane segment (`vert_pp_planes`); the SAME

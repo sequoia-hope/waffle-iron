@@ -1809,7 +1809,17 @@ fn smoke_corpus_boundary_categories() {
         // derived from does not exist. **14 of the 32 ERROR rows raise at this
         // one line** (three report signatures — subtract, union, intersect —
         // measured row by row), so this is the seed's largest single site.
-        ("P0025", Category::Error),
+        //
+        // CONVERTED 2026-10-08 (spec `yang_stage4_conic_triple_junction`,
+        // "Junction-map candidates — the coplanar ellipse pair"): the two
+        // ellipses were in the SAME plane on two DIFFERENT cylinders — the
+        // crease of the two bosses pierced by the prism's face, the plain
+        // {plane, cyl_A, cyl_B} corner — and the triple block now admits a
+        // coplanar pair from `vert_ell_junction` (the sixth junction map
+        // counting zero toward `n_maps`). 12 of the 13 sibling seed-3
+        // lineages replayed past the site (8 clean; 3/36/156 advance to a
+        // `ring rejected by CDT` wall, 159 to the M8 coplanar wall).
+        ("P0025", Category::SupportedCorrect),
         // P0026 / P0027 are the SAME document family at two DIFFERENT sites,
         // which is why both are here. Index 54's un-minimized lineage STOPs at
         // `stage4_correct.rs:10805` (`line_line_junction` — a vertex claimed by

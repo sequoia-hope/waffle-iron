@@ -112,12 +112,18 @@ Do NOT skip to lower-priority items because they are easier.
    LINE — spec `yang_stage4_conic_triple_junction.md` top blockquote; its
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
-   re-minimize). **P0005–P0007 are the open P-series ERROR tail** —
-   P0005 auto-union non-2-manifold (a cone × plane Stage-4 membrane),
-   P0006 a Stage-1 chart polygon that crosses itself after a gear union,
-   P0007 `SelfIntersectingBooleanOutput` — each its own kernel session
-   (anchor against the un-minimized lineage in `target/prospect/seed-1/`
-   first: the minimizer's rounding can mint a contact that keeps a
+   re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
+   2026-10-03). **The open P-series ERROR tail is P0026–P0039 (seed 3,
+   `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
+   site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
+   ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
+   `vert_ell_junction` was the sixth junction map counting zero toward the
+   triple block's `n_maps` — spec `yang_stage4_conic_triple_junction.md`
+   top blockquote). Next: P0026/P0027 (`surface_pair_endpoint_mix`,
+   `line_line_junction`), then P0028–P0039 — each its own kernel session
+   (anchor against the un-minimized lineage in `target/prospect/seed-3/
+   candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
+   the minimizer's rounding can mint a contact that keeps a
    signature); then run `prospect_run` / `prospect_minimize` for more
    (`docs/TESTING.md` §"Running the assay prospector"). The boundary-point
    certificate's INVENTORY (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the
