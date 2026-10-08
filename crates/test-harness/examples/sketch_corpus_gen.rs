@@ -750,7 +750,6 @@ fn main() {
     }
 
     let mut written = 0usize;
-    let mut manifest_entries: Vec<serde_json::Value> = Vec::new();
 
     for spec in corpus() {
         let sketch = sketch_on_xy(spec.entities.clone(), spec.constraints.clone());
@@ -860,16 +859,6 @@ fn main() {
             generator_version: GENERATOR_VERSION,
         };
 
-        manifest_entries.push(serde_json::json!({
-            "id": spec.id,
-            "name": spec.id,
-            "filename": format!("sketch/{}.waffle", spec.id),
-            "description": spec.description,
-            "expectedOutcome": "should_pass",
-            "tags": meta.exercises,
-            "created": "2026-10-08T00:00:00.000Z",
-        }));
-
         if check_only {
             println!("{}: OK (not written) — {}", spec.id, spec.description);
         } else {
@@ -885,27 +874,21 @@ fn main() {
         written += 1;
     }
 
-    // The dev API's generic case manifest (`app/tests/cases/manifest.json`),
-    // which was an empty slot: entries name `sketch/<ID>.waffle`, so
-    // `GET /api/test-cases/<ID>` serves a case into the page with no change to
-    // `testCaseApi.js`.
-    if !check_only {
-        let manifest = root.join("app/tests/cases/manifest.json");
-        std::fs::write(
-            &manifest,
-            serde_json::to_string_pretty(&serde_json::json!({ "cases": manifest_entries }))
-                .expect("manifest serializes")
-                + "\n",
-        )
-        .expect("write the case manifest");
-        println!(
-            "\nwrote {} and {} cases to {}",
-            manifest.display(),
-            written,
-            dir.display()
-        );
-    } else {
+    // No manifest: the dev API's `/api/sketch-cases` derives its listing from
+    // what is on disk.
+    //
+    // §10.4 said to use "the empty second manifest slot"
+    // (`app/tests/cases/manifest.json`), and the first version of this
+    // generator did. That slot belongs to a CRUD endpoint the Tests browser
+    // panel owns, and `app/tests/gui/test-case-browser.spec.js` exercises its
+    // DELETE: running the GUI suite unlinked all thirteen committed `.waffle`
+    // files and emptied the manifest. A committed fixture cannot live behind a
+    // mutable endpoint that a test clears, so the corpus got a read-only
+    // endpoint of its own beside `/api/assay-cases`.
+    if check_only {
         println!("\n{written} cases check out against the solver");
+    } else {
+        println!("\nwrote {written} cases to {}", dir.display());
     }
 }
 

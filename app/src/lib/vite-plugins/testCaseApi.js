@@ -9,6 +9,7 @@ export default function testCaseApiPlugin() {
 			const CASES_DIR = path.resolve(server.config.root, 'tests/cases');
 			const MANIFEST_PATH = path.join(CASES_DIR, 'manifest.json');
 			const ASSAY_DIR = path.resolve(server.config.root, 'tests/cases/assay');
+			const SKETCH_DIR = path.resolve(server.config.root, 'tests/cases/sketch');
 
 			// Ensure directory + manifest exist
 			if (!fs.existsSync(CASES_DIR)) {
@@ -293,6 +294,85 @@ export default function testCaseApiPlugin() {
 
 					res.statusCode = 405;
 					res.end(JSON.stringify({ error: 'Method not allowed' }));
+				} catch (err) {
+					res.statusCode = 500;
+					res.end(JSON.stringify({ error: err.message }));
+				}
+			});
+
+			// Sketch cases (S4 of `specs/agent_mechanical_design.md` §10.4):
+			// READ-ONLY, like the assay cases beside them and deliberately NOT
+			// the generic `/api/test-cases` slot the spec originally named.
+			//
+			// That slot is a CRUD API the Tests browser panel owns, and
+			// `app/tests/gui/test-case-browser.spec.js` exercises its DELETE —
+			// which wiped all thirteen committed `.waffle` files and emptied
+			// the manifest the first time the corpus was served from there
+			// (measured 2026-10-08). A committed fixture cannot live behind a
+			// mutable endpoint a test clears as part of its own setup.
+			server.middlewares.use('/api/sketch-cases', async (req, res) => {
+				res.setHeader('Content-Type', 'application/json');
+				try {
+					if (req.method !== 'GET') {
+						res.statusCode = 405;
+						res.end(JSON.stringify({ error: 'The sketch corpus is read-only' }));
+						return;
+					}
+					const url = new URL(req.url, 'http://localhost');
+					const parts = url.pathname.split('/').filter(Boolean);
+					const id = parts[0] || null;
+					const subResource = parts[1] || null;
+
+					// The listing is derived from what is on disk, so the
+					// corpus generator does not have to write a manifest too.
+					if (!id) {
+						if (!fs.existsSync(SKETCH_DIR)) {
+							res.end(JSON.stringify({ count: 0, cases: [] }));
+							return;
+						}
+						const cases = fs
+							.readdirSync(SKETCH_DIR)
+							.filter((f) => f.endsWith('.meta.json'))
+							.map((f) => f.replace(/\.meta\.json$/, ''))
+							.sort()
+							.map((caseId) => {
+								const meta = JSON.parse(
+									fs.readFileSync(path.join(SKETCH_DIR, `${caseId}.meta.json`), 'utf-8')
+								);
+								return {
+									id: caseId,
+									description: meta.description,
+									exercises: meta.exercises ?? [],
+									status: meta.expectations?.status,
+									dof: meta.expectations?.dof
+								};
+							});
+						res.end(JSON.stringify({ count: cases.length, cases }));
+						return;
+					}
+
+					// A case id must be a bare S-number: no path separators, so
+					// no traversal out of the corpus directory.
+					if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+						res.statusCode = 400;
+						res.end(JSON.stringify({ error: 'Bad case id' }));
+						return;
+					}
+					const file =
+						subResource === 'meta'
+							? path.join(SKETCH_DIR, `${id}.meta.json`)
+							: path.join(SKETCH_DIR, `${id}.waffle`);
+					if (subResource && subResource !== 'meta') {
+						res.statusCode = 404;
+						res.end(JSON.stringify({ error: 'Not found' }));
+						return;
+					}
+					if (!fs.existsSync(file)) {
+						res.statusCode = 404;
+						res.end(JSON.stringify({ error: 'Case not found' }));
+						return;
+					}
+					res.end(fs.readFileSync(file, 'utf-8'));
 				} catch (err) {
 					res.statusCode = 500;
 					res.end(JSON.stringify({ error: err.message }));

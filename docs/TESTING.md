@@ -549,6 +549,16 @@ byte-reproducible (the generator normalizes the document id, the tab id, the
 timestamps and the `HashMap` key order `save_project` would otherwise vary), so
 regenerating churns nothing.
 
+The dev server serves the corpus at **`/api/sketch-cases`** (GET-only; `/<ID>`
+for the document, `/<ID>/meta` for the expectations), beside `/api/assay-cases`.
+Not the generic `/api/test-cases` slot §10.4 originally named: that is the CRUD
+endpoint the Tests browser panel owns, and `test-case-browser.spec.js`
+exercises its DELETE — one GUI run unlinked all thirteen committed `.waffle`
+files and emptied the manifest (measured 2026-10-08, recovered from git). A
+committed fixture cannot live behind a mutable endpoint a test clears.
+`app/tests/gui/sketch-corpus-api.spec.js` pins the read-only contract and that
+the corpus is NOT listed in the mutable slot.
+
 Three things about the numbers, each of which cost a measurement to learn:
 
 - **A region's `area_m2` is measured on the slicer's grid.** `compute_regions`

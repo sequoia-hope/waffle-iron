@@ -3016,10 +3016,21 @@ Landed 2026-10-08, except the prospector. Recipe and the three numeric traps:
 `docs/TESTING.md` §"Running the sketch corpus (S4)".
 
 `app/tests/cases/sketch/S0001`–`S0013`: one real `.waffle` per case holding one
-`Sketch`, plus a `.meta.json` carrying `SketchOracleExpectations`. Entries in
-`app/tests/cases/manifest.json` — §10.4's "empty second manifest slot", which
-really was empty (`{"cases": []}`) — name them `sketch/<ID>.waffle`, so the dev
-API serves a case into the page with no change to `testCaseApi.js`.
+`Sketch`, plus a `.meta.json` carrying `SketchOracleExpectations`.
+
+**Second deviation from §10.4: NOT the "empty second manifest slot".** The
+first version did exactly what §10.4 says — listed the cases in
+`app/tests/cases/manifest.json`, which really was empty (`{"cases": []}`) — and
+that put thirteen committed fixtures behind `/api/test-cases`, the CRUD
+endpoint the Tests browser panel owns. `test-case-browser.spec.js` exercises
+its DELETE as part of its own coverage, so one GUI run unlinked every `.waffle`
+and emptied the manifest. Recovered from git, and the corpus now has a
+read-only `/api/sketch-cases` of its own beside `/api/assay-cases`, with the
+listing derived from what is on disk so there is no manifest to go stale. A
+committed fixture cannot live behind a mutable endpoint that a test clears, and
+the slot being EMPTY was the clue that something else owned it.
+`app/tests/gui/sketch-corpus-api.spec.js` pins the read-only contract, the
+path-traversal refusal, and that the corpus stays out of the mutable slot.
 
 `crates/test-harness/tests/sketch_corpus.rs` replays each case through the
 three tiers §10.4 asks for — `solve_sketch`, the S3 agent door
