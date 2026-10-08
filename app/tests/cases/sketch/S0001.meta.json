@@ -1,0 +1,53 @@
+{
+  "id": "S0001",
+  "description": "A free 60 x 40 mm rectangle: four points, four lines, no constraints.",
+  "exercises": [
+    "Point",
+    "Line",
+    "under-constrained"
+  ],
+  "expectations": {
+    "status": "UnderConstrained",
+    "dof": 8,
+    "params": 8,
+    "rows": 0,
+    "rank": 0,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "extrudable": true,
+        "area": 0.0024
+      }
+    ],
+    "positions": {
+      "1": [
+        0.0,
+        0.0
+      ],
+      "2": [
+        0.06,
+        0.0
+      ],
+      "3": [
+        0.06,
+        0.04
+      ],
+      "4": [
+        0.0,
+        0.04
+      ]
+    },
+    "positions_tol": 1e-12,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 1e-7
+  },
+  "generator_version": 1
+}

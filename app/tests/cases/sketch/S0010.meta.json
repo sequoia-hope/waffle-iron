@@ -1,0 +1,48 @@
+{
+  "id": "S0010",
+  "description": "A 60 x 40 mm plate with a centred 16 mm hole: two regions.",
+  "exercises": [
+    "Circle",
+    "Line",
+    "two-regions",
+    "curved",
+    "profile"
+  ],
+  "expectations": {
+    "status": "UnderConstrained",
+    "dof": 11,
+    "params": 11,
+    "rows": 0,
+    "rank": 0,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8,
+          10
+        ],
+        "extrudable": false,
+        "area": 0.002198938070170253
+      },
+      {
+        "entity_ids": [
+          10
+        ],
+        "extrudable": true,
+        "area": 0.00020106192982974677
+      }
+    ],
+    "positions": {},
+    "positions_tol": 1e-12,
+    "radii": {
+      "10": 0.008
+    },
+    "radii_tol": 1e-12,
+    "area_rel_tol": 0.0026094664942961643
+  },
+  "generator_version": 1
+}

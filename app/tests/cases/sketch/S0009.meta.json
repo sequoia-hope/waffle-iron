@@ -1,0 +1,38 @@
+{
+  "id": "S0009",
+  "description": "A point 7 mm above a pinned line, dimensioned to the 7 mm it already measures.",
+  "exercises": [
+    "PointLineDistance",
+    "Pinned",
+    "under-constrained"
+  ],
+  "expectations": {
+    "status": "UnderConstrained",
+    "dof": 1,
+    "params": 6,
+    "rows": 5,
+    "rank": 5,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [],
+    "positions": {
+      "1": [
+        0.0,
+        0.0
+      ],
+      "2": [
+        0.01,
+        0.0
+      ],
+      "3": [
+        0.005,
+        0.007
+      ]
+    },
+    "positions_tol": 1e-12,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 1e-7
+  },
+  "generator_version": 1
+}

@@ -1,0 +1,134 @@
+{
+  "active_tab": "503384d0-55a8-2445-bd66-fd732936d7c9",
+  "document": {
+    "created": "2026-10-08T00:00:00.000Z",
+    "id": "17ce9d8a-b8b3-2287-0ff3-17add965fbb2",
+    "modified": "2026-10-08T00:00:00.000Z",
+    "name": "S0006"
+  },
+  "format": "waffle-iron",
+  "min_reader_version": 15,
+  "sources": [],
+  "tabs": [
+    {
+      "id": "503384d0-55a8-2445-bd66-fd732936d7c9",
+      "kind": {
+        "features": {
+          "active_index": null,
+          "features": [
+            {
+              "id": "bcacca81-3d0b-bb10-f73c-0e62f8fc2616",
+              "name": "Sketch",
+              "operation": {
+                "sketch": {
+                  "constraints": [
+                    {
+                      "point": 1,
+                      "type": "Pinned",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "point": 2,
+                      "type": "Pinned",
+                      "x": 0.06,
+                      "y": 0.0
+                    },
+                    {
+                      "entity_a": 1,
+                      "entity_b": 2,
+                      "type": "Distance",
+                      "value": 0.08
+                    }
+                  ],
+                  "entities": [
+                    {
+                      "construction": false,
+                      "id": 1,
+                      "type": "Point",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "construction": false,
+                      "id": 2,
+                      "type": "Point",
+                      "x": 0.06,
+                      "y": 0.0
+                    },
+                    {
+                      "construction": false,
+                      "end_id": 2,
+                      "id": 5,
+                      "start_id": 1,
+                      "type": "Line"
+                    }
+                  ],
+                  "id": "8a949e9e-2ff3-bbeb-6299-8dc59a7914e8",
+                  "plane": {
+                    "anchor": {
+                      "datum_id": "00000000-0000-0000-0000-000000000000",
+                      "type": "Datum"
+                    },
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "policy": {
+                      "type": "BestEffort"
+                    },
+                    "selector": {
+                      "index": 0,
+                      "role": {
+                        "type": "ProfileFace"
+                      },
+                      "type": "Role"
+                    }
+                  },
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_x_axis": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "solve_status": {
+                    "conflicts": [
+                      2,
+                      0,
+                      1
+                    ],
+                    "type": "OverConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.0,
+                      0.0
+                    ],
+                    "2": [
+                      0.06,
+                      0.0
+                    ]
+                  }
+                },
+                "type": "Sketch"
+              },
+              "references": [],
+              "suppressed": false
+            }
+          ]
+        },
+        "type": "Part"
+      },
+      "name": "Part 1"
+    }
+  ],
+  "version": 15
+}

@@ -1,0 +1,38 @@
+{
+  "id": "S0005",
+  "description": "S0003 plus a duplicate Horizontal: satisfied, over-determined, not in conflict.",
+  "exercises": [
+    "Horizontal",
+    "redundant",
+    "fully-constrained"
+  ],
+  "expectations": {
+    "status": "FullyConstrained",
+    "dof": 0,
+    "params": 8,
+    "rows": 9,
+    "rank": 8,
+    "conflicts": [],
+    "redundant": [
+      7
+    ],
+    "regions": [
+      {
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "extrudable": true,
+        "area": 0.0024
+      }
+    ],
+    "positions": {},
+    "positions_tol": 1e-12,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 1e-7
+  },
+  "generator_version": 1
+}

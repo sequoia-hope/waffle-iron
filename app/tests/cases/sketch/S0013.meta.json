@@ -1,0 +1,46 @@
+{
+  "id": "S0013",
+  "description": "S0003 at 1000x scale (60 x 40 m): structure is scale-free.",
+  "exercises": [
+    "scale",
+    "fully-constrained",
+    "HDistance",
+    "VDistance"
+  ],
+  "expectations": {
+    "status": "FullyConstrained",
+    "dof": 0,
+    "params": 8,
+    "rows": 8,
+    "rank": 8,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "extrudable": true,
+        "area": 2400.0
+      }
+    ],
+    "positions": {
+      "1": [
+        0.0,
+        0.0
+      ],
+      "3": [
+        60.0,
+        40.0
+      ]
+    },
+    "positions_tol": 1.0000000000000002e-6,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 1e-7
+  },
+  "generator_version": 1
+}

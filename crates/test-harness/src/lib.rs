@@ -14,6 +14,9 @@
 //! - [`sketch_rank`] — Independent structural oracle for the sketch constraint
 //!   solver (S4): a second computation of `params`, `rows`, `rank`, `dof` and
 //!   the null space, by finite differences and an SVD
+//! - [`sketch_corpus`] — The sketch corpus (S4): authored answers for
+//!   `app/tests/cases/sketch/`, replayed through the solver, the agent door and
+//!   the oracle by `tests/sketch_corpus.rs`
 
 pub mod assay;
 pub mod assertions;
@@ -22,6 +25,7 @@ pub mod helpers;
 pub mod kv2_adapter;
 pub mod oracle;
 pub mod report;
+pub mod sketch_corpus;
 pub mod sketch_rank;
 pub mod stl;
 pub mod workflow;

@@ -1,0 +1,36 @@
+{
+  "id": "S0007",
+  "description": "A railed rectangle behind a leading REFERENCE dimension: the index space.",
+  "exercises": [
+    "Distance",
+    "reference-dimension",
+    "index-space"
+  ],
+  "expectations": {
+    "status": "UnderConstrained",
+    "dof": 4,
+    "params": 8,
+    "rows": 4,
+    "rank": 4,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          5,
+          6,
+          7,
+          8
+        ],
+        "extrudable": true,
+        "area": 0.0024
+      }
+    ],
+    "positions": {},
+    "positions_tol": 1e-12,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 1e-7
+  },
+  "generator_version": 1
+}

@@ -1,0 +1,124 @@
+{
+  "active_tab": "7ae97811-9713-99d1-47a3-ecbfc69519da",
+  "document": {
+    "created": "2026-10-08T00:00:00.000Z",
+    "id": "473f8d7b-c474-b091-9b39-f71e770630ef",
+    "modified": "2026-10-08T00:00:00.000Z",
+    "name": "S0004"
+  },
+  "format": "waffle-iron",
+  "min_reader_version": 15,
+  "sources": [],
+  "tabs": [
+    {
+      "id": "7ae97811-9713-99d1-47a3-ecbfc69519da",
+      "kind": {
+        "features": {
+          "active_index": null,
+          "features": [
+            {
+              "id": "38ac2d2b-9645-c376-f149-ad1d128f7989",
+              "name": "Sketch",
+              "operation": {
+                "sketch": {
+                  "constraints": [
+                    {
+                      "point": 1,
+                      "type": "Pinned",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "entity": 2,
+                      "type": "Radius",
+                      "value": 0.01
+                    }
+                  ],
+                  "entities": [
+                    {
+                      "construction": false,
+                      "id": 1,
+                      "type": "Point",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "center_id": 1,
+                      "construction": false,
+                      "id": 2,
+                      "radius": 0.01,
+                      "type": "Circle"
+                    }
+                  ],
+                  "id": "ec28e93a-d523-826b-ea63-1757a014a692",
+                  "plane": {
+                    "anchor": {
+                      "datum_id": "00000000-0000-0000-0000-000000000000",
+                      "type": "Datum"
+                    },
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "policy": {
+                      "type": "BestEffort"
+                    },
+                    "selector": {
+                      "index": 0,
+                      "role": {
+                        "type": "ProfileFace"
+                      },
+                      "type": "Role"
+                    }
+                  },
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_x_axis": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "circle": {
+                        "center_u": 0.0,
+                        "center_v": 0.0,
+                        "radius": 0.01
+                      },
+                      "entity_ids": [
+                        2
+                      ],
+                      "is_outer": true
+                    }
+                  ]
+                },
+                "type": "Sketch"
+              },
+              "references": [],
+              "suppressed": false
+            }
+          ]
+        },
+        "type": "Part"
+      },
+      "name": "Part 1"
+    }
+  ],
+  "version": 15
+}

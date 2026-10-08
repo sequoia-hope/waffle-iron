@@ -1,3 +1,185 @@
 {
-  "cases": []
+  "cases": [
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A free 60 x 40 mm rectangle: four points, four lines, no constraints.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0001.waffle",
+      "id": "S0001",
+      "name": "S0001",
+      "tags": [
+        "Point",
+        "Line",
+        "under-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A railed rectangle: H/V on all four sides, nothing pinned or dimensioned.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0002.waffle",
+      "id": "S0002",
+      "name": "S0002",
+      "tags": [
+        "Horizontal",
+        "Vertical",
+        "under-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A fully constrained 60 x 40 mm plate: rails, a pinned corner, two dimensions.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0003.waffle",
+      "id": "S0003",
+      "name": "S0003",
+      "tags": [
+        "Horizontal",
+        "Vertical",
+        "Pinned",
+        "HDistance",
+        "VDistance",
+        "fully-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A pinned 10 mm circle with a radius dimension: the radius parameter.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0004.waffle",
+      "id": "S0004",
+      "name": "S0004",
+      "tags": [
+        "Circle",
+        "Radius",
+        "Pinned",
+        "fully-constrained",
+        "curved"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "S0003 plus a duplicate Horizontal: satisfied, over-determined, not in conflict.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0005.waffle",
+      "id": "S0005",
+      "name": "S0005",
+      "tags": [
+        "Horizontal",
+        "redundant",
+        "fully-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A 60 mm line with both ends pinned and an 80 mm length dimension.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0006.waffle",
+      "id": "S0006",
+      "name": "S0006",
+      "tags": [
+        "Pinned",
+        "Distance",
+        "over-constrained",
+        "conflicts"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A railed rectangle behind a leading REFERENCE dimension: the index space.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0007.waffle",
+      "id": "S0007",
+      "name": "S0007",
+      "tags": [
+        "Distance",
+        "reference-dimension",
+        "index-space"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A 60 x 40 mm plate with one 4 mm rounded corner: an arc in the profile.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0008.waffle",
+      "id": "S0008",
+      "name": "S0008",
+      "tags": [
+        "Arc",
+        "curved",
+        "under-constrained",
+        "profile"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A point 7 mm above a pinned line, dimensioned to the 7 mm it already measures.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0009.waffle",
+      "id": "S0009",
+      "name": "S0009",
+      "tags": [
+        "PointLineDistance",
+        "Pinned",
+        "under-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "A 60 x 40 mm plate with a centred 16 mm hole: two regions.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0010.waffle",
+      "id": "S0010",
+      "name": "S0010",
+      "tags": [
+        "Circle",
+        "Line",
+        "two-regions",
+        "curved",
+        "profile"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "Two points held symmetric about a pinned vertical construction line.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0011.waffle",
+      "id": "S0011",
+      "name": "S0011",
+      "tags": [
+        "Symmetric",
+        "construction",
+        "Pinned",
+        "under-constrained"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "S0003 at 1/1000 scale (60 x 40 um): structure is scale-free.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0012.waffle",
+      "id": "S0012",
+      "name": "S0012",
+      "tags": [
+        "scale",
+        "fully-constrained",
+        "HDistance",
+        "VDistance"
+      ]
+    },
+    {
+      "created": "2026-10-08T00:00:00.000Z",
+      "description": "S0003 at 1000x scale (60 x 40 m): structure is scale-free.",
+      "expectedOutcome": "should_pass",
+      "filename": "sketch/S0013.waffle",
+      "id": "S0013",
+      "name": "S0013",
+      "tags": [
+        "scale",
+        "fully-constrained",
+        "HDistance",
+        "VDistance"
+      ]
+    }
+  ]
 }

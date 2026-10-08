@@ -1,0 +1,38 @@
+{
+  "id": "S0008",
+  "description": "A 60 x 40 mm plate with one 4 mm rounded corner: an arc in the profile.",
+  "exercises": [
+    "Arc",
+    "curved",
+    "under-constrained",
+    "profile"
+  ],
+  "expectations": {
+    "status": "UnderConstrained",
+    "dof": 12,
+    "params": 12,
+    "rows": 0,
+    "rank": 0,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          10,
+          11,
+          12,
+          13,
+          14
+        ],
+        "extrudable": true,
+        "area": 0.002396566370614359
+      }
+    ],
+    "positions": {},
+    "positions_tol": 1e-12,
+    "radii": {},
+    "radii_tol": 1e-12,
+    "area_rel_tol": 0.00001
+  },
+  "generator_version": 1
+}

@@ -45,7 +45,9 @@ Rewrite tier + consumer crates:
 - **test-harness** — Fast binaries: `scenarios_mock`, `workflow_tests`,
   `oracle_tests`, `report_tests`, `scenarios_advanced`, `stl_tests`,
   `assay_euler_consistency`, `through_all_depth_kv2` (the P0012 depth pins —
-  real kernel-v2 geometry, but 0.47 s in debug)
+  real kernel-v2 geometry, but 0.47 s in debug), `sketch_corpus` and
+  `sketch_rank_oracle` (S4 — the sketch corpus and its independent rank
+  oracle; pure arithmetic, 0.03 s together, see below)
 
 ### Rust Full (`full`, ~27min)
 
@@ -503,6 +505,68 @@ true verdict with `single_case` before comparing.
 > `ASSAY_CASE_TIMEOUT_SECS` to regenerate it clean, or
 > `git checkout app/tests/cases/assay/results.json` before committing — don't
 > commit artifact timeouts as if they were true verdicts.
+
+## Running the sketch corpus (S4)
+
+Spec: `specs/agent_mechanical_design.md` §10.4. `app/tests/cases/sketch/` holds
+one real `.waffle` per case plus a `.meta.json` carrying the answer that case is
+supposed to have, and `crates/test-harness/tests/sketch_corpus.rs` replays each
+one through **three** computations:
+
+| tier | what it is |
+|---|---|
+| pure | `sketch_solver::solve_sketch` on the sketch read out of the document, plus `compute_regions` |
+| engine | `sketch_create` + `sketch_solve_state` — the S3 agent door — through `wasm_bridge::execute_tool` with a `MockKernel` |
+| oracle | `test_harness::sketch_rank` — residuals from the published equations, finite differences, SVD — the only tier that can contradict the solver's own `rank` and `dof` |
+
+All three must agree with the authored answer and with each other. It is in the
+FAST tier and needs no arguments:
+
+```
+cargo test -p test-harness --test sketch_corpus
+cargo test -p test-harness --test sketch_corpus -- --nocapture the_corpus_summary   # the census
+```
+
+**The expectations are authored, never captured.** Every number in a
+`.meta.json` is written by hand in
+`crates/test-harness/examples/sketch_corpus_gen.rs` with its arithmetic in a
+comment, and the generator REFUSES to write a case whose expectations the solver
+does not already meet:
+
+```
+cargo run -p test-harness --example sketch_corpus_gen -- --check   # verify, write nothing
+cargo run -p test-harness --example sketch_corpus_gen             # regenerate the files
+```
+
+So generating the corpus is itself the first assertion. A disagreement is a
+finding to adjudicate — fix the arithmetic, or record a solver defect with
+`defect: Some(..)`, which keeps the wrong answer loud. **Never copy the solver's
+number into an expectation**: a corpus whose answers come from running the
+solver blesses whatever the solver does, and the two defects S3/S4 found on
+2026-10-08 (a fillet extruding as a chamfer, a point-line dimension mirroring
+its point) are exactly the kind a recording enshrines. The files are
+byte-reproducible (the generator normalizes the document id, the tab id, the
+timestamps and the `HashMap` key order `save_project` would otherwise vary), so
+regenerating churns nothing.
+
+Three things about the numbers, each of which cost a measurement to learn:
+
+- **A region's `area_m2` is measured on the slicer's grid.** `compute_regions`
+  slices with a library that snaps coordinates onto a fixed float grid, so an
+  EXACT 0.06 × 0.04 m rectangle reads `2.4000000044703484e-3` — out by 2^-29
+  relative. Never assert an absolute tolerance on an area; the corpus compares
+  areas relatively (`area_rel_tol`, default 1e-7).
+- **A curved loop's area is its CHORD POLYGON's.** A full circle is
+  `ceil(π / acos(1 − τ))` = 71 chords at `DEFAULT_CHORD_TOLERANCE` = 1e-3, so
+  its area reads 1.3e-3 LOW. A circle case therefore pins its `radii` exactly
+  and its area loosely, rather than using a loose area as a weak proxy for both.
+  The SOLID extruded from the same profile is analytic and exact — the two
+  numbers about one rounded corner have different characters.
+- **A region with a hole is not extrudable.** A plate with a bore reports its
+  annulus with `boundary_entity_ids: Some([5,6,7,8,10])` and
+  `profile_entity_ids: None`, because it is not one whole loop. The corpus keys
+  regions on the BOUNDARY (the only identity every region has) and pins
+  `extrudable` separately.
 
 ## Running the assay prospector (searching for the next failing case)
 

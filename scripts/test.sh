@@ -78,6 +78,14 @@ TEST_HARNESS_FAST_BINS=(
   # ThroughAll depth at ×1e-3 / ×1 / ×1e3 on kernel-v2 (assay P0012). Cheap
   # enough for this tier: 0.47 s in DEBUG, measured 2026-10-03.
   through_all_depth_kv2
+  # The S4 sketch corpus and its independent rank oracle
+  # (`specs/agent_mechanical_design.md` §10.4, 2026-10-08). Both are pure
+  # arithmetic — no kernel, no tessellation — and together they run in 0.03 s
+  # in DEBUG, so the FAST tier is where they belong: a sketch-solver or
+  # agent-door regression should not wait for the full tier. The corpus runner
+  # covers the solver, the S3 agent door and the oracle in one pass.
+  sketch_corpus
+  sketch_rank_oracle
 )
 
 # ---------------------------------------------------------------------------

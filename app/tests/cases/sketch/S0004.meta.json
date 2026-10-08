@@ -1,0 +1,42 @@
+{
+  "id": "S0004",
+  "description": "A pinned 10 mm circle with a radius dimension: the radius parameter.",
+  "exercises": [
+    "Circle",
+    "Radius",
+    "Pinned",
+    "fully-constrained",
+    "curved"
+  ],
+  "expectations": {
+    "status": "FullyConstrained",
+    "dof": 0,
+    "params": 3,
+    "rows": 3,
+    "rank": 3,
+    "conflicts": [],
+    "redundant": [],
+    "regions": [
+      {
+        "entity_ids": [
+          2
+        ],
+        "extrudable": true,
+        "area": 0.00031415926535897936
+      }
+    ],
+    "positions": {
+      "1": [
+        0.0,
+        0.0
+      ]
+    },
+    "positions_tol": 1e-12,
+    "radii": {
+      "2": 0.01
+    },
+    "radii_tol": 1e-12,
+    "area_rel_tol": 0.0026094664942961643
+  },
+  "generator_version": 1
+}

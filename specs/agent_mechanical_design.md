@@ -2652,7 +2652,7 @@ Where the tree suggests a different route than the document's wording.
 | S1 | sketch ops in Rust; UI rewired | — | sketch-solver, waffle-types, app |
 | S2 | solver state: residuals, moved, free, redundant | — | sketch-solver, waffle-types |
 | S3 | `sketch_edit`, `sketch_solve_state` | S1, S2 | wasm-bridge — **LANDED 2026-10-08** (notes below) |
-| S4 | sketch corpus, independent rank oracle, prospector | S2 | test-harness, app |
+| S4 | sketch corpus, independent rank oracle, prospector | S2 | test-harness — **corpus + oracle LANDED 2026-10-08** (notes below); prospector open |
 | L1 | catalogue and first families | K3 tables | feature-engine |
 | L2 | `library_list`, `library_insert` | L1 | wasm-bridge |
 | L3 | `part_publish` on imports | N1 | feature-engine, wasm-bridge |
@@ -3009,6 +3009,76 @@ Not done here, and not blocking S4: the UI does not call `sketch_edit` (it has
 `ApplySketchOps` with the live sketch, which is the right message for an
 in-progress sketch), and `Project` through this door needs the engine-side
 `GeomRef` resolution `ProjectedPoint` expects the caller to have done.
+
+### S4 — the corpus and the oracle
+
+Landed 2026-10-08, except the prospector. Recipe and the three numeric traps:
+`docs/TESTING.md` §"Running the sketch corpus (S4)".
+
+`app/tests/cases/sketch/S0001`–`S0013`: one real `.waffle` per case holding one
+`Sketch`, plus a `.meta.json` carrying `SketchOracleExpectations`. Entries in
+`app/tests/cases/manifest.json` — §10.4's "empty second manifest slot", which
+really was empty (`{"cases": []}`) — name them `sketch/<ID>.waffle`, so the dev
+API serves a case into the page with no change to `testCaseApi.js`.
+
+`crates/test-harness/tests/sketch_corpus.rs` replays each case through the
+three tiers §10.4 asks for — `solve_sketch`, the S3 agent door
+(`sketch_create` + `sketch_solve_state` with a `MockKernel`), and
+`src/sketch_rank.rs`'s independent computation — and all three must agree with
+the authored answer and with each other. In the FAST tier: both binaries are
+pure arithmetic and run in 0.03 s together.
+
+**Deviation from §10.4, and the design decision behind it: the expectations are
+AUTHORED, not captured.** §10.4 does not say either way, and the obvious
+implementation records what the solver produces. That would have been a
+recording — it detects change, but it blesses whatever the answer is, and the
+two defects found the same day (a `sketch_edit` fillet extruding as a chamfer,
+`PointLineDistance` mirroring its point) are precisely what a recording
+enshrines. So every number is written by hand in
+`examples/sketch_corpus_gen.rs` with its arithmetic in a comment, and **the
+generator refuses to write a case whose expectations the solver does not already
+meet**. Generating the corpus is therefore the first assertion. It caught two
+errors of mine while the thirteen cases were being written — a redundant
+constraint's index (I had counted ROWS, where the pin contributes two, instead
+of constraints) and a circle's region area (the 71-chord deficit, below) — both
+of which a captured corpus would have recorded as truth.
+
+Three measured facts the expectations are shaped around, each worth knowing
+anywhere a region is asserted:
+
+1. **A region's area is measured on the slicer's snapped float grid**, so an
+   EXACT 0.06 × 0.04 rectangle reads 2.4000000044703484e-3 — out by 2^-29
+   relative (1.86e-9). Reproduced in pure Rust against `compute_regions` with
+   hand-written positions. Areas are compared RELATIVELY; an absolute tolerance
+   on an area is a tolerance on the sketch's units.
+2. **A curved loop's area is its chord polygon's.** A full circle is
+   `ceil(π / acos(1 − τ))` = 71 chords at `DEFAULT_CHORD_TOLERANCE` = 1e-3, and
+   the inscribed n-gon is `(n/2)r²sin(2π/n)`, so the area reads 1.3e-3 low. A
+   circle case pins its `radii` exactly (a `Radius` constraint solves the radius
+   parameter, which is exact) and its area to twice the derived deficit — the
+   precision claim lives in the radius, not in a loose area standing in for it.
+3. **A holed region is not extrudable.** A plate with a bore reports its annulus
+   with `boundary_entity_ids: Some([5,6,7,8,10])` and `profile_entity_ids:
+   None`: it is not one whole loop. Keying expectations on `profile_entity_ids`
+   silently DROPPED that region from the comparison, so the corpus keys on the
+   boundary — the only identity every region has — and pins `extrudable`
+   separately, which is the difference between a region a feature can consume
+   and one that only exists on screen.
+
+Coverage, asserted by `the_corpus_covers_the_shapes_s4_asks_for` so the corpus
+cannot drift away from its purpose while still passing: under-constrained,
+fully constrained, over-constrained with named conflicts, redundant-but-
+satisfied, a leading reference dimension (the index space), the same plate at
+1e-3 and 1e3 scale, an arc in a profile, two regions, a `Symmetric` about a
+construction line, and the now-unsigned `PointLineDistance`. Every solve verdict
+appears at least once.
+
+Not done: the **prospector** (a generator of random entity-and-constraint sets
+whose finding is a disagreement between the solver's verdict and the independent
+rank, reusing `prospect/{minimize, promote}`), and `Spline`, `Gear` and
+`Sprocket` cases — `sketch-solver` has no test for those three entity kinds
+either (`entity_mapping.rs` skips them in the param layout), so there is nothing
+to compare against yet and a case would be asserting the oracle against itself.
 
 ### The 1,172 corpus sketches with zero constraints (§2.2 item 11)
 

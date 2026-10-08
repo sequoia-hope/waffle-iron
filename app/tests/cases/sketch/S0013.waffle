@@ -1,0 +1,205 @@
+{
+  "active_tab": "05151928-33e9-341b-7b98-feb7924e9a85",
+  "document": {
+    "created": "2026-10-08T00:00:00.000Z",
+    "id": "e7ae548d-a758-eda8-93c0-039cb4c0d273",
+    "modified": "2026-10-08T00:00:00.000Z",
+    "name": "S0013"
+  },
+  "format": "waffle-iron",
+  "min_reader_version": 15,
+  "sources": [],
+  "tabs": [
+    {
+      "id": "05151928-33e9-341b-7b98-feb7924e9a85",
+      "kind": {
+        "features": {
+          "active_index": null,
+          "features": [
+            {
+              "id": "77bfb612-7c4b-4e05-0970-c4e3b819e386",
+              "name": "Sketch",
+              "operation": {
+                "sketch": {
+                  "constraints": [
+                    {
+                      "entity": 5,
+                      "type": "Horizontal"
+                    },
+                    {
+                      "entity": 6,
+                      "type": "Vertical"
+                    },
+                    {
+                      "entity": 7,
+                      "type": "Horizontal"
+                    },
+                    {
+                      "entity": 8,
+                      "type": "Vertical"
+                    },
+                    {
+                      "point": 1,
+                      "type": "Pinned",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "point_a": 1,
+                      "point_b": 2,
+                      "type": "HDistance",
+                      "value": 60.0
+                    },
+                    {
+                      "point_a": 1,
+                      "point_b": 4,
+                      "type": "VDistance",
+                      "value": 40.0
+                    }
+                  ],
+                  "entities": [
+                    {
+                      "construction": false,
+                      "id": 1,
+                      "type": "Point",
+                      "x": 0.0,
+                      "y": 0.0
+                    },
+                    {
+                      "construction": false,
+                      "id": 2,
+                      "type": "Point",
+                      "x": 60.0,
+                      "y": 0.0
+                    },
+                    {
+                      "construction": false,
+                      "id": 3,
+                      "type": "Point",
+                      "x": 60.0,
+                      "y": 40.0
+                    },
+                    {
+                      "construction": false,
+                      "id": 4,
+                      "type": "Point",
+                      "x": 0.0,
+                      "y": 40.0
+                    },
+                    {
+                      "construction": false,
+                      "end_id": 2,
+                      "id": 5,
+                      "start_id": 1,
+                      "type": "Line"
+                    },
+                    {
+                      "construction": false,
+                      "end_id": 3,
+                      "id": 6,
+                      "start_id": 2,
+                      "type": "Line"
+                    },
+                    {
+                      "construction": false,
+                      "end_id": 4,
+                      "id": 7,
+                      "start_id": 3,
+                      "type": "Line"
+                    },
+                    {
+                      "construction": false,
+                      "end_id": 1,
+                      "id": 8,
+                      "start_id": 4,
+                      "type": "Line"
+                    }
+                  ],
+                  "id": "6caae970-d72a-d512-a610-15b99ce9e914",
+                  "plane": {
+                    "anchor": {
+                      "datum_id": "00000000-0000-0000-0000-000000000000",
+                      "type": "Datum"
+                    },
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "policy": {
+                      "type": "BestEffort"
+                    },
+                    "selector": {
+                      "index": 0,
+                      "role": {
+                        "type": "ProfileFace"
+                      },
+                      "type": "Role"
+                    }
+                  },
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_x_axis": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "1": [
+                      0.0,
+                      0.0
+                    ],
+                    "2": [
+                      60.0,
+                      0.0
+                    ],
+                    "3": [
+                      60.0,
+                      40.0
+                    ],
+                    "4": [
+                      0.0,
+                      40.0
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        5,
+                        6,
+                        7,
+                        8
+                      ],
+                      "is_outer": true,
+                      "vertex_ids": [
+                        1,
+                        2,
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                },
+                "type": "Sketch"
+              },
+              "references": [],
+              "suppressed": false
+            }
+          ]
+        },
+        "type": "Part"
+      },
+      "name": "Part 1"
+    }
+  ],
+  "version": 15
+}
