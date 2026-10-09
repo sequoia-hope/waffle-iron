@@ -182,6 +182,13 @@ impl Sketch {
     /// This must be called after deserialization, since these fields are not persisted.
     /// Reconstructs positions from Point entity x/y values, expands Gear entities,
     /// and extracts closed profiles from the entity graph.
+    ///
+    /// The profiles are KERNEL-READY: ordered vertex loops with the arc,
+    /// spline and circle records that let the kernel build a true cylindrical
+    /// face ([`crate::profiles::build_finish_profiles`], the same payload a
+    /// `FinishSketch` carries). This is the whole contract — see
+    /// [`Self::recompute_derived_checked`] step 3 for why it is not merely a
+    /// nicety.
     pub fn recompute_derived(&mut self) {
         // A sprocket whose parameters cannot be generated is left in place
         // (unexpanded, so it contributes no profile); the checked form
@@ -223,15 +230,45 @@ impl Sketch {
         let expanded = self.expand_generators();
 
         // Step 3: Extract profiles from the plain entities if none were
-        // carried in (a generator's profiles come from step 2).
+        // carried in (a generator's profiles come from step 2), and FINISH
+        // them — `extract_profiles` alone yields entity-id loops with
+        // `vertex_ids`, `arc_segments`, `spline_segments` and `circle` all
+        // empty, and the kernel then builds such a loop as a polygon through
+        // whatever vertices it can find. A rounded corner comes out as a
+        // single CHORD: no error, no warning, a different solid. Measured
+        // (`crates/test-harness/tests/sketch_arc_rederive.rs`): a 60 × 40 × 6
+        // plate with one 4 mm rounded corner built 1.4352e-5 m³ — the
+        // rectangle less the corner triangle r²/2 — where the arithmetic says
+        // 1.43794e-5.
+        //
+        // This is the one place every re-derive passes through (the rebuild's
+        // extrude/revolve/pipe arms and `current_sketch`, a reprojection,
+        // `feature_engine::params` when a dimension expression re-solves), so
+        // it is the one place the arc record can be guaranteed. Callers that
+        // used to work around it by finishing the sketch themselves
+        // (`feature_engine::script::host::derive_sketch`, which the KiCad
+        // board writer calls for exactly this reason) are now merely
+        // redundant, not load-bearing.
         if !had_profiles && !plain.is_empty() {
             let positions = if had_generators {
-                &plain_positions
+                plain_positions
             } else {
-                &self.solved_positions
+                std::mem::take(&mut self.solved_positions)
             };
-            self.solved_profiles
-                .extend(crate::profiles::extract_profiles(&plain, positions));
+            let extracted = crate::profiles::extract_profiles(&plain, &positions);
+            let finished = crate::profiles::build_finish_profiles(&extracted, &plain, &positions);
+            self.solved_profiles.extend(finished.profiles);
+            // `finished.solved_positions` is `positions` plus the arc samples,
+            // and only the samples are new here. Inserted without overwriting,
+            // because a GEAR's expansion keeps its historical UNSHIFTED ids
+            // (see `expand_generators`) and so can already own an id a plain
+            // point also has: step 2 decides which of those two wins, and this
+            // step must not silently reverse that. Nothing can collide with a
+            // sample: they start at 900_000 and a generator's own range at
+            // 50_000_000.
+            for (id, p) in finished.solved_positions {
+                self.solved_positions.entry(id).or_insert(p);
+            }
         }
         expanded
     }
@@ -315,31 +352,19 @@ impl Sketch {
     }
 
     /// Recompute derived data (`solved_positions` and `solved_profiles`) from
-    /// the sketch's entities. Called during rebuild after deserialization, since
-    /// these fields are not serialized.
+    /// the sketch's entities — the original name for what
+    /// [`Self::recompute_derived`] does (`specs/sketch_profile_rebuild.md`
+    /// step 2), kept because it is public.
     ///
-    /// If `solved_profiles` is already non-empty, this is a no-op (preserves
-    /// profiles set by interactive solving or gear expansion).
+    /// It now DELEGATES. It used to carry its own second implementation, which
+    /// re-derived profiles with `extract_profiles` alone and expanded no
+    /// generator — so picking this name over the other silently cost a sketch
+    /// its arc records (and a gear its geometry). Two functions that both
+    /// claim to re-derive a sketch and do not agree is the shape of the defect
+    /// `recompute_derived_checked` step 3 describes; there is one
+    /// implementation now.
     pub fn recompute_derived_data(&mut self) {
-        // B8: If profiles already exist (e.g., from interactive session), preserve them
-        if !self.solved_profiles.is_empty() {
-            return;
-        }
-
-        // Build solved_positions from Point entity coordinates
-        if self.solved_positions.is_empty() {
-            for entity in &self.entities {
-                if let SketchEntity::Point { id, x, y, .. } = entity {
-                    self.solved_positions.insert(*id, (*x, *y));
-                }
-            }
-        }
-
-        // Extract profiles from entities + positions
-        if !self.entities.is_empty() {
-            self.solved_profiles =
-                crate::profiles::extract_profiles(&self.entities, &self.solved_positions);
-        }
+        self.recompute_derived();
     }
 }
 
@@ -2091,7 +2116,21 @@ mod tests {
 
         sketch.recompute_derived_data();
 
-        assert_eq!(sketch.solved_positions.len(), 4);
+        // The four authored points all resolve, and the arc's samples are
+        // there beside them: a re-derive yields KERNEL-READY profiles, so the
+        // arc travels as an `arc_segments` record over synthetic sample points
+        // rather than as the chord between its endpoints.
+        for id in [1, 2, 3, 4] {
+            assert!(
+                sketch.solved_positions.contains_key(&id),
+                "authored point {id} must resolve"
+            );
+        }
+        assert!(
+            sketch.solved_positions.len() > 4,
+            "the arc's samples must be in solved_positions too (got {})",
+            sketch.solved_positions.len()
+        );
         assert!(
             !sketch.solved_profiles.is_empty(),
             "arc profile should be extracted"
@@ -2105,6 +2144,32 @@ mod tests {
         assert!(
             all_entity_ids.contains(&12),
             "profile must include the arc entity"
+        );
+        let profile = &sketch.solved_profiles[0];
+        let [arc] = profile.arc_segments.as_slice() else {
+            panic!(
+                "the arc must be recorded as an arc, not flattened to a chord \
+                 (got {} arc segments)",
+                profile.arc_segments.len()
+            );
+        };
+        // The closing arc wraps past the end of the loop, so its span is
+        // measured modulo the vertex count.
+        let n = profile.vertex_ids.len();
+        let span = (arc.end_vertex_index + n - arc.start_vertex_index) % n;
+        assert!(
+            span > 1,
+            "an arc spanning vertices {}..={} of {n} is a chord",
+            arc.start_vertex_index,
+            arc.end_vertex_index
+        );
+        // Centre (5, 2) and radius |(5,5) − (5,2)| = 3, from the entities.
+        assert_eq!((arc.center_u, arc.center_v), (5.0, 2.0));
+        assert!((arc.radius - 3.0).abs() < 1e-12, "radius {}", arc.radius);
+        assert!(
+            profile.vertex_ids.len() > 3,
+            "the loop must carry its ordered vertices (got {})",
+            profile.vertex_ids.len()
         );
     }
 

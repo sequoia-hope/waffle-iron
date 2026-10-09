@@ -578,6 +578,23 @@ Three things about the numbers, each of which cost a measurement to learn:
   regions on the BOUNDARY (the only identity every region has) and pins
   `extrudable` separately.
 
+### The arc a re-derive used to drop
+
+`crates/test-harness/tests/sketch_arc_rederive.rs` (FAST tier, kernel-v2,
+0.01 s) is the floor under `Sketch::recompute_derived`: a sketch stored with NO
+derived data — what a script, an agent, the KiCad board writer and any sketch
+stored `Unsolved` (v4 §2.10) all look like — is extruded through the rebuild,
+and the built solid must carry the arc.
+
+Its oracle is the CAP FACE's area read off the solid, not the volume:
+`0.060 × 0.040 − r²(1 − π/4)` is exact to the last bit on the face, where the
+chord reading of the same loop is 1.9e-3 relatively smaller. The volume is
+checked too, but only inside the band `mass_properties` reports for itself —
+that answer comes back `Method::Mesh` here, because a PLANAR face with an arc
+in its rim has no exact integration in the Q3 integrator and falls to the
+tessellation (measured: 6.7e-6 relative low on this plate, which is honest
+rather than wrong, and is why the face area is the sharp instrument).
+
 ## Running the assay prospector (searching for the next failing case)
 
 Spec: `specs/assay_prospector.md`. The prospector draws candidate documents

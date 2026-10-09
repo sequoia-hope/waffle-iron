@@ -86,6 +86,11 @@ TEST_HARNESS_FAST_BINS=(
   # covers the solver, the S3 agent door and the oracle in one pass.
   sketch_corpus
   sketch_rank_oracle
+  # The floor under `Sketch::recompute_derived`: a sketch stored with no
+  # derived data (a script's, an agent's, the KiCad writer's, any sketch
+  # stored `Unsolved`) must still extrude its arcs as arcs. kernel-v2, but one
+  # small plate — 0.01 s in DEBUG, measured 2026-10-09.
+  sketch_arc_rederive
 )
 
 # ---------------------------------------------------------------------------

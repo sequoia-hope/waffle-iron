@@ -2987,11 +2987,30 @@ through a local relay and a headless page, oracles by closed form (87/0 on
    cylindrical face from the arc. Pinned by
    `a_filleted_profile_keeps_the_arc_the_kernel_needs`.
 
-   **The same loss is OPEN on `feature_engine::params::apply_sketch`**, which
-   re-derives identically (`clear(); clear(); recompute_derived()`) when a
-   dimension EXPRESSION re-solves a stored sketch. Same mechanism, same
-   silence, different sub-project; it will move stored bytes, so it wants its
-   own increment.
+   **CLOSED AT THE ROOT 2026-10-09, and it was wider than this tool.** The
+   note above expected one more increment for
+   `feature_engine::params::apply_sketch`, which re-derives identically
+   (`clear(); clear(); recompute_derived()`) when a dimension EXPRESSION
+   re-solves a stored sketch. Looking for that caller found five more, all in
+   the rebuild itself: the extrude, revolve and pipe arms and `current_sketch`
+   each clear and re-derive a reprojected sketch, and `recompute_derived` is
+   what any sketch stored WITHOUT derived data goes through — which is every
+   sketch a script, an agent or the KiCad board writer writes, and every sketch
+   stored `Unsolved` under §2.10. The KiCad writer had already measured the
+   consequence and worked around it locally ("a rounded 60 × 40 board came out
+   50 mm² short", `kicad.rs`, which calls `script::host::derive_sketch` for
+   exactly this reason) — the third local workaround for one trap.
+
+   So the fix is in `Sketch::recompute_derived` itself: it now finishes the
+   loops it extracts, through the same `build_finish_profiles`. Two functions
+   that both claimed to re-derive a sketch and did not agree is the defect;
+   there is one implementation now, and `recompute_derived_data` — which had a
+   second copy of the arc-less derivation and expanded no generator — delegates
+   to it. Pinned by `crates/test-harness/tests/sketch_arc_rederive.rs`, which
+   extrudes a stored rounded plate through the rebuild and reads the cap face's
+   area off the built solid: 2.396566370614359e-3 m² exact, against the chord
+   reading's 2.392e-3, plus the single cylindrical face the arc stands for.
+   (Both tests fail with the one-line revert, measured.)
 
 2. **An agent's extrude cannot survive an edit to its own sketch** (loud, not
    silent). Rounding a corner under an existing extrude fails
@@ -3001,9 +3020,10 @@ through a local relay and a headless page, oracles by closed form (87/0 on
    stored `Region` by boundary identity and warns when it cannot — but only on
    the `region`/`regions` path the APP's writers use, while the agent is told to
    address by `profile_entity_ids`. S3 did not cause this; it made sketch
-   editing routine, which brought a latent gap into reach. The fix is to put
-   the agent on the identity-resolved path, and it is a profile-addressing
-   increment, not a tolerance.
+   editing routine, which brought a latent gap into reach.
+
+   The fix is to put the agent on the identity-resolved path, and it is a
+   profile-addressing increment, not a tolerance.
 
 Not done here, and not blocking S4: the UI does not call `sketch_edit` (it has
 `ApplySketchOps` with the live sketch, which is the right message for an
