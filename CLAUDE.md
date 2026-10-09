@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0029–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0030–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -128,7 +128,17 @@ Do NOT skip to lower-priority items because they are easier.
    `Error`; P0028 CONVERTED 2026-10-08 (night) (the §4.5.3 reversal sweep
    had collapsed the exact {cap, side, cylinder} corner INTO the chord
    vertex that overshot it — victim selection now ranks by incidence, spec
-   `yang_453_junction_protected_collapse.md` §3d). Next: P0029–P0039 — each its own kernel session
+   `yang_453_junction_protected_collapse.md` §3d); P0029 CONVERTED
+   2026-10-09 (a sub-render rim×plane graze — the cut cylinder's cap rim
+   crossed the prism's bottom cap plane by 1.455e-2 on a 24.13 radius, and
+   its two exact triple corners were ADJACENT rim samples, so the chord
+   between them lay in BOTH planes and the polyline ran along the plane
+   instead of dipping past it; the #195 arm now pays sub-render demands
+   LOCALLY, as apex-centred samples on the grazed arc, spec
+   `yang_195_seal_neighborhood_self_overlap.md` §5k — 53 of a 60-fixture
+   family sweep convert, the residual 7 STOP at Stage-4 `split_cycle`, a
+   named follow-up with an `#[ignore]`d reproducer).
+   Next: P0030–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

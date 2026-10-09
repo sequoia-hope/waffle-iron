@@ -792,9 +792,12 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
 /// 32 = sag<depth but no margin → silent WRONG; derived 41 → CORRECT).
 ///
 /// Scope lines (spec §5c): depth at or below the #178-calibrated noise
-/// line (authored flush-assembly rims) or below the render-observability
-/// line `2·10⁻³·r` (sub-render lens, §4.5.2 local-refinement territory)
-/// demands nothing; N > 4096 demands nothing for inc-2 (NO SubSagitta
+/// line (authored flush-assembly rims) demands nothing here or anywhere;
+/// depth at or below the render-observability line
+/// [`RIM_PLANE_RENDER_LINE`]`·r` demands nothing BODY-WIDE and is the
+/// LOCAL arm's population instead (spec §5k,
+/// `rim_plane_graze_local_rim_overrides` — it was "§4.5.2 territory" until
+/// P0029 landed there); N > 4096 demands nothing for inc-2 (NO SubSagitta
 /// STOP arm — the emitted class detonates loudly at the next boolean's
 /// (4b) gate; a producer-side STOP is a named follow-up needing the
 /// plane-face extent witness). No phase-aware mesh-touch filter: the
@@ -803,9 +806,80 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
 /// crossing is still missed — a face-global touch test would veto the
 /// needed boost, and the render line already bounds N ≈ 71.
 pub(crate) fn rim_plane_graze_n(
+    rim: ([f64; 3], [f64; 3], f64),
+    plane: ([f64; 3], f64),
+) -> Option<usize> {
+    let r = rim.2;
+    let lens = rim_plane_lens(rim, plane)?;
+    // Render-observability line, single-radius form of #172 §3: a lens
+    // shallower than the render mesh's own rim sagitta cannot be
+    // represented at any output resolution; bounds the derived N ≈ 71.
+    // It bounds only the BODY-WIDE demand this function feeds; the local
+    // arm (`rim_plane_graze_local_rim_overrides`) takes the sites below it,
+    // where an extra sample costs a handful of triangles rather than a
+    // rim-N floor on both operands.
+    if lens.depth <= RIM_PLANE_RENDER_LINE * r {
+        return None;
+    }
+    rim_sag_demand(r, lens.depth)
+}
+
+/// The render-observability line of the #195 rim×plane arm (spec
+/// `yang_195_seal_neighborhood_self_overlap` §5c, single-radius form of
+/// #172 §3): the lens depth below which a BODY-WIDE rim-N boost is refused.
+/// Also the dividing line between the two arms — above it the demand is paid
+/// as a rim-N floor, below it as local samples on the grazed arc alone.
+pub(crate) const RIM_PLANE_RENDER_LINE: f64 = 2.0e-3;
+
+/// The smallest rim segment count whose chord sagitta clears half a lens of
+/// `depth` on a radius-`r` circle — `sag(r, N) = r(1 − cos(π/N)) ≤ depth/2`,
+/// the A14.3 single source with the factor-2 phase margin every sibling
+/// guard uses. `None` past 4096: a true near-tangency with no practical
+/// refinement, where the loud downstream STOP stays the tripwire.
+pub(crate) fn rim_sag_demand(r: f64, depth: f64) -> Option<usize> {
+    let sag = |n_seg: usize| r * (1.0 - (std::f64::consts::PI / n_seg as f64).cos());
+    let mut n_seg = 3usize;
+    while sag(n_seg) > depth / 2.0 {
+        n_seg += 1;
+        if n_seg > 4096 {
+            return None; // inc-2: no STOP arm (spec §5c)
+        }
+    }
+    Some(n_seg)
+}
+
+/// The lens a rim circle and a partner plane form where they shallowly
+/// cross — the shared geometry of the #195 rim×plane arm's two remedies, so
+/// the body-wide and the local form can never disagree about whether (or
+/// where) a pair grazes.
+pub(crate) struct RimPlaneLens {
+    /// Extent of the crossing on its shallow side, `r·k − |s|`.
+    pub depth: f64,
+    /// Azimuth of the submerged arc's DEEPEST point, where the rim stands
+    /// `depth` clear of the plane. In the frame
+    /// `ortho_basis(canonical_axis(rim normal))` — the one frame every rim of
+    /// a coaxial closure agrees on.
+    pub apex: f64,
+    /// Half the angular width of the submerged arc: the crossings are at
+    /// `apex ± half_span`.
+    pub half_span: f64,
+}
+
+/// The rim×plane lens of one pair (#195 inc-2 geometry, spec
+/// `yang_195_seal_neighborhood_self_overlap` §5): a Circle rim edge
+/// (center `c`, unit normal `n`, radius `r`) against a partner PLANE
+/// (`m̂·p + d̂ = 0`). The circle's signed distances to the plane span
+/// `s ± r·k` (`s = m̂·c + d̂`, `k = √(1−(n·m̂)²)`), so it crosses iff
+/// `|s| < r·k` and the shallow-side extent is `depth = r·k − |s|`.
+///
+/// `None` for a degenerate plane, for no crossing (or a rim lying IN the
+/// plane), and for a crossing at or below the #178-calibrated
+/// coincidence-authoring noise line — flush-assembly rims arrive with
+/// sub-noise crossing residue and must demand nothing.
+pub(crate) fn rim_plane_lens(
     (c, n, r): ([f64; 3], [f64; 3], f64),
     (m, d): ([f64; 3], f64),
-) -> Option<usize> {
+) -> Option<RimPlaneLens> {
     let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     let mlen = dot(m, m).sqrt();
     if mlen.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
@@ -832,21 +906,94 @@ pub(crate) fn rim_plane_graze_n(
     if depth <= noise {
         return None;
     }
-    // Render-observability line, single-radius form of #172 §3: a lens
-    // shallower than the render mesh's own rim sagitta cannot be
-    // represented at any output resolution; bounds the derived N ≈ 71.
-    if depth <= 2.0e-3 * r {
+    // Azimuth of the submerged arc. In the canonical frame the plane's
+    // signed distance along the rim is `f(θ) = s + R·cos(θ − φ)` with
+    // `R = |m̂ projected into the rim plane| · r` (= r·k for a unit `n`),
+    // so the crossings are `θ = φ ± ψ`, `cos ψ = −s/R`, and the shallow
+    // side is the arc on which `f` carries the sign of `−s`.
+    let axis_c = canonical_axis(n);
+    let (e1, e2) = ortho_basis(Vector3::new(axis_c[0], axis_c[1], axis_c[2]));
+    let (ca, cb) = (r * dot(mh, e1.as_array()), r * dot(mh, e2.as_array()));
+    let radius_m = ca.hypot(cb);
+    if radius_m.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return None; // rim plane parallel to the partner plane: no arc
+    }
+    let phi = cb.atan2(ca);
+    let psi = (-s / radius_m).clamp(-1.0, 1.0).acos();
+    let (apex, half_span) = if s > 0.0 {
+        // Shallow side is `f < 0`: deepest OPPOSITE φ, crossings at ±ψ.
+        (phi + std::f64::consts::PI, std::f64::consts::PI - psi)
+    } else {
+        // Shallow side is `f > 0`: deepest AT φ.
+        (phi, psi)
+    };
+    Some(RimPlaneLens {
+        depth,
+        apex,
+        half_span,
+    })
+}
+
+/// The azimuths the #195 LOCAL arm inserts over a submerged arc: the APEX,
+/// then outward in both directions at `step` while still strictly inside the
+/// arc. `None` past [`LOCAL_REFINE_MAX_SAMPLES`].
+///
+/// Apex-centred, and the crossings themselves are deliberately NOT emitted.
+/// Two reasons, both measured:
+///
+///  * The crossings are the §4.3.3 generator's and the rim-junction scan's
+///    to mint, and they mint them on the grazing rim ALONE. Re-minting them
+///    here made one rim of a closure dedup a mint bit-for-bit where its
+///    partner did not, and the band merge — which pairs the two rings
+///    POSITIONALLY — refused the operand (`face 2: azimuth-merge rims have
+///    mismatched / too-few samples (21 vs 22)`, P0029's first wiring).
+///  * They are not needed. The arm's whole job is to make the chord
+///    polyline DIP PAST the plane as the exact rim does; Stage 2 then
+///    computes the crossing exactly and Stage 4 relocates it onto the exact
+///    curve. A vertex at the crossing buys nothing the arrangement does not
+///    already derive.
+///
+/// The apex alone already carries the guarantee: it stands the full `depth`
+/// clear of the plane while its neighbours — uniform samples outside the
+/// arc — stand on the other side, so the polyline crosses twice, once each
+/// side of the apex, exactly as the exact rim does. The outward samples
+/// bound the chord error over the rest of the arc at `step`'s own sagitta,
+/// which is what keeps the mesh inside the band Stage 4 relocates within.
+pub(crate) fn submerged_arc_samples(apex: f64, half_span: f64, step: f64) -> Option<Vec<f64>> {
+    let positive = |v: f64| v.partial_cmp(&0.0) == Some(std::cmp::Ordering::Greater);
+    if !positive(step) || !positive(half_span) {
         return None;
     }
-    let sag = |n_seg: usize| r * (1.0 - (std::f64::consts::PI / n_seg as f64).cos());
-    let mut n_seg = 3usize;
-    while sag(n_seg) > depth / 2.0 {
-        n_seg += 1;
-        if n_seg > 4096 {
-            return None; // inc-2: no STOP arm (spec §5c)
+    let reach = ((half_span / step).ceil() as usize).max(1);
+    if 2 * reach + 1 > LOCAL_REFINE_MAX_SAMPLES {
+        return None;
+    }
+    let mut angles = vec![apex];
+    for j in 1..=reach {
+        let off = j as f64 * step;
+        if off >= half_span {
+            break;
+        }
+        angles.push(apex - off);
+        angles.push(apex + off);
+    }
+    Some(angles)
+}
+
+/// ONE canonical sense for a rim axis: coaxial rims may store OPPOSITE axis
+/// senses and `ortho_basis(u) != ortho_basis(-u)`, so every azimuth in this
+/// module is taken in the frame of the axis with its first non-zero
+/// component positive.
+pub(crate) fn canonical_axis(u: [f64; 3]) -> [f64; 3] {
+    for c in u {
+        if c > 0.0 {
+            return u;
+        }
+        if c < 0.0 {
+            return [-u[0], -u[1], -u[2]];
         }
     }
-    Some(n_seg)
+    u
 }
 
 /// #195 inc-2 scan: the forced minimum rim segment count over all
@@ -1293,39 +1440,12 @@ pub(crate) fn edge_graze_local_rim_overrides(
     std::collections::BTreeMap<u32, Vec<Point3>>,
     std::collections::BTreeMap<u32, Vec<Point3>>,
 ) {
-    let mut out_a: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
-    let mut out_b: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
     if !edge_graze_guard_enabled() {
-        return (out_a, out_b);
+        return Default::default();
     }
     let two_pi = 2.0 * std::f64::consts::PI;
-    // Accumulated per (operand, rim closure): the closure is an equivalence
-    // class of rims, so two sites on the same class get the IDENTICAL angle
-    // set and every rim in it keeps an equal ring length.
-    type Closure = (bool, Vec<u32>);
-    struct Acc {
-        angles: Vec<f64>,
-        /// The finest step any site on this closure asked for — the dedup
-        /// scale, so a coarse site never swallows a finer site's sample.
-        min_step: f64,
-        /// ONE canonical azimuth frame for the whole closure: the rims are
-        /// coaxial but may store OPPOSITE axis senses, and
-        /// `ortho_basis(u) != ortho_basis(-u)`, so the sign is canonicalized
-        /// (first non-zero component positive) before any angle is taken.
-        axis: [f64; 3],
-    }
-    let canonical = |u: [f64; 3]| -> [f64; 3] {
-        for c in u {
-            if c > 0.0 {
-                return u;
-            }
-            if c < 0.0 {
-                return [-u[0], -u[1], -u[2]];
-            }
-        }
-        u
-    };
-    let mut per_closure: std::collections::BTreeMap<Closure, Acc> = Default::default();
+    let canonical = canonical_axis;
+    let mut per_closure = RimAngleOverrides::default();
     // Both hoisted out of the site loop: the scan fires 121 085 times on
     // R0081, and `natural_rim_n` walks every edge while `coaxial_rim_closure`
     // is quadratic in the face count.
@@ -1361,16 +1481,11 @@ pub(crate) fn edge_graze_local_rim_overrides(
                     bounded = false;
                     break;
                 };
-                let m = (sweep / step).ceil() as usize;
-                if m > LOCAL_REFINE_MAX_SAMPLES {
+                let Some(mut sampled) = arc_samples(start, sweep, step) else {
                     bounded = false;
                     break;
-                }
-                angles.push(start);
-                for j in 1..m {
-                    angles.push(start + j as f64 * step);
-                }
-                angles.push(start + sweep);
+                };
+                angles.append(&mut sampled);
             }
             if !bounded {
                 break;
@@ -1379,9 +1494,81 @@ pub(crate) fn edge_graze_local_rim_overrides(
         if !bounded || angles.is_empty() {
             continue;
         }
-        let entry = per_closure
-            .entry((site.face_side_is_a, rims))
-            .or_insert_with(|| Acc {
+        per_closure.commit(site.face_side_is_a, rims, axis_c, angles, step);
+    }
+    let (out_a, out_b) = per_closure.finish(a, b);
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[edge-graze-guard] LOCAL rims_a={} pts_a={} rims_b={} pts_b={}",
+            out_a.len(),
+            out_a.values().map(Vec::len).sum::<usize>(),
+            out_b.len(),
+            out_b.values().map(Vec::len).sum::<usize>(),
+        );
+    }
+    (out_a, out_b)
+}
+
+/// The azimuths one LOCAL rim-refinement site asks for over `[start,
+/// start+sweep]`: both ends, plus interior samples at `step`, so the chord
+/// polyline between consecutive samples never sags more than `step`'s own
+/// sagitta anywhere on the arc. `None` past [`LOCAL_REFINE_MAX_SAMPLES`] —
+/// the site is a near-tangency at scale and derives nothing.
+pub(crate) fn arc_samples(start: f64, sweep: f64, step: f64) -> Option<Vec<f64>> {
+    let m = (sweep / step).ceil() as usize;
+    if m > LOCAL_REFINE_MAX_SAMPLES {
+        return None;
+    }
+    let mut angles = Vec::with_capacity(m + 1);
+    angles.push(start);
+    for j in 1..m {
+        angles.push(start + j as f64 * step);
+    }
+    angles.push(start + sweep);
+    Some(angles)
+}
+
+/// Extra rim azimuths accumulated per (operand, coaxial rim closure) — the
+/// shared tail of every LOCAL rim-refinement arm (§4.3.3 Case-IV corner
+/// phantoms, #195 rim×plane grazes).
+///
+/// The closure, not the face, is the unit: inserting a rim sample changes
+/// that rim's ring length and `tessellate_band_azimuth_merge` REFUSES
+/// unequal rings, so two sites on one closure must end up with the
+/// IDENTICAL azimuth set and every rim in it an equal ring length.
+#[derive(Default)]
+pub(crate) struct RimAngleOverrides {
+    per_closure: std::collections::BTreeMap<(bool, Vec<u32>), RimAngleAcc>,
+}
+
+struct RimAngleAcc {
+    angles: Vec<f64>,
+    /// The finest step any site on this closure asked for — the dedup
+    /// scale, so a coarse site never swallows a finer site's sample.
+    min_step: f64,
+    /// ONE canonical azimuth frame for the whole closure (see
+    /// [`canonical_axis`]); set by the first site and shared, the rims of a
+    /// closure being coaxial by construction.
+    axis: [f64; 3],
+}
+
+impl RimAngleOverrides {
+    /// Record one site's azimuths against its closure. Called only once the
+    /// site is fully derived, so a site that fails mid-derivation
+    /// contributes nothing.
+    pub(crate) fn commit(
+        &mut self,
+        side_is_a: bool,
+        rims: Vec<u32>,
+        axis_c: [f64; 3],
+        angles: Vec<f64>,
+        step: f64,
+    ) {
+        let two_pi = 2.0 * std::f64::consts::PI;
+        let entry = self
+            .per_closure
+            .entry((side_is_a, rims))
+            .or_insert_with(|| RimAngleAcc {
                 angles: Vec::new(),
                 min_step: f64::INFINITY,
                 axis: axis_c,
@@ -1391,40 +1578,183 @@ pub(crate) fn edge_graze_local_rim_overrides(
         }
         entry.min_step = entry.min_step.min(step);
     }
-    for ((side_is_a, rims), mut acc) in per_closure {
-        acc.angles.sort_by(f64::total_cmp);
-        let scale = acc.min_step * 1.0e-9;
-        acc.angles.dedup_by(|x, y| (*x - *y).abs() <= scale);
-        if acc.angles.len() > LOCAL_REFINE_MAX_SAMPLES {
-            continue; // near-tangency at scale: no practical local refinement
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.per_closure.is_empty()
+    }
+
+    /// Resolve the accumulated azimuths to per-rim-edge sample POINTS, the
+    /// shape `rebuilt_with_rim_overrides` consumes.
+    pub(crate) fn finish(
+        self,
+        a: &BRep,
+        b: &BRep,
+    ) -> (
+        std::collections::BTreeMap<u32, Vec<Point3>>,
+        std::collections::BTreeMap<u32, Vec<Point3>>,
+    ) {
+        let mut out_a: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+        let mut out_b: std::collections::BTreeMap<u32, Vec<Point3>> = Default::default();
+        for ((side_is_a, rims), mut acc) in self.per_closure {
+            acc.angles.sort_by(f64::total_cmp);
+            let scale = acc.min_step * 1.0e-9;
+            acc.angles.dedup_by(|x, y| (*x - *y).abs() <= scale);
+            if acc.angles.len() > LOCAL_REFINE_MAX_SAMPLES {
+                continue; // near-tangency at scale: no practical local refinement
+            }
+            let y = if side_is_a { a } else { b };
+            let out = if side_is_a { &mut out_a } else { &mut out_b };
+            let (e1, e2) = ortho_basis(Vector3::new(acc.axis[0], acc.axis[1], acc.axis[2]));
+            let (e1, e2) = (e1.as_array(), e2.as_array());
+            for ei in rims {
+                let Curve::Circle { center, radius, .. } = y.edges()[ei as usize].curve else {
+                    continue;
+                };
+                let c = center.as_array();
+                let pts: Vec<Point3> = acc
+                    .angles
+                    .iter()
+                    .map(|&t| {
+                        let (s, co) = t.sin_cos();
+                        Point3::new(
+                            c[0] + radius * (co * e1[0] + s * e2[0]),
+                            c[1] + radius * (co * e1[1] + s * e2[1]),
+                            c[2] + radius * (co * e1[2] + s * e2[2]),
+                        )
+                    })
+                    .collect();
+                out.entry(ei).or_default().extend(pts);
+            }
         }
-        let y = if side_is_a { a } else { b };
-        let out = if side_is_a { &mut out_a } else { &mut out_b };
-        let (e1, e2) = ortho_basis(Vector3::new(acc.axis[0], acc.axis[1], acc.axis[2]));
-        let (e1, e2) = (e1.as_array(), e2.as_array());
-        for ei in rims {
-            let Curve::Circle { center, radius, .. } = y.edges()[ei as usize].curve else {
+        (out_a, out_b)
+    }
+}
+
+/// The #195 rim×plane arm's LOCAL remedy (spec
+/// `yang_195_seal_neighborhood_self_overlap` §5k): the extra rim samples
+/// every SUB-RENDER-LINE rim×plane graze demands, spent on the grazed arc
+/// of the rim's own coaxial closure.
+///
+/// A rim circle that crosses a partner plane shallower than its own chord
+/// sagitta reaches the arrangement as a TANGENTIAL line contact instead of
+/// a crossing: the chord between the two exact crossings lies, by
+/// construction, in BOTH planes (its endpoints do), so the rim's two
+/// incident faces and the partner plane all meet along one segment and the
+/// exact arrangement faithfully reports a doubled edge — the measured
+/// P0029 `s4-dc-attr` STOP (fwd=2 rev=2, a 0.0146-deep lens on a 24.13
+/// radius, the two exact {plane, cap-plane, cylinder} corners already
+/// seated as adjacent rim vertices). The sliver the exact solids trade
+/// there is REAL (2.37 × 0.0337, 3.4e4 × `MIN_FEATURE_SIZE`), so the
+/// configuration is a capability gap, not a loud-by-design wall.
+///
+/// [`rim_plane_graze_n`] refuses these: its body-wide rim-N floor would be
+/// 128 where the natural density is 9, which the corpus has twice refused
+/// (R0021's degenerated render rings, the 10.8× triangle explosion of the
+/// §4.3.3 global form). The demand is paid LOCALLY instead — at
+/// `sag(r, N) ≤ depth/2` the submerged arc takes an apex sample and its
+/// outward neighbours at `2π/N` — THREE points on one rim closure for
+/// P0029 — so the polyline dips past the plane as the exact rim does and
+/// the contact becomes the transversal crossing it is. See
+/// [`submerged_arc_samples`] for why the crossings themselves are not
+/// re-minted here.
+///
+/// Scope is the complement of the body-wide arm's, so every case that
+/// converts on the rim-N floor today is byte-identical: only lenses at or
+/// below [`RIM_PLANE_RENDER_LINE`] are taken here. Self-limiting the same
+/// way (a demand the owner's natural N already meets derives nothing), fail
+/// closed on a non-coaxial or arc-bounded closure, and capped by
+/// [`LOCAL_REFINE_MAX_SAMPLES`]. Kill switch `YANG_195_LOCAL=0|off`.
+pub(crate) fn rim_plane_graze_local_rim_overrides(
+    a: &BRep,
+    b: &BRep,
+) -> (
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+) {
+    if matches!(
+        std::env::var("YANG_195_LOCAL").as_deref(),
+        Ok("0") | Ok("off")
+    ) {
+        return Default::default();
+    }
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut per_closure = RimAngleOverrides::default();
+    let (nat_a, nat_b) = (natural_rim_n(a), natural_rim_n(b));
+    for (x, y, side_is_a) in [(a, b, true), (b, a, false)] {
+        let nat = if side_is_a { nat_a } else { nat_b };
+        let planes: Vec<([f64; 3], f64)> = y
+            .faces()
+            .iter()
+            .filter_map(|f| match f.surface {
+                Surface::Plane { normal, d } => Some((normal.as_array(), d)),
+                _ => None,
+            })
+            .collect();
+        if planes.is_empty() {
+            continue;
+        }
+        let mut closure_memo: std::collections::BTreeMap<u32, Option<Vec<u32>>> =
+            Default::default();
+        for (ei, e) in x.edges().iter().enumerate() {
+            // Full-circle rims only — the same vocabulary the rim-N floor
+            // and the §4.3.3 local form speak.
+            let Curve::Circle {
+                center,
+                normal,
+                radius,
+            } = e.curve
+            else {
                 continue;
             };
-            let c = center.as_array();
-            let pts: Vec<Point3> = acc
-                .angles
-                .iter()
-                .map(|&t| {
-                    let (s, co) = t.sin_cos();
-                    Point3::new(
-                        c[0] + radius * (co * e1[0] + s * e2[0]),
-                        c[1] + radius * (co * e1[1] + s * e2[1]),
-                        c[2] + radius * (co * e1[2] + s * e2[2]),
-                    )
-                })
-                .collect();
-            out.entry(ei).or_default().extend(pts);
+            if e.start != e.end {
+                continue;
+            }
+            let (c, n) = (center.as_array(), normalize3(normal.as_array()));
+            for &pl in &planes {
+                let Some(lens) = rim_plane_lens((c, n, radius), pl) else {
+                    continue;
+                };
+                // The body-wide arm owns everything above the render line.
+                if lens.depth > RIM_PLANE_RENDER_LINE * radius {
+                    continue;
+                }
+                let Some(n_seg) = rim_sag_demand(radius, lens.depth) else {
+                    continue;
+                };
+                if n_seg <= nat {
+                    continue; // the natural density already samples the lens
+                }
+                let ei = ei as u32;
+                let rims = closure_memo.entry(ei).or_insert_with(|| {
+                    // Seed from a face that actually carries this rim, so the
+                    // closure is the band the samples must move together.
+                    let seed = x.faces().iter().position(|f| {
+                        f.outer_loop
+                            .iter()
+                            .chain(f.inner_loops.iter().flatten())
+                            .any(|&l| l == ei)
+                    })?;
+                    coaxial_rim_closure(x, seed, c, n)
+                });
+                let Some(rims) = rims.clone().filter(|r| !r.is_empty()) else {
+                    continue;
+                };
+                let step = two_pi / n_seg as f64;
+                let Some(angles) = submerged_arc_samples(lens.apex, lens.half_span, step) else {
+                    continue;
+                };
+                per_closure.commit(side_is_a, rims, canonical_axis(n), angles, step);
+            }
         }
     }
-    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+    let probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
+    if probe && per_closure.is_empty() {
+        eprintln!("[rim-plane-graze] LOCAL no site");
+    }
+    let (out_a, out_b) = per_closure.finish(a, b);
+    if probe {
         eprintln!(
-            "[edge-graze-guard] LOCAL rims_a={} pts_a={} rims_b={} pts_b={}",
+            "[rim-plane-graze] LOCAL rims_a={} pts_a={} rims_b={} pts_b={}",
             out_a.len(),
             out_a.values().map(Vec::len).sum::<usize>(),
             out_b.len(),

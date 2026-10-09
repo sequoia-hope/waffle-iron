@@ -193,7 +193,7 @@ not enough; margin ≥ depth/2 is (F0082: derived N=41, measured green).
 |---|---|
 | `depth ≤ 0` (no crossing / rim in-plane k→0) | None |
 | `0 < depth ≤ noise` (#178-calibrated `max(TAU_MODEL, scale·TAU_WORK)/100`) | authored-coincidence residue → None (flush-assembly rims must not boost) |
-| `noise < depth ≤ 2·10⁻³·r` (render-observability line, single-radius form of #172 §3) | None — sub-render lens, §4.5.2 local-refinement territory (P3d); bounds derived N ≈ 71 |
+| `noise < depth ≤ 2·10⁻³·r` (render-observability line, single-radius form of #172 §3) | None BODY-WIDE — bounds derived N ≈ 71. **Since inc-6 (§5k) this is the LOCAL arm's population**, paid as apex-centred samples on the grazed arc; it was "§4.5.2 local-refinement territory (P3d)" until P0029 landed there |
 | `depth > 2·10⁻³·r`, derived N ≤ both naturals | self-limiting gate drops it → byte-identical |
 | `depth > 2·10⁻³·r`, derived N > natural | **Boost** both operands via `rebuilt_with_min_rim_segments` (same site as Case-IV/III) |
 | derived N > 4096 | None for inc-2 — NO SubSagitta STOP arm yet (unlike #172): the class detonates loudly at the next boolean's (4b) gate when emitted; a producer-side STOP (§3 vehicle 3) needs the plane-face extent witness and is a named follow-up, not silently folded in |
@@ -524,8 +524,140 @@ Three corrections to the §5i reading, all in the honest direction:
   vs a 1.000213e-9 band), and GREEN again with rim-snap on. The two ship
   as ONE flip and must stay on together.
 
+## 5k. inc-6 — the LOCAL form: the sub-render lenses the body-wide floor refuses (2026-10-09, P0029)
+
+§5c's render-observability line sends every lens with
+`noise < depth ≤ 2·10⁻³·r` away with "None — sub-render lens, §4.5.2
+local-refinement territory (P3d)". **P0029 is that territory, and the
+population is not benign.**
+
+### The site, measured
+
+P0029 (seed-3 index 109 un-minimized, op 4's subtract) STOPs at the (4b)
+gate's own `s4-dc-attr` arm — the probe this task opened in §2a — with a
+doubled directed edge `(18,19) fwd=2 rev=2` carrying FOUR triangles, two
+pages: `(A,1)` twice and `(B,0)` + `(B,2)` once each. The census says it
+already exists at `s4-entry`, with both endpoints at exact positions, so
+**this is not a Stage-4 relocation artefact**: the arrangement is reporting
+its input faithfully.
+
+The geometry (`NONMANIFOLD_SITE_PROBE`, then closed form):
+
+- `(B,2)` is the cut cylinder — axis `(0.20220, 0.45582, 0.86680)`,
+  r 24.128865 — and `(B,0)` its bottom cap plane; `(A,1)` is the prism's
+  own bottom cap plane `z = −17.155745`.
+- The cap RIM's signed distance to A's plane spans `s ± r·k` with
+  `s = −12.017439`, `r·k = 12.031989`: it crosses, by **depth 1.4550e-2**
+  — a relative 6.0e-4 of the radius, so ≈ 1/3 of the render line.
+- v18 and v19 reproduce the two closed-form crossings to 1.5e-13. They are
+  the exact {A-plane, B-cap-plane, B-cylinder} triple corners, already
+  seated by the junction machinery, and they are ADJACENT rim samples
+  (0.0984 rad apart; the natural N is 9).
+
+**That adjacency is the defect.** A straight segment between two points
+that each lie in BOTH planes lies in both planes. So the rim's chord
+between them is exactly the A-plane ∩ B-cap-plane line — the chord polyline
+does not dip past A's plane as the exact rim does (by 1.455e-2 over that
+arc); it runs ALONG it. The tessellated B therefore TOUCHES A's cap plane
+along a segment instead of crossing it, three sheets share that segment,
+and the exact arrangement correctly reports a 4-triangle edge.
+
+The lens is REAL, not an authoring artefact: the sliver the exact solids
+trade on A's cap is 2.3725 × 3.3662e-2 (area 5.3e-2), some 3.4e4 ×
+`MIN_FEATURE_SIZE`, and the exact result is an ordinary manifold solid with
+a shallow notch. So the STOP is a capability gap, not a loud-by-design
+wall — unlike P0026's minted tangency.
+
+### Why not the body-wide floor
+
+The demand is real and the body-wide arm computes it correctly: `sag(r,N) ≤
+depth/2` gives **N = 128** against a natural 9. Measured by lowering the
+render line (experiment, reverted): P0029 ⇒ SUPPORTED_CORRECT. But that is
+the floor the corpus has refused twice — §5h's R0021 false positive
+(forced N degenerates an unrelated thin-strip render ring) and the §4.3.3
+global form's 10.8× triangle explosion on three already-CORRECT gear cases
+— and it costs both operands every rim. Its own refined output carried
+**improper=80**.
+
+### The remedy: pay the same demand locally
+
+A new `rim_plane_graze_local_rim_overrides`, the twin of §4.3.3's
+`edge_graze_local_rim_overrides`, spends the demand as extra rim SAMPLES on
+the grazed arc of the demanding rim's own coaxial closure. Scope is the
+**complement** of the body-wide arm's — only `depth ≤ RIM_PLANE_RENDER_LINE
+· r` — so every case that converts on the rim-N floor today is
+byte-identical. Self-limiting (a demand the owner's natural N already meets
+derives nothing), fail-closed on a non-coaxial or arc-bounded closure,
+capped by `LOCAL_REFINE_MAX_SAMPLES`, and it rides the refinement pass only,
+like the body-wide arm: pass 1 never boosts.
+
+The sample set is **apex-centred and excludes the crossings**:
+`{apex + j·step : |j|·step < half_span}`, `step = 2π/N`. Three points for
+P0029; refined output **improper=1**, against the floor's 80.
+
+Two derivations behind that shape:
+
+1. *The apex alone carries the topology.* It stands the full `depth` clear
+   of the plane while its neighbours — uniform samples outside the arc —
+   stand on the other side, so the polyline crosses TWICE, once each side,
+   exactly as the exact rim does. The outward samples bound the chord error
+   over the rest of the arc at `step`'s own sagitta, which is what keeps
+   the mesh inside the band Stage 4 relocates within. (A sample within
+   `step/2` of the apex is submerged by at least `depth/2`:
+   `R(1−cos δ) ≤ r(1−cos(π/N)) = sag ≤ depth/2` since `R = r·k ≤ r`.)
+2. *The crossings must NOT be re-minted.* They are the §4.3.3 generator's
+   and the rim-junction scan's to mint, and those mint them on the grazing
+   rim ALONE. Emitting them here made one rim of a closure dedup a mint
+   bit-for-bit where its partner did not, and the band merge — which pairs
+   the two rings POSITIONALLY — refused the operand:
+   `face 2: azimuth-merge rims have mismatched / too-few samples (21 vs 22)`.
+   That was P0029's first wiring, measured. Apex-centred sampling is
+   symmetric about the apex, so every rim of a closure receives the
+   identical azimuth set and the rings stay equal (22 vs 22).
+
+The arm also gets its own ARMING predicate in `boolean()`: a sub-render
+graze derives no body-wide `n`, so `graze` is `None` for exactly this
+population and the detect-then-refine wrapper would never run.
+
+### Shared geometry, so the two arms cannot drift
+
+`rim_plane_lens` now owns the pair geometry (depth, noise line, and the
+submerged arc's `apex` / `half_span`) and `rim_sag_demand` the demand;
+`rim_plane_graze_n` is those two plus the render line. `RimAngleOverrides`
+(extracted from §4.3.3's local form, move-only) owns the per-closure
+accumulate/dedup/emit tail both local arms share.
+
+### Measured
+
+- **P0029 ⇒ SUPPORTED_CORRECT.** `YANG_195_LOCAL=off` restores the STOP, so
+  the flip is attributable to this rule alone.
+- **Generality, not one case.** A 60-fixture sweep of the family (a square
+  prism cut by a tilted cylinder whose cap rim grazes the prism's bottom
+  cap; 3 radii × 5 sub-render lens depths × 5 tilts): **every one of the 60
+  STOPs at the natural density; 53 build with the rule on.** The residual 7
+  all sit on the two steepest tilts (`n̂_z = 0.87`) and STOP at a DIFFERENT
+  Stage-4 site — `YANG_LRR_STOP site=split_cycle`,
+  `stage4_correct.rs:14628`, `LocalRefinementRequired` — i.e. the arm
+  removes the doubled edge there too and a second wall is behind it. That
+  is a named follow-up, not part of this increment.
+- Pins: `tests_unit/s195_rim_plane_graze.rs` (four new, incl. a swept
+  family invariant over radius × depth × tilt), kernel-v2
+  `tests/s195_rim_plane_local_graze.rs` (mutation-checked RED with the knob
+  off), smoke pin `P0029 → SupportedCorrect`.
+- Corpus: see §6.
+
 ## 6. Ledger
 
+- 2026-10-09 **inc-6 SHIPPED, always-on** (§5k, kill switch
+  `YANG_195_LOCAL=0|off`). The arm's sub-render lenses — which §5c sent to
+  "§4.5.2 territory" — are now paid LOCALLY, as apex-centred samples on the
+  grazed arc of the rim's own coaxial closure, instead of the body-wide
+  rim-N floor the corpus has twice refused. P0029's `s4-dc-attr` doubled
+  edge was a 1.455e-2 lens on a 24.13 radius whose two exact triple
+  corners were already ADJACENT rim samples, so the chord between them lay
+  in both planes and the crossing arrived as a line contact. **P0029 ⇒
+  CORRECT; 53 of a 60-fixture family sweep convert (all 60 RED before);**
+  residual 7 STOP at `split_cycle`, a different site.
 - 2026-07-28 **inc-5 SHIPPED — GATE REMOVED, always-on** (§5j).
   `YANG_RIM_PLANE_GRAZE_ENABLE` deleted from `boolean()`, paired with the
   removal of `YANG_S4_RIM_SNAP_ENABLE` in the same commit (the arm depends

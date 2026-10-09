@@ -1877,8 +1877,22 @@ fn smoke_corpus_boundary_categories() {
         // curve-change junction test read the paper default. Victim
         // selection now ranks the pair by incidence (a ≥3-surface vertex is
         // never the victim). Index 98 (the duplicate) builds as well.
+        //
+        // P0029 CONVERTED 2026-10-09 (spec
+        // `yang_195_seal_neighborhood_self_overlap` §5k): the doubled edge was
+        // the cut cylinder's bottom cap RIM grazing the prism's own bottom cap
+        // plane by 1.455e-2 on a radius of 24.13. Both exact
+        // {plane, cap-plane, cylinder} crossings were already seated as
+        // ADJACENT rim vertices, and a straight edge between two points that
+        // each lie in BOTH planes lies in both planes — so the chord polyline
+        // ran ALONG the plane instead of dipping past it, and three sheets
+        // shared one segment. The #195 rim×plane arm had refused the site: its
+        // body-wide rim-N floor would be 128 against a natural 9, below the
+        // render-observability line. The arm now pays sub-render demands
+        // LOCALLY instead — an apex sample and its neighbours on the grazed
+        // arc of the rim's own closure, three points here.
         ("P0028", Category::SupportedCorrect),
-        ("P0029", Category::Error),
+        ("P0029", Category::SupportedCorrect),
         ("P0030", Category::Error),
         // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output
         // gate, on two different SURFACE PAIRS. P0031 is FaceId(32) CYLINDER ×

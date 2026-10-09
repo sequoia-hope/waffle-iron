@@ -43,6 +43,67 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-09 — P0029 CONVERTED: the grazing rim's chord lay IN the plane it was supposed to cross
+
+**Diagnosis (`NONMANIFOLD_SITE_PROBE` `s4-dc-attr`, `YANG_NM_EDGE_PROBE`'s
+`s4-entry` census, `YANG_SPLIT_PROBE`, `YANG_REFINE_PROBE`, then closed
+form).** The doubled directed edge `(18,19) fwd=2 rev=2` carried FOUR
+triangles in two pages — `(A,1)` twice (the prism's bottom cap plane
+`z = −17.155745`, on BOTH sides) and `(B,0)` + `(B,2)` once each (the cut
+cylinder's bottom cap plane and its lateral). **The census finds it already
+at `s4-entry`, both endpoints exact: not a Stage-4 relocation artefact —
+the arrangement is reporting its input faithfully.**
+
+The input: the cut cylinder's bottom cap RIM (axis
+`(0.20220, 0.45582, 0.86680)`, r 24.128865) crosses A's bottom cap plane by
+**1.4550e-2** — the signed-distance span is `−12.017439 ± 12.031989` — a
+relative 6.0e-4, about a third of the #195 arm's render-observability line.
+v18/v19 reproduce the two closed-form crossings to 1.5e-13: they are the
+exact {A-plane, B-cap-plane, B-cylinder} triple corners, already seated by
+the junction machinery, and **ADJACENT rim samples** (0.0984 rad apart at a
+natural N of 9). A straight segment between two points that each lie in
+BOTH planes lies in both planes — so the rim's chord between them IS the
+plane∩plane line: the polyline runs ALONG A's cap plane instead of dipping
+1.455e-2 past it, the tessellated B touches A's cap along a segment instead
+of crossing it, and three sheets share one edge. The sliver the exact
+solids trade there is 2.3725 × 3.3662e-2 (3.4e4 × `MIN_FEATURE_SIZE`) and
+the exact result is an ordinary manifold solid with a shallow notch, so the
+STOP is a capability gap, not P0026's loud-by-design tangency.
+
+**Fix (spec `yang_195_seal_neighborhood_self_overlap` §5k, inc-6).** The
+#195 rim×plane arm computed the demand correctly — `sag(r,N) ≤ depth/2`
+⇒ **N = 128** against a natural 9 — and refused it at the render line,
+because a body-wide rim-N floor is what the corpus has twice rejected
+(§5h's R0021; the §4.3.3 global form's 10.8× triangle explosion). Lowering
+the line converts P0029 (measured) but its refined output carries
+improper=80. So the demand is now paid LOCALLY, in the complement of the
+body-wide arm's scope: `rim_plane_graze_local_rim_overrides` spends it as
+apex-centred samples `{apex + j·step : |j|·step < half_span}` on the grazed
+arc of the demanding rim's own coaxial closure — THREE points for P0029,
+refined output improper=1. The crossings are deliberately not re-minted:
+emitting them made one rim of a closure dedup a §4.3.3 generator mint
+bit-for-bit where its partner did not, and the positional band merge
+refused the operand (`azimuth-merge rims have mismatched / too-few samples
+(21 vs 22)` — P0029's first wiring). Knob `YANG_195_LOCAL=0|off`.
+
+**Measured.** P0029 ⇒ SUPPORTED_CORRECT (1.5 s); the knob off restores the
+STOP. **Generality: a 60-fixture sweep of the family (prism cut by a tilted
+cylinder whose cap rim grazes the prism's bottom cap; 3 radii × 5
+sub-render depths × 5 tilts) is RED on all 60 at the natural density and
+builds 53 with the rule on.** The residual 7 are all on the two steepest
+tilts and STOP at a DIFFERENT site — `YANG_LRR_STOP site=split_cycle`,
+`stage4_correct.rs:14628`, `LocalRefinementRequired` — so the arm removes
+the doubled edge there too and a second wall is behind it. **That residual
+is a NAMED FOLLOW-UP with a live reproducer**, not part of this conversion:
+kernel-v2 `tests/s195_rim_plane_local_graze.rs`
+`a_steeply_tilted_grazing_rim_still_stops_at_split_cycle`, `#[ignore]`-tagged
+with that site — un-quarantine it in the commit that lands the wall. Pins: yang-rs
+`tests_unit/s195_rim_plane_graze.rs` (four new, incl. a swept family
+invariant over radius × depth × tilt), kernel-v2
+`tests/s195_rim_plane_local_graze.rs` (mutation-checked RED with the knob
+off), smoke pin `P0029 → SupportedCorrect`. Corpus: see the roadmap refresh
+blockquote of the same date.
+
 ## 2026-10-08 (night) — P0028 CONVERTED: the §4.5.3 sweep removed the corner instead of the chord vertex that overshot it
 
 **Diagnosis (`NONMANIFOLD_SITE_PROBE`, `YANG_S6_NONPLANAR_PROBE` +
@@ -297,7 +358,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | **P0026** | #54, min 5→3 `circle:boss circle:cut convex4:cut` | 3 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13065` — the `surface_pair_endpoint_mix` decline | ERROR 0.8 s — **ADJUDICATED 2026-10-08 (later): a MINTED exact tangency** (depth = centre height = radius = 3.0; the cap is tangent to the cut cylinder, the exact result is two lobes joined along a line, non-2-manifold); loud by design for the document as authored, not P0027's finding |
 | ~~**P0027**~~ | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ~~ERROR 5.2 s~~ **CONVERTED 2026-10-08 (later)** → SUPPORTED_CORRECT 1.1 s (the two "plane-pair lines" were two cylinders' GENERATORS in one plane — the {plane, cyl_A, cyl_B} corner; line-pair admission to the triple block) |
 | ~~**P0028**~~ | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ~~ERROR 0.2 s~~ **CONVERTED 2026-10-08 (night)** → SUPPORTED_CORRECT (the §4.5.3 sweep had collapsed the three-surface corner into the chord vertex that overshot it; victim selection now ranks by incidence — spec `yang_453_junction_protected_collapse` §3d; see the 2026-10-08 (night) section) |
-| **P0029** | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ERROR 1.4 s |
+| ~~**P0029**~~ | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ~~ERROR 1.4 s~~ **CONVERTED 2026-10-09** → SUPPORTED_CORRECT (a sub-render rim×plane graze whose two exact triple corners were ADJACENT rim samples, so the chord between them lay in both planes; the #195 arm now pays sub-render demands locally — spec `yang_195_seal_neighborhood_self_overlap` §5k; see the 2026-10-09 section) |
 | **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |
 | **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
 | **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |

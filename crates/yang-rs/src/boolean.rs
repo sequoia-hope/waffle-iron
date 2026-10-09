@@ -1003,6 +1003,13 @@ pub fn boolean(
     // always-on scan pushed CORRECT large cases F0090/R0019/R0081 over the
     // assay budget — the scan must ride the graze gate).
     let graze = rim_plane_graze_min_segments(a, b);
+    // The arm's LOCAL form has its own arming predicate: a sub-render-line
+    // graze derives no body-wide `n`, so `graze` is `None` for exactly the
+    // population §5k converts (P0029). Arm on either.
+    let graze_local_present = graze.is_none() && {
+        let (ma, mb) = rim_plane_graze_local_rim_overrides(a, b);
+        !(ma.is_empty() && mb.is_empty())
+    };
     // An INPUT-side non-manifold error is not a §4.5.4 self-intersection the
     // rim boost can address — non-manifoldness is topological, not a
     // resolution deficit — so refining it is a provably futile second full
@@ -1010,7 +1017,9 @@ pub fn boolean(
     // error is an OUTPUT-side failure (LocalRefinementRequired,
     // NonManifoldOutput, χ mismatch, …) that the refinement legitimately
     // attempts (measured R0072: LRR → Ok).
-    if graze.is_some() && !matches!(&natural, Err(YangError::NonManifoldInput)) {
+    if (graze.is_some() || graze_local_present)
+        && !matches!(&natural, Err(YangError::NonManifoldInput))
+    {
         // `Some(n)` = natural emitted a body with n self-intersections (n>0 ⇒
         // broken); `None` = natural was a hard error (the strongest "broken").
         let natural_selfx: Option<usize> = match &natural {
@@ -1024,12 +1033,21 @@ pub fn boolean(
                 (Err(e), _) => format!("Err({e:?})"),
                 _ => unreachable!(),
             };
-            eprintln!("[refine] op={op:?} natural={nat} broken={natural_broken} graze={graze:?}");
+            eprintln!(
+                "[refine] op={op:?} natural={nat} broken={natural_broken} graze={graze:?} \
+                 graze_local={graze_local_present}"
+            );
         }
         // Refine when the natural output is broken (the graze is already
         // confirmed present above).
         if natural_broken {
-            if let Ok(refined) = boolean_once(a, b, op, backend, true) {
+            let attempt = boolean_once(a, b, op, backend, true);
+            if probe {
+                if let Err(e) = &attempt {
+                    eprintln!("[refine]   refined=Err({e:?})");
+                }
+            }
+            if let Ok(refined) = attempt {
                 let refined_improper = output_improper_count(&refined);
                 // Adopt the refinement unless it is WORSE than natural:
                 //  - natural was a hard error  ⇒ any emitted body is better;
@@ -1056,8 +1074,6 @@ pub fn boolean(
                 if accept {
                     return Ok(refined);
                 }
-            } else if probe {
-                eprintln!("[refine]   refined=Err");
             }
             // Refinement did not improve on natural (or errored): fall
             // through to the §4.5.2 ladder, then to natural — never worse.
@@ -1245,6 +1261,44 @@ fn boolean_once(
     };
     let (a, b): (&BRep, &BRep) = match &boosted {
         Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
+    // #195 rim×plane arm, LOCAL form (spec
+    // `yang_195_seal_neighborhood_self_overlap` §5k): the grazes BELOW the
+    // render-observability line, which the body-wide floor above refuses.
+    // A sub-sagitta rim×plane crossing reaches the arrangement as a
+    // TANGENTIAL line contact — the chord between the two exact crossings
+    // lies in both planes by construction — so the rim's two faces and the
+    // partner plane share one segment and the gate reports a doubled edge
+    // (measured P0029). The demand is spent as extra samples on the grazed
+    // arc of the rim's own closure (THREE points there), never as the
+    // rim-N floor of 128 both operands would otherwise pay. Rides the
+    // refinement pass only, like the body-wide arm: pass 1 never boosts, so
+    // a shallow crossing that produces no defect is left alone.
+    let rim_plane_local: Option<(BRep, BRep)> = if refine_rim_plane {
+        let (ma, mb) = rim_plane_graze_local_rim_overrides(a, b);
+        if ma.is_empty() && mb.is_empty() {
+            None
+        } else {
+            Some((
+                if ma.is_empty() {
+                    a.clone()
+                } else {
+                    a.rebuilt_with_rim_overrides(&ma)?
+                },
+                if mb.is_empty() {
+                    b.clone()
+                } else {
+                    b.rebuilt_with_rim_overrides(&mb)?
+                },
+            ))
+        }
+    } else {
+        None
+    };
+    let (a, b): (&BRep, &BRep) = match &rim_plane_local {
+        Some((ga, gb)) => (ga, gb),
         None => (a, b),
     };
 
