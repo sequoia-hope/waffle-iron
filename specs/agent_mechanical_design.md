@@ -3022,8 +3022,26 @@ through a local relay and a headless page, oracles by closed form (87/0 on
    address by `profile_entity_ids`. S3 did not cause this; it made sketch
    editing routine, which brought a latent gap into reach.
 
-   The fix is to put the agent on the identity-resolved path, and it is a
-   profile-addressing increment, not a tolerance.
+   **FIXED 2026-10-09 — in the identity, not in the plumbing.** Putting the
+   agent on the region path, which this note proposed, would not have fixed it:
+   `resolve_region_by_identity` compared boundary sets for EQUALITY too, so a
+   fillet lost the region there as well, and the caller's fallback is the stored
+   POLYGON — the extrude would have gone on quietly building the unrounded plate
+   with a warning, which is worse than the refusal. The defect is the rule, in
+   both places: an equal set is not what identifies a loop, because an edit that
+   ADDS to a loop leaves the same region. Both now resolve a stored set to the
+   one loop that CONTAINS it, and both still refuse when a named entity is GONE
+   (what remains may bound a larger region nobody asked for) or when two loops
+   qualify. A containment match also WARNS, naming both sets, which answers the
+   one thing the old rule was right about — `a_subset_of_a_loop_does_not_match`
+   existed on purpose — because a caller that named a strict subset by mistake
+   now learns it from a warning instead of from the shape. The contract is
+   v4 §2.9; `crates/test-harness/tests/
+   agent_sketch_edit_survival.rs` drives it through the real tools against
+   kernel-v2 and reads the plate's volume, so a rule that re-pointed the
+   extrude at some other loop would fail it rather than pass a "no error"
+   check. It also pins the other half: a `RemoveEntity` on a named boundary
+   entity stays loud.
 
 Not done here, and not blocking S4: the UI does not call `sketch_edit` (it has
 `ApplySketchOps` with the live sketch, which is the right message for an

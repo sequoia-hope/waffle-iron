@@ -260,6 +260,35 @@ has not run the solver can now say "the loop made of entities 3,4,5,6" —
 `Region.profile_entity_ids` already uses this identity. Resolution failure
 (no such loop, or two loops with the same set) is a loud per-feature error.
 
+**A loop that GREW still carries the identity** (2026-10-09). Failing an equal
+set, the profile is the ONE loop whose set CONTAINS the stored one. A sketch
+edit that adds geometry to a loop does not make a different region: a fillet
+turns `{5,6,7,8}` into `{5,6,12,7,8}`, and under the equal-sets rule alone the
+extrude standing on that loop failed `ProfileNotFound` and the edit rolled back
+— measured through the agent's own tools, where `profile_entity_ids` is the
+only addressing offered, so an agent could author a plate and could round its
+corner but not both. SHRINKAGE is not re-pointed: a named entity that no longer
+exists means the author's loop is gone, and what remains may bound a larger
+region nobody asked for, so that stays the loud error. Two loops containing the
+set is `ProfileAmbiguous`, equally loud — growth is an identity only when it is
+unique.
+
+A containment match WARNS, naming both sets; an equal match is silent, because
+nothing drifted. That is what keeps the rule honest in the other direction: a
+writer that names a strict subset by mistake — three edges of a square,
+believing in a loop that does not exist — gets the loop containing everything
+it named and is told so, instead of discovering it from the shape. The warning
+is the whole difference between this and a tolerance: the same answer reached
+by containment rather than by equality is not the same claim.
+
+`Region.boundary_entity_ids` re-resolution follows the same rule
+(`waffle_types::resolve_region_by_identity`), because the two addressings are
+one identity and must not disagree about whether an edit preserved it. It
+differs in one way: where several regions qualify it keeps its centroid
+tie-break instead of refusing, since a stored region carries its polygon (a
+second question to ask) and a holed region's boundary legitimately contains its
+hole's.
+
 ### 2.10 Sketch `solve_status` becomes optional
 
 `#[serde(default)]` with a new variant `Unsolved` as the default. A sketch

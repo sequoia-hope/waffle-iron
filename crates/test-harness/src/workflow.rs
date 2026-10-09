@@ -1487,6 +1487,38 @@ impl ModelBuilder {
         self.kernel.as_mut()
     }
 
+    /// Call an AGENT TOOL against this model — the same `execute_tool` entry
+    /// the MCP relay reaches, with this builder's state and kernel.
+    ///
+    /// It exists because `&mut self.state` and `self.kernel_mut()` cannot both
+    /// be borrowed from outside; the split happens here. The S4 corpus drives
+    /// the tools with a `MockKernel`, which answers about the solver but not
+    /// about the solid — so a tool-level defect that only shows up in geometry
+    /// (an extrude that stops matching its profile after a sketch edit) needs
+    /// the real kernel on the other side of the door.
+    pub fn agent_tool(
+        &mut self,
+        name: &str,
+        args: serde_json::Value,
+    ) -> wasm_bridge::tools::ToolResult {
+        let context = serde_json::json!({ "agent_name": "test-harness" });
+        wasm_bridge::execute_tool(
+            &mut self.state,
+            self.kernel.as_mut(),
+            name,
+            &args,
+            Some(&context),
+        )
+    }
+
+    /// Give a builder name to a feature this builder did not create — the
+    /// companion to [`Self::agent_tool`], whose features arrive as a uuid in a
+    /// tool's answer rather than as the last feature of a dispatch.
+    pub fn name_feature_by_id(&mut self, name: &str, feature_id: &str) {
+        let id: Uuid = feature_id.parse().expect("a feature uuid");
+        self.named_features.insert(name.to_string(), id);
+    }
+
     /// Get engine errors.
     pub fn engine_errors(&self) -> &[(Uuid, String)] {
         &self.state.engine.errors

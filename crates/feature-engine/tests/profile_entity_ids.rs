@@ -193,10 +193,41 @@ fn a_set_no_loop_matches_is_a_loud_error_even_with_a_valid_index() {
 }
 
 #[test]
-fn a_subset_of_a_loop_does_not_match() {
-    // Set equality, not containment: three of the four edges is not the loop.
+fn a_subset_of_a_loop_resolves_to_that_loop_and_says_so() {
+    // This test asserted the opposite until 2026-10-09 ("set equality, not
+    // containment: three of the four edges is not the loop"). Equality turned
+    // out not to be what identifies a loop: an edit that ADDS to a loop — a
+    // fillet making `{10,11,12,13}` into `{10,11,14,12,13}` — leaves the same
+    // region, and refusing there broke every feature standing on an edited
+    // sketch (v4 §2.9; measured through the agent's tools, which have no other
+    // way to name a profile).
+    //
+    // So three of the four edges now resolves to the one loop that contains
+    // them — and the rebuild WARNS, naming both sets. That is what keeps the
+    // rule honest in this direction: a caller that named a strict subset by
+    // mistake is told what it got instead of discovering it from the shape.
     let (engine, id) = run(two_square_sketch(), |s| {
         extrude(s, 0, Some(vec![10, 11, 12]))
+    });
+    assert_eq!(error_for(&engine, id), None, "{:?}", engine.errors);
+    assert!(engine.feature_results.contains_key(&id));
+    let said = engine
+        .warnings
+        .iter()
+        .any(|w| w.contains("[10, 11, 12]") && w.contains("[10, 11, 12, 13]"));
+    assert!(
+        said,
+        "the re-resolution must be reported, got {:?}",
+        engine.warnings
+    );
+}
+
+#[test]
+fn a_set_whose_entity_no_loop_bounds_is_still_not_found() {
+    // The "no such loop" case, now that a subset names one: an id that bounds
+    // nothing in the sketch.
+    let (engine, id) = run(two_square_sketch(), |s| {
+        extrude(s, 0, Some(vec![10, 11, 99]))
     });
     let msg = error_for(&engine, id).expect("feature error");
     assert!(msg.contains("no profile is bounded by"), "{msg}");

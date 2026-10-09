@@ -823,6 +823,7 @@ pub(crate) fn execute_feature(
                 sketch,
                 params.profile_index,
                 params.profile_entity_ids.as_deref(),
+                &mut warnings_regions,
             )?;
 
             // Normalize the boolean-combine choice once (Constitution §7) and
@@ -1187,10 +1188,15 @@ pub(crate) fn execute_feature(
             })?;
             let sketch = &sketch_expanded;
 
+            // Carried into the feature's diagnostics beside the combine's own
+            // warnings below: a profile re-resolved after a sketch edit has to
+            // reach the user on a revolve exactly as it does on an extrude.
+            let mut profile_warnings: Vec<String> = Vec::new();
             let profile_index = resolve_profile_index(
                 sketch,
                 params.profile_index,
                 params.profile_entity_ids.as_deref(),
+                &mut profile_warnings,
             )?;
 
             let x_axis = sketch_x_axis(sketch);
@@ -1221,7 +1227,7 @@ pub(crate) fn execute_feature(
 
             // Dispatch the boolean combine (same model as extrude, spec §4).
             let eff = crate::types::normalize_revolve_combine(params);
-            let mut combine_warnings: Vec<String> = Vec::new();
+            let mut combine_warnings: Vec<String> = std::mem::take(&mut profile_warnings);
             let combine_targets = match eff.mode {
                 CombineMode::NewBody => Vec::new(),
                 _ => match &eff.targets {
@@ -2552,6 +2558,7 @@ fn resolve_sweep_section(
         sketch,
         params.profile_index,
         params.profile_entity_ids.as_deref(),
+        warnings,
     )?;
     let profile = &sketch.solved_profiles[index];
     let curved = if profile.circle.is_some() {
@@ -2697,40 +2704,99 @@ fn resolve_sweep_path(
 
 /// The solved profile an extrude/revolve addresses (v4 §2.9,
 /// `specs/waffle_v4_document_model.md`): by entity-id set when
-/// `profile_entity_ids` is present — order-insensitive, exactly one loop
-/// must match — else by `profile_index`, range-checked.
+/// `profile_entity_ids` is present — order-insensitive, exactly one loop must
+/// match — else by `profile_index`, range-checked.
+///
+/// **A loop that GREW still carries the identity** (2026-10-09). An equal set
+/// is tried first; failing that, the one loop whose set CONTAINS the stored one
+/// is it. A sketch edit that adds geometry to a loop — a fillet turning
+/// `{5,6,7,8}` into `{5,6,12,7,8}`, a split adding a vertex — does not make a
+/// different region, and `profile_entity_ids` is the only addressing an agent
+/// is offered (`sketch_create` and `sketch_regions` answer with it), so under
+/// the equal-sets rule alone an agent could author a plate and could round its
+/// corner, but not both: the extrude failed `ProfileNotFound` and the edit
+/// rolled back. Measured through the tools, 2026-10-08.
+///
+/// SHRINKAGE is not re-pointed. A named entity that no longer exists means the
+/// author's loop is gone — what remains may bound some larger region that was
+/// never asked for — so it stays the loud error it is today. Two loops
+/// containing the set is `ProfileAmbiguous`, equally loud: growth is only an
+/// identity when it is unique.
+///
+/// A containment match pushes a WARNING naming both sets, which is what keeps
+/// the rule honest in the other direction: a caller that names a strict subset
+/// by MISTAKE — three edges of a square, believing in a loop that does not
+/// exist — gets the loop that contains everything it named, and is told that is
+/// what happened, rather than finding out from the shape. (The equal-set match
+/// is silent: nothing drifted.) `resolve_extrude_regions` reports its own
+/// re-resolution the same way.
 pub(crate) fn resolve_profile_index(
     sketch: &Sketch,
     profile_index: usize,
     profile_entity_ids: Option<&[u32]>,
+    warnings: &mut Vec<String>,
 ) -> Result<usize, EngineError> {
     let count = sketch.solved_profiles.len();
     if let Some(ids) = profile_entity_ids {
         let want: std::collections::BTreeSet<u32> = ids.iter().copied().collect();
-        let matches: Vec<usize> = sketch
+        let not_found = || EngineError::ProfileNotFound {
+            entity_ids: ids.to_vec(),
+            count,
+        };
+        // The empty set names no loop (a profile always has ≥ 1 entity), and is
+        // a subset of every one of them — so it has to be refused before the
+        // containment pass, not by it.
+        if want.is_empty() {
+            return Err(not_found());
+        }
+        let sets: Vec<std::collections::BTreeSet<u32>> = sketch
             .solved_profiles
             .iter()
+            .map(|p| p.entity_ids.iter().copied().collect())
+            .collect();
+        let equal: Vec<usize> = sets
+            .iter()
             .enumerate()
-            .filter(|(_, p)| {
-                p.entity_ids
-                    .iter()
-                    .copied()
-                    .collect::<std::collections::BTreeSet<u32>>()
-                    == want
-            })
+            .filter(|(_, s)| **s == want)
             .map(|(i, _)| i)
             .collect();
-        return match matches.as_slice() {
-            [only] => Ok(*only),
-            [] => Err(EngineError::ProfileNotFound {
-                entity_ids: ids.to_vec(),
-                count,
-            }),
-            many => Err(EngineError::ProfileAmbiguous {
-                entity_ids: ids.to_vec(),
-                matches: many.len(),
-            }),
-        };
+        let grown: Vec<usize> = sets
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| want.is_subset(s))
+            .map(|(i, _)| i)
+            .collect();
+        for (tier, grew) in [(equal, false), (grown, true)] {
+            match tier.as_slice() {
+                [only] => {
+                    if grew {
+                        warnings.push(format!(
+                            "profile [{}] is no longer a loop of its own; using the loop [{}], \
+                             which contains it (the sketch was edited)",
+                            ids.iter()
+                                .map(u32::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            sketch.solved_profiles[*only]
+                                .entity_ids
+                                .iter()
+                                .map(u32::to_string)
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                        ));
+                    }
+                    return Ok(*only);
+                }
+                [] => continue,
+                many => {
+                    return Err(EngineError::ProfileAmbiguous {
+                        entity_ids: ids.to_vec(),
+                        matches: many.len(),
+                    })
+                }
+            }
+        }
+        return Err(not_found());
     }
     if profile_index >= count {
         return Err(EngineError::ProfileOutOfRange {
@@ -2815,7 +2881,12 @@ fn resolve_share_a_face(
     };
     let mut sketch = sketch;
     sketch.recompute_derived(); // no-op if already populated
-    let Ok(profile_index) = resolve_profile_index(&sketch, profile_index, profile_entity_ids)
+                                // This is the consumption PRE-PASS, not the build: it answers "which bodies
+                                // would this feature touch". Its warnings are dropped because the execute
+                                // path resolves the same profile a moment later and reports them there —
+                                // keeping them here would say everything twice.
+    let Ok(profile_index) =
+        resolve_profile_index(&sketch, profile_index, profile_entity_ids, &mut Vec::new())
     else {
         return Vec::new();
     };
@@ -5094,26 +5165,38 @@ mod profile_addressing_tests {
             profile(&[4, 5, 6, 8]),
         ]);
         assert_eq!(
-            resolve_profile_index(&s, 0, Some(&[8, 6, 4, 5])).unwrap(),
+            resolve_profile_index(&s, 0, Some(&[8, 6, 4, 5]), &mut Vec::new()).unwrap(),
             2
         );
-        assert_eq!(resolve_profile_index(&s, 0, Some(&[7])).unwrap(), 1);
-        assert_eq!(resolve_profile_index(&s, 99, Some(&[3, 1, 2])).unwrap(), 0);
+        assert_eq!(
+            resolve_profile_index(&s, 0, Some(&[7]), &mut Vec::new()).unwrap(),
+            1
+        );
+        assert_eq!(
+            resolve_profile_index(&s, 99, Some(&[3, 1, 2]), &mut Vec::new()).unwrap(),
+            0
+        );
         // Duplicates in the request collapse to the set.
-        assert_eq!(resolve_profile_index(&s, 0, Some(&[7, 7])).unwrap(), 1);
+        assert_eq!(
+            resolve_profile_index(&s, 0, Some(&[7, 7]), &mut Vec::new()).unwrap(),
+            1
+        );
     }
 
     #[test]
     fn index_path_is_unchanged() {
         let s = sketch(vec![profile(&[1, 2, 3]), profile(&[7])]);
-        assert_eq!(resolve_profile_index(&s, 1, None).unwrap(), 1);
+        assert_eq!(
+            resolve_profile_index(&s, 1, None, &mut Vec::new()).unwrap(),
+            1
+        );
         assert!(matches!(
-            resolve_profile_index(&s, 2, None),
+            resolve_profile_index(&s, 2, None, &mut Vec::new()),
             Err(EngineError::ProfileOutOfRange { index: 2, count: 2 })
         ));
         let empty = sketch(vec![]);
         assert!(matches!(
-            resolve_profile_index(&empty, 0, None),
+            resolve_profile_index(&empty, 0, None, &mut Vec::new()),
             Err(EngineError::ProfileOutOfRange { index: 0, count: 0 })
         ));
     }
@@ -5121,18 +5204,78 @@ mod profile_addressing_tests {
     #[test]
     fn missing_and_ambiguous_sets_are_typed_errors() {
         let s = sketch(vec![profile(&[1, 2, 3]), profile(&[3, 2, 1])]);
+        // A set with an entity no loop bounds names no loop. (A SUBSET of a
+        // loop does name one — see the growth tests below — so the "missing"
+        // case has to name something genuinely absent.)
         assert!(matches!(
-            resolve_profile_index(&s, 0, Some(&[1, 2])),
-            Err(EngineError::ProfileNotFound { ref entity_ids, count: 2 }) if entity_ids == &[1, 2]
+            resolve_profile_index(&s, 0, Some(&[1, 99]), &mut Vec::new()),
+            Err(EngineError::ProfileNotFound { ref entity_ids, count: 2 }) if entity_ids == &[1, 99]
         ));
         assert!(matches!(
-            resolve_profile_index(&s, 0, Some(&[1, 2, 3])),
+            resolve_profile_index(&s, 0, Some(&[1, 2, 3]), &mut Vec::new()),
             Err(EngineError::ProfileAmbiguous { matches: 2, .. })
         ));
-        // An empty set names no loop (a profile always has ≥1 entity).
+        // Two loops both CONTAIN {1,2}: equally ambiguous, and never a silent
+        // pick of the first.
         assert!(matches!(
-            resolve_profile_index(&s, 0, Some(&[])),
+            resolve_profile_index(&s, 0, Some(&[1, 2]), &mut Vec::new()),
+            Err(EngineError::ProfileAmbiguous { matches: 2, .. })
+        ));
+        // An empty set names no loop (a profile always has ≥1 entity) — and it
+        // is a subset of every loop, so it must be refused before the
+        // containment pass rather than by it.
+        assert!(matches!(
+            resolve_profile_index(&s, 0, Some(&[]), &mut Vec::new()),
             Err(EngineError::ProfileNotFound { .. })
+        ));
+    }
+
+    /// A loop that GREW keeps the reference: the fillet case, measured through
+    /// the agent's tools (`specs/agent_mechanical_design.md` §10.3).
+    #[test]
+    fn a_loop_that_grew_still_answers_to_the_stored_set() {
+        // The rectangle {5,6,7,8} after a fillet at the corner between 6 and 7:
+        // the arc 12 joins the loop, and a bore circle sits inside it.
+        let s = sketch(vec![profile(&[5, 6, 12, 7, 8]), profile(&[10])]);
+        let mut warnings = Vec::new();
+        assert_eq!(
+            resolve_profile_index(&s, 0, Some(&[5, 6, 7, 8]), &mut warnings).unwrap(),
+            0
+        );
+        // And it SAYS it re-pointed, naming both sets: the same answer reached
+        // by containment rather than by equality is not the same claim.
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("[5, 6, 7, 8]") && warnings[0].contains("[5, 6, 12, 7, 8]"),
+            "{}",
+            warnings[0]
+        );
+        // The order the caller stored is irrelevant, as for an equal set.
+        assert_eq!(
+            resolve_profile_index(&s, 0, Some(&[8, 7, 6, 5]), &mut Vec::new()).unwrap(),
+            0
+        );
+        // An exact set still wins outright, even when another loop contains it
+        // — and that match is silent, because nothing drifted.
+        let s2 = sketch(vec![profile(&[5, 6, 12, 7, 8]), profile(&[5, 6, 7, 8])]);
+        let mut quiet = Vec::new();
+        assert_eq!(
+            resolve_profile_index(&s2, 0, Some(&[5, 6, 7, 8]), &mut quiet).unwrap(),
+            1
+        );
+        assert!(quiet.is_empty(), "{quiet:?}");
+    }
+
+    /// Growth is an identity; SHRINKAGE is not. An entity the author named that
+    /// no longer bounds anything means the loop they picked is gone — what is
+    /// left may bound a larger region nobody asked for — so it stays loud.
+    #[test]
+    fn a_loop_that_lost_a_named_entity_is_still_not_found() {
+        // 7 was trimmed away and the remains joined the outer boundary.
+        let s = sketch(vec![profile(&[5, 6, 8, 20, 21])]);
+        assert!(matches!(
+            resolve_profile_index(&s, 0, Some(&[5, 6, 7, 8]), &mut Vec::new()),
+            Err(EngineError::ProfileNotFound { count: 1, .. })
         ));
     }
 }

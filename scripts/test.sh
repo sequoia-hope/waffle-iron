@@ -91,6 +91,10 @@ TEST_HARNESS_FAST_BINS=(
   # stored `Unsolved`) must still extrude its arcs as arcs. kernel-v2, but one
   # small plate — 0.01 s in DEBUG, measured 2026-10-09.
   sketch_arc_rederive
+  # v4 §2.9 profile addressing through the AGENT'S OWN TOOLS against kernel-v2:
+  # a fillet under an extrude keeps the extrude, and a deleted boundary entity
+  # still refuses. 0.01 s in DEBUG, measured 2026-10-09.
+  agent_sketch_edit_survival
 )
 
 # ---------------------------------------------------------------------------

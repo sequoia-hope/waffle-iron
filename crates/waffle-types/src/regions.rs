@@ -324,33 +324,71 @@ fn point_segment_distance(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
 /// the same circle pair) ⇒ the one whose centroid is nearest the stored
 /// centroid. None, or a stored region without provenance ⇒ `None` (the caller
 /// keeps the stored geometry).
+///
+/// **A boundary that GREW still carries the identity** (2026-10-09): failing an
+/// equal set, a region whose boundary CONTAINS the stored one is it. A sketch
+/// edit that adds geometry to the boundary — a fillet replacing a corner with
+/// an arc — does not make a different region, and without this the caller fell
+/// back to the stored POLYGON and warned, which is a stale footprint: the
+/// extrude kept building the unrounded plate. The same rule as
+/// `feature_engine::rebuild::resolve_profile_index`, because the two
+/// addressings (a region's boundary, a profile's entity set) are one identity
+/// and must not disagree about whether an edit preserved it. Shrinkage is not
+/// re-pointed either way: a boundary entity that is gone means the region the
+/// author picked is gone.
+///
+/// Where several regions qualify this keeps the centroid tie-break rather than
+/// refusing, which is what `resolve_profile_index` does. The difference is in
+/// what the two sets mean: a stored region carries its POLYGON, so there is a
+/// principled second question to ask, and a holed region's boundary legitimately
+/// contains its hole's (a bore's `{10}` sits inside the annulus's
+/// `{5,6,7,8,10}`), so qualifying candidates are expected here. A profile's set
+/// is a whole loop with no geometry beside it: nothing to disambiguate with,
+/// and nesting cannot produce the overlap, so there a tie is a refusal.
 pub fn resolve_region_by_identity<'a>(
     stored: &Region,
     current: &'a [Region],
 ) -> Option<&'a Region> {
     let want = stored.boundary_entity_ids.as_ref()?;
-    let mut matches: Vec<&Region> = current
+    // `boundary_entity_ids` is sorted and deduped where it is built, so Vec
+    // equality IS set equality and a windowed scan is a subset test.
+    let wanted: std::collections::BTreeSet<u32> = want.iter().copied().collect();
+    if wanted.is_empty() {
+        return None;
+    }
+    let nearest_to_stored = |matches: Vec<&'a Region>| -> Option<&'a Region> {
+        let c0 = polygon_centroid(&stored.outer);
+        matches.into_iter().min_by(|a, b| {
+            let da = {
+                let c = polygon_centroid(&a.outer);
+                (c.0 - c0.0).hypot(c.1 - c0.1)
+            };
+            let db = {
+                let c = polygon_centroid(&b.outer);
+                (c.0 - c0.0).hypot(c.1 - c0.1)
+            };
+            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+        })
+    };
+    let equal: Vec<&Region> = current
         .iter()
         .filter(|r| r.boundary_entity_ids.as_ref() == Some(want))
         .collect();
-    match matches.len() {
-        0 => None,
-        1 => matches.pop(),
-        _ => {
-            let c0 = polygon_centroid(&stored.outer);
-            matches.into_iter().min_by(|a, b| {
-                let da = {
-                    let c = polygon_centroid(&a.outer);
-                    (c.0 - c0.0).hypot(c.1 - c0.1)
-                };
-                let db = {
-                    let c = polygon_centroid(&b.outer);
-                    (c.0 - c0.0).hypot(c.1 - c0.1)
-                };
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        }
+    if !equal.is_empty() {
+        return nearest_to_stored(equal);
     }
+    let grown: Vec<&Region> = current
+        .iter()
+        .filter(|r| {
+            r.boundary_entity_ids
+                .as_ref()
+                .is_some_and(|ids| wanted.iter().all(|w| ids.binary_search(w).is_ok()))
+        })
+        .collect();
+    if grown.is_empty() {
+        return None;
+    }
+    nearest_to_stored(grown)
 }
 
 /// Union a set of regions (in sketch UV coordinates) into their merged
@@ -1201,6 +1239,76 @@ mod tests {
         let mut bare = inner.clone();
         bare.boundary_entity_ids = None;
         assert!(resolve_region_by_identity(&bare, &after).is_none());
+    }
+
+    /// Boundary identity survives a FILLET, which adds an entity to the
+    /// boundary rather than moving one. Before 2026-10-09 the equal-sets rule
+    /// lost the region here, and the caller kept the stored polygon — so an
+    /// extrude went on building the unrounded plate with a warning.
+    #[test]
+    fn boundary_identity_survives_a_fillet_growing_the_loop() {
+        let w = 0.060;
+        let h = 0.040;
+        let r = 0.004;
+        let line = |id: u32, start_id: u32, end_id: u32| SketchEntity::Line {
+            id,
+            start_id,
+            end_id,
+            construction: false,
+        };
+
+        // The plain rectangle: points 1–4, lines 5–8.
+        let square_pos = pos(&[(1, 0.0, 0.0), (2, w, 0.0), (3, w, h), (4, 0.0, h)]);
+        let square = vec![line(5, 1, 2), line(6, 2, 3), line(7, 3, 4), line(8, 4, 1)];
+        let before = compute_regions(&square, &square_pos, DEFAULT_CHORD_TOLERANCE);
+        assert_eq!(before.len(), 1);
+        assert_eq!(
+            before[0].boundary_entity_ids.as_deref(),
+            Some(&[5u32, 6, 7, 8][..])
+        );
+
+        // The same rectangle with the (w, h) corner rounded: point 3 becomes
+        // the tangent point on the right edge, 9 the one on the top edge, 10
+        // the arc's centre, and the arc 12 joins the boundary.
+        let filleted_pos = pos(&[
+            (1, 0.0, 0.0),
+            (2, w, 0.0),
+            (3, w, h - r),
+            (9, w - r, h),
+            (10, w - r, h - r),
+            (4, 0.0, h),
+        ]);
+        let filleted = vec![
+            line(5, 1, 2),
+            line(6, 2, 3),
+            SketchEntity::Arc {
+                id: 12,
+                center_id: 10,
+                start_id: 3,
+                end_id: 9,
+                construction: false,
+            },
+            line(7, 9, 4),
+            line(8, 4, 1),
+        ];
+        let after = compute_regions(&filleted, &filleted_pos, DEFAULT_CHORD_TOLERANCE);
+        assert_eq!(after.len(), 1);
+        assert_eq!(
+            after[0].boundary_entity_ids.as_deref(),
+            Some(&[5u32, 6, 7, 8, 12][..]),
+            "the fillet's arc joins the boundary — this is the growth"
+        );
+
+        let now = resolve_region_by_identity(&before[0], &after)
+            .expect("the grown boundary still answers to the stored set");
+        // It is the ROUNDED region, not the stored polygon: its area is the
+        // rectangle less what the rounding removes.
+        let want = w * h - r * r * (1.0 - std::f64::consts::PI / 4.0);
+        assert!(
+            (now.area - want).abs() / want < 1e-3,
+            "area {} vs {want}",
+            now.area
+        );
     }
 
     #[test]

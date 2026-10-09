@@ -860,12 +860,16 @@ fn agent_authored_square_extrude(profile_index: usize, ids: serde_json::Value) -
 }
 
 fn rebuild_errors(json: &str) -> Vec<(Uuid, String)> {
+    rebuilt(json).0
+}
+
+fn rebuilt(json: &str) -> (Vec<(Uuid, String)>, Vec<String>) {
     let (tree, _) = load_project(json).unwrap();
     let mut kernel = MockKernel::new();
     let mut engine = Engine::new();
     engine.tree = tree;
     engine.rebuild_from_scratch(&mut kernel);
-    engine.errors
+    (engine.errors, engine.warnings)
 }
 
 #[test]
@@ -888,17 +892,35 @@ fn profile_entity_ids_survive_the_writer_and_drive_the_rebuild() {
     );
     assert!(rebuild_errors(&saved).is_empty());
 
-    // … and a set no loop has is a loud per-feature error, not a silent
-    // fallback to profile_index (which IS valid here).
-    let bad = agent_authored_square_extrude(0, serde_json::json!([10, 11, 12]));
+    // … a set no loop has is a loud per-feature error, not a silent fallback
+    // to profile_index (which IS valid here) …
+    let bad = agent_authored_square_extrude(0, serde_json::json!([10, 11, 99]));
     let errors = rebuild_errors(&bad);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert!(
         errors[0]
             .1
-            .contains("no profile is bounded by entities [10, 11, 12]"),
+            .contains("no profile is bounded by entities [10, 11, 99]"),
         "{}",
         errors[0].1
+    );
+
+    // … and a SUBSET of a loop names that loop, reported. This assertion was
+    // the opposite until 2026-10-09: v4 §2.9 resolved an id set by equality,
+    // which meant a sketch edit that ADDED to a loop (a fillet) broke every
+    // feature standing on it. A loop that grew is still the loop, so three of
+    // the four edges resolves to the square — with a warning naming both sets,
+    // so a writer that named a subset by mistake is told. It is still not a
+    // fallback to `profile_index`: resolution is by the ids, and the `99` case
+    // above shows a valid index does not rescue a set that names nothing.
+    let subset = agent_authored_square_extrude(0, serde_json::json!([10, 11, 12]));
+    let (errors, warnings) = rebuilt(&subset);
+    assert!(errors.is_empty(), "{errors:?}");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("[10, 11, 12]") && w.contains("[10, 11, 12, 13]")),
+        "the re-resolution must be reported, got {warnings:?}"
     );
 }
 
