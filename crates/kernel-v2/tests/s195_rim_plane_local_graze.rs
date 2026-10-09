@@ -279,5 +279,8 @@ fn a_steeply_tilted_grazing_rim_still_stops_at_split_cycle() {
         .chunks_exact(3)
         .filter(|q| q[2].abs() <= 1e-9 && cyl_residual([q[0], q[1], q[2]], STEEP).abs() <= 1e-6)
         .count();
-    assert!(notch >= 2, "the bottom cap keeps the lens notch (got {notch})");
+    assert!(
+        notch >= 2,
+        "the bottom cap keeps the lens notch (got {notch})"
+    );
 }
