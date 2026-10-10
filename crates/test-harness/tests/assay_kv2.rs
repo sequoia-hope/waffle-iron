@@ -1911,7 +1911,23 @@ fn smoke_corpus_boundary_categories() {
         // the §4.4.2 carried-edge restoration did its job). P0032 is FaceId(10)
         // PLANE × FaceId(13) TORUS with 9 penetrations, the torus arm — 2 ops,
         // and identical face ids AND penetration count at ×1e-3 and ×1e3.
-        ("P0031", Category::Error),
+        //
+        // P0031 CONVERTED 2026-10-10 (spec
+        // `yang_45_boundary_point_domain_certificate` §8): the star cut is
+        // sketched on x = −10.2, INSIDE the cylinder, so that plane is the
+        // cut's start cap, and one star edge crosses the floor 2.2e-2 from
+        // the cap∩cylinder line — four surfaces within 0.04 of one point.
+        // The exact result has the corners {cylinder, star face, cap} and
+        // {star face, cap, floor}; the chord mesh (sag 0.276 on r 11.05)
+        // built the OTHER pair, and Stage 4 completed both wrong crossings
+        // exactly. The §4.5 certificate fired twice; the body-wide ladder
+        // needs d_ε/16 against a [2, 4] budget. The ladder now has a LOCAL
+        // form first — the paper's own remedy — that spends the demand as
+        // an apex-centred lens of rim samples on the cylinder the fires
+        // name, arcs included (the chained operand's strip); rung 1 clears
+        // both fires. Volume pinned: 2e8-sample Monte-Carlo over the exact
+        // membership, 3312.71 ± 0.40.
+        ("P0031", Category::SupportedCorrect),
         ("P0032", Category::Error),
         // P0033 (4 ops) ⇒ `TessellationFailed "patch triangulation folded
         // (inverted triangle) — KV9-F2"` on FaceId(45), kernel-v2's render

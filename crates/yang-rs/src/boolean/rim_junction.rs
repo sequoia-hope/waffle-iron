@@ -1583,6 +1583,17 @@ impl RimAngleOverrides {
         self.per_closure.is_empty()
     }
 
+    /// Drop every closure whose committed sample count (before dedup) fails
+    /// `keep(closure key, count)` — the §4.5.2 local ladder's budget gate
+    /// (`LOCAL_452_MAX_SAMPLES_PER_N`): a lens the size of the body is no
+    /// longer local.
+    pub(crate) fn retain_closures(
+        &mut self,
+        mut keep: impl FnMut(&(bool, Vec<u32>), usize) -> bool,
+    ) {
+        self.per_closure.retain(|k, acc| keep(k, acc.angles.len()));
+    }
+
     /// Resolve the accumulated azimuths to per-rim-edge sample POINTS, the
     /// shape `rebuilt_with_rim_overrides` consumes.
     pub(crate) fn finish(
@@ -1607,13 +1618,51 @@ impl RimAngleOverrides {
             let (e1, e2) = ortho_basis(Vector3::new(acc.axis[0], acc.axis[1], acc.axis[2]));
             let (e1, e2) = (e1.as_array(), e2.as_array());
             for ei in rims {
-                let Curve::Circle { center, radius, .. } = y.edges()[ei as usize].curve else {
+                let edge = &y.edges()[ei as usize];
+                let Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } = edge.curve
+                else {
                     continue;
                 };
                 let c = center.as_array();
+                // An ARC rim (the #195 arms never commit one; the §4.5.2
+                // domain lens does, P0031) takes only the azimuths strictly
+                // inside its sweep: Stage 1 refuses an arc-chord override at
+                // or beyond either endpoint. The arc runs CCW about its OWN
+                // stored normal from `start` to `end`; in the closure's
+                // canonical frame that is CW when the normal is reversed.
+                let inside_arc: Option<Box<dyn Fn(f64) -> bool>> = if edge.start != edge.end {
+                    let az = |vi: u32| -> f64 {
+                        let q = y.vertices()[vi as usize].point.as_array();
+                        let w = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+                        (w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2])
+                            .atan2(w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2])
+                    };
+                    let (phi_s, phi_e) = (az(edge.start), az(edge.end));
+                    let nn = normalize3(normal.as_array());
+                    let sense =
+                        if nn[0] * acc.axis[0] + nn[1] * acc.axis[1] + nn[2] * acc.axis[2] >= 0.0 {
+                            1.0
+                        } else {
+                            -1.0
+                        };
+                    let two_pi = 2.0 * std::f64::consts::PI;
+                    let sweep = ((phi_e - phi_s) * sense).rem_euclid(two_pi);
+                    let margin = (acc.min_step * 1.0e-3).max(1.0e-9);
+                    Some(Box::new(move |t: f64| {
+                        let off = ((t - phi_s) * sense).rem_euclid(two_pi);
+                        off > margin && off < sweep - margin
+                    }))
+                } else {
+                    None
+                };
                 let pts: Vec<Point3> = acc
                     .angles
                     .iter()
+                    .filter(|&&t| inside_arc.as_ref().is_none_or(|f| f(t)))
                     .map(|&t| {
                         let (s, co) = t.sin_cos();
                         Point3::new(
@@ -2130,6 +2179,33 @@ pub(crate) fn coaxial_rim_closure(
     axis_point: [f64; 3],
     axis_dir: [f64; 3],
 ) -> Option<Vec<u32>> {
+    coaxial_rim_closure_impl(brep, face, axis_point, axis_dir, false)
+}
+
+/// [`coaxial_rim_closure`] that also admits ARC rims (`Curve::Circle` with
+/// `start != end`) — the §4.5.2 domain lens's vocabulary (spec
+/// `yang_45_boundary_point_domain_certificate` §8, P0031). A chained operand
+/// — the output of a previous boolean — carries its cylinders as arc-bounded
+/// strips, and the strip arm pairs its two arc chains index-for-index
+/// exactly as the tube pairs its rings, so the arcs of one strip are the
+/// band that must move together. Same fail-closed rule: every circle-curve
+/// edge reached must be coaxial with the demanding face's axis.
+pub(crate) fn coaxial_circle_closure_with_arcs(
+    brep: &BRep,
+    face: usize,
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+) -> Option<Vec<u32>> {
+    coaxial_rim_closure_impl(brep, face, axis_point, axis_dir, true)
+}
+
+fn coaxial_rim_closure_impl(
+    brep: &BRep,
+    face: usize,
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+    admit_arcs: bool,
+) -> Option<Vec<u32>> {
     let u = normalize3(axis_dir);
     let coaxial = |center: [f64; 3], normal: [f64; 3]| -> bool {
         let n = normalize3(normal);
@@ -2160,7 +2236,7 @@ pub(crate) fn coaxial_rim_closure(
             .copied()
             .filter(|&ei| {
                 let e = &brep.edges()[ei as usize];
-                e.start == e.end && matches!(e.curve, Curve::Circle { .. })
+                (admit_arcs || e.start == e.end) && matches!(e.curve, Curve::Circle { .. })
             })
             .collect()
     };
@@ -2189,6 +2265,141 @@ pub(crate) fn coaxial_rim_closure(
         }
     }
     Some(rims.into_iter().collect())
+}
+
+/// The §4.5.2 LOCAL ladder's rungs (spec
+/// `yang_45_boundary_point_domain_certificate` §8): each rung divides the
+/// natural rim step by this inside the lens, so the local chord sagitta
+/// falls by ≈ 4× per rung (sag ∝ step²). Rung 4 is the equivalent of the
+/// body-wide `d_ε/256` on the lens alone, for `2·16 − 1 = 31` extra samples
+/// per rim.
+pub(crate) const LOCAL_452_STEP_DIVISORS: [usize; 4] = [2, 4, 8, 16];
+
+/// The local ladder's budget: a closure takes at most this many lens
+/// samples per unit of its operand's natural rim count `N` — beyond it the
+/// lens is dropped and the op falls to the body-wide ladder as before.
+/// Measured 2026-10-10 on R0070 (a revolved gear, 90 fires on a natural N
+/// of 13): without the gate the first rung alone committed 340 + 300
+/// samples and the fourth did not finish inside the 900 s corpus budget
+/// (CORRECT → TIMEOUT); with it the case derives nothing and keeps its
+/// 2026-09-28 path. P0031 (2 fires, N 14) spends 6 of its 56.
+pub(crate) const LOCAL_452_MAX_SAMPLES_PER_N: usize = 4;
+
+/// Yang §4.5.2 on the certificate's own sites — the LOCAL form of the
+/// boundary-point domain ladder (spec
+/// `yang_45_boundary_point_domain_certificate` §8, P0031).
+///
+/// The paper: *"we increase the mesh resolution of the parametric surfaces
+/// associated with the erroneous regions"* — the surfaces the failing curve
+/// segment traverses and a ring of their neighbours (Fig. 14), not the whole
+/// body. A fire names the region: the vertex that converged OUTSIDE its
+/// domain, its exact post position, and the faces its triangles carry. For
+/// every such face that is a CYLINDER or CONE, the demand is spent as extra
+/// samples on the face's coaxial rim closure — full rims and ARCS alike
+/// ([`coaxial_circle_closure_with_arcs`]) — apex-centred on the fire's
+/// azimuth, reaching one natural rim step each side (the paper's ring of
+/// neighbours) at `natural_step / divisor` ([`submerged_arc_samples`], the
+/// #195 local arm's sampler, so every rim of a closure receives the identical
+/// azimuth set and the strip / band pairing stays positional). A fire whose
+/// faces are all planar, spherical or toroidal derives nothing here and
+/// falls to the body-wide ladder as before.
+///
+/// Measured on P0031 (2026-10-10): A's cylinder (r 11.05, natural N 14, sag
+/// 0.276) meets a cut's start cap 9.3e-3 and 1.8e-2 past the exact corners
+/// the chord mesh resolved them to — both fires; the body-wide ladder needs
+/// `d_ε/16` (the fixed budget stops at `d_ε/4`); the lens clears them with
+/// samples on the one strip.
+pub(crate) fn domain_fire_local_rim_overrides(
+    a: &BRep,
+    b: &BRep,
+    fires: &[crate::stage4_correct::DomainFire],
+    divisor: usize,
+) -> (
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+    std::collections::BTreeMap<u32, Vec<Point3>>,
+) {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut per_closure = RimAngleOverrides::default();
+    // The rim step Stage 1 used: its natural N (mirrored by `natural_rim_n`)
+    // raised by any standing phantom-guard floor.
+    let n_of = |y: &BRep| -> usize {
+        let n = natural_rim_n(y);
+        if n == usize::MAX {
+            n
+        } else {
+            n.max(y.forced_rim_n.unwrap_or(0))
+        }
+    };
+    let (n_a, n_b) = (n_of(a), n_of(b));
+    let mut closure_memo: std::collections::BTreeMap<(bool, u32), Option<Vec<u32>>> =
+        Default::default();
+    for fire in fires {
+        for &(input, face) in &fire.incident {
+            let side_is_a = input == InputId::A;
+            let (y, n) = if side_is_a { (a, n_a) } else { (b, n_b) };
+            if n == usize::MAX || divisor == 0 {
+                continue; // no circles on this operand: nothing to sample
+            }
+            let Some(f) = y.faces().get(face as usize) else {
+                continue;
+            };
+            let (axis_point, axis_dir) = match f.surface {
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    ..
+                } => (axis_point.as_array(), axis_dir.as_array()),
+                Surface::Cone { apex, axis_dir, .. } => (apex.as_array(), axis_dir.as_array()),
+                _ => continue,
+            };
+            let rims = closure_memo
+                .entry((side_is_a, face))
+                .or_insert_with(|| {
+                    coaxial_circle_closure_with_arcs(y, face as usize, axis_point, axis_dir)
+                })
+                .clone();
+            let Some(rims) = rims.filter(|r| !r.is_empty()) else {
+                continue; // fail closed: no coaxial closure to move together
+            };
+            let axis_c = canonical_axis(normalize3(axis_dir));
+            let (e1, e2) = ortho_basis(Vector3::new(axis_c[0], axis_c[1], axis_c[2]));
+            let (e1, e2) = (e1.as_array(), e2.as_array());
+            let w = [
+                fire.post[0] - axis_point[0],
+                fire.post[1] - axis_point[1],
+                fire.post[2] - axis_point[2],
+            ];
+            let (wx, wy) = (
+                w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2],
+                w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2],
+            );
+            if wx.hypot(wy) <= 1e-12 {
+                continue; // on the axis: azimuth undefined
+            }
+            let apex = wy.atan2(wx);
+            let nat_step = two_pi / n as f64;
+            let step = nat_step / divisor as f64;
+            let Some(angles) = submerged_arc_samples(apex, nat_step, step) else {
+                continue;
+            };
+            per_closure.commit(side_is_a, rims, axis_c, angles, step);
+        }
+    }
+    let probe = std::env::var_os("YANG_452_PROBE").is_some();
+    per_closure.retain_closures(|(side_is_a, rims), count| {
+        let n = if *side_is_a { n_a } else { n_b };
+        let keep = n != usize::MAX && count <= LOCAL_452_MAX_SAMPLES_PER_N * n;
+        if !keep && probe {
+            eprintln!(
+                "[s452-domain]   local: closure {}:{rims:?} wants {count} samples over the \
+                 budget {} ({LOCAL_452_MAX_SAMPLES_PER_N}·N, N={n}) — lens dropped",
+                if *side_is_a { "A" } else { "B" },
+                LOCAL_452_MAX_SAMPLES_PER_N * n
+            );
+        }
+        keep
+    });
+    per_closure.finish(a, b)
 }
 
 /// N2/F0059 epic increment 2, BANKED-UNWIRED (spec

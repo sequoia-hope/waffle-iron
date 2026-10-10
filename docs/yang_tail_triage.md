@@ -43,6 +43,63 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-10 (later) — P0031 CONVERTED: a cut's START CAP inside a cylinder; the chord mesh resolved a quadruple point as the WRONG pair of triple corners
+
+**Diagnosis (`KV2_SELFX_SITE_PROBE`, `YANG_V_PROBE_NEAR`,
+`YANG_S45_BOUNDARY_DOMAIN=census`, `YANG_452_PROBE` + `YANG_452_ROUNDS`).**
+Same `SelfIntersectingBooleanOutput` on the un-minimized seed-3 index 57
+lineage, so the minimum is faithful. The star cut is sketched on
+x = −10.2, 1.0 INSIDE the circle boss (r 11.052), and extruded +x — that
+plane is the cut's start cap, and one star edge crosses the floor z = 0 at
+y = −4.2335, 2.2e-2 from the cap∩cylinder line y = −4.2559. Four surfaces
+(cylinder, cap, floor, star side face) within 0.04 of one point. The
+exact result has the corners C = {cylinder, star face, cap} at z = 0.0306
+and T₃ = {star face, cap, floor}, 0.039 apart. The chord cylinder (sag
+0.276 at the natural N 14) meets the star-face∩floor line INSIDE the cap
+(x = −10.149), so the mesh topology was the OTHER pair — {cylinder, star
+face, floor} at x = −10.209, beyond the cap and outside the tool, and
+{cylinder, cap, floor} — and Stage 4 completed both wrong crossings
+exactly: the cylinder patch ended with no edge on the cap and pierced the
+cap face by the sliver. P0003's mechanism (spec §1) at a quadruple point.
+The §4.5 domain certificate ALREADY fired twice (`v21 … f_post=9.3e-3`,
+`v22 … f_post=1.8e-2`); the body-wide §4.5.2 ladder answered
+`d_ε/2 → fires 2`, `d_ε/4 → fires 2` and stood down; `YANG_452_ROUNDS=
+2,4,8,16,32` clears at **d_ε/16** — a resolution deficit past the budget.
+
+**Fix (spec `yang_45_boundary_point_domain_certificate.md` §8).** The
+paper's §4.5.2 refines "the parametric surfaces associated with the
+erroneous regions" and a ring of neighbours, not the body. Each fire now
+carries its site (`DomainFire`: pre/post, the crease, the incident faces)
+and `refine_452_domain` runs a LOCAL ladder first
+(`LOCAL_452_STEP_DIVISORS = [2, 4, 8, 16]`): an apex-centred lens of extra
+rim samples (the #195 sampler) on every cylinder / cone face a fired
+vertex sits on, over the face's coaxial rim closure WITH ARCS admitted
+(`coaxial_circle_closure_with_arcs` — a chained operand's cylinder is an
+arc-bounded strip whose two chains pair index-for-index;
+`RimAngleOverrides::finish` clips an arc to its sweep). Same adoption
+clause (watertight, no fire). Budget `LOCAL_452_MAX_SAMPLES_PER_N = 4`
+per closure, learned from the first corpus run: R0070 (a revolved gear,
+90 fires on N 13) went CORRECT → 900 s TIMEOUT because a rim lens
+propagates along the whole coaxial closure; gated, it derives nothing and
+keeps its path (35 s). No lens (P0003's torus) ⇒ the body-wide rungs
+exactly as before. Knob `YANG_452_LOCAL=0|off`.
+
+**Measured.** P0031 ⇒ SUPPORTED_CORRECT at rung 1 (`local step/2
+pts_a=12 → fires=0`); the output carries C and T₃ joined by a line and the
+star-face ellipse ends at C. Volume adjudicated: 2e8-sample Monte-Carlo
+over the exact membership **3312.71 ± 0.40** vs kernel 3311.11 (render
+inscribed-chord deficit 4.8e-4) — pinned `expected_volume`, tol 3e-3.
+P0032–P0039 unchanged at their sites. Pins: `tests_unit/s452_domain_lens.rs`
+(5), kernel-v2 `tests/s452_domain_lens_corner.rs` (mutation-checked RED
+with the knob off), smoke pin `P0031 → SupportedCorrect`.
+
+**Corpus (release, 8 jobs, 900 s; wall 936.7 s; R0085 589.9 s, F0072
+550.8 s, F0085 386.5 s): 330C / 0W / 16E / 5EE / 0T + 0 UNSUPPORTED over
+351** — versus 2026-10-10 (329C/17E) exactly ONE move (P0031 ERROR →
+CORRECT), zero regressions, zero detail drift on the 16 ERROR rows (the
+seven C-series walls, P0026, P0032–P0039). The ungated first run is on
+record too: 329C/16E/1T, R0070 the timeout.
+
 ## 2026-10-10 — P0030 CONVERTED: a whole closed torus has no boundary to segment along
 
 **Diagnosis (`NONMANIFOLD_SITE_PROBE`, now with an `s6-curved-empty-cycles

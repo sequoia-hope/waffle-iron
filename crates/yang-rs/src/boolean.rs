@@ -947,6 +947,11 @@ pub fn boolean(
         Ok(_) => crate::stage4_correct::boundary_domain_fires(),
         Err(_) => 0,
     };
+    let natural_domain_records = if natural_domain_fires > 0 {
+        crate::stage4_correct::boundary_domain_fire_records()
+    } else {
+        Vec::new()
+    };
     let brep_probe_out = |out: &BRep| {
         if std::env::var_os("YANG_BREP_PROBE").is_some() {
             for (vi, v) in out.vertices().iter().enumerate() {
@@ -1092,7 +1097,14 @@ pub fn boolean(
     // emits with NO fire; otherwise the natural output stands as it always
     // has (the fires are inventoried, never a wall — spec §7).
     if natural_domain_fires > 0 {
-        if let Some(refined) = refine_452_domain(a, b, op, backend, natural_domain_fires) {
+        if let Some(refined) = refine_452_domain(
+            a,
+            b,
+            op,
+            backend,
+            natural_domain_fires,
+            &natural_domain_records,
+        ) {
             brep_probe_out(&refined);
             return Ok(refined);
         }
@@ -1129,6 +1141,7 @@ fn refine_452_domain(
     op: BoolOp,
     backend: &dyn MeshBoolean,
     natural_fires: usize,
+    natural_records: &[crate::stage4_correct::DomainFire],
 ) -> Option<BRep> {
     if !refine_452_domain_enabled() {
         return None;
@@ -1142,6 +1155,78 @@ fn refine_452_domain(
         );
     }
     let require_clean = std::env::var_os("YANG_452_REQUIRE_CLEAN").is_some();
+    // The LOCAL form first (spec §8, P0031): the paper's remedy raises the
+    // resolution of "the parametric surfaces associated with the erroneous
+    // regions", and the fires name those regions. Each rung spends the
+    // demand as an apex-centred lens of extra rim samples on every cylinder
+    // / cone face the fired vertices sit on
+    // (`rim_junction::domain_fire_local_rim_overrides`); the adoption clause
+    // is the body-wide ladder's. A site that derives no lens (planar,
+    // spherical or toroidal faces only — P0003's torus) takes the body-wide
+    // rungs below exactly as before. Kill switch `YANG_452_LOCAL=0|off`.
+    let local_on = !matches!(
+        std::env::var("YANG_452_LOCAL").as_deref(),
+        Ok("0") | Ok("off")
+    );
+    if local_on && !natural_records.is_empty() {
+        for divisor in crate::boolean::rim_junction::LOCAL_452_STEP_DIVISORS {
+            let (ma, mb) = crate::boolean::rim_junction::domain_fire_local_rim_overrides(
+                a,
+                b,
+                natural_records,
+                divisor,
+            );
+            if ma.is_empty() && mb.is_empty() {
+                if probe {
+                    eprintln!("[s452-domain]   local: no lens derivable from the fires");
+                }
+                break;
+            }
+            crate::stage4_correct::reset_boundary_domain_fires();
+            let out = (|| -> Result<BRep, YangError> {
+                let ra = if ma.is_empty() {
+                    a.clone()
+                } else {
+                    a.rebuilt_with_rim_overrides(&ma)?
+                };
+                let rb = if mb.is_empty() {
+                    b.clone()
+                } else {
+                    b.rebuilt_with_rim_overrides(&mb)?
+                };
+                boolean_once(&ra, &rb, op, backend, false)
+            })();
+            let fires = crate::stage4_correct::boundary_domain_fires();
+            let (pts_a, pts_b) = (
+                ma.values().map(Vec::len).sum::<usize>(),
+                mb.values().map(Vec::len).sum::<usize>(),
+            );
+            let brep = match out {
+                Ok(brep) => brep,
+                Err(e) => {
+                    if probe {
+                        eprintln!(
+                            "[s452-domain]   local step/{divisor} (pts_a={pts_a} pts_b={pts_b}) \
+                             -> Err({e:?})"
+                        );
+                    }
+                    continue;
+                }
+            };
+            let unpaired = refine_452_unpaired(&brep);
+            let improper = output_improper_count(&brep);
+            if probe {
+                eprintln!(
+                    "[s452-domain]   local step/{divisor} (pts_a={pts_a} pts_b={pts_b}) -> Ok \
+                     tris={} unpaired={unpaired} improper={improper} fires={fires}",
+                    brep.mesh.tris.len(),
+                );
+            }
+            if unpaired == 0 && fires == 0 && (improper == 0 || !require_clean) {
+                return Some(brep);
+            }
+        }
+    }
     for factor in rounds {
         crate::stage4_correct::reset_boundary_domain_fires();
         let out = crate::stage1_tessellate::with_refined_chord(factor, || {

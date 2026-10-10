@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0031–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0032–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -143,8 +143,17 @@ Do NOT skip to lower-priority items because they are easier.
    §4.3.1 2dε check refined by §4.1 subdivision, certifies untouched
    shells and kernel-v2 answers with set algebra on whole shells; spec
    `untouched_shell_passthrough.md` — inc-2, a clear closed shell BESIDE a
-   touched one, is a named follow-up with an `#[ignore]`d reproducer).
-   Next: P0031–P0039 — each its own kernel session
+   touched one, is a named follow-up with an `#[ignore]`d reproducer);
+   P0031 CONVERTED 2026-10-10 (a cut's START CAP inside a cylinder, one
+   cut edge crossing the floor 2.2e-2 from the cap∩cylinder line: four
+   surfaces within 0.04 of a point; the chord mesh resolved the quadruple
+   as the WRONG pair of triple corners and Stage 4 completed both exactly
+   — the §4.5 domain certificate had fired twice, but the body-wide §4.5.2
+   ladder needs d_ε/16 against its [2, 4] budget; the ladder now has the
+   paper's LOCAL form first, an apex-centred lens of extra rim samples on
+   the cylinder the fires name, arcs included, spec
+   `yang_45_boundary_point_domain_certificate.md` §8).
+   Next: P0032–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

@@ -236,3 +236,161 @@ The inventory (`YANG_S45_BOUNDARY_DOMAIN_LOG`, every Stage-4 invocation incl. re
 
 The `stop`-mode run (§6.2) is the two-proof twin: same binary family, hard STOP armed — 299C / 12E, the five gear regressions named. Both runs are recorded; the production default is the record → ladder → adopt-fire-free mode.
 
+
+## 8. The LOCAL ladder — §4.5.2 on the certificate's own sites (2026-10-10, P0031)
+
+**Status: LANDED, always-on, first in the domain ladder.** P0031 CONVERTS
+(ERROR → SUPPORTED_CORRECT at the local ladder's first rung). Kill switch
+`YANG_452_LOCAL=0|off` = the §6.3 body-wide ladder alone. Code:
+`stage4_correct.rs` (`DomainFire`, `boundary_domain_fire_records`),
+`boolean/rim_junction.rs` (`domain_fire_local_rim_overrides`,
+`coaxial_circle_closure_with_arcs`, `LOCAL_452_STEP_DIVISORS`, arc clipping
+in `RimAngleOverrides::finish`), `boolean.rs` (`refine_452_domain`). Pins:
+`tests_unit/s452_domain_lens.rs`, kernel-v2
+`tests/s452_domain_lens_corner.rs` (mutation-checked RED with the knob
+off), `assay_kv2` smoke pin `P0031 → SupportedCorrect` with a Monte-Carlo
+volume.
+
+### 8.1 The defect, anchored
+
+P0031 (prospector seed 3 index 57, minimized 3 → 3 ops: circle boss r
+11.052, height 7.233; a non-convex hexagon boss z ∈ [−0.6, 19.4] unioned
+in; a 3-point star CUT). Same `SelfIntersectingBooleanOutput` on the
+un-minimized lineage (`replay_waffle_env`: `FaceId(31) × FaceId(50)`,
+3 penetrations), so the minimum is faithful. `KV2_SELFX_SITE_PROBE` names
+the pair: output face 32, A's **cylinder** patch, pierces output face 55, a
+**plane x = −10.2** bounded by the lines y = ±4.2559 (exactly where that
+plane meets the cylinder) — and the star cut's sketch plane IS x = −10.2,
+1.0 inside the cylinder, extruded +x: the plane is the cut's **start cap**.
+The star's edge v5→v6 (in the cap's (y, z): z = 9.50 − 1.364·(y + 11.2))
+crosses the floor z = 0 at y = −4.2335 and the cap∩cylinder line
+y = −4.2559 at z = 0.0306. Four surfaces — cylinder, cap, floor, that star
+side face — within 0.04 of one point.
+
+The exact output has TWO triple corners there: **C = {cylinder, star face,
+cap} = (−10.2, −4.2559, 0.0306)** and **T₃ = {star face, cap, floor} =
+(−10.2, −4.2335, 0)**, joined by a 0.039 edge of the cap face; the
+cylinder is continuous across the cap line below C (the tool does not
+occupy x < −10.2). The kernel built the OTHER pair: `YANG_V_PROBE_NEAR`
+shows the subtract's v140 (a floor vertex on the star-face∩floor line at
+x = −10.149, where the CHORD cylinder — sag 0.276 at the natural N 14 —
+meets that line) relocated to **T₁ = {cylinder, star face, floor} =
+(−10.209, −4.2335, 0)**, 9.3e-3 BEYOND the cap plane, outside the tool;
+and v139 to **T₂ = {cylinder, cap, floor} = (−10.2, −4.2559, 0)**. Both are
+exact triple points of real surfaces; neither is a vertex of the exact
+result. The cylinder face then ends at T₁ with no edge on the cap, the cap
+face keeps the sliver (T₂, T₃, C), and the two overlap by it.
+
+`YANG_S45_BOUNDARY_DOMAIN=census`: **2 fires** — `v21 left B:7 across
+edge 34 f_post=9.3e-3 travel=2.47e-1` (the star side face's cap crease —
+the step along the star-face∩floor line from the chord cylinder at
+x = −9.963 to T₁) and `v22 left B:1 across edge 7 f_post=1.8e-2
+travel=6.49e-1` (the cap face's star-edge crease — the step along the
+cap∩floor line from y = −3.607 to T₂). The certificate already saw P0031;
+it is P0003's mechanism exactly (§1: "the rim's chord sag is of the same
+order as the junction's clearance from the corner, so at chord resolution
+the rim appeared to exit through the LATERAL face … the exact solves
+faithfully completed those wrong crossings"). What failed is the remedy:
+`YANG_452_PROBE` — `d_ε/2 → fires=2`, `d_ε/4 → fires=2`, "no rung emitted
+fire-free — the natural output stands"; with `YANG_452_ROUNDS=2,4,8,16,32`,
+**d_ε/8 fires 2, d_ε/16 fires 0 ⇒ SUPPORTED_CORRECT**. A resolution
+deficit the fixed [2, 4] budget cannot reach.
+
+### 8.2 The paper's remedy is local
+
+§4.5.2 (`refs/text/yang2025_hybrid_boolean.txt:659-670`): *"we increase
+the mesh resolution of the parametric surfaces associated with the
+erroneous regions … The surfaces requiring refinement include those
+traversed by C_p (red regions) and the neighbors of a ring of them (orange
+regions). We then compute the intersections between the meshes only in the
+refined regions."* The §6.3 ladder re-derives BOTH operands body-wide — the
+simplification that landed first. Its budget is what the gear operands
+tolerate (§5: R0070 pays 17.6 → 36.2 s for two rungs that clear nothing),
+and a deeper body-wide rung multiplies every curved face's density for a
+corner on one of them. The #195 arm met the same wall from the other side
+and paid its demand LOCALLY (`yang_195_seal_neighborhood_self_overlap` §5k).
+
+### 8.3 The local ladder
+
+A fire now carries its SITE (`DomainFire`: the vertex, its pre and post
+positions, the crease it crossed, and every `(input, face)` its live
+triangles are attributed to — the surfaces that meet there). The op-level
+driver reads the natural op's records and, BEFORE the body-wide rungs, runs
+`LOCAL_452_STEP_DIVISORS = [2, 4, 8, 16]`:
+
+- For every incident face of every fire that is a **cylinder or cone**
+  (the surfaces whose Stage-1 density is a rim azimuth set), the face's
+  coaxial rim closure is taken **with arcs admitted**
+  (`coaxial_circle_closure_with_arcs`): a chained operand carries its
+  cylinders as arc-bounded strips `[Arc, Line, Arc, Line]` whose two arc
+  chains the strip arm pairs index-for-index, exactly as the tube pairs
+  its two rings — so the arcs of one strip are the band that moves
+  together. Fail-closed as before on a non-coaxial circle edge.
+- The lens is the #195 sampler, `submerged_arc_samples(apex, half_span,
+  step)`: **apex = the fire's post azimuth** about the axis (canonical
+  frame), **half_span = one natural rim step** `2π/N` (the paper's ring of
+  neighbours; N = `natural_rim_n` raised by any standing `forced_rim_n`),
+  **step = natural step / divisor** — `2·d − 1` on-circle samples per rim,
+  identical azimuths on every rim of the closure. Rung d divides the local
+  sagitta by ≈ d² (rung 4 = the equivalent of body-wide d_ε/256 on the lens
+  alone, 31 samples per rim).
+- `RimAngleOverrides::finish` now clips an ARC rim to the azimuths strictly
+  inside its sweep (Stage 1 refuses an arc-chord override at or beyond an
+  endpoint; the arc runs CCW about its own stored normal, CW in the
+  closure's frame when the normal is reversed). A lens near an arc end is
+  clipped on BOTH chains, so they still pair. Full rims are untouched.
+- **Budget** (`LOCAL_452_MAX_SAMPLES_PER_N = 4`): a closure takes at most
+  `4·N` lens samples per rung, N its operand's natural rim count; over it
+  the lens is dropped (probe: `lens dropped`) and, with nothing derived,
+  the body-wide rungs run as before. A lens the size of the body is no
+  longer local — and a rim azimuth set propagates along the WHOLE coaxial
+  closure (every band of a revolve), so the cost of an unbounded lens is
+  the body's. Measured the hard way: the first corpus run without the gate
+  turned R0070 (a revolved gear, 90 fires, N 13 / 12) from CORRECT at 36 s
+  into a 900 s TIMEOUT — its rung 1 alone committed 340 + 300 samples
+  (`improper=1045 fires=55`) and rung 2 did not finish; with the gate it
+  derives nothing (`wants 270 samples over the budget 52`) and keeps its
+  §6.3 path, 35.1 s. P0031 spends 6 of its 56.
+- Adoption is the §6.3 clause verbatim: watertight (unpaired 0), **no
+  fire**, `improper == 0` only under `YANG_452_REQUIRE_CLEAN`.
+- A fire whose faces are all planar, spherical or toroidal derives no lens;
+  the local ladder stops at the first rung that derives nothing and the
+  body-wide rungs run as before. **P0003 (its curved face is a torus)
+  therefore takes exactly its 2026-09-28 path**: `local: no lens derivable
+  from the fires`, then `d_ε/2 → fires=0`, adopted.
+
+Not a band and not a tolerance: the lens adds exact on-surface samples
+where the certificate's sign test says the chord mesh mis-resolved the
+corner, and every rung is judged by the same certificate. A14.3: a finer
+rim only shrinks sagittas.
+
+### 8.4 Measured
+
+- **P0031 ⇒ SUPPORTED_CORRECT** at the FIRST local rung: `local step/2
+  (pts_a=12 pts_b=0) -> Ok tris=248 unpaired=0 improper=0 fires=0` — two
+  fires × three azimuths × the strip's two arcs. The output carries C
+  (−10.2, −4.2559, 0.030559) and T₃ (−10.2, −4.2335, 0) joined by a
+  `LineSegment`, and the star-face ellipse ends at C (`YANG_BREP_PROBE`).
+  Volume: kernel 3311.11 vs a **2e8-sample Monte-Carlo over the exact
+  membership 3312.71 ± 0.40** — a 4.8e-4 deficit, the render mesh's
+  inscribed chords; pinned `expected_volume` with `tol_rel` 3e-3 (the
+  P0003 convention). Un-minimized lineage: same conversion path.
+- P0032–P0039 re-judged on the new binary: unchanged, all ERROR at their
+  recorded sites (none of them is a domain-fire case).
+- Generality pin (kernel-v2 `s452_domain_lens_corner.rs`): a cylinder
+  r 10 unioned with a box that bites it, then a cut sketched on x = −9
+  whose one edge crosses the floor 0.059 inside the cap∩cylinder line —
+  two exact corners 0.097 apart against a natural sagitta of 0.29. With
+  the knob off the natural output's cap face is refused one gate earlier
+  than P0031's (`ring rejected by CDT`); with it the output carries both
+  exact corners and nothing inside the cutter's profile on its cap.
+- Corpus: §8.5.
+
+### 8.5 Corpus runs (2026-10-10)
+
+**Canonical (release, 8 jobs, 900 s; wall 936.7 s): 330C / 0W / 16E / 5EE
+/ 0T + 0 UNSUPPORTED over 351 cases — exactly ONE category move (P0031
+ERROR → SUPPORTED_CORRECT) and ZERO detail moves against the 2026-10-10
+P0030 baseline (`results.json` diffed per id).** The ungated first run
+(no `LOCAL_452_MAX_SAMPLES_PER_N`): 329C / 16E / **1T** — R0070 CORRECT →
+TIMEOUT, the measurement behind §8.3's budget.
