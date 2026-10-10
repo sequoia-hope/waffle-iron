@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-10 (night) — P0032 ANCHORED and its remedy LANDED GATED: torus × PLANE joins the surface-pair vocabulary; the arm-on corpus names three more planar-loop sites before the flip
+
+**Diagnosis (`KV2_SELFX_SITE_PROBE`, `YANG_V_PROBE_NEAR`, `YANG_BREP_PROBE`).**
+The 266° revolve's ring torus (R 0.02504, r 0.0194) crosses the pentagon
+prism's end cap x = 0.03. The cap∩torus curve is a SPIRIC section (degree
+4); the M5 torus arm's own scope note had left torus × plane on the
+`LineSegment` path ("increment 3"), so the cap's loop there was a 9.2e-3
+straight chord between two points exactly on the torus while the true
+curve bulges 7e-4 past it, and the torus face's render triangles followed
+the surface into the cap's chord-bounded region — 9–11 penetrations. Chain
+vertices `incident_curves=[]`; the output's 76 edges were 74 LineSegment +
+2 Circle. Same text and site on the un-minimized lineage.
+
+**Remedy (spec `m5_surface_pair_curve.md` "Torus × plane", checkpoint 1).**
+`Plane` is a pair operand in yang-rs (`quadric_to_surface`, membership,
+chain bound, K11 re-entry band) and kernel-v2 (`PairSurface::Plane`,
+residual / scales / key / transform / to-from yang); the oblique section
+emits `SurfacePair { torus, plane }` through ssi T2 (the perpendicular T1
+circles stay untyped); the K8 "never on a planar face" rule reads "only
+when one operand IS that plane" in `validate.rs`, `faces.rs`, the planar
+ring sampler (the same twin-canonical certified points as the torus
+patch), the planar signed area, and the planar `convert_loop` re-entry.
+**Arm-on: P0032 ⇒ SUPPORTED_CORRECT** (46 SurfacePair edges; volume
+2.125826e-5 vs a 2e8-sample exact-membership Monte-Carlo 2.12567e-5 ±
+1.7e-9, pinned); the lineage's re-entry refusal is gone and its remaining
+STOP is P0034's text.
+
+**Arm-ON corpus (release, 8 jobs, 900 s; wall 893.9 s): 325C / 0W / 17E /
+5EE / 0T + 4U** — P0032 converts and SIX CORRECT cases move, each the new
+TAG reaching a site with no planar-loop pair vocabulary: R0026 / R0050 /
+R0059 / R0085 → `CoplanarFacesUnsupported` (Stage 0's
+`overlay_face_supported`), R0077 → Stage-3 `AmbiguousCurve { 1, 0 }` (the
+plane-pair candidate measured against the planar owner's 1e-12 band),
+R0025 → kernel-v2 planar `ring rejected by CDT` (eight spiric pair edges
+with 0–1 samples at a near-pinch — P0034's family). **So the Stage-3
+emission is GATED OFF** (`YANG_TORUS_PLANE_PAIR=1` arms it; the kernel-v2
+pin `tests/m5_torus_plane_spiric.rs` arms it itself), P0032's pin stays
+`Error`, and the flip owes 3a (Stage-0 mixed admission of pair chains), 3b
+(the plane-pair Stage-3 band), 3c (with P0034). **Gated-default corpus
+(release, 8 jobs, 900 s; wall 930.1 s): 330C / 0W / 16E / 5EE / 0T over 351
+— byte-identical to the 2026-10-10 (later) canonical, zero moves.**
+
+**P0034 ANCHORED on the way** (`KV2_PAIR_SAMPLE_PROBE`, new): its
+`surface-pair projection left the chord neighborhood` is a cylinder
+(r 2.88e-4) × cylinder (r 4.27e-4) pair edge whose chord midpoint, at the
+recursion cap (depth 12, chord 1.38e-4), projects 2.47e-4 away — the chord
+straddles a near-tangent pinch of the quartic; chord-midpoint bisection
+cannot resolve it, a tangent-following march from p0 to p1 can.
+
 ## 2026-10-10 (later) — P0031 CONVERTED: a cut's START CAP inside a cylinder; the chord mesh resolved a quadruple point as the WRONG pair of triple corners
 
 **Diagnosis (`KV2_SELFX_SITE_PROBE`, `YANG_V_PROBE_NEAR`,

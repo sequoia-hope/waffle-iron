@@ -130,6 +130,8 @@ pub(crate) enum PairSurfaceKey {
         major_radius: u64,
         minor_radius: u64,
     },
+    /// M5 torus arm increment 3: plane operand of the torus × plane spiric.
+    Plane { point: [u64; 3], normal: [u64; 3] },
 }
 
 pub(crate) fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
@@ -190,6 +192,14 @@ pub(crate) fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey 
             ],
             major_radius: major_radius.to_bits(),
             minor_radius: minor_radius.to_bits(),
+        },
+        crate::arena::PairSurface::Plane { point, normal } => PairSurfaceKey::Plane {
+            point: [
+                point.x().to_bits(),
+                point.y().to_bits(),
+                point.z().to_bits(),
+            ],
+            normal: [normal.x.to_bits(), normal.y.to_bits(), normal.z.to_bits()],
         },
     }
 }

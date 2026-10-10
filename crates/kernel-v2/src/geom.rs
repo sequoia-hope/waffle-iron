@@ -626,15 +626,47 @@ pub(crate) fn planar_face_signed_area2(
                     };
                     area2 += sign * 2.0 * std::f64::consts::PI * radius * radius;
                 }
-                // M5: a transversal quadric-pair curve is never planar
-                // (degenerate configurations produce conics upstream) —
-                // its presence on a planar face is a defect, not a
-                // missing closed form.
-                Curve::SurfacePair { .. } => {
-                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason: "signed_volume: surface-pair edge on a planar face",
-                    });
+                // M5 torus arm increment 3 (P0032): the torus × plane
+                // SPIRIC section lies in the planar face and has no closed
+                // area form — the segment between the chord and the curve is
+                // the shoelace of the edge's certified render samples (each
+                // Newton-projected onto both surfaces, in the plane by
+                // construction) at the canonical render density, f64 like
+                // every other arc-bearing face. Any other pair on a plane is
+                // still the K8 defect, typed and loud.
+                Curve::SurfacePair { a, b } => {
+                    let plane_operand = matches!(
+                        (&a, &b),
+                        (crate::arena::PairSurface::Plane { .. }, _)
+                            | (_, crate::arena::PairSurface::Plane { .. })
+                    );
+                    if !plane_operand {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: surface-pair edge on a planar face",
+                        });
+                    }
+                    let n_seg = crate::tessellate::circle_segment_count(
+                        crate::tessellate::RENDER_CHORD_TOLERANCE_REL,
+                    );
+                    let samples = crate::tessellate::surface_pair_edge_samples(arena, h, n_seg)?;
+                    // Shoelace of the fan p0 → samples → p1 against the chord
+                    // p0 → p1, projected on the face normal (the chord's own
+                    // term is already in the loop's shoelace above).
+                    let pa = p0.as_array();
+                    let mut prev = pa;
+                    let mut corr = [0.0f64; 3];
+                    for q in samples.iter().map(|q| q.as_array()).chain([p1.as_array()]) {
+                        corr[0] += prev[1] * q[2] - prev[2] * q[1];
+                        corr[1] += prev[2] * q[0] - prev[0] * q[2];
+                        corr[2] += prev[0] * q[1] - prev[1] * q[0];
+                        prev = q;
+                    }
+                    let pb = p1.as_array();
+                    corr[0] -= pa[1] * pb[2] - pa[2] * pb[1];
+                    corr[1] -= pa[2] * pb[0] - pa[0] * pb[2];
+                    corr[2] -= pa[0] * pb[1] - pa[1] * pb[0];
+                    area2 += corr[0] * n[0] + corr[1] * n[1] + corr[2] * n[2];
                 }
             }
         }
@@ -746,6 +778,13 @@ pub(crate) fn pair_surface_residual_gradient(
             }
             Some((l - minor_radius, [xq[0] / l, xq[1] / l, xq[2] / l]))
         }
+        // Plane (M5 torus arm increment 3): the signed distance `n·(x − p)`
+        // with its unit gradient `n` — exact for the shared Gauss-Newton step.
+        crate::arena::PairSurface::Plane { point, normal } => {
+            let n = [normal.x, normal.y, normal.z];
+            let d = [p[0] - point.x(), p[1] - point.y(), p[2] - point.z()];
+            Some((d[0] * n[0] + d[1] * n[1] + d[2] * n[2], n))
+        }
     }
 }
 
@@ -763,6 +802,9 @@ pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
         crate::arena::PairSurface::Sphere { radius, .. } => radius,
         // A torus's constant length is its tube radius (M5 torus arm, KT3).
         crate::arena::PairSurface::Torus { minor_radius, .. } => minor_radius,
+        // A plane has no length of its own (like the cone): the band is left
+        // to the point's coordinate magnitude.
+        crate::arena::PairSurface::Plane { .. } => 0.0,
     }
 }
 
@@ -797,6 +839,9 @@ pub(crate) fn pair_surface_local_scale(s: &crate::arena::PairSurface, p: Point3)
             minor_radius,
             ..
         } => minor_radius.min(major_radius - minor_radius),
+        // A plane has no curvature: it never sets the pair's sag radius (the
+        // caller folds `min` over both operands, so the partner's rules).
+        crate::arena::PairSurface::Plane { .. } => f64::INFINITY,
     }
 }
 

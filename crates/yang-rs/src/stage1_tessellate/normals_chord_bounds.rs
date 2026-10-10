@@ -453,6 +453,13 @@ pub(crate) fn surface_pair_chain_bound(
 ) -> Option<f64> {
     let mut scale = f64::INFINITY;
     for s in [a, b] {
+        // A PLANE operand (the torus × plane spiric, M5 torus arm increment
+        // 3) has no curvature of its own: it constrains nothing, the partner's
+        // local radius is the bound. Any other operand without a local scale
+        // is not a pair surface.
+        if matches!(s, Surface::Plane { .. }) {
+            continue;
+        }
         for p in [p0, p1] {
             scale = scale.min(surface_pair_local_scale(s, p)?);
         }

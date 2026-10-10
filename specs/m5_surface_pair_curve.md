@@ -86,7 +86,7 @@ simply never matches it (no intersection mesh edges exist for that pair).
 | K5 | `validate_solid` twin check | `curves_twin_consistent`: exact equality of `a`, `b` on both twins |
 | K6 | `validate_solid` closed check | SurfacePair half-edge with origin == dest → `CurveTwinMismatch` (like Arc/EllipseArc) |
 | K7 | `validate_solid` endpoint residual | per-point on-BOTH-surfaces residual ≤ validate band (the memory contract: validate = per-point residual) |
-| K8 | `validate_solid` planar-face loop | SurfacePair edge on a `Plane` face → invalid (a transversal quadric-pair curve is never planar; degenerate configs produce conics upstream) |
+| K8 | `validate_solid` planar-face loop | ~~SurfacePair edge on a `Plane` face → invalid~~ **revised by the torus arm's increment 3 (2026-10-10, P0032)**: a SurfacePair edge may bound a planar face exactly when one of its operands IS that plane (`PairSurface::Plane`, parallel normals at `TAU_EVAL`, operand point within the planarity band) — the torus × plane spiric section lies in it; every other pair on a plane stays the typed defect |
 | K9 | tessellate: edge samples | `surface_pair_interior_samples`: recursive chord midpoint → Newton projection onto both surfaces (Gauss-Newton, [#24] §4.3), split while sag > chord bound, depth-capped; non-convergence → typed error (loud, no chord fallback) |
 | K10 | tessellate: cylinder patch boundary | SurfacePair boundary edges enter the unroll via their K9 samples (same role as `arc_interior_samples`) |
 | K11 | re-entry `to_yang_brep` | ~~any SurfacePair edge → `UnsupportedCurvedBoolean { face }`~~ **inc-1 LANDED 2026-09-04** (section "K11 re-entry" below): a curved-lateral SurfacePair edge converts to ONE shared yang input `Curve::SurfacePair` (operands verbatim, endpoint-determined); yang Stage 1 builds its Newton-certified chain. **inc-2 LANDED 2026-09-05** (section "K11 inc-2" below): a chained cut whose plane CROSSES a pair chain lands the crossing on the exact `pair curve ∩ plane` junction. A SurfacePair on a PLANE loop stays typed (K8: never a valid solid) |
@@ -265,7 +265,7 @@ and kernel-v2 already renders with (`surface_pair_interior_samples`).
 | # | site | behaviour |
 |---|---|---|
 | R1 | kernel-v2 `to_yang.rs` `convert_lateral_edge` | `Curve::SurfacePair { a, b }` → ONE shared yang `BRepEdge { curve: Curve::SurfacePair { a, b } }` per twin pair (key `min(h, twin)`), endpoints from the first-encountered half-edge; operands map field-for-field (`pair_surface_to_yang`, the exact inverse of K1's `yang_surface_to_pair_surface`; Cylinder / Cone / Sphere). The M5 endpoint-determined convention: no directional normal, twins bit-identical, either side denotes the same point set. Reached by every KV14 patch-path lateral (holed, non-4-edge, 4-edge non-structured) on cylinder, cone and torus surfaces |
-| R2 | kernel-v2 planar `convert_loop` | SurfacePair stays the typed `UnsupportedCurvedBoolean` (K8: a transversal quadric-pair curve is never planar; `validate_solid` rejects the solid first) |
+| R2 | kernel-v2 planar `convert_loop` | ~~SurfacePair stays the typed `UnsupportedCurvedBoolean`~~ **increment 3 (2026-10-10)**: converts exactly like R1 — ONE shared yang `SurfacePair` edge per twin pair (the plane operand maps as `Surface::Plane { normal, d = −n·point }`); yang's R3 pre-pass takes a plane operand with a coordinate-only band (no local radius) and `surface_pair_chain_bound` lets the partner's radius set the chain bound |
 | R3 | yang Stage-1 chain pre-pass (`stage1_tessellate.rs`, after the Hyperbola block) | per `Curve::SurfacePair` edge: `start == end` loud (no producer; K2/K6); each endpoint on BOTH surfaces at the K3/K7 band `1e-9·(1 + max(coord, local radius))` via `surface_distance_and_normal` (true distances, the cone's `·cos α`); chain = recursive chord-midpoint bisection, midpoint → `relocate_onto_implicit_pair`, split while the projection's sag > `d_ε`, depth cap 12; a projection that leaves the chord's neighbourhood (`sag ≥ chord`, a basin escape) or returns `None` (tangency / an axis / non-convergence) is loud — never a chord fallback (P9). Steiner vertices: `TessellationSource::BRepEdge { edge, t }`, `t` the bisection's ORDINAL parameter in (0, 1); `eval_source` documents that it cannot reproduce them (its only production caller is the sphere seam column). Shared chain in `rim_rings` |
 | R4 | `d_ε` single source (`normals_chord_bounds.rs`) | `surface_pair_chain_bound(a, b, p0, p1) = chord_rel() × min local radius` over both operands at both endpoints (`surface_pair_local_scale`: cylinder / sphere radius, cone `|h|·tan α`) — the kernel-v2 render rule's scale under the ONE `chord_rel()` (A14.3, the `YANG_CHORD_REFINE` census knob covers it). `None` at a cone apex (degenerate) or for a non-pair operand — loud at R3 |
 | R5 | `loop_polyline_attributed` | SurfacePair splices its chain exactly like an open conic arc |
@@ -438,12 +438,14 @@ pair` already have the torus; only the VOCABULARY lacked it.
 ### Scope of this arm
 
 Partners covered: torus × {cylinder, cone, sphere, torus} — the two corpus
-walls (R0050 torus × torus, R0085 torus × cone). **Torus × PLANE is NOT in
-this arm**: a torus plane section is quartic (spiric) in general, so a
-`Plane` would have to become a pair operand, and the K8 rule ("a surface-pair
-edge is never on a planar face": `validate.rs`, `validate/faces.rs`,
-`tessellate/mod.rs`, `geom.rs` signed area) would need its own increment.
-Torus × plane keeps today's `LineSegment` + Stage-4 torus-block path.
+walls (R0050 torus × torus, R0085 torus × cone). **Torus × PLANE was NOT in
+this arm** at first: a torus plane section is quartic (spiric) in general,
+so a `Plane` would have to become a pair operand, and the K8 rule ("a
+surface-pair edge is never on a planar face": `validate.rs`,
+`validate/faces.rs`, `tessellate/mod.rs`, `geom.rs` signed area) would need
+its own increment. **That increment is 3, LANDED 2026-10-10 (P0032) — see
+"Torus × plane" below.** The perpendicular section (T1, circles) still
+keeps the `LineSegment` + Stage-4 torus-block path.
 
 ### Parameters (the new vocabulary, per crate)
 
@@ -544,5 +546,116 @@ kernel-v2:
    (wall 823.8 s) the same 297C plus only the R0050 detail move. **FLIPPED
    DEFAULT-ON** (`YANG_TORUS_PAIR=0|off` = the A/B off-knob); the committed
    `results.json` is the arm-on run. Ledger row 2026-09-22 (night).
-3. **Torus × plane** (spiric): `Plane` as a pair operand + the K8 revision.
+3. **Torus × plane** (spiric): `Plane` as a pair operand + the K8 revision —
+   **LANDED 2026-10-10 (P0032)**, section "Torus × plane" below.
 4. **Coaxial circle arms** in ssi-rs (T3/T5 special cases → `Circle`).
+
+## Torus × plane — increment 3, CHECKPOINT 1 LANDED 2026-10-10 (P0032): `Plane` joins the pair vocabulary and K8 is revised; the Stage-3 emission is GATED OFF
+
+**Status**: vocabulary + every consumer arm LANDED; the Stage-3 emission
+is **gated OFF** (`YANG_TORUS_PLANE_PAIR=1|on` is the A/B on-knob) because
+the arm-on corpus converts P0032 and moves SIX CORRECT cases onto three
+sites that have never seen a surface-pair edge on a planar loop (§Measured).
+Those three are the flip's owed increments (3a–3c below). With the knob
+unset the corpus is byte-identical by construction (Stage 3 never emits a
+plane-bearing pair; the K11 re-entry and K8 arms only ever see one when it
+does). **Owner of**: `docs/yang_tail_triage.md` §2026-10-10 (night), P0032
+(prospector seed 3 index 80, `convex5:boss circle:rev-cut`).
+
+### The defect, anchored
+
+The 266° revolve's ring torus (R 0.02504, r 0.0194, axis ∥ z) crosses the
+pentagon prism's end cap x = 0.03. `KV2_SELFX_SITE_PROBE`: output face 10
+(the cap) × face 13 (the torus), 9–11 penetrations, every torus triangle
+within ±1.5e-4 of the cap plane around (0.03, −0.0107, ·). The cap's loop
+there was a 9.2e-3 **straight** `LineSegment` between two points both
+EXACTLY on the torus, while the true cap∩torus curve — a spiric section —
+bulges 7e-4 past that chord at mid-height (ρ = R − r = 0.00564 at the cap's
+0.0037 from the axis ⇒ y = −0.0107 against the chord's −0.0114).
+`YANG_V_PROBE_NEAR` on the chain vertices: `incident_curves=[]` — untyped.
+`YANG_BREP_PROBE`: the output's 76 edges were 74 `LineSegment` + 2
+`Circle`. The arm's own scope note named it: torus × plane stayed on the
+LineSegment path, so kernel-v2 could not resample the edge and the torus
+face's render triangles followed the true surface INTO the cap face's
+chord-bounded region. Same text and same site on the un-minimized lineage.
+
+### What landed
+
+| crate | site | change |
+|---|---|---|
+| yang-rs | `quadric_to_surface` | `Plane { point, normal }` → `Surface::Plane { normal, d = −n·point }` (the inverse of `surface_to_quadric`'s plane arm) |
+| yang-rs | Stage-3 gate (YT4) | a torus × plane pair takes the ssi route when `torus_plane_pair_arm_enabled()` and the section is OBLIQUE (`torus_plane_is_perpendicular_section`: `|n̂ × â| < TAU_MODEL` keeps T1's circles on the untyped path — a typed `Circle` there would enter the conic maps AND the torus block; recorded, not chased) ⇒ `Curve::SurfacePair { torus, plane }` |
+| yang-rs | `curve_contains_point` (YT2) | plane residual `|n̂·(x − point)|` |
+| yang-rs | `surface_pair_chain_bound` | a plane operand constrains nothing — the partner's local radius is the bound (two planes ⇒ `None`) |
+| yang-rs | Stage-1 K11 pre-pass (R3) | a plane operand's band is the coordinate magnitude alone (kernel-v2's `pair_surface_scale` 0 for it) — the chained re-entry no longer refuses `operand Plane … is not a pair surface` (measured on the lineage's third op) |
+| yang-rs | Stage 4 (YT5) | unchanged: a torus-bearing pair is the torus block's, which keys on surface incidence — relocation byte-identical, only the tag changed |
+| kernel-v2 | `PairSurface::Plane { point, normal }` | residual `n·(x − p)` / gradient `n` (exact Gauss-Newton step); band scale 0 (like the cone); local sag scale `∞` (the partner rules the `min`); key, transform, `pair_surface_to_yang` (`d = −n·p`), `yang_surface_to_pair_surface` (point `−d·n/|n|²`) |
+| kernel-v2 | K8 `validate.rs` | a pair edge on a planar face is legal iff one operand is a `Plane` coincident with the face's plane (normals parallel at `TAU_EVAL`, point within `planarity_band`); otherwise the old typed refusal |
+| kernel-v2 | K8 `validate/faces.rs` | nothing circular to measure on a pair edge — `continue` |
+| kernel-v2 | K8 `tessellate/mod.rs` planar ring | `surface_pair_edge_samples` — the same twin-canonical certified points the torus patch across the edge uses (`boundary_half_edge_samples`), so the two faces stay watertight at the render band |
+| kernel-v2 | K8 `geom.rs` `planar_face_signed_area2` | the chord-to-curve correction is the shoelace of the edge's certified samples at the canonical render density (f64, like every arc-bearing face); a non-plane pair on a plane stays the typed defect |
+| kernel-v2 | R2 planar `convert_loop` | one shared yang `SurfacePair` edge per twin pair, as R1 |
+
+Not a band, not a tolerance: the plane is an exact operand; every sample is
+Newton-certified on both surfaces; the only new numbers are the K8
+coincidence test's evaluation-precision bands, which decide WHETHER an edge
+may sit on a face, never where a point goes.
+
+### Measured
+
+- **P0032 ⇒ SUPPORTED_CORRECT arm-on** (0.7 s). Output edges: 46 `SurfacePair`,
+  28 `LineSegment`, 2 `Circle`. Volume: kernel 2.125826e-5 vs a
+  **2e8-sample Monte-Carlo over the exact membership 2.12567e-5 ± 1.7e-9**
+  (prism minus the CCW 266° wedge; the CW wedge reads 8.98e-6, the full torus
+  1.70e-6) — 7e-5 relative; pinned `expected_volume`, `tol_rel` 3e-3.
+- **Un-minimized lineage (6 ops)**: its second STOP — the chained union
+  refusing `surface-pair edge 1: operand Plane … is not a pair surface` at
+  yang's re-entry — is GONE (R3 fix). Its first STOP is now
+  `TessellationFailed FaceId(10) "surface-pair projection left the chord
+  neighborhood"` — **P0034's exact text**, and `KV2_PAIR_SAMPLE_PROBE`
+  (new) on P0034 itself names that family: a cylinder × cylinder pair edge
+  (r 2.88e-4 / 4.27e-4) whose chord midpoint, at the recursion cap (depth
+  12, chord 1.38e-4), projects 2.47e-4 away — a near-tangent crossing the
+  chord straddles; chord-midpoint bisection cannot resolve it (a
+  tangent-following march can). P0034's session, not this one.
+- Pins: yang-rs `tests_unit/m5_case_iv.rs` (the Y1 / torus-pair pins
+  re-stated for the new contract: a plane operand maps and round-trips,
+  perpendicular vs oblique classification), `tests_unit/m5_k11_pair_chain.rs`
+  (a plane operand leaves the bound to its partner; two planes have none);
+  kernel-v2 `tests/m5_torus_plane_spiric.rs` (P0032's geometry: validates,
+  χ, volume within 3e-3 of the Monte-Carlo, the cap bounded by
+  {torus, plane} pair edges, ≥ 12 cap render vertices ON the torus, no cap
+  vertex inside the tube within the wedge; mutation-checked RED with the
+  knob off; the test ARMS the knob — the one test in its binary);
+  `assay_kv2` smoke pin `P0032 → Error` until the flip.
+- **Arm-ON corpus (release, 8 jobs, 900 s; wall 893.9 s): 325C / 0W / 17E /
+  5EE / 0T + 4 UNSUPPORTED(coplanar-boolean) over 351** — against the
+  2026-10-10 (later) canonical (330C/16E): P0032 ERROR → CORRECT and SIX
+  CORRECT → not, every one the new TAG reaching machinery without a
+  planar-loop surface-pair vocabulary (the increment-2 pattern again):
+  - **R0026, R0050, R0059, R0085 → UNSUPPORTED(coplanar-boolean)** — a
+    chained op whose operand carries a `SurfacePair { torus, plane }` edge
+    on a PLANAR face meets Stage 0's coplanar scan, and
+    `stage0::frame::overlay_face_supported` admits only line / disc /
+    annular / M8-mixed (`LineSegment` + `Circle` / `Ellipse`) planar loops
+    (`face-unsupported` under `YANG_COPLANAR_PROBE`). **3a**: the mixed
+    class takes a `SurfacePair` chain (it is already a Stage-1 chain the
+    overlay can sample via `loop_polyline`).
+  - **R0077 → ERROR** `Stage-3 SSI refinement failed for intersection edge
+    (109, 110): AmbiguousCurve { candidates: 1, matched: 0 }` on a chained
+    auto-union: the single candidate is the re-entered plane-bearing pair
+    and its membership band is the planar owner's `1e-12`, which an
+    arrangement vertex on the chain's CHORD cannot meet (the pair chord
+    bound is what every other pair owner folds in). **3b**: the plane-pair
+    candidate's band is `surface_pair_chord_bound`'s.
+  - **R0025 → ERROR** kernel-v2 `TessellationFailed FaceId(584) "ring
+    rejected by CDT"`: a planar face bounded by a run of eight spiric pair
+    edges 1–15 apart on a 1300-scale body with 0–1 interior samples each
+    (`KV2_RING_PROVENANCE`); the ring self-intersects where the sampler's
+    chord-midpoint projection lands beside a near-pinch of the quartic —
+    P0034's family on a plane. **3c**: with P0034 (a tangent-following
+    march in `surface_pair_interior_samples`).
+- **Gated (default) corpus (release, 8 jobs, 900 s; wall 930.1 s): 330C /
+  0W / 16E / 5EE / 0T + 0 UNSUPPORTED over 351 — byte-identical to the
+  2026-10-10 (later) canonical, zero category and zero detail moves.**
+

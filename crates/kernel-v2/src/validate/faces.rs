@@ -451,17 +451,13 @@ pub(crate) fn validate_planar_face(
                     Curve::LineSegment | Curve::EllipseArc { .. } | Curve::HyperbolaArc { .. } => {
                         continue
                     }
-                    // M5 K8: a transversal quadric-pair curve is never
-                    // planar — degenerate configurations produce conics
-                    // upstream in ssi-rs. Placement on a plane face is a
-                    // defect, typed and loud.
-                    Curve::SurfacePair { .. } => {
-                        return Err(KernelV2Error::CurvedGeometryMismatch {
-                            face: f,
-                            reason: "surface-pair edge on a planar face (a transversal \
-                                     quadric-pair curve is never planar)",
-                        });
-                    }
+                    // M5 K8, revised by the torus arm's increment 3: a
+                    // surface-pair edge on a planar face is legal exactly
+                    // when one operand IS that plane (the torus × plane
+                    // spiric section lies in it); `validate_solid`'s pair
+                    // block checks the coincidence and rejects every other
+                    // pair. Nothing circular to measure here.
+                    Curve::SurfacePair { .. } => continue,
                 };
                 // The curve FORM told the two tiers apart while only the
                 // assembler and `recover` minted full circles; an asserted

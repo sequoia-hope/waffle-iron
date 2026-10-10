@@ -152,8 +152,26 @@ Do NOT skip to lower-priority items because they are easier.
    ladder needs d_ε/16 against its [2, 4] budget; the ladder now has the
    paper's LOCAL form first, an apex-centred lens of extra rim samples on
    the cylinder the fires name, arcs included, spec
-   `yang_45_boundary_point_domain_certificate.md` §8).
-   Next: P0032–P0039 — each its own kernel session
+   `yang_45_boundary_point_domain_certificate.md` §8); P0032 ANCHORED +
+   CHECKPOINT 1 LANDED 2026-10-10 (night), GATED OFF (a revolve's torus crossing a prism's end cap: the
+   cap∩torus SPIRIC section had been the one torus pair outside the M5
+   surface-pair vocabulary and left Stage 3 as LineSegment chords, so the
+   cap was bounded by a straight chord 7e-4 inside the true curve while the
+   torus face's render triangles followed the surface — `Plane` is now a
+   pair operand in yang-rs and kernel-v2 and the K8 rule reads "a pair edge
+   may bound a planar face only when one operand IS that plane"; converts
+   with `YANG_TORUS_PLANE_PAIR=1`, but the arm-on corpus moves SIX CORRECT
+   cases onto three planar-loop sites — Stage-0 overlay admission ×4, a
+   Stage-3 membership band, a planar ring at a spiric near-pinch — the
+   flip's owed increments 3a–3c; spec `m5_surface_pair_curve.md` "Torus ×
+   plane"). P0034's family is now
+   NAMED (`KV2_PAIR_SAMPLE_PROBE`): a cylinder×cylinder pair edge at a
+   near-tangent crossing whose chord straddles the pinch — chord-midpoint
+   bisection cannot resolve it; the P0032 lineage's remaining STOP is the
+   same text.
+   Next: the torus × plane flip (3a Stage-0 mixed admission of pair chains,
+   3b the plane-pair Stage-3 band, 3c with P0034), then P0033–P0039 — each
+   its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

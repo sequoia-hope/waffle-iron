@@ -386,9 +386,26 @@ pub(crate) fn yang_surface_to_pair_surface(
                 minor_radius,
             })
         }
-        yang_rs::Surface::Plane { .. } => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
-            curve: "surface-pair with a plane operand (the torus × plane spiric section is not \
-                    in the pair vocabulary)",
-        }),
+        // M5 torus arm increment 3 (P0032): the torus × plane spiric section's
+        // plane operand. yang's plane is `n·x + d = 0` with `n` not
+        // necessarily unit: the nearest point to the origin is `−d·n/|n|²`.
+        yang_rs::Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            let l2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
+            if !(l2.is_finite() && l2 > 0.0 && d.is_finite()) {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "surface-pair plane operand has a degenerate normal",
+                ));
+            }
+            let nu = normalize3_arr(n);
+            Ok(PairSurface::Plane {
+                point: Point3::new(-d * n[0] / l2, -d * n[1] / l2, -d * n[2] / l2),
+                normal: UnitVector3 {
+                    x: nu[0],
+                    y: nu[1],
+                    z: nu[2],
+                },
+            })
+        }
     }
 }

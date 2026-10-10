@@ -1928,6 +1928,23 @@ fn smoke_corpus_boundary_categories() {
         // both fires. Volume pinned: 2e8-sample Monte-Carlo over the exact
         // membership, 3312.71 ± 0.40.
         ("P0031", Category::SupportedCorrect),
+        // P0032 CONVERTED 2026-10-10 (M5 torus arm increment 3, spec
+        // `m5_surface_pair_curve.md` "Torus × plane"): the 266° revolve's
+        // torus tube crosses the pentagon prism's end cap, and the cap∩torus
+        // SPIRIC section left Stage 3 as LineSegment chords — torus × plane
+        // was the one torus pair outside the vocabulary. The cap was then
+        // bounded by a 9e-3 chord 7e-4 inside the true curve while the torus
+        // face's render triangles followed the surface. Plane is now a pair
+        // operand in yang-rs and kernel-v2, the oblique section emits as
+        // SurfacePair{torus, plane}, and K8 reads "a pair edge may bound a
+        // planar face only when one operand IS that plane". Volume pinned:
+        // 2e8-sample Monte-Carlo, 2.12567e-5 ± 1.7e-9 (CCW wedge).
+        //
+        // CHECKPOINT 1 — the Stage-3 emission is GATED OFF
+        // (`YANG_TORUS_PLANE_PAIR=1` converts it, 0.7 s): the arm-on corpus
+        // moved six CORRECT cases (Stage-0 overlay vocabulary ×4, a Stage-3
+        // membership band, a planar ring CDT reject at a spiric near-pinch),
+        // each its own increment. The pin moves with the flip.
         ("P0032", Category::Error),
         // P0033 (4 ops) ⇒ `TessellationFailed "patch triangulation folded
         // (inverted triangle) — KV9-F2"` on FaceId(45), kernel-v2's render

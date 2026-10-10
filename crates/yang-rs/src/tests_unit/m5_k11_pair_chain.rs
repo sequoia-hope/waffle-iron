@@ -229,12 +229,16 @@ fn surface_pair_chain_bound_takes_the_smallest_local_radius() {
     assert!((b - chord_rel() * 0.3).abs() < 1e-15, "bound {b}");
     // An endpoint AT the apex: local radius 0 → no bound.
     assert!(surface_pair_chain_bound(cyl_a(), cone, Point3::new(0.0, 0.0, 0.0), p1).is_none());
-    // A plane operand is not a pair surface.
+    // A plane operand (the torus × plane spiric, M5 torus arm increment 3,
+    // 2026-10-10) constrains nothing: the partner's radius is the bound.
     let plane = Surface::Plane {
         normal: Vector3::new(0.0, 0.0, 1.0),
         d: 0.0,
     };
-    assert!(surface_pair_chain_bound(cyl_a(), plane, p0, p1).is_none());
+    let b = surface_pair_chain_bound(cyl_a(), plane, p0, p1).expect("plane pair bound");
+    assert!((b - chord_rel() * 1.0).abs() < 1e-15, "bound {b}");
+    // Two planes have no curvature anywhere: no bound.
+    assert!(surface_pair_chain_bound(plane, plane, p0, p1).is_none());
 
     let (verts, edges, faces) = tube_with_pair_window();
     let brep = BRep::new(verts, edges, faces).expect("brep");

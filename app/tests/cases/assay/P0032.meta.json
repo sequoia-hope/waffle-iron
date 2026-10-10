@@ -1,6 +1,6 @@
 {
   "id": "P0032",
-  "description": "prospector seed 3 index 80, minimized 6->2 ops (convex5:boss circle:rev-cut): kernel-v2 SelfIntersectingBooleanOutput, faces FaceId(10) PLANE x FaceId(13) TORUS, 9 penetrations — the torus arm of the output self-intersection gate, distinct from the cylinder x plane pair. Identical face ids and class at x1e-3 AND x1e3. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 80, minimized 6->2 ops (convex5:boss circle:rev-cut). Was kernel-v2 SelfIntersectingBooleanOutput FaceId(10) PLANE x FaceId(13) TORUS (9 penetrations): the 266-degree revolve's torus tube crosses the pentagon prism's end cap x=0.03, and the cap-torus intersection (a SPIRIC section, degree 4) left Stage 3 as LineSegment chords - the M5 torus arm had left torus x plane out of its vocabulary (spec m5_surface_pair_curve.md 'Torus arm' scope, increment 3) - so the cap face was bounded by a 9e-3 chord 7e-4 inside the true curve while the torus face's render triangles followed the true surface. CHECKPOINT 1 2026-10-10 (M5 torus arm increment 3, Stage-3 emission GATED OFF; YANG_TORUS_PLANE_PAIR=1 converts it; the arm-on corpus moved six CORRECT cases - Stage-0 overlay vocabulary x4, a Stage-3 membership band, a planar ring CDT reject - each its own increment before the flip): Plane joined the surface-pair vocabulary in yang-rs and kernel-v2 (PairSurface::Plane), the oblique torus x plane section emits as Curve::SurfacePair{torus, plane}, and the K8 'never on a planar face' rule became 'only when one operand IS that plane' - the planar face samples the same twin-canonical certified points as its torus neighbour. chi 2, one solid; expected_volume = 2e8-sample Monte-Carlo over the exact membership (pentagon prism minus the CCW 266-degree torus wedge about +z from the sketch direction), 2.12567e-5 +- 1.7e-9 (the CW wedge gives 8.98e-6, the kernel's own 2.125826e-5 names the CCW convention); tol 3e-3.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.03,
@@ -38,7 +38,10 @@
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
-    "derived_meta": true
+    "derived_meta": true,
+    "expected_volume": 2.12567e-05,
+    "expected_volume_tol_rel": 0.003,
+    "expected_solid_count": 1
   },
   "generator_version": 100,
   "featured": true

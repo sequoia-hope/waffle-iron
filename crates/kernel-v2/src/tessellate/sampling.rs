@@ -825,6 +825,17 @@ pub fn surface_pair_interior_samples(
                 .sqrt();
         // NaN-safe gate (a NaN sag/chord must fail, not recurse).
         if sag >= chord || sag.is_nan() || chord.is_nan() {
+            if std::env::var_os("KV2_PAIR_SAMPLE_PROBE").is_some() {
+                eprintln!(
+                    "[pair-sample] left chord neighborhood: depth={depth} chord={chord:.6e} \
+                     sag={sag:.6e} p0={:?} p1={:?} mid={:?} proj={:?}\n[pair-sample]   a={a:?}\n\
+                     [pair-sample]   b={b:?}",
+                    p0.as_array(),
+                    p1.as_array(),
+                    m.as_array(),
+                    mp.as_array()
+                );
+            }
             return Err("surface-pair projection left the chord neighborhood");
         }
         refine(a, b, p0, mp, chord_tol, depth - 1, out)?;

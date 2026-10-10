@@ -497,8 +497,8 @@ pub enum Curve {
 /// cylinder×cylinder (M5), the cone-pair arms (cyl×cone, cone×cone; the
 /// R0008/R0003/R0019 `AmbiguousCurve` class), the F10 sphere pairs, and the
 /// torus arm (torus × cylinder / cone / sphere / torus,
-/// `specs/m5_surface_pair_curve.md` "Torus arm"). A `Plane` operand (the
-/// torus × plane spiric section) is not in the vocabulary.
+/// `specs/m5_surface_pair_curve.md` "Torus arm"); `Plane` (the torus × plane
+/// spiric section, increment 3 of that arm).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum PairSurface {
@@ -543,6 +543,17 @@ pub enum PairSurface {
         major_radius: f64,
         /// Minor radius `r` (meters, > 0).
         minor_radius: f64,
+    },
+    /// Plane (M5 torus arm increment 3, P0032): the zero set of
+    /// `n·(x − point)`. The ONE pair whose operand is a plane is the torus ×
+    /// plane SPIRIC section (degree 4; a quadric's plane section is a conic
+    /// and never reaches here). Such an edge lies IN the plane, so it may
+    /// bound that planar face — the K8 revision.
+    Plane {
+        /// A point on the plane.
+        point: Point3,
+        /// Unit normal.
+        normal: UnitVector3,
     },
 }
 

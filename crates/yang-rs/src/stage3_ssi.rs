@@ -114,6 +114,50 @@ pub(crate) fn torus_pair_arm_enabled() -> bool {
     )
 }
 
+/// M5 torus arm increment 3 (spec `m5_surface_pair_curve` "Torus × plane",
+/// P0032, 2026-10-10): the OBLIQUE torus × plane intersection — the spiric
+/// section, degree 4 — goes through ssi (T2) and emits as
+/// `Curve::SurfacePair { torus, plane }` like every other torus pair, so the
+/// output B-Rep carries the analytic curve on BOTH its faces and kernel-v2's
+/// render sampler refines it to the render band on the planar face too (the
+/// K8 revision). The perpendicular section (T1, circles) keeps today's
+/// `LineSegment` + torus-block path for now — recorded, not chased: a typed
+/// `Circle` there would enter the conic maps AND the torus block.
+///
+/// **GATED OFF by default (checkpoint 1, 2026-10-10 night)**: the arm-on
+/// corpus converts P0032 but moves six CORRECT cases — four to the Stage-0
+/// `CoplanarFacesUnsupported` wall (`overlay_face_supported` has no
+/// surface-pair vocabulary on a planar loop: R0026, R0050, R0059, R0085),
+/// R0077 to a Stage-3 `AmbiguousCurve { 1, 0 }` (the plane-bearing pair
+/// candidate's membership band), R0025 to kernel-v2's planar ring CDT
+/// reject (a spiric chain at a near-pinch) — spec `m5_surface_pair_curve`
+/// "Torus × plane" §Measured. `YANG_TORUS_PLANE_PAIR=1|on` is the dev A/B
+/// on-knob until those three land; then the default flips.
+pub(crate) fn torus_plane_pair_arm_enabled() -> bool {
+    matches!(
+        std::env::var("YANG_TORUS_PLANE_PAIR").as_deref(),
+        Ok("1") | Ok("on") | Ok("ON") | Ok("On")
+    )
+}
+
+/// Is this torus × plane pair the PERPENDICULAR section (ssi-rs T1: the plane
+/// normal parallel to the torus axis within `TAU_MODEL`), whose curves are
+/// circles? Only called with one torus and one plane.
+pub(crate) fn torus_plane_is_perpendicular_section(a: Surface, b: Surface) -> bool {
+    let (axis, normal) = match (a, b) {
+        (Surface::Torus { axis_dir, .. }, Surface::Plane { normal, .. })
+        | (Surface::Plane { normal, .. }, Surface::Torus { axis_dir, .. }) => (axis_dir, normal),
+        _ => return false,
+    };
+    let (u, n) = (normalize3(axis.as_array()), normalize3(normal.as_array()));
+    let c = [
+        u[1] * n[2] - u[2] * n[1],
+        u[2] * n[0] - u[0] * n[2],
+        u[0] * n[1] - u[1] * n[0],
+    ];
+    (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() < cad_primitives::TAU_MODEL
+}
+
 /// M5 (Y1): map an `ssi_rs::QuadricSurface` back to a yang `Surface`, the
 /// inverse of `surface_to_quadric` for the operands of a `SurfacePair` curve.
 /// The M5 producers are cyl×cyl and the cone-pair arms (cyl×cone, cone×cone), so
@@ -161,12 +205,18 @@ pub(crate) fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, S
             major_radius,
             minor_radius,
         }),
-        // No CONSUMED producer emits a bare `Plane` as a surface-pair operand:
-        // a quadric's plane section is always a conic, and the torus × plane
-        // spiric section (ssi-rs T2) is outside the torus arm's scope (the K8
-        // "never on a planar face" rule; spec "Torus arm" scope) — Stage 3
-        // never sends that pair to ssi.
-        ssi_rs::QuadricSurface::Plane { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
+        // M5 torus arm increment 3 (spec `m5_surface_pair_curve` "Torus ×
+        // plane", P0032): the torus × plane SPIRIC section (ssi-rs T2) is the
+        // one pair whose operand is a plane — a quadric's plane section is
+        // always a conic, so no other producer emits one. Inverse of
+        // `surface_to_quadric`'s plane arm: `n·x + d = 0` with `d = −n·point`.
+        ssi_rs::QuadricSurface::Plane { point, normal } => {
+            let (n, q) = (normal.as_array(), point.as_array());
+            Ok(Surface::Plane {
+                normal,
+                d: -(n[0] * q[0] + n[1] * q[1] + n[2] * q[2]),
+            })
+        }
     }
 }
 
@@ -470,6 +520,14 @@ pub(crate) fn curve_contains_point(
                         x,
                     )
                     .map(|(f, _)| f.abs()),
+                    // Torus × plane (increment 3): the plane's own distance.
+                    ssi_rs::QuadricSurface::Plane { point, normal } => {
+                        let (q, n) = (point.as_array(), normalize3(normal.as_array()));
+                        Some(
+                            ((x[0] - q[0]) * n[0] + (x[1] - q[1]) * n[1] + (x[2] - q[2]) * n[2])
+                                .abs(),
+                        )
+                    }
                     _ => None,
                 }
             };
@@ -957,7 +1015,16 @@ pub(crate) fn build_intersection_curves(
         if matches!(surf0, Surface::Torus { .. }) || matches!(surf1, Surface::Torus { .. }) {
             let plane_partner =
                 matches!(surf0, Surface::Plane { .. }) || matches!(surf1, Surface::Plane { .. });
-            if plane_partner || !torus_pair_arm_enabled() {
+            if !torus_pair_arm_enabled() {
+                continue;
+            }
+            // Increment 3 (P0032): the OBLIQUE plane section takes the ssi
+            // route too (T2 → `SurfacePair { torus, plane }`); the
+            // perpendicular section (T1, circles) keeps the untyped path.
+            if plane_partner
+                && (!torus_plane_pair_arm_enabled()
+                    || torus_plane_is_perpendicular_section(surf0, surf1))
+            {
                 continue;
             }
         }

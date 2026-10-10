@@ -31,15 +31,33 @@ pub(crate) fn m5_ssi_surface_pair_maps_to_curve_surface_pair() {
     }
 }
 
-/// Y1: a non-cylinder operand (no producer yet) rejects loudly.
+/// Y1, revised by the M5 torus arm's increment 3 (2026-10-10, P0032): a
+/// PLANE operand maps too — the torus × plane spiric section is the one
+/// pair that carries one — as `Surface::Plane { normal, d = −n·point }`,
+/// the exact inverse of `surface_to_quadric`'s plane arm.
 #[test]
-pub(crate) fn m5_surface_pair_non_cylinder_operand_rejected() {
+pub(crate) fn m5_surface_pair_plane_operand_maps_as_the_quadric_inverse() {
     let cyl = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
     let plane = ssi_rs::QuadricSurface::Plane {
-        point: Point3::new(0.0, 0.0, 0.0),
+        point: Point3::new(1.0, 2.0, 3.0),
         normal: Vector3::new(0.0, 0.0, 1.0),
     };
-    assert!(ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: cyl, b: plane }).is_err());
+    match ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: cyl, b: plane })
+        .expect("a plane operand maps")
+    {
+        Curve::SurfacePair {
+            a: Surface::Cylinder { radius, .. },
+            b: Surface::Plane { normal, d },
+        } => {
+            assert_eq!(radius, 1.0);
+            assert_eq!(normal.as_array(), [0.0, 0.0, 1.0]);
+            assert_eq!(d, -3.0, "n·x + d = 0 through (1, 2, 3)");
+            let back = surface_to_quadric(Surface::Plane { normal, d }).unwrap();
+            assert!(matches!(back, ssi_rs::QuadricSurface::Plane { point, .. }
+                if point.as_array() == [0.0, 0.0, 3.0]));
+        }
+        other => panic!("expected Curve::SurfacePair(cylinder, plane), got {other:?}"),
+    }
 }
 
 /// Y2: on-both-surfaces membership — a point exactly on the perpendicular
@@ -2734,12 +2752,32 @@ pub(crate) fn m5_torus_pair_maps_to_curve_surface_pair() {
         }
         other => panic!("expected Curve::SurfacePair(torus, cylinder), got {other:?}"),
     }
-    // A Plane operand stays outside the arm (K8 scope): loud.
+    // Increment 3 (2026-10-10, P0032): an OBLIQUE plane operand maps — the
+    // spiric section is `SurfacePair { torus, plane }` — and the Stage-3 gate
+    // tells the perpendicular section (circles, T1) apart from it.
     let plane = ssi_rs::QuadricSurface::Plane {
         point: Point3::new(0.0, 0.0, 0.0),
         normal: Vector3::new(1.0, 0.0, 1.0),
     };
-    assert!(ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: qt, b: plane }).is_err());
+    let curve = ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: qt, b: plane })
+        .expect("torus × oblique plane maps");
+    let Curve::SurfacePair {
+        a: Surface::Torus { .. },
+        b: Surface::Plane { normal, d },
+    } = curve
+    else {
+        panic!("expected Curve::SurfacePair(torus, plane), got {curve:?}");
+    };
+    assert_eq!(d, 0.0);
+    let oblique = Surface::Plane { normal, d };
+    let perpendicular = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 0.25,
+    };
+    assert!(!torus_plane_is_perpendicular_section(torus, oblique));
+    assert!(torus_plane_is_perpendicular_section(torus, perpendicular));
+    assert!(torus_plane_is_perpendicular_section(perpendicular, torus));
+    assert!(!torus_plane_is_perpendicular_section(cyl, perpendicular));
 }
 
 /// YT2: on-both-surfaces membership with a torus operand — the exact

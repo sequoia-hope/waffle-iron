@@ -59,8 +59,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::arena::{
-    BrepArena, Curve, FaceId, HalfEdgeId, LoopBoundary, LoopId, LoopKind, SolidId, Surface,
-    VertexId,
+    BrepArena, Curve, FaceId, HalfEdgeId, LoopBoundary, LoopId, LoopKind, PairSurface, SolidId,
+    Surface, VertexId,
 };
 use crate::error::KernelV2Error;
 use crate::geom;
@@ -396,15 +396,46 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
             continue;
         };
         let f = arena.loop_(he.loop_id)?.face;
-        // Placement rule (M5, K8): a transversal quadric-pair curve is degree-4
-        // and never planar — degenerate configs decompose into conics upstream.
-        // So a surface-pair edge must bound only the two curved surfaces it is
-        // the intersection of, never a PLANAR face.
-        if matches!(arena.face(f)?.surface, Some(Surface::Plane(_))) {
-            return Err(KernelV2Error::CurvedGeometryMismatch {
-                face: f,
-                reason: "surface-pair (degree-4) edge on a planar face",
+        // Placement rule (M5, K8), revised by the torus arm's increment 3
+        // (P0032): a transversal quadric-pair curve is degree-4 and never
+        // planar, so a surface-pair edge may bound a PLANAR face only when
+        // one of its operands IS that face's plane — the torus × plane
+        // spiric section, which lies in the plane by construction. The
+        // coincidence is checked at evaluation precision: parallel normals
+        // and the operand's point in the face's plane.
+        if let Some(Surface::Plane(fp)) = arena.face(f)?.surface {
+            let coincident = [a, b].into_iter().any(|s| match s {
+                PairSurface::Plane { point, normal } => {
+                    let (n, m) = (
+                        [normal.x, normal.y, normal.z],
+                        [fp.normal.x, fp.normal.y, fp.normal.z],
+                    );
+                    let cx = [
+                        n[1] * m[2] - n[2] * m[1],
+                        n[2] * m[0] - n[0] * m[2],
+                        n[0] * m[1] - n[1] * m[0],
+                    ];
+                    let parallel = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt()
+                        <= cad_primitives::TAU_EVAL;
+                    let off = (point.x() - fp.point.x()) * m[0]
+                        + (point.y() - fp.point.y()) * m[1]
+                        + (point.z() - fp.point.z()) * m[2];
+                    // The boolean-output planarity tier (`TAU_EVAL`,
+                    // scale-relative) — the debug-tier `planarity_band` is
+                    // compiled out of release / wasm builds.
+                    let band = PLANARITY_BOOLEAN_OUTPUT_TOLERANCE
+                        * (1.0 + point.x().abs().max(point.y().abs()).max(point.z().abs()));
+                    parallel && off.abs() <= band
+                }
+                _ => false,
             });
+            if !coincident {
+                return Err(KernelV2Error::CurvedGeometryMismatch {
+                    face: f,
+                    reason: "surface-pair (degree-4) edge on a planar face that is not one of \
+                             its operands",
+                });
+            }
         }
         let p = arena.vertex(he.origin)?.point;
         for (s, which) in [

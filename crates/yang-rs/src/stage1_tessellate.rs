@@ -1372,11 +1372,19 @@ pub(crate) fn stage1_tessellate_once(
                 let pa = p.as_array();
                 let coord = pa[0].abs().max(pa[1].abs()).max(pa[2].abs());
                 for s in [a, b] {
-                    let scale = surface_pair_local_scale(s, p).ok_or_else(|| {
-                        YangError::MalformedTopology(format!(
-                            "surface-pair edge {e_idx}: operand {s:?} is not a pair surface"
-                        ))
-                    })?;
+                    // A PLANE operand (the torus × plane spiric, M5 torus arm
+                    // increment 3) has no local radius: its band is the
+                    // coordinate magnitude alone, like kernel-v2's
+                    // `pair_surface_scale` of 0 for it.
+                    let scale = if matches!(s, Surface::Plane { .. }) {
+                        0.0
+                    } else {
+                        surface_pair_local_scale(s, p).ok_or_else(|| {
+                            YangError::MalformedTopology(format!(
+                                "surface-pair edge {e_idx}: operand {s:?} is not a pair surface"
+                            ))
+                        })?
+                    };
                     let band = 1e-9 * (1.0 + coord.max(scale));
                     let Some((dist, _)) = surface_distance_and_normal(s, pa) else {
                         return Err(YangError::MalformedTopology(format!(

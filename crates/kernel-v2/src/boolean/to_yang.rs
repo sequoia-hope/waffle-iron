@@ -88,19 +88,43 @@ pub fn to_yang_brep_indexed(
                         for &h in &hes {
                             let he = arena.half_edge(h)?;
                             match he.curve {
-                                // M5 K8: a transversal quadric-pair curve is
-                                // never planar, so a surface-pair edge on a
-                                // PLANE face is an invalid solid
-                                // (`validate_solid` rejects it) — no yang
-                                // planar vocabulary; typed here as well in
-                                // case an unvalidated arena reaches
-                                // conversion. (Curved laterals convert it,
-                                // M5 K11 re-entry, in `convert_lateral_edge`.)
-                                Curve::SurfacePair { .. } => {
-                                    return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                                        face: f,
-                                        reason: "planar-loop degree-4 boundary (surface-pair edge)",
-                                    });
+                                // M5 torus arm increment 3 (P0032): the
+                                // torus × plane spiric section bounds its
+                                // plane face too (`validate_solid` has
+                                // checked the plane operand IS this face's
+                                // plane). Same K11 re-entry shape as the
+                                // lateral arm: operands verbatim, one SHARED
+                                // yang edge per twin pair, so yang's Stage-1
+                                // pre-pass builds the Newton-certified chain
+                                // once and both faces splice it.
+                                Curve::SurfacePair { a, b } => {
+                                    let key = h.min(he.twin);
+                                    let idx = match shared_edges.get(&key) {
+                                        Some(&idx) => idx,
+                                        None => {
+                                            let idx = yedges.len() as u32;
+                                            let start = map_vertex(
+                                                he.origin,
+                                                &mut vid_map,
+                                                &mut yverts,
+                                                arena,
+                                            )?;
+                                            let dest = arena.half_edge(he.next)?.origin;
+                                            let end =
+                                                map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
+                                            yedges.push(yang_rs::BRepEdge {
+                                                start,
+                                                end,
+                                                curve: yang_rs::Curve::SurfacePair {
+                                                    a: pair_surface_to_yang(a),
+                                                    b: pair_surface_to_yang(b),
+                                                },
+                                            });
+                                            shared_edges.insert(key, idx);
+                                            idx
+                                        }
+                                    };
+                                    indices.push(idx);
                                 }
                                 // KV14 ellipse-arc re-entry (spec
                                 // `kv14_ellipse_arc_reentry`): an oblique-
@@ -1075,6 +1099,11 @@ fn pair_surface_to_yang(s: PairSurface) -> yang_rs::Surface {
             axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
             major_radius,
             minor_radius,
+        },
+        // Increment 3: yang's plane is `n·x + d = 0`, so `d = −n·point`.
+        PairSurface::Plane { point, normal } => yang_rs::Surface::Plane {
+            normal: Vector3::new(normal.x, normal.y, normal.z),
+            d: -(normal.x * point.x() + normal.y * point.y() + normal.z * point.z()),
         },
     }
 }

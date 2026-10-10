@@ -273,6 +273,10 @@ fn map_pair_surface(p: &Xform, s: &PairSurface) -> PairSurface {
             major_radius,
             minor_radius,
         },
+        PairSurface::Plane { point, normal } => PairSurface::Plane {
+            point: map_point(p, point),
+            normal: map_dir(p, normal),
+        },
     }
 }
 

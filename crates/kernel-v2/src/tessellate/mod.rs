@@ -499,13 +499,13 @@ fn sampled_loop_points(
             // sag-bound samples exactly like the ellipse arc.
             pts.extend(hyperbola_interior_samples(arena, h, n_seg)?);
         } else if matches!(he.curve, Curve::SurfacePair { .. }) {
-            // M5 K8: a transversal quadric-pair curve is never planar —
-            // loud, not an empty-sample fall-through.
-            let fid = arena.loop_(he.loop_id)?.face;
-            return Err(KernelV2Error::TessellationFailed {
-                face: fid,
-                reason: "surface-pair edge on a planar face (never planar)",
-            });
+            // M5 torus arm increment 3 (P0032): the torus × plane spiric
+            // section lies IN this plane — its certified render samples (each
+            // Newton-projected onto both surfaces) are the same twin-canonical
+            // points the torus patch across the edge uses, so the two faces
+            // stay watertight at the render band. (`validate_solid` has
+            // already refused any pair whose operand is not this plane.)
+            pts.extend(surface_pair_edge_samples(arena, h, n_seg)?);
         } else {
             pts.extend(arc_interior_samples(arena, h, n_seg)?);
         }
