@@ -7064,14 +7064,28 @@ pub(crate) fn emit_topology(
                 }
             }
 
-            // Empty-cycles guard (PR-CF1 case#23): a kept curved patch can come out with
-            // no boundary cycle for the box-as-subtrahend direction (prim − box), which
-            // is a DEFERRED, out-of-scope op direction (spec §2) — the reassembly leaves
-            // the curved patch with no intersection-boundary loop even though the solid
-            // result is non-empty. Such a patch cannot form a bounded face; refuse loudly,
-            // mirroring the E2/E3 degenerate-reassembly guards. Without this, the
-            // `cycles[outer_idx]` index below panics on the empty set.
+            // Empty-cycles guard (PR-CF1 case#23): a kept curved patch with no
+            // boundary cycle cannot form a bounded face; refuse loudly,
+            // mirroring the E2/E3 degenerate-reassembly guards. Without this,
+            // the `cycles[outer_idx]` index below panics on the empty set.
+            //
+            // The common customer is a WHOLE closed sphere/torus face — a shell
+            // on its own, which no intersection reached (P0030). The host
+            // answers those before the pipeline when NO shell of either operand
+            // is reached (`shell_contact_census`, spec
+            // `untouched_shell_passthrough.md`); what still arrives here is a
+            // clear closed shell beside a touched one (that spec's inc-2) or a
+            // patch the meshes failed to cut.
             if cycles.is_empty() {
+                if std::env::var_os("NONMANIFOLD_SITE_PROBE").is_some() {
+                    eprintln!(
+                        "NONMANIFOLD_SITE_PROBE s6-curved-empty-cycles detail: face {face_idx} \
+                         input {:?} surface {inherited:?} fold_sliver {} of {} patches",
+                        info.input,
+                        info.had_fold_sliver,
+                        infos.len()
+                    );
+                }
                 return Err(non_manifold_at(
                     "s6-curved-empty-cycles",
                     format_args!("face {face_idx}"),

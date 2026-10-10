@@ -43,6 +43,69 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-10 — P0030 CONVERTED: a whole closed torus has no boundary to segment along
+
+**Diagnosis (`NONMANIFOLD_SITE_PROBE`, now with an `s6-curved-empty-cycles
+detail:` line).** P0030's auto-union is a tilted square prism (B) and a
+CLOSED ring torus (A; R 4.88e-4, r 2.5e-4). All 7 Stage-6 patches were
+WHOLE input faces — the prism's six 4-edge quads and the torus — and no
+triangle was split: the operands never meet. Exact clearance, closed form
+over the nearest prism face: **3.2028e-5** at one prism corner (13 % of the
+tube radius); the meshes' gap is 4.79e-5. Their AABBs overlap, so #134's
+disjoint-union arena merge did not fire, and a closed torus is a single
+face with NO mesh boundary edge — `patch_boundary_cycle` returns no cycle
+and the empty-cycles guard refuses it. Not a Stage-4 or arrangement
+defect: the pipeline reported its input faithfully and Stage 6 had no
+vocabulary for a face no curve bounds.
+
+**It is a family.** A throwaway sweep of AABB-overlapping, surface-disjoint
+pairs (torus/sphere/box/cylinder × {∪, −, ∩}) STOPped on **12 of 21** at
+this one text — the hollow ball (sphere − inner box), the box with a
+spherical or toroidal cavity, a ball unioned with a box in its AABB corner.
+Common factor: a sphere or torus face surviving WHOLE (a whole cylinder or
+planar face has rims, so it reassembles).
+
+**Fix (spec `specs/untouched_shell_passthrough.md`, inc-1).** Yang 2025
+§4.4.2 segments along "the original boundary curves or the intersection
+curves" and restores each patch's surface; a face no intersection reaches
+is restored AS IT WAS, and a closed sphere/torus face is a whole shell on
+its own. So the unit is the shell. New `yang_rs::shell_contact_census`
+decides, per operand shell, whether the other operand's EXACT surface may
+reach it — the paper's §4.3.1 conservative check (Fig. 10a, "triangles
+closer than 2dε are filtered"): a triangle pair is a contact when its
+distance (0 on an exact edge×triangle crossing) is within both triangles'
+surface-deviation bounds plus the YR24 weld band, and a pair that fails
+the chord test is REFINED by §4.1's four-way subdivision onto the exact
+surface until it clears or its bounds drop under the band. A clear shell
+is placed by the other operand's generalized winding number. When NO shell
+of either operand is reached, kernel-v2 answers with set algebra on whole
+shells (∪: each outside the other; −: A outside B, B inside A
+COMPLEMENTED — the cavity; ∩: inside), copying them verbatim into one
+validated solid with `Same` lineage. Any contact ⇒ the pipeline,
+byte-identical.
+
+The refinement is what P0030 needed: the one-shot chord bound on the
+coarse torus (7.46e-5 per triangle) cannot see a 3.2e-5 clearance; four
+levels can. And it is what keeps the rule honest: a box face 1e-4 INSIDE a
+radius-3 sphere — meshes 6.0e-3 apart, exact surfaces crossing — is a
+CONTACT (`a_sub_sagitta_graze_is_a_contact`), while the mirror 1e-4 gap is
+certified clear.
+
+**Measured.** P0030 ⇒ SUPPORTED_CORRECT (0.6 s). The 21-pair sweep is now
+all correct and is pinned (`kernel-v2/tests/untouched_shell_passthrough.rs`),
+with a multi-shell chain (a ball floating in a hollow ball's cavity reads
+OUTSIDE: winding 1 − 1 = 0). Corpus (release, 8 jobs, 900 s; wall 935.9 s):
+**329C / 0W / 17E / 5EE / 0T + 0 UNSUPPORTED over 351** — versus 2026-10-09
+(328C/18E), the per-case diff is **exactly ONE move, P0030 ERROR →
+CORRECT, with zero regressions and no detail drift on any remaining ERROR
+row**. (How many CORRECT cases now take the set-algebra path instead of
+the pipeline was NOT measured; their verdicts did not move.)
+
+**Named follow-up (inc-2, spec §5):** a clear closed shell BESIDE a touched
+one — a box with a spherical cavity notched on its outer skin — still
+reaches the Stage-6 guard. Reproducer `#[ignore]`d with the spec's tag:
+`a_cut_on_the_outer_skin_keeps_the_spherical_cavity`.
+
 ## 2026-10-09 — P0029 CONVERTED: the grazing rim's chord lay IN the plane it was supposed to cross
 
 **Diagnosis (`NONMANIFOLD_SITE_PROBE` `s4-dc-attr`, `YANG_NM_EDGE_PROBE`'s
@@ -359,7 +422,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0027**~~ | #54 **UN-MINIMIZED** `circle:boss circle:cut convex5:thru circle:cut convex8:thru` | 5 | Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:10805` — `line_line_junction`, a vertex claimed by two DIFFERENT plane-pair line relocations, which the comment there calls out of scope | ~~ERROR 5.2 s~~ **CONVERTED 2026-10-08 (later)** → SUPPORTED_CORRECT 1.1 s (the two "plane-pair lines" were two cylinders' GENERATORS in one plane — the {plane, cyl_A, cyl_B} corner; line-pair admission to the triple block) |
 | ~~**P0028**~~ | #109, min 5→2 `convex4:boss circle:cut` | 2 | `reassembled output would be non-2-manifold` | `s6-planar-loop-nonplanar` — face 5 vertex 0 sits **3.604e-1** off its own plane against a **3.500e-6** band | ~~ERROR 0.2 s~~ **CONVERTED 2026-10-08 (night)** → SUPPORTED_CORRECT (the §4.5.3 sweep had collapsed the three-surface corner into the chord vertex that overshot it; victim selection now ranks by incidence — spec `yang_453_junction_protected_collapse` §3d; see the 2026-10-08 (night) section) |
 | ~~**P0029**~~ | #109 **UN-MINIMIZED** `convex4:sym convex8:cut convex3:∪ circle:cut nonconvex6:rev-cut` | 5 | the same text | `s4-dc-attr` — a doubled directed edge (17,18) **fwd=2 rev=2** between an A plane and a B plane | ~~ERROR 1.4 s~~ **CONVERTED 2026-10-09** → SUPPORTED_CORRECT (a sub-render rim×plane graze whose two exact triple corners were ADJACENT rim samples, so the chord between them lay in both planes; the #195 arm now pays sub-render demands locally — spec `yang_195_seal_neighborhood_self_overlap` §5k; see the 2026-10-09 section) |
-| **P0030** | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ERROR 0.3 s |
+| ~~**P0030**~~ | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ~~ERROR 0.3 s~~ **CONVERTED 2026-10-10** → SUPPORTED_CORRECT (the prism and the closed torus never meet; a whole torus has no mesh boundary to segment along. The §4.3.1 contact census certifies both shells clear and the host answers with set algebra on whole shells — spec `untouched_shell_passthrough`; see the 2026-10-10 section) |
 | **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
 | **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |
 | **P0033** | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ERROR 2.0 s |

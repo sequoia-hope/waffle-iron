@@ -100,6 +100,8 @@ mod boolean;
 mod brep;
 pub(crate) use boolean::*;
 pub use boolean::{boolean, union_operands_strictly_disjoint};
+mod shell_contact;
+pub use shell_contact::{shell_contact_census, ShellContact};
 mod errors;
 mod geom;
 mod stage1_tessellate;

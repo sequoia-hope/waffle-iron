@@ -640,3 +640,176 @@ fn emit_copy(
 
     Ok(new_solid)
 }
+
+/// The same surface with its outward side swapped: a plane's normal
+/// negated, a curved surface's cavity flag toggled.
+fn complement_surface(s: &Surface) -> Surface {
+    let mut out = *s;
+    match &mut out {
+        Surface::Plane(plane) => {
+            plane.normal = UnitVector3 {
+                x: -plane.normal.x,
+                y: -plane.normal.y,
+                z: -plane.normal.z,
+            };
+        }
+        Surface::Cylinder { reversed, .. }
+        | Surface::Cone { reversed, .. }
+        | Surface::Torus { reversed, .. }
+        | Surface::Sphere { reversed, .. } => *reversed = !*reversed,
+    }
+    out
+}
+
+/// Copy whole SHELLS — of one solid or several — into one NEW solid, each
+/// either as it is or COMPLEMENTED (every loop walked backwards and every
+/// surface's outward side swapped: the shell bounds the region it used to
+/// exclude). Spec `untouched_shell_passthrough.md` §4: the set-algebra
+/// answer of a boolean whose shells no intersection reaches — a Subtract's
+/// tool shell inside the body survives complemented, as the cavity.
+///
+/// Entities are fresh (the source shells stay live and untouched); the copy
+/// is validated before it is returned. NO journal entry and NO pids: the
+/// caller is the operation and records its own evolution. Returns the new
+/// solid and, per copied face, `(source, copy)`.
+pub(crate) fn copy_shells(
+    arena: &mut BrepArena,
+    picks: &[(ShellId, bool)],
+    provenance: crate::arena::GeometryProvenance,
+) -> Result<(SolidId, Vec<(FaceId, FaceId)>), KernelV2Error> {
+    // Collect, per pick, everything reachable from the shell (the same walk
+    // as `collect_solid`, one shell at a time).
+    let mut shells: Vec<(ShellId, Shell, bool)> = Vec::with_capacity(picks.len());
+    let mut faces: BTreeMap<FaceId, (Face, bool)> = BTreeMap::new();
+    let mut loops: BTreeMap<LoopId, Loop> = BTreeMap::new();
+    let mut half_edges: BTreeMap<HalfEdgeId, (HalfEdge, bool)> = BTreeMap::new();
+    let mut vertices: BTreeMap<VertexId, Vertex> = BTreeMap::new();
+    for &(sh, complement) in picks {
+        let shell = arena.shell(sh)?.clone();
+        for &f in &shell.faces {
+            let face = arena.face(f)?.clone();
+            let mut lids = vec![face.outer_loop];
+            lids.extend(face.inner_loops.iter().copied());
+            for lid in lids {
+                let lp = *arena.loop_(lid)?;
+                match lp.boundary {
+                    LoopBoundary::Lone(v) => {
+                        vertices.insert(v, *arena.vertex(v)?);
+                    }
+                    LoopBoundary::Edges(_) => {
+                        for h in arena.loop_half_edges(lid)? {
+                            let he = *arena.half_edge(h)?;
+                            vertices.insert(he.origin, *arena.vertex(he.origin)?);
+                            half_edges.insert(h, (he, complement));
+                        }
+                    }
+                }
+                loops.insert(lid, lp);
+            }
+            faces.insert(f, (face, complement));
+        }
+        shells.push((sh, shell, complement));
+    }
+    for (he, _) in half_edges.values() {
+        if !half_edges.contains_key(&he.twin) {
+            return Err(KernelV2Error::TwinPairingBroken { half_edge: he.twin });
+        }
+    }
+
+    // Allocate in ascending source-id order (as `emit_copy` does, so
+    // "canonical = lower-id twin" carries over).
+    let base_v = arena.vertices.len() as u32;
+    let base_h = arena.half_edges.len() as u32;
+    let base_l = arena.loops.len() as u32;
+    let base_f = arena.faces.len() as u32;
+    let base_s = arena.shells.len() as u32;
+    let new_solid = SolidId(arena.solids.len() as u32);
+    let vmap: BTreeMap<VertexId, VertexId> = vertices
+        .keys()
+        .enumerate()
+        .map(|(i, &k)| (k, VertexId(base_v + i as u32)))
+        .collect();
+    let hmap: BTreeMap<HalfEdgeId, HalfEdgeId> = half_edges
+        .keys()
+        .enumerate()
+        .map(|(i, &k)| (k, HalfEdgeId(base_h + i as u32)))
+        .collect();
+    let lmap: BTreeMap<LoopId, LoopId> = loops
+        .keys()
+        .enumerate()
+        .map(|(i, &k)| (k, LoopId(base_l + i as u32)))
+        .collect();
+    let fmap: BTreeMap<FaceId, FaceId> = faces
+        .keys()
+        .enumerate()
+        .map(|(i, &k)| (k, FaceId(base_f + i as u32)))
+        .collect();
+    let smap: BTreeMap<ShellId, ShellId> = shells
+        .iter()
+        .enumerate()
+        .map(|(i, (k, _, _))| (*k, ShellId(base_s + i as u32)))
+        .collect();
+
+    for v in vertices.values() {
+        arena.vertices.push(Some(*v));
+    }
+    for (he, flip) in half_edges.values() {
+        // A complemented loop runs backwards: this half-edge now starts at
+        // what was its destination, so it traverses exactly its TWIN's path
+        // and takes the twin's curve (a `Circle` / `Arc` / `EllipseArc`
+        // twin carries the negated directional normal; every other curve's
+        // twins are bit-identical). Both twins reverse together.
+        let (next, prev, origin, curve) = if *flip {
+            (
+                hmap[&he.prev],
+                hmap[&he.next],
+                vmap[&half_edges[&he.next].0.origin],
+                half_edges[&he.twin].0.curve,
+            )
+        } else {
+            (hmap[&he.next], hmap[&he.prev], vmap[&he.origin], he.curve)
+        };
+        arena.half_edges.push(Some(HalfEdge {
+            twin: hmap[&he.twin],
+            next,
+            prev,
+            origin,
+            loop_id: lmap[&he.loop_id],
+            curve,
+        }));
+    }
+    for lp in loops.values() {
+        arena.loops.push(Some(Loop {
+            face: fmap[&lp.face],
+            boundary: match lp.boundary {
+                LoopBoundary::Lone(v) => LoopBoundary::Lone(vmap[&v]),
+                LoopBoundary::Edges(h) => LoopBoundary::Edges(hmap[&h]),
+            },
+            kind: lp.kind,
+        }));
+    }
+    for (face, flip) in faces.values() {
+        arena.faces.push(Some(Face {
+            surface: face
+                .surface
+                .as_ref()
+                .map(|s| if *flip { complement_surface(s) } else { *s }),
+            outer_loop: lmap[&face.outer_loop],
+            inner_loops: face.inner_loops.iter().map(|l| lmap[l]).collect(),
+            shell: smap[&face.shell],
+        }));
+    }
+    for (_, shell, _) in &shells {
+        arena.shells.push(Some(Shell {
+            solid: new_solid,
+            faces: shell.faces.iter().map(|f| fmap[f]).collect(),
+            genus: shell.genus,
+        }));
+    }
+    arena.solids.push(Some(Solid {
+        shells: shells.iter().map(|(k, _, _)| smap[k]).collect(),
+        provenance,
+    }));
+    validate_solid(arena, new_solid)?;
+    Ok((new_solid, fmap.into_iter().collect()))
+}

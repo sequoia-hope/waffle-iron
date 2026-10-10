@@ -244,6 +244,20 @@ pub fn boolean_op(
         }
         return Ok(new_id);
     }
+    // Spec `untouched_shell_passthrough.md` inc-1: when NO shell of either
+    // operand is reachable by the other's exact surface (yang's §4.3.1
+    // contact census), the result is set algebra on whole shells — the
+    // pipeline would hand Stage 6 a closed sphere/torus face with no
+    // boundary to segment along (P0030, `s6-curved-empty-cycles`).
+    if let Some(out) = clear_operands_set_algebra(
+        arena,
+        (a, &ya, &a_faces),
+        (b, &yb, &b_faces),
+        op,
+        operand_provenance,
+    )? {
+        return Ok(out);
+    }
     if std::env::var_os("KV2_PLANE_TRACE").is_some() {
         for (tag, y) in [("A", &ya), ("B", &yb)] {
             for (i, f) in y.faces().iter().enumerate() {
@@ -603,6 +617,114 @@ fn output_face_sources(
 /// unchanged. An output face with no attributable operand ancestor keeps
 /// its counter id too; the two halves of the number space are disjoint, so
 /// a mixed solid cannot alias.
+/// The operand's shells, and per shell the yang face indices it owns.
+fn operand_shell_groups(
+    arena: &BrepArena,
+    solid: SolidId,
+    faces: &[FaceId],
+) -> Result<(Vec<ShellId>, Vec<Vec<u32>>), KernelV2Error> {
+    let shells = arena.solid(solid)?.shells.clone();
+    let mut groups = vec![Vec::new(); shells.len()];
+    for (i, &fid) in faces.iter().enumerate() {
+        let sh = arena.face(fid)?.shell;
+        let Some(k) = shells.iter().position(|&s| s == sh) else {
+            return Err(KernelV2Error::BooleanFailed(format!(
+                "operand face {fid:?} belongs to shell {sh:?}, which is not one of its solid's"
+            )));
+        };
+        groups[k].push(i as u32);
+    }
+    Ok((shells, groups))
+}
+
+/// Spec `untouched_shell_passthrough.md` §4 (inc-1). `Ok(None)` unless EVERY
+/// shell of both operands is CLEAR of the other operand's exact surface —
+/// then the boolean is set algebra on whole shells:
+///
+/// | op | A shell kept when | B shell kept when |
+/// |---|---|---|
+/// | Union | outside B | outside A |
+/// | Subtract | outside B | inside A — COMPLEMENTED (the cavity) |
+/// | Intersect | inside B | inside A |
+///
+/// Kept shells are copied verbatim (every curve and surface bit-identical,
+/// a complemented shell's loops walked backwards) into one new solid;
+/// nothing kept is the existing [`KernelV2Error::EmptyBooleanResult`].
+fn clear_operands_set_algebra(
+    arena: &mut BrepArena,
+    (a, ya, a_faces): (SolidId, &yang_rs::BRep, &[FaceId]),
+    (b, yb, b_faces): (SolidId, &yang_rs::BRep, &[FaceId]),
+    op: BoolOp,
+    provenance: crate::arena::GeometryProvenance,
+) -> Result<Option<SolidId>, KernelV2Error> {
+    let (a_shells, a_groups) = operand_shell_groups(arena, a, a_faces)?;
+    let (b_shells, b_groups) = operand_shell_groups(arena, b, b_faces)?;
+    // A census that cannot decide (an operand without Stage-1 face lineage,
+    // a non-integer winding number) leaves the boolean to the pipeline,
+    // exactly as before — it never produces an answer of its own.
+    let (va, vb) = match yang_rs::shell_contact_census(ya, yb, &a_groups, &b_groups) {
+        Ok(v) => v,
+        Err(e) => {
+            if std::env::var_os("KV2_SHELL_CONTACT_PROBE").is_some() {
+                eprintln!("[shell-contact] census declined: {e}");
+            }
+            return Ok(None);
+        }
+    };
+    if std::env::var_os("KV2_SHELL_CONTACT_PROBE").is_some() {
+        eprintln!("[shell-contact] op={op:?} A {va:?} B {vb:?}");
+    }
+    let inside = |v: &yang_rs::ShellContact| match *v {
+        yang_rs::ShellContact::Clear { inside_other } => Some(inside_other),
+        yang_rs::ShellContact::Contact => None,
+    };
+    let (Some(a_in), Some(b_in)) = (
+        va.iter().map(inside).collect::<Option<Vec<bool>>>(),
+        vb.iter().map(inside).collect::<Option<Vec<bool>>>(),
+    ) else {
+        return Ok(None);
+    };
+    let mut picks: Vec<(ShellId, bool)> = Vec::new();
+    for (&sh, &in_b) in a_shells.iter().zip(&a_in) {
+        let keep = match op {
+            BoolOp::Union | BoolOp::Subtract => !in_b,
+            BoolOp::Intersect => in_b,
+            // Not a kernel-v2 op (yang refuses it, typed); left to that wall.
+            BoolOp::Xor => return Ok(None),
+        };
+        if keep {
+            picks.push((sh, false));
+        }
+    }
+    for (&sh, &in_a) in b_shells.iter().zip(&b_in) {
+        let (keep, complement) = match op {
+            BoolOp::Union => (!in_a, false),
+            BoolOp::Subtract => (in_a, true),
+            BoolOp::Intersect => (in_a, false),
+            BoolOp::Xor => return Ok(None),
+        };
+        if keep {
+            picks.push((sh, complement));
+        }
+    }
+    // The peripheral (outward) shells first, cavities after.
+    picks.sort_by_key(|&(_, complement)| complement);
+    if picks.is_empty() {
+        return Err(KernelV2Error::EmptyBooleanResult);
+    }
+    let (out, copied) = crate::transform::copy_shells(arena, &picks, provenance)?;
+    let sources: Vec<(FaceId, Option<crate::arena::Pid>)> = copied
+        .iter()
+        .map(|&(src, dst)| (dst, arena.face_pid(src)))
+        .collect();
+    // Pids exactly as a yang output face is numbered: `finalize_solid`'s
+    // assignment, then the D0 seed scope's re-derivation.
+    arena.assign_face_pids(out)?;
+    reseed_output_pids_from_sources(arena, sources.clone())?;
+    record_evolution_from_sources(arena, op, sources, a_faces, b_faces);
+    Ok(Some(out))
+}
+
 fn reseed_boolean_output_pids(
     arena: &mut BrepArena,
     out: &yang_rs::BRep,
@@ -610,16 +732,26 @@ fn reseed_boolean_output_pids(
     a_faces: &[FaceId],
     b_faces: &[FaceId],
 ) -> Result<(), KernelV2Error> {
+    let sources = output_face_sources(arena, out, out_face_ids, a_faces, b_faces);
+    reseed_output_pids_from_sources(arena, sources)
+}
+
+/// [`reseed_boolean_output_pids`] over an explicit `(output face, operand
+/// pid)` list — shared with the clear-shell set-algebra path, whose output
+/// faces are copies rather than yang faces.
+fn reseed_output_pids_from_sources(
+    arena: &mut BrepArena,
+    sources: Vec<(FaceId, Option<crate::arena::Pid>)>,
+) -> Result<(), KernelV2Error> {
     let Some(scope) = arena.face_seed else {
         return Ok(());
     };
-    let rooted: Vec<(FaceId, crate::arena::Pid)> =
-        output_face_sources(arena, out, out_face_ids, a_faces, b_faces)
-            .into_iter()
-            .filter_map(|(face, operand)| {
-                operand.map(|p| (face, crate::journal::face_lineage(&arena.journal, p).root))
-            })
-            .collect();
+    let rooted: Vec<(FaceId, crate::arena::Pid)> = sources
+        .into_iter()
+        .filter_map(|(face, operand)| {
+            operand.map(|p| (face, crate::journal::face_lineage(&arena.journal, p).root))
+        })
+        .collect();
     let ids = crate::pid::boolean_output_face_pids(arena, scope.seed, &rooted)?;
     for (face, pid) in ids {
         arena.face_pids.insert(face, pid);
@@ -662,6 +794,19 @@ fn record_boolean_evolution(
     a_faces: &[FaceId],
     b_faces: &[FaceId],
 ) {
+    let sources = output_face_sources(arena, out, out_face_ids, a_faces, b_faces);
+    record_evolution_from_sources(arena, op, sources, a_faces, b_faces);
+}
+
+/// [`record_boolean_evolution`] over an explicit `(output face, operand
+/// pid)` list (see [`reseed_output_pids_from_sources`]).
+fn record_evolution_from_sources(
+    arena: &mut BrepArena,
+    op: BoolOp,
+    sources: Vec<(FaceId, Option<crate::arena::Pid>)>,
+    a_faces: &[FaceId],
+    b_faces: &[FaceId],
+) {
     use crate::arena::Pid;
     use crate::journal::{EvoKind, Evolution, OpTag};
     use std::collections::BTreeSet;
@@ -670,7 +815,7 @@ fn record_boolean_evolution(
     let mut modified: Vec<(Pid, Pid, EvoKind)> = Vec::new();
     let mut claimed: BTreeSet<Pid> = BTreeSet::new();
     let mut sourced: BTreeSet<Pid> = BTreeSet::new();
-    for (out_fid, operand_pid) in output_face_sources(arena, out, out_face_ids, a_faces, b_faces) {
+    for (out_fid, operand_pid) in sources {
         let Some(out_pid) = arena.face_pid(out_fid) else {
             continue;
         };

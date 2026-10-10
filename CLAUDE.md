@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0030–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0031–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -137,8 +137,14 @@ Do NOT skip to lower-priority items because they are easier.
    LOCALLY, as apex-centred samples on the grazed arc, spec
    `yang_195_seal_neighborhood_self_overlap.md` §5k — 53 of a 60-fixture
    family sweep convert, the residual 7 STOP at Stage-4 `split_cycle`, a
-   named follow-up with an `#[ignore]`d reproducer).
-   Next: P0030–P0039 — each its own kernel session
+   named follow-up with an `#[ignore]`d reproducer); P0030 CONVERTED
+   2026-10-10 (the operands never meet, but a WHOLE closed torus face has
+   no mesh boundary to segment along — `yang_rs::shell_contact_census`, the
+   §4.3.1 2dε check refined by §4.1 subdivision, certifies untouched
+   shells and kernel-v2 answers with set algebra on whole shells; spec
+   `untouched_shell_passthrough.md` — inc-2, a clear closed shell BESIDE a
+   touched one, is a named follow-up with an `#[ignore]`d reproducer).
+   Next: P0031–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

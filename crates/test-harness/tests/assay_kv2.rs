@@ -1891,9 +1891,18 @@ fn smoke_corpus_boundary_categories() {
         // render-observability line. The arm now pays sub-render demands
         // LOCALLY instead — an apex sample and its neighbours on the grazed
         // arc of the rim's own closure, three points here.
+        //
+        // P0030 CONVERTED 2026-10-10 (spec `untouched_shell_passthrough`):
+        // the prism and the closed torus never meet — 3.2e-5 of exact
+        // clearance on a 2.5e-4 tube — so every Stage-6 patch was a WHOLE
+        // input face, and a whole torus has no mesh boundary edge to segment
+        // along. yang's §4.3.1 contact census (chord test refined by §4.1
+        // four-way subdivision) now certifies both shells clear and kernel-v2
+        // answers with set algebra on whole shells — the hollow ball and the
+        // box with a spherical cavity were the same STOP.
         ("P0028", Category::SupportedCorrect),
         ("P0029", Category::SupportedCorrect),
-        ("P0030", Category::Error),
+        ("P0030", Category::SupportedCorrect),
         // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output
         // gate, on two different SURFACE PAIRS. P0031 is FaceId(32) CYLINDER ×
         // FaceId(55) PLANE with 3 penetrations — neither P0021's family
