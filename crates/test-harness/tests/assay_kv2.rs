@@ -1961,7 +1961,27 @@ fn smoke_corpus_boundary_categories() {
         // the chord neighborhood"` on FaceId(29). Its ×1e-3 class change is
         // the input floor, not a second finding: the smallest authored segment
         // is 1.0e-4 (100 × MIN_FEATURE_SIZE), which ×1e-3 puts at 1.0e-7.
-        ("P0034", Category::Error),
+        //
+        // P0034 CONVERTED 2026-10-11 — two defects at one near-tangent
+        // pinch. The boss (r 2.88e-4) passes WHOLLY through the skew cutter
+        // (r 4.27e-4; axes 1.336e-4 apart against |r_a − r_b| 1.389e-4), so
+        // the exact curve is TWO loops with a 5.3e-6 clearance at the boss's
+        // far generator; the natural chord meshes (rim N 12/13) resolved ONE
+        // loop bridging them (Yang Fig. 8 Case V), Stage 4 converged every
+        // vertex exactly, and the output carried pair edges joining the two
+        // components — the sampler's "left the chord neighborhood" was the
+        // symptom, and the "tangent march" once filed as 3c could never
+        // follow an edge that is not on the curve. (1) The Case-III graze
+        // guard's skew-axis internal-graze term (`GrazeDemand::Pinch`, spec
+        // `yang_172_case_iii_graze_guard` §3) derives N 37 before Stage 1.
+        // (2) With the curve right, the boss lateral and the hole wall
+        // (8.6° apart; the wedge 1.7e-7 thick) both ear-clipped the same
+        // concave dip of the shared curve with the same two diagonals — two
+        // coincident opposite render triangles; the P0008 neighbor-chord
+        // criterion now tags boundary nodes with ANY twin face (spec
+        // `kv2_cdt_triangulation_core` §6f). The seven-op lineage completes
+        // with every mesh oracle passing. 2.2 s.
+        ("P0034", Category::SupportedCorrect),
         // P0035 (2 ops — a symmetric square boss and a circle boss) ⇒
         // auto-union `TessellationFailed "patch triangle collapsed at render
         // precision"`. P0001's error text, CONVERTED 2026-09-27 by the §4.5.5

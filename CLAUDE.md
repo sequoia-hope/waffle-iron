@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0033–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0033, P0035–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -170,12 +170,19 @@ Do NOT skip to lower-priority items because they are easier.
    the arm-on corpus then moved by exactly P0032, and the emission is
    DEFAULT ON (`YANG_TORUS_PLANE_PAIR=0` is the off-knob); spec
    `m5_surface_pair_curve.md` "Torus × plane" / "Increments 3a + 3b").
-   P0034's family is NAMED (`KV2_PAIR_SAMPLE_PROBE`): a cylinder×cylinder
-   pair edge at a near-tangent crossing whose chord straddles the pinch —
-   chord-midpoint bisection cannot resolve it; the P0032 lineage's
-   remaining STOP is the same text.
-   Next: P0033–P0039 — each its own kernel session (P0034 = a
-   tangent-following march in kernel-v2's pair sampler)
+   P0034 CONVERTED 2026-10-11 (later) (the "tangent march" was the wrong
+   remedy — the failing pair edge's endpoints were the two roots of ONE
+   boss generator against the skew cutter: the boss passes WHOLLY through
+   the cutter, the exact curve is TWO loops with a 5.3e-6 clearance, and
+   the natural chord mesh bridged them, Yang Fig. 8 Case V, with every
+   Stage-4 vertex converged exactly; the Case-III graze guard gained an
+   independent skew-axis pinch verdict `GrazeDemand::Pinch`, spec
+   `yang_172_case_iii_graze_guard.md` §3, and kernel-v2's P0008
+   neighbor-chord criterion now tags boundary nodes with ANY twin face so
+   two faces meeting at a knife-edge wedge no longer render the same ear,
+   spec `kv2_cdt_triangulation_core.md` §6f; canonical corpus 332C / 0W /
+   14E / 5EE / 0T over 351).
+   Next: P0033, P0035–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

@@ -1,8 +1,8 @@
 {
-  "errored": 15,
+  "errored": 14,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 331,
+  "passed": 332,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2028,7 +2028,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 7e948a3a-d88d-448a-a357-51d638ee51b0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 9 is invalid: LocalRefinementRequired\")",
+      "detail": "1 engine error(s): 7e948a3a-d88d-448a-a357-51d638ee51b0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 19 is invalid: LocalRefinementRequired\")",
       "id": "P0026",
       "status": "error"
     },
@@ -2075,10 +2075,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 6389bc2a-93dc-4da9-8375-a367a4847d20: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(27), reason: \"surface-pair projection left the chord neighborhood\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0034",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

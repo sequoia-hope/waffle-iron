@@ -43,6 +43,90 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-11 (later) — P0034 CONVERTED: a skew-axis cylinder pair's near-tangent PINCH is Yang's Case V — the chord mesh bridged the two exact loops (Stage-1 pinch guard), and the two faces then rendered coincident ears across the knife-edge wedge (kernel-v2's neighbor-chord criterion generalized)
+
+**Anchor (`KV2_PAIR_SAMPLE_PROBE`, `YANG_BREP_PROBE`, a plain-Python
+trace of the exact curve).** The 2026-10-10 (night) note had named this
+family "a near-tangent pinch chord-midpoint bisection cannot resolve —
+a tangent-following march can". The march would have been wrong. The
+failing pair edge's two endpoints (both on both cylinders to 1e-19) sit
+on the SAME generator of the boss cylinder (r 2.88e-4, axis +y): they
+are that generator's two roots against the skew cutter (r 4.27e-4), and
+marching along the curve from either one never reaches the other
+(closest approach 1.37e-4 ≈ the chord). Every generator of the boss has
+two roots: the axes are 1.336e-4 apart against |r_a − r_b| = 1.389e-4, so
+the boss passes WHOLLY through the cutter and the exact curve is TWO
+separate loops whose far-generator clearance is 5.26e-6. yang-rs's own
+output carried THREE bridge edges across that gap (157→58, 138→140,
+138↔162), each joining an upper-loop vertex to a lower-loop one. The
+Stage-1 chord mesh (natural rim N 12 / 13, sagitta above the clearance)
+resolved ONE loop with a turnaround at the pinch generator — Yang Fig. 8
+**Case V**, "both intersect, but the intersected mesh patches do not
+correspond" — and Stage 4 converged every vertex of it exactly; no
+pointwise certificate can see a bridge whose ends both converge.
+
+**Remedy 1 — yang-rs (spec `yang_172_case_iii_graze_guard.md` §3, the
+Case-V pinch row).** The Case-III guard already derives a pre-Stage-1
+rim-N demand from a cylinder pair's closed-form penetration, and already
+carried the INTERNAL graze term `d − |r_a − r_b|` — for PARALLEL axes
+only. For skew axes the same quantity is the pinch clearance (two loops
+when the smaller cylinder stays inside, one loop with a thin bridge when
+it pokes through; either sign is the hazard), and it was missing.
+A SECOND verdict, `cyl_pair_pinch_demand`, now derives from
+`clearance = ||r_a − r_b| − d|` alongside the unchanged external one and
+returns `GrazeDemand::Pinch(N)` (P0034: N 37; render-observability line
+1.4e-6 cleared; a sub-cap clearance derives nothing — kernel-v2's sampler
+stays the loud tripwire). (A first cut folded the pinch INTO the external
+verdict as "the binding term names the variant"; it diverted P0021's deep
+external demand away from the N75 ladder and that pin went red — the two
+hazards are independent and are judged independently.)
+A pinch demand is exempt from the phase-aware filter (its natural meshes
+DO intersect — wrongly) and subject to the STOP arm's face-extent witness
+(the pinch sits AT the common perpendicular; P0021's pair has its foot
+1.97 lengths off the boss and its clearance 6.0e-5 would otherwise have
+boosted a CORRECT case to N 22 — dropped). Measured: with the guard
+alone, P0034 ERROR → `wrong[watertight_mesh]`, two render edges with
+four incident triangles, and the output's cylinder × cylinder edge graph
+became two clean components. (A debug body-wide `YANG_CHORD_REFINE` at
+×4 / ×16 / ×64 had reached the same WRONG — the density diagnosis held
+and the residue was elsewhere.)
+
+**Remedy 2 — kernel-v2 (spec `kv2_cdt_triangulation_core.md` §6f,
+generalized).** `ASSAY_WATERTIGHT_PROBE` put the four-use edges at the
+upper loop's concave dip (θ 0.07–0.13, y −3.43e-4) and named the owners:
+the boss lateral (FaceId 28) and the cutter's hole wall (FaceId 29),
+which meet there at 8.6° (sin θ 0.15) over a wedge 1.7e-7 thick — below
+the render sagitta. Both faces ear-clipped the dip with the SAME two
+diagonals over the SAME twin-canonical samples, and a triangle whose
+three corners lie on the shared curve is the same flat triangle whichever
+surface claims it: two coincident opposite triangles. This is P0008's
+double-cover class with a CURVED neighbor; the P0008 criterion (split an
+interior chart edge whose two ends lie on one neighbor's boundary at its
+on-surface midpoint, when the lift is visible) had tagged nodes with
+their twin face only when that twin was PLANAR — the first customer's
+reason, not the rule's. `twin_face` now tags every boundary node with its
+twin whatever its surface (a seam's twin, the face itself, carries none);
+the visible-lift gate is what makes the two faces' splits distinct (each
+lifts onto its OWN surface, 3e-8 apart here, above the oracle grid and
+the f32 floor). P0034 → **SUPPORTED_CORRECT** (2.2 s); the un-minimized
+seven-op lineage (seed-3 index 71) completes with every mesh oracle
+passing (volume 8.554466e-10). Pins: yang-rs `m5_case_iii`
+(`graze_demand_p0034_skew_pinch_is_a_pinch_demand` → `Pinch(37)`, the
+poke-through sign, exact internal tangency silent, off-face pinch dropped
+by the witness, on-face pinch boosts past the phase filter; the external
+pins `Boost(5)` are untouched and the two deep skew pairs additionally
+read `Pinch(7)` / `Pinch(22)` from the pinch arm),
+kernel-v2 `tests/p0034_pinch_wedge_render.rs`, smoke pin `P0034 →
+SupportedCorrect`.
+
+**Corpus (release, 8 jobs, 900 s; wall 941.5 s): 332C / 0W / 14E / 5EE /
+0T + 0 UNSUPPORTED over 351** — versus the 2026-10-11 canonical exactly
+ONE move, P0034 ERROR → CORRECT, zero regressions; one detail drift,
+P0026 (the adjudicated minted tangency) names Stage-4 vertex 19 instead
+of 9 under the same `LocalRefinementRequired` STOP — its cylinder pair
+now carries a pinch demand, and its verdict is unchanged. The 14 ERROR
+rows: seven C-series walls + P0026 + P0033, P0035–P0039.
+
 ## 2026-10-11 — Torus × plane increments 3a + 3b LANDED: a pair chain on a planar loop is Stage-0 overlay vocabulary, a torus-bearing edge selects at the torus owner's band; the six arm-on movers convert
 
 **3a diagnosis (`YANG_COPLANAR_PROBE`, `YANG_SPLIT_PROBE`, `YANG_LRR_SITE`,

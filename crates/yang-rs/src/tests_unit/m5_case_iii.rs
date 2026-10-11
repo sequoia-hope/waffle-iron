@@ -48,13 +48,21 @@ pub(crate) fn graze_demand_c0116_pair_derives_minimal_n() {
 pub(crate) fn graze_demand_deep_disjoint_tangent() {
     // Deep: axis distance 0.4 ⇒ depth 0.4 ⇒ a tiny N (5 at these radii,
     // the minimal N with sag(0.5,N)+sag(0.3,N) ≤ 0.2) that any natural
-    // Stage-1 N (12 here) absorbs.
+    // Stage-1 N (12 here) absorbs. (The skew PINCH term, 0.2, is the
+    // separate `cyl_pair_pinch_demand` verdict — `Pinch(7)`, absorbed too.)
     assert_eq!(
         cyl_pair_graze_demand(
             ctup([0.0, 0.0, 0.0], Z, 0.5),
             ctup([-1.5, 0.4, 1.0], X, 0.3)
         ),
         GrazeDemand::Boost(5)
+    );
+    assert_eq!(
+        cyl_pair_pinch_demand(
+            ctup([0.0, 0.0, 0.0], Z, 0.5),
+            ctup([-1.5, 0.4, 1.0], X, 0.3)
+        ),
+        GrazeDemand::Pinch(7)
     );
     // Disjoint (gap 0.01) and exact tangency (depth == 0.0).
     assert_eq!(
@@ -308,6 +316,12 @@ pub(crate) fn band_clearance_p0021_pair_is_orders_below_the_closed_form() {
     );
     // The closed form still says "deep" (and so derives a tiny N).
     assert_eq!(cyl_pair_graze_demand(a, b), GrazeDemand::Boost(5));
+    // The separate skew PINCH verdict (2026-10-11): clearance 6.0e-5 at the
+    // common perpendicular derives N 22 — which the scan drops, because
+    // that perpendicular's foot lies 1.97 lengths off the boss
+    // (`graze_guard_scan_off_face_pinch_is_silent` pins the arm), and the
+    // N75 ladder then converts the pair exactly as before.
+    assert_eq!(cyl_pair_pinch_demand(a, b), GrazeDemand::Pinch(22));
     let witness = cyl_band_overlap_clearance(
         (a.0, a.1, a.2, (0.0, 0.00168)),
         (b.0, b.1, b.2, (0.0, 0.0028)),
@@ -383,4 +397,107 @@ pub(crate) fn extent_ladder_is_on_by_default_with_a_kill_switch() {
             "the N75 ladder is always-on unless YANG_172_EXTENT=0|off"
         ),
     }
+}
+
+// ── Case V: the skew-axis near-tangent PINCH (P0034, 2026-10-11) ──────
+
+/// P0034's measured pair: the boss (r 2.88e-4, axis +y) and the thru-cut
+/// (r 4.27e-4, skew axis), axis distance 1.336e-4 against |r_a − r_b| =
+/// 1.389e-4 — the boss passes WHOLLY through the cutter with its far
+/// generator 5.3e-6 inside the cutter's surface, so the exact curve is two
+/// loops. The external depth (5.8e-4) is deep; the binding term is the
+/// pinch clearance, and the demand is the smallest N whose combined
+/// sagitta clears half of it (37 — the natural meshes, at 12/13, bridged
+/// the two loops into one and Stage 4 emitted a pair edge joining them).
+#[test]
+pub(crate) fn graze_demand_p0034_skew_pinch_is_a_pinch_demand() {
+    let a = ctup([7.12e-5, -0.000503, 4.92e-5], [0.0, 1.0, 0.0], 0.000288);
+    let b = ctup(
+        [
+            -6.660_512_631_808_052e-5,
+            -0.000_432_374_843_915_008_15,
+            0.000_113_670_600_982_717_82,
+        ],
+        [
+            0.058_238_265_717_590_144,
+            0.284_286_181_020_292,
+            -0.956_969_002_469_309_5,
+        ],
+        0.000_426_895_953_036_038_65,
+    );
+    let demand = cyl_pair_pinch_demand(a, b);
+    let GrazeDemand::Pinch(n) = demand else {
+        panic!("expected Pinch, got {demand:?}");
+    };
+    // Clearance = |r_b − r_a| − d_lines, recomputed here from the inputs.
+    let clearance = 5.261_549_e-6;
+    assert!(
+        sag(0.000288, n) + sag(0.000_426_895_953_036_038_65, n) <= clearance / 2.0 * 1.000_001,
+        "derived N={n} must clear the pinch with the factor-2 margin"
+    );
+    assert!(
+        sag(0.000288, n - 1) + sag(0.000_426_895_953_036_038_65, n - 1) > clearance / 2.0 * 0.999,
+        "derived N={n} must be MINIMAL"
+    );
+    assert_eq!(n, 37, "the measured P0034 demand");
+}
+
+/// The pinch's other sign — the smaller cylinder POKES THROUGH the larger
+/// by a thin bridge (d − |r_a − r_b| small, skew axes): the exact curve is
+/// one loop and an inscribed mesh of the SMALLER cylinder, receding by its
+/// sagitta, resolves two. Same demand, same variant.
+#[test]
+pub(crate) fn graze_demand_skew_poke_through_is_a_pinch_demand() {
+    // |r_a − r_b| = 0.2; axis distance 0.205 ⇒ pokes through by 5e-3.
+    let demand = cyl_pair_pinch_demand(
+        ctup([0.0, 0.0, 0.0], Z, 0.5),
+        ctup([-1.5, 0.205, 1.0], X, 0.3),
+    );
+    let GrazeDemand::Pinch(n) = demand else {
+        panic!("expected Pinch, got {demand:?}");
+    };
+    assert!(sag(0.5, n) + sag(0.3, n) <= 5e-3 / 2.0, "N={n}");
+    assert!(
+        sag(0.5, n - 1) + sag(0.3, n - 1) > 5e-3 / 2.0,
+        "N={n} must be minimal"
+    );
+}
+
+/// An EXACT internal tangency (d = |r_a − r_b|) is the measure-zero
+/// contact: no pinch demand (the clearance is 0, "exact tangency"); the
+/// external arm's own deep verdict is unchanged.
+#[test]
+pub(crate) fn graze_demand_skew_exact_internal_tangency_is_silent() {
+    assert_eq!(
+        cyl_pair_pinch_demand(
+            ctup([0.0, 0.0, 0.0], Z, 0.5),
+            ctup([-1.5, 0.2, 1.0], X, 0.3)
+        ),
+        GrazeDemand::None
+    );
+}
+
+/// Scan level: a pinch whose common perpendicular lies OFF the smaller
+/// face's axial span is a pinch neither face owns — dropped (the same
+/// witness the SubSagitta STOP arm uses). The boss spans z ∈ [0, 2]; the
+/// tool runs along x at z = 10, so the foot on the boss (z = 10) is 8
+/// lengths past its top.
+#[test]
+pub(crate) fn graze_guard_scan_off_face_pinch_is_silent() {
+    let boss = graze_cyl([0.0, 0.0, 0.0], Z, 0.5, 2.0);
+    let tool = graze_cyl([-1.5, 0.205, 10.0], X, 0.3, 3.5);
+    assert!(matches!(graze_min_rim_segments(&boss, &tool), Ok(None)));
+}
+
+/// Scan level: the same pinch ON both faces demands the boost even though
+/// the natural meshes intersect (deeply, at the common perpendicular) —
+/// the phase-aware Case-III filter does not apply to a topology demand.
+#[test]
+pub(crate) fn graze_guard_scan_on_face_pinch_boosts_past_the_phase_filter() {
+    let boss = graze_cyl([0.0, 0.0, 0.0], Z, 0.5, 2.0);
+    let tool = graze_cyl([-1.5, 0.205, 1.0], X, 0.3, 3.5);
+    let n = graze_min_rim_segments(&boss, &tool)
+        .expect("no STOP")
+        .expect("the on-face pinch must demand a boost");
+    assert!(sag(0.5, n) + sag(0.3, n) <= 5e-3 / 2.0, "N={n}");
 }

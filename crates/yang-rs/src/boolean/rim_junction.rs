@@ -264,6 +264,19 @@ pub(crate) enum GrazeDemand {
     /// Boost both operands' rim N to at least this value so the chord
     /// meshes must sample the intersection.
     Boost(usize),
+    /// Boost both operands' rim N to at least this value so the chord
+    /// meshes resolve a skew-axis near-tangent PINCH with the exact curve's
+    /// topology (Yang Fig. 8 Case V, measured P0034 2026-10-11): the two
+    /// infinite cylinders intersect deeply at the common perpendicular, but
+    /// the smaller one's FAR generator passes within `||r_a − r_b| − d|` of
+    /// the larger one's surface — two separate loops when it stays inside,
+    /// one loop with a thin bridge when it pokes through. An inscribed
+    /// chord mesh whose sagitta exceeds that clearance resolves the OTHER
+    /// topology and Stage 4 then emits a pair edge whose two converged
+    /// endpoints lie on different components. Unlike [`Self::Boost`] this
+    /// demand is NOT subject to the phase-aware Case-III filter: the natural
+    /// meshes DO intersect — with the wrong topology.
+    Pinch(usize),
     /// Genuine intersection below the observability floor of the rim-N
     /// cap: no practical tessellation sees it — the typed-STOP arm.
     SubSagitta { depth: f64, floor: f64 },
@@ -289,24 +302,7 @@ pub(crate) fn cyl_pair_graze_demand(
     (pa, da, ra): (Point3, Vector3, f64),
     (pb, db, rb): (Point3, Vector3, f64),
 ) -> GrazeDemand {
-    let ua = normalize3(da.as_array());
-    let ub = normalize3(db.as_array());
-    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
-    let cx = [
-        ua[1] * ub[2] - ua[2] * ub[1],
-        ua[2] * ub[0] - ua[0] * ub[2],
-        ua[0] * ub[1] - ua[1] * ub[0],
-    ];
-    let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-    let (parallel, d_axes) = if cross_norm > 1e-12 {
-        let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
-        (false, d)
-    } else {
-        let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
-        let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
-        let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
-        (true, d)
-    };
+    let (parallel, d_axes) = cyl_pair_axis_distance((pa, da), (pb, db));
     let depth = if parallel {
         // Proper crossing of parallel laterals: |r_a − r_b| < d < r_a + r_b.
         // Both margins are graze hazards (external lens / internal crescent).
@@ -316,6 +312,83 @@ pub(crate) fn cyl_pair_graze_demand(
     } else {
         (ra + rb) - d_axes
     };
+    cyl_pair_demand_for_depth(depth, (pa, ra), (pb, rb), false)
+}
+
+/// The Case-V PINCH demand of two cylinder lateral surfaces with SKEW axes
+/// (spec `yang_172_case_iii_graze_guard` §3, the pinch row; P0034,
+/// 2026-10-11) — a SECOND, independent verdict alongside
+/// [`cyl_pair_graze_demand`]'s external one, which is unchanged.
+///
+/// The smaller cylinder's far generator (the one at the common
+/// perpendicular, `d + r_small` from the larger axis) clears the larger
+/// surface by `|r_a − r_b| − d`: two separate exact loops when positive,
+/// one loop with a thin bridge when it pokes through. EITHER sign is the
+/// hazard — an inscribed chord mesh whose combined sagitta exceeds
+/// `|clearance|` resolves the other topology, Stage 4 converges every
+/// vertex of it exactly, and the output carries a pair edge whose endpoints
+/// lie on different components (measured P0034: r 2.88e-4 / 4.27e-4,
+/// d 1.336e-4, clearance 5.3e-6 inside, natural N 12 / 13 bridged the loops
+/// three times). Same derivation as the external arm (`sag_a + sag_b ≤
+/// clearance / 2`, the noise line, the render-observability line); a pair
+/// that does not intersect at all, parallel axes (the crescent is the
+/// external arm's), an exactly tangent pinch (clearance 0, the measure-zero
+/// contact) and a clearance the 4096 cap cannot resolve derive nothing
+/// here — for the last, kernel-v2's render sampler stays the loud
+/// tripwire exactly as it was ("surface-pair projection left the chord
+/// neighborhood"), so no new STOP arm is introduced.
+pub(crate) fn cyl_pair_pinch_demand(
+    (pa, da, ra): (Point3, Vector3, f64),
+    (pb, db, rb): (Point3, Vector3, f64),
+) -> GrazeDemand {
+    let (parallel, d_axes) = cyl_pair_axis_distance((pa, da), (pb, db));
+    if parallel {
+        return GrazeDemand::None;
+    }
+    let external = (ra + rb) - d_axes;
+    if external.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return GrazeDemand::None; // disjoint / exact external tangency / NaN
+    }
+    let clearance = (d_axes - (ra - rb).abs()).abs();
+    match cyl_pair_demand_for_depth(clearance, (pa, ra), (pb, rb), true) {
+        GrazeDemand::SubSagitta { .. } => GrazeDemand::None,
+        other => other,
+    }
+}
+
+/// The distance between two cylinder axis LINES and whether they are
+/// parallel (shared by the external and pinch arms).
+fn cyl_pair_axis_distance((pa, da): (Point3, Vector3), (pb, db): (Point3, Vector3)) -> (bool, f64) {
+    let ua = normalize3(da.as_array());
+    let ub = normalize3(db.as_array());
+    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+    let cx = [
+        ua[1] * ub[2] - ua[2] * ub[1],
+        ua[2] * ub[0] - ua[0] * ub[2],
+        ua[0] * ub[1] - ua[1] * ub[0],
+    ];
+    let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    if cross_norm > 1e-12 {
+        let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
+        (false, d)
+    } else {
+        let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+        let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
+        let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+        (true, d)
+    }
+}
+
+/// The demand a (penetration or pinch) `depth` derives for the pair —
+/// the noise line, the minimal `N` with `sag_a + sag_b ≤ depth/2` (or the
+/// 4096-cap SubSagitta), then the render-observability line. `pinch`
+/// selects the variant.
+fn cyl_pair_demand_for_depth(
+    depth: f64,
+    (pa, ra): (Point3, f64),
+    (pb, rb): (Point3, f64),
+    pinch: bool,
+) -> GrazeDemand {
     if depth.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         return GrazeDemand::None; // disjoint / exact tangency / NaN
     }
@@ -356,7 +429,11 @@ pub(crate) fn cyl_pair_graze_demand(
     if depth <= 2.0e-3 * (ra + rb) {
         return GrazeDemand::None;
     }
-    GrazeDemand::Boost(n)
+    if pinch {
+        GrazeDemand::Pinch(n)
+    } else {
+        GrazeDemand::Boost(n)
+    }
 }
 
 /// Number of circumferential samples the finite-band overlap witness walks.
@@ -536,56 +613,96 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
             span
         };
     let (ca, cb) = (cyls(a), cyls(b));
-    let mut boosts: Vec<(usize, usize, usize)> = Vec::new(); // (fa, fb, n)
+    // Witness check: the graze region (the common perpendicular of the two
+    // axes, widened by the wedge half-length √(2·r_max·depth)) must reach
+    // BOTH faces' axial spans; the infinite surfaces grazing off-face is
+    // not this pair's defect. Shared by the SubSagitta STOP arm and the
+    // Case-V pinch arm (the pinch sits AT the common perpendicular — the
+    // smaller cylinder's far generator is closest to the larger axis there
+    // — so a foot off either face is a pinch neither face owns; measured
+    // P0021: foot 1.97 lengths off the boss, clearance 6.0e-5 would have
+    // derived N 22 on a CORRECT case).
+    let graze_in_extent = |fa: usize,
+                           fb: usize,
+                           (pa, da, ra): (Point3, Vector3, f64),
+                           (pb, db, rb): (Point3, Vector3, f64),
+                           depth: f64|
+     -> bool {
+        let ua = normalize3(da.as_array());
+        let ub = normalize3(db.as_array());
+        let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+        let bdot = ua[0] * ub[0] + ua[1] * ub[1] + ua[2] * ub[2];
+        let d1 = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+        let d2 = w[0] * ub[0] + w[1] * ub[1] + w[2] * ub[2];
+        let denom = 1.0 - bdot * bdot;
+        let half_len = (2.0 * ra.max(rb) * depth).sqrt();
+        let hit = |span: Option<(f64, f64)>, t: f64| -> bool {
+            span.is_none_or(|(lo, hi)| t >= lo - half_len && t <= hi + half_len)
+        };
+        if denom > 1e-24 {
+            // Skew/crossing axes: perpendicular feet params.
+            let s_a = (d1 - bdot * d2) / denom;
+            let t_b = (bdot * d1 - d2) / denom;
+            hit(axial_span(a, fa, pa, ua), s_a) && hit(axial_span(b, fb, pb, ub), t_b)
+        } else {
+            // Parallel axes: the graze runs along the common axial overlap
+            // — the two spans (both measured along û_a from p_a) must
+            // overlap.
+            match (axial_span(a, fa, pa, ua), axial_span(b, fb, pb, ua)) {
+                (Some((alo, ahi)), Some((blo, bhi))) => {
+                    let boff = d1; // p_b's offset along û_a
+                    alo - half_len <= boff + bhi + half_len
+                        && blo + boff - half_len <= ahi + half_len
+                }
+                _ => true, // no derivable span: conservative-loud
+            }
+        }
+    };
+    // (fa, fb, n, pinch): `pinch` marks a Case-V topology demand, exempt
+    // from the phase-aware filter below (its meshes intersect — wrongly).
+    let mut boosts: Vec<(usize, usize, usize, bool)> = Vec::new();
     for &(fa, pa, da, ra) in &ca {
         for &(fb, pb, db, rb) in &cb {
-            match cyl_pair_graze_demand((pa, da, ra), (pb, db, rb)) {
-                GrazeDemand::None => {}
-                GrazeDemand::Boost(n) => {
-                    boosts.push((fa, fb, n));
-                }
-                GrazeDemand::SubSagitta { depth, floor } => {
-                    // Witness check: the graze region (the common
-                    // perpendicular of the two axes, widened by the wedge
-                    // half-length √(2·r_max·depth)) must reach BOTH faces'
-                    // axial spans; the infinite surfaces grazing off-face
-                    // is not this pair's defect.
-                    let ua = normalize3(da.as_array());
-                    let ub = normalize3(db.as_array());
-                    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
-                    let bdot = ua[0] * ub[0] + ua[1] * ub[1] + ua[2] * ub[2];
-                    let d1 = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
-                    let d2 = w[0] * ub[0] + w[1] * ub[1] + w[2] * ub[2];
-                    let denom = 1.0 - bdot * bdot;
-                    let half_len = (2.0 * ra.max(rb) * depth).sqrt();
-                    let hit = |span: Option<(f64, f64)>, t: f64| -> bool {
-                        span.is_none_or(|(lo, hi)| t >= lo - half_len && t <= hi + half_len)
-                    };
-                    let in_extent = if denom > 1e-24 {
-                        // Skew/crossing axes: perpendicular feet params.
-                        let s_a = (d1 - bdot * d2) / denom;
-                        let t_b = (bdot * d1 - d2) / denom;
-                        hit(axial_span(a, fa, pa, ua), s_a) && hit(axial_span(b, fb, pb, ub), t_b)
-                    } else {
-                        // Parallel axes: the graze runs along the common
-                        // axial overlap — the two spans (both measured
-                        // along û_a from p_a) must overlap.
-                        match (axial_span(a, fa, pa, ua), axial_span(b, fb, pb, ua)) {
-                            (Some((alo, ahi)), Some((blo, bhi))) => {
-                                let boff = d1; // p_b's offset along û_a
-                                alo - half_len <= boff + bhi + half_len
-                                    && blo + boff - half_len <= ahi + half_len
-                            }
-                            _ => true, // no derivable span: conservative-loud
+            let external = cyl_pair_graze_demand((pa, da, ra), (pb, db, rb));
+            let pinch_demand = cyl_pair_pinch_demand((pa, da, ra), (pb, db, rb));
+            for demand in [external, pinch_demand] {
+                match demand {
+                    GrazeDemand::None => {}
+                    GrazeDemand::Boost(n) => {
+                        boosts.push((fa, fb, n, false));
+                    }
+                    GrazeDemand::Pinch(n) => {
+                        // The pinch's clearance is `||r_a − r_b| − d|`; recover
+                        // it from the demand's own geometry for the witness.
+                        let ua = normalize3(da.as_array());
+                        let ub = normalize3(db.as_array());
+                        let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+                        let cx = [
+                            ua[1] * ub[2] - ua[2] * ub[1],
+                            ua[2] * ub[0] - ua[0] * ub[2],
+                            ua[0] * ub[1] - ua[1] * ub[0],
+                        ];
+                        let cn = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+                        let d_axes = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cn;
+                        let clearance = (d_axes - (ra - rb).abs()).abs();
+                        if graze_in_extent(fa, fb, (pa, da, ra), (pb, db, rb), clearance) {
+                            boosts.push((fa, fb, n, true));
+                        } else if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                            eprintln!(
+                            "[graze-guard] pair=({fa},{fb}) pinch n={n} clearance={clearance:e} \
+                             OFF-FACE: dropped"
+                        );
                         }
-                    };
-                    if in_extent {
-                        return Err(YangError::SubSagittaGrazeIntersection {
-                            face_a: fa,
-                            face_b: fb,
-                            depth,
-                            floor,
-                        });
+                    }
+                    GrazeDemand::SubSagitta { depth, floor } => {
+                        if graze_in_extent(fa, fb, (pa, da, ra), (pb, db, rb), depth) {
+                            return Err(YangError::SubSagittaGrazeIntersection {
+                                face_a: fa,
+                                face_b: fb,
+                                depth,
+                                floor,
+                            });
+                        }
                     }
                 }
             }
@@ -688,14 +805,18 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
             Ok(touches(&xa, xa.face_tri_ranges[fa].clone(), &xb)
                 || touches(&xb, xb.face_tri_ranges[fb].clone(), &xa))
         };
-        for (fa, fb, n) in boosts {
-            let meshes_touch = touches(&ta, ta.face_tri_ranges[fa].clone(), &tb)
-                || touches(&tb, tb.face_tri_ranges[fb].clone(), &ta);
+        for (fa, fb, n, pinch) in boosts {
+            // A Case-V pinch demand is a TOPOLOGY demand: its natural meshes
+            // intersect (deeply, at the common perpendicular) and the
+            // phase-aware "do the meshes miss it?" filter does not apply.
+            let meshes_touch = !pinch
+                && (touches(&ta, ta.face_tri_ranges[fa].clone(), &tb)
+                    || touches(&tb, tb.face_tri_ranges[fb].clone(), &ta));
             let probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
             if probe {
                 eprintln!(
-                    "[graze-guard] pair=({fa},{fb}) n={n} meshes_touch={meshes_touch} \
-                     tris=({},{})",
+                    "[graze-guard] pair=({fa},{fb}) n={n} pinch={pinch} \
+                     meshes_touch={meshes_touch} tris=({},{})",
                     ta.face_tri_ranges[fa].len(),
                     tb.face_tri_ranges[fb].len(),
                 );
@@ -706,6 +827,11 @@ pub(crate) fn graze_min_rim_segments(a: &BRep, b: &BRep) -> Result<Option<usize>
             // The closed-form demand applies: today's path, untouched.
             if n > natural_rim_n(a) || n > natural_rim_n(b) {
                 req = Some(req.map_or(n, |r: usize| r.max(n)));
+                continue;
+            }
+            if pinch {
+                // Absorbed by the natural N: the meshes already resolve the
+                // pinch. The N75 ladder below is for a PROVEN miss.
                 continue;
             }
             // N75: the demand would be ABSORBED by the natural-N gate, yet

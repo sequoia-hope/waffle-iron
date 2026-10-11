@@ -593,15 +593,29 @@ fn tessellate_developable_patch(
     // longest INTERIOR edge (an on-surface midpoint), which is the only
     // edge that can carry lift. Nodes minted by interior splits carry no
     // tag; a boundary sub-edge split inherits the tags common to its ends.
+    //
+    // P0034 (2026-10-11): the neighbor need not be PLANAR. Two faces meeting
+    // along a shared curved edge at a small dihedral angle — a cylinder ×
+    // cylinder pair edge near its near-tangent pinch, 8.6° there — both
+    // ear-clip a concave dip of that curve with the SAME two diagonals over
+    // the SAME twin-canonical samples, and a triangle with all three
+    // corners on the shared curve is the same flat triangle whichever
+    // surface claims it: the thin wedge between the surfaces (1.7e-7 at
+    // the dip, below the render sagitta) renders as two coincident
+    // opposite triangles and the mesh is non-manifold on their shared
+    // diagonals (measured: two render edges with four incident triangles).
+    // The criterion is the same: an interior chart edge whose two ends lie
+    // on ONE neighbor's boundary is split at its on-surface midpoint, and
+    // the lift is visible exactly when the chord sags below THIS surface —
+    // which gives the two faces two distinct interior nodes, one on each
+    // surface. So the tag is the twin face itself, whatever its surface;
+    // a seam's twin (this face) carries no tag.
     let mut node_nbr: std::collections::HashMap<usize, [Option<FaceId>; 2]> =
         std::collections::HashMap::new();
-    let planar_twin = |h: crate::arena::HalfEdgeId| -> Result<Option<FaceId>, KernelV2Error> {
+    let twin_face = |h: crate::arena::HalfEdgeId| -> Result<Option<FaceId>, KernelV2Error> {
         let tw = arena.half_edge(arena.half_edge(h)?.twin)?;
         let f = arena.loop_(tw.loop_id)?.face;
-        Ok(match arena.face(f)?.surface {
-            Some(Surface::Plane(_)) => Some(f),
-            _ => None,
-        })
+        Ok((f != fid).then_some(f))
     };
     for &lid in &all_loops {
         let hes = arena.loop_half_edges(lid)?;
@@ -628,8 +642,8 @@ fn tessellate_developable_patch(
             if i == 0 {
                 u_cur = unroll_u(theta_p);
             }
-            let nbr_here = planar_twin(h)?;
-            let nbr_prev = planar_twin(hes[(i + hes.len() - 1) % hes.len()])?;
+            let nbr_here = twin_face(h)?;
+            let nbr_prev = twin_face(hes[(i + hes.len() - 1) % hes.len()])?;
             // Dev-only chain probe: per-half-edge curve kind + endpoints for
             // one face id — names WHICH boundary curve minted a fold's deep
             // ArcSample layer (Arc gets conforming inserts; the conic arms
@@ -1564,7 +1578,8 @@ fn tessellate_developable_patch(
         dev < sag
     };
     // P0008 (2026-09-30): the THIRD refinement criterion — an INTERIOR
-    // chart edge whose two ends both lie on ONE planar neighbor's boundary
+    // chart edge whose two ends both lie on ONE neighbor's boundary
+    // (planar then; any neighbor since P0034, see `twin_face` above)
     // renders as a 3D segment IN that neighbor's plane: the neighbor's
     // face region contains it (a chord of the neighbor's own convex ear
     // over the same samples), so the two render sheets meet along it and

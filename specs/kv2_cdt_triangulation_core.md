@@ -391,6 +391,28 @@ sphere patches (`surfaces/`) are outside this criterion — their planar
 sections are quartic / chart-curved and have shown no double cover; a
 count-4 residue there is its own finding.
 
+**Generalized to ANY neighbor — 2026-10-11 (P0034, prospector seed 3
+index 71).** The tag was the twin face only when that twin was PLANAR;
+the planarity was the first customer's reason the chord lies in the
+neighbor's sheet, not the criterion's. P0034's cylinder × cylinder pair
+edge meets its twin at an 8.6° dihedral near a near-tangent pinch (the
+solid is a wedge 1.7e-7 thick there, below the render sagitta), and both
+faces ear-clip the same concave dip of the shared curve with the SAME two
+diagonals over the SAME twin-canonical samples: a triangle with all three
+corners on the shared curve is the same flat triangle whichever surface
+claims it, so the render carried two coincident opposite triangles and
+two edges with four incident triangles (`ASSAY_WATERTIGHT_PROBE`, after
+the yang-rs Case-V pinch guard had made the curve topology right — spec
+`yang_172_case_iii_graze_guard.md` §3). `twin_face` now tags every
+boundary node with its twin face whatever the surface (a seam's twin,
+this face, carries none); the visible-lift gate is unchanged and is what
+makes the two faces' splits DISTINCT — each lifts the chord midpoint onto
+its OWN surface, 3e-8 apart here, above the oracle grid and the f32
+floor. One extra on-surface node per such diagonal on curved-neighbor
+boundaries; the corpus run is the cost verdict. Pin:
+`tests/p0034_pinch_wedge_render.rs` (P0034's four operations through the
+`Kernel` trait; render edges used by at most two triangles).
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:
