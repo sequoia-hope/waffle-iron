@@ -173,10 +173,32 @@ fn hyperbola_bounded_reentry_chain() {
         "through-bite union volume {v1} vs analytic {expect_v}"
     );
 
+    let hyperbola_half_edges = count_half_edges_on(&a, out, |c| {
+        matches!(c, kernel_v2::Curve::HyperbolaArc { .. })
+    });
+    assert!(
+        hyperbola_half_edges >= 2,
+        "the union must CARRY HyperbolaArc edges for this test to pin re-entry \
+         (found {hyperbola_half_edges} half-edges)"
+    );
+
     let notch = boxx(&mut a, (2.7, 3.7), (1.9, 2.9), (-1.1, 0.5));
     let cut = boolean_op(&mut a, out, notch, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("re-enter hyperbola-bounded body: {e:?}"));
     validate_solid(&a, cut).expect("re-entered result validates");
+    // P0033 (2026-10-11): the re-entered section must LEAVE as a hyperbola.
+    // The notch is clear of the cone, so every hyperbola edge is carried
+    // through unchanged; before the §4.4.2 restoration's hyperbola arm the
+    // output carried them as Stage-1-density `LineSegment` chords (P0033's
+    // union lost all 24 of its HyperbolaArc half-edges to the next cut).
+    let hyperbola_half_edges_out = count_half_edges_on(&a, cut, |c| {
+        matches!(c, kernel_v2::Curve::HyperbolaArc { .. })
+    });
+    assert!(
+        hyperbola_half_edges_out >= hyperbola_half_edges,
+        "the section's hyperbola edges must survive re-entry as HyperbolaArc: \
+         {hyperbola_half_edges_out} half-edges after vs {hyperbola_half_edges} before"
+    );
 
     // Overlap = [2.7,3.2]×[1.9,2.4]×[−0.6,0.5] → 0.5·0.5·1.1 = 0.275.
     let v2 = volume_of(&a, cut);
@@ -313,4 +335,32 @@ fn four_edge_non_structured_cone_lateral_reenters() {
         "pocket decrement {} must be ≈0.128 (planar + chord drift): v1={v1} v2={v2}",
         v1 - v2
     );
+}
+
+/// Half-edges on `solid`'s own loops whose curve satisfies `pred` (the arena
+/// still holds the operands' half-edges, so a whole-arena count would not
+/// distinguish a carried edge from its input twin).
+fn count_half_edges_on(
+    a: &kernel_v2::BrepArena,
+    solid: kernel_v2::SolidId,
+    pred: impl Fn(&kernel_v2::Curve) -> bool,
+) -> usize {
+    let mut n = 0usize;
+    for &sh in &a.solids[solid.0 as usize]
+        .as_ref()
+        .expect("solid alive")
+        .shells
+    {
+        for &f in &a.shells[sh.0 as usize].as_ref().expect("shell alive").faces {
+            let face = a.face(f).expect("face alive");
+            for lp in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+                for h in a.loop_half_edges(lp).expect("loop walks") {
+                    if a.half_edge(h).is_ok_and(|he| pred(&he.curve)) {
+                        n += 1;
+                    }
+                }
+            }
+        }
+    }
+    n
 }

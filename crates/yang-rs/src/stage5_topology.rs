@@ -8455,10 +8455,12 @@ pub(crate) fn emit_topology(
             input_b,
         );
         c441_log!(
-            "[s434-restore] eligible={} typed={} (ellipses {}) no_cand={} off={} ambig={} sweep={} mid={}",
+            "[s434-restore] eligible={} typed={} (ellipses {} hyperbolas {} pairs {}) no_cand={} off={} ambig={} sweep={} mid={}",
             st.eligible,
             st.typed_chords,
             st.typed_ellipses,
+            st.typed_hyperbolas,
+            st.typed_pairs,
             st.no_candidate,
             st.declined_offcurve,
             st.declined_ambiguous,

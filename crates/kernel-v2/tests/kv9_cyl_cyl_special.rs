@@ -428,12 +428,53 @@ fn unequal_perpendicular_union_reenters_with_far_pocket() {
     let cut = boolean_op(&mut a, out, pocket, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("re-enter the quartic-bounded union: {e:?}"));
     kernel_v2::validate_solid(&a, cut).expect("re-entered result validates");
+    // P0033 (2026-10-11): the re-entered pair boundary must LEAVE as a pair
+    // curve. The pocket is clear of the saddle, so every pair edge is carried
+    // through unchanged; before the §4.4.2 restoration's surface-pair arm
+    // the output carried them as Stage-1-density `LineSegment` chords (a
+    // chord inside Stage 1's 1e-2·r bound but 25× kernel-v2's render facet
+    // band — the KV9-F2a fold on P0033's cone face). Count on the output
+    // solid's own loops: the arena still holds the operands' half-edges.
+    let pair_half_edges_out = count_half_edges_on(&a, cut, |c| {
+        matches!(c, kernel_v2::Curve::SurfacePair { .. })
+    });
+    assert!(
+        pair_half_edges_out >= pair_half_edges,
+        "the saddle's pair edges must survive re-entry as SurfacePair: \
+         {pair_half_edges_out} half-edges after vs {pair_half_edges} before"
+    );
     let v2 = mesh_signed_volume(&tessellate(&a, cut).expect("result tessellates"));
     assert!(
         (v1 - v2 - 0.018).abs() < 1e-3,
         "pocket decrement {} must be ≈0.018: v1={v1} v2={v2}",
         v1 - v2
     );
+}
+
+/// Half-edges on `solid`'s own loops whose curve satisfies `pred`.
+fn count_half_edges_on(
+    a: &BrepArena,
+    solid: kernel_v2::SolidId,
+    pred: impl Fn(&kernel_v2::Curve) -> bool,
+) -> usize {
+    let mut n = 0usize;
+    for &sh in &a.solids[solid.0 as usize]
+        .as_ref()
+        .expect("solid alive")
+        .shells
+    {
+        for &f in &a.shells[sh.0 as usize].as_ref().expect("shell alive").faces {
+            let face = a.face(f).expect("face alive");
+            for lp in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+                for h in a.loop_half_edges(lp).expect("loop walks") {
+                    if a.half_edge(h).is_ok_and(|he| pred(&he.curve)) {
+                        n += 1;
+                    }
+                }
+            }
+        }
+    }
+    n
 }
 
 /// M5 K11 inc-2 (spec `m5_surface_pair_curve` "K11 inc-2", LANDED

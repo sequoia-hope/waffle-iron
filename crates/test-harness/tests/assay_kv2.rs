@@ -1956,7 +1956,18 @@ fn smoke_corpus_boundary_categories() {
         // had no corpus customer since; the ledger called it "a NEW signature
         // to re-minimize", and this is it. (Index 85 carries the same site at
         // 621 s CPU, so the 4-op minimum is the representative.)
-        ("P0033", Category::Error),
+        // CONVERTED 2026-10-11 (night): the fold was KV9-F2a (a boundary
+        // chord-split node keeping its chord's 6.2e-6 sagitta off the cone
+        // against a 2.4e-7 render facet band), and the deep chord was a
+        // re-entering body's cylinder × cone `SurfacePair` edge that the
+        // second boolean emitted as a Stage-1-density `LineSegment` (its
+        // 9.2e-7 sag inside Stage 1's 1e-2·r bound, so the chain pre-pass held
+        // it whole). The §4.4.2 carried-edge restoration now re-types onto
+        // EVERY typed input curve — `Hyperbola` and `SurfacePair` join
+        // `Circle`/`Ellipse` (spec `yang_434_output_chord_refinement.md`, the
+        // P0033 section). The un-minimized five-op lineage completes with
+        // every mesh oracle passing. 3.6 s.
+        ("P0033", Category::SupportedCorrect),
         // P0034 (4 ops) ⇒ `TessellationFailed "surface-pair projection left
         // the chord neighborhood"` on FaceId(29). Its ×1e-3 class change is
         // the input floor, not a second finding: the smallest authored segment

@@ -43,6 +43,77 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-11 (night) — P0033 CONVERTED: a re-entering body's cylinder × cone curve left the second boolean as a Stage-1-density chord — the §4.4.2 carried-edge restoration now re-types onto EVERY typed input curve (`Hyperbola` and `SurfacePair` join `Circle`/`Ellipse`)
+
+**Anchor (`KV2_PATCH_FOLD_PROBE` + `KV2_CHORD_DEPTH_CENSUS`,
+`KV2_PATCH_CHAIN_PROBE=45`, `YANG_BREP_PROBE`, `YANG_K11_CHAIN_PROBE`,
+`KV2_OUT_CURVE_CENSUS`).** The seed-3 row read "kernel-v2's render
+tessellator, the signature the un-minimized P0004 lineage was left on".
+The fold probe classifies it as **KV9-F2a**, the deep-chord family of
+spec `yang_434_output_chord_refinement.md`, by the `dev`/`sag`
+discriminator: the folded triangle's node is a boundary `Chord` split
+sitting 6.203e-6 off the cone's development — exactly its parent chord's
+sagitta — beside an on-surface interior split 1.7e-6 away, on a face whose
+render facet band is 2.4e-7 (`w_facet` 2.15e-5, `r_unroll` 2.43e-4): a
+chord 25× deeper than the band the tessellator keeps its split on. The
+chain probe names the chord: half-edges 275/276 of face 45, `LineSegment`,
+twin face 53 a **Cylinder** — the circle boss. A cylinder × cone boundary
+is never straight, and yang's own output of the PREVIOUS boolean (op 3's
+auto-union, `[brep-probe] OUT e106 74->93 SurfacePair { Cylinder, Cone }`)
+had typed it. The subtract's Stage-1 pre-pass sampled the re-entered pair
+edge correctly — `[k11-chain] edge=37 chord=1.214e-4 sag=9.24e-7
+d_eps=1.2427e-6 accept=true`, one chain chord inside the paper's `1e-2·r`
+bound — and the emission typed the carried chord `LineSegment`, because
+the §4.4.2 restoration's candidate vocabulary was `Circle` and `Ellipse`
+("Circle today; the census names any further kinds if they appear"). The
+kernel-v2 census makes the loss whole-body: the union carried 26
+`SurfacePair` and 24 `HyperbolaArc` half-edges (the revolve's end caps
+against its cones); the subtract's output carried **0 and 0**, and 112
+`Line` half-edges against the union's 32. Every re-entered pair curve and
+every re-entered plane × cone section had left as mesh-density chords;
+P0033 is merely the one whose chord met a sliver.
+
+**Remedy (yang-rs `stage5_output_refine.rs`, the general feature).**
+`restore_carried_edge_curves` gains the two missing arms with the same
+eligibility and the same one-candidate rule, each with its own domain
+certification: a **`SurfacePair`** chord's endpoints on BOTH defining
+surfaces within `TAU_EVAL·(1 + coord)` (never looser than kernel-v2's K3
+import band), its midpoint Newton-projected onto the pair
+(`relocate_onto_implicit_pair`) converging with its foot strictly inside
+the chord, a sag below the chord and within `surface_pair_chain_bound` —
+the Stage-1 pre-pass's OWN bound, so the chord is one the chain would hold
+and no new tolerance enters — and the projected point on both owner
+surfaces; a **`Hyperbola`** chord certified in its own injective parameter
+(`asinh`, no wrap, no sweep guard) with the mid-parameter point on both
+owners. Both arms copy the input descriptor to both twins bit-for-bit
+(`from_yang` demands it). `Parabola` has no producer. Spec
+`yang_434_output_chord_refinement.md`, the P0033 section.
+
+**Pins.** yang-rs `tests_unit/s434_output_restore.rs` +7 (pair chord
+typed / off-curve identity / past-the-chain-bound decline / owner-miss
+decline; hyperbola typed / off-branch / owner-miss); kernel-v2
+`kv9_cyl_cyl_special::unequal_perpendicular_union_reenters_with_far_pocket`
+asserts the saddle's pair edges survive re-entry as `SurfacePair`
+(measured RED under `YANG_434_OUT=off`: 0 after vs 112 before) and
+`kv16_hyperbola_boolean::hyperbola_bounded_reentry_chain` the section's
+hyperbolas as `HyperbolaArc` (RED: 0 vs 22). P0033 → SUPPORTED_CORRECT
+(3.6 s); the un-minimized seed-3 index-166 lineage (five ops, previously
+KV9-F2 on `FaceId(40)` plus an auto-union KV9-F2 on `FaceId(68)`)
+completes with every mesh oracle passing (volume 3.0646e-9); index 85, the
+ledger's other KV9-F2 row, already read CORRECT on the pre-fix kernel
+(71 s). Smoke pin → `SupportedCorrect`.
+
+**Probe trap.** `YANG_434_OUT=census` switches the restoration OFF while
+it measures (`restore_gate_enabled()` is false under it): P0033 then STOPs
+one wall earlier (`Stage-1 chart triangulation of face 14 cannot meet the
+face's chord budget`). Ask kernel-v2 (`KV2_OUT_CURVE_CENSUS=1`,
+`KV2_PATCH_CHAIN_PROBE=<face>`) what kind an edge left as.
+
+**Corpus (release, 8 jobs, 900 s; wall 988.1 s): 333C / 0W / 13E / 5EE /
+0T + 0 UNSUPPORTED over 351** — versus the 2026-10-11 (later) canonical
+exactly ONE move, P0033 ERROR → CORRECT, zero regressions, zero detail
+drift. The 13 ERROR rows: seven C-series walls + P0026 + P0035–P0039.
+
 ## 2026-10-11 (later) — P0034 CONVERTED: a skew-axis cylinder pair's near-tangent PINCH is Yang's Case V — the chord mesh bridged the two exact loops (Stage-1 pinch guard), and the two faces then rendered coincident ears across the knife-edge wedge (kernel-v2's neighbor-chord criterion generalized)
 
 **Anchor (`KV2_PAIR_SAMPLE_PROBE`, `YANG_BREP_PROBE`, a plain-Python
@@ -670,7 +741,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0030**~~ | #72, min 7→3 `convex4:boss circle:rev convex4:boss` | 3 | the same text, auto-union | `s6-curved-empty-cycles: face 0` — a curved face whose reassembly cycle set is EMPTY. A third site for one text | ~~ERROR 0.3 s~~ **CONVERTED 2026-10-10** → SUPPORTED_CORRECT (the prism and the closed torus never meet; a whole torus has no mesh boundary to segment along. The §4.3.1 contact census certifies both shells clear and the host answers with set algebra on whole shells — spec `untouched_shell_passthrough`; see the 2026-10-10 section) |
 | **P0031** | #57, min 3→3 `circle:boss nonconvex6:boss star3(0.15):cut` | 3 | `SelfIntersectingBooleanOutput { penetrations: 3 }` | `FaceId(32)` **CYLINDER** × `FaceId(55)` **PLANE**. Not P0021's family (cylinder × cylinder) and not P0007's (the cylinder's rim here IS an `EllipseArc`, so §4.4.2 carried it) | ERROR 1.6 s |
 | **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |
-| **P0033** | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ERROR 2.0 s |
+| ~~**P0033**~~ | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ~~ERROR 2.0 s~~ **CONVERTED 2026-10-11 (night)** → SUPPORTED_CORRECT 3.6 s (KV9-F2a: the deep chord was the previous boolean's cylinder × cone `SurfacePair` edge, re-entered and emitted as a Stage-1-density `LineSegment`; the §4.4.2 restoration now re-types onto every typed input curve — see the 2026-10-11 (night) section) |
 | **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
 | **P0035** | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ERROR 0.1 s |
 | **P0036** | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ERROR 0.4 s |

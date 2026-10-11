@@ -21,6 +21,12 @@
 //! the polyline emission) re-types the
 //! certified chords in place; the always-on I5-1b merge then coalesces the
 //! runs into arc edges and kernel-v2 samples them at render density.
+//! The vocabulary is EVERY typed input curve: `Circle` (2026-08-26),
+//! `Ellipse` (P0007, 2026-09-29), `Hyperbola` and `SurfacePair` (P0033,
+//! 2026-10-11 — a re-entering body's plane × cone sections and cylinder ×
+//! cone curves left the second boolean as mesh-density chords; the pair
+//! chord's 9.2e-7 sag was inside Stage 1's 1e-2·r bound and 25× kernel-v2's
+//! render facet band, the KV9-F2a fold).
 //!
 //! [`census_output_pair_chords`] (`YANG_434_OUT=census`, print-only, apply
 //! off): per 2-use `LineSegment` chord between two distinct faces — owner
@@ -74,8 +80,51 @@ fn dist_to_ellipse(p: Point3, curve: &Curve) -> Option<f64> {
     Some(((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2)).sqrt())
 }
 
-/// The max endpoint residual of a chord `(p, q)` against a carried conic
-/// candidate — `Circle` and `Ellipse`; `None` for every other curve kind.
+/// 3D distance from `p` to the hyperbola branch, measured at the foot its
+/// own parameter names (`hyperbola_param` → `hyperbola_point`) — the
+/// hyperbola twin of [`dist_to_ellipse`] (P0033, 2026-10-11: a re-entering
+/// body's axis-steep plane × cone sections are `Curve::Hyperbola` input
+/// edges, carried by the second boolean as mesh-density chords).
+fn dist_to_hyperbola(p: Point3, curve: &Curve) -> Option<f64> {
+    let Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+    } = *curve
+    else {
+        return None;
+    };
+    let t = crate::geom::hyperbola_param(p, center, normal, major_axis, semi_conjugate);
+    let q = crate::geom::hyperbola_point(
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+        t,
+    );
+    let (pa, qa) = (p.as_array(), q.as_array());
+    Some(((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2)).sqrt())
+}
+
+/// Max residual of `p` against BOTH defining surfaces of a surface-pair
+/// curve — the per-point certification kernel-v2's import (K3) and
+/// Stage 1's chain pre-pass apply to a pair edge's endpoints. `None` when
+/// `p` sits on a defining surface's axis (the residual is undefined there).
+fn dist_to_pair_surfaces(p: Point3, a: Surface, b: Surface) -> Option<f64> {
+    let x = p.as_array();
+    let (da, _) = surface_distance_and_normal(a, x)?;
+    let (db, _) = surface_distance_and_normal(b, x)?;
+    Some(da.abs().max(db.abs()))
+}
+
+/// The max endpoint residual of a chord `(p, q)` against a carried input
+/// curve candidate — every curve kind an input B-Rep edge can carry except
+/// the straight segment (`Circle`, `Ellipse`, `Hyperbola`, `SurfacePair`);
+/// `None` for `LineSegment` / `Parabola` (no producer emits a parabola input
+/// edge) and for a pair endpoint on a defining surface's axis.
 fn carried_residual(curve: &Curve, p: Point3, q: Point3) -> Option<f64> {
     match *curve {
         Curve::Circle {
@@ -87,6 +136,12 @@ fn carried_residual(curve: &Curve, p: Point3, q: Point3) -> Option<f64> {
             Some(dist_to_circle(p, center, n, radius).max(dist_to_circle(q, center, n, radius)))
         }
         Curve::Ellipse { .. } => Some(dist_to_ellipse(p, curve)?.max(dist_to_ellipse(q, curve)?)),
+        Curve::Hyperbola { .. } => {
+            Some(dist_to_hyperbola(p, curve)?.max(dist_to_hyperbola(q, curve)?))
+        }
+        Curve::SurfacePair { a, b } => {
+            Some(dist_to_pair_surfaces(p, a, b)?.max(dist_to_pair_surfaces(q, a, b)?))
+        }
         _ => None,
     }
 }
@@ -112,11 +167,12 @@ fn carried_curve_match(
                 let Some(e) = input.1.get(ei as usize) else {
                     continue;
                 };
-                // Circle (revolve/extrude rims) and Ellipse (a re-entered
+                // Circle (revolve/extrude rims), Ellipse (a re-entered
                 // oblique plane × cylinder boundary, KV14 ellipse re-entry —
-                // P0007 named it through this census on 2026-09-29).
-                // Parabola / hyperbola / surface-pair inputs are left to the
-                // census's unmatched count until a case names them.
+                // P0007 named it through this census on 2026-09-29),
+                // Hyperbola and SurfacePair (a re-entered body's axis-steep
+                // plane × cone sections and its cylinder × cone curves —
+                // P0033 named both on 2026-10-11). Parabola has no producer.
                 let Some(d) = carried_residual(&e.curve, p, q) else {
                     continue;
                 };
@@ -369,6 +425,62 @@ pub(crate) struct RestoreStats {
     pub declined_midpoint: usize,
     /// Of `typed_chords`, those re-typed onto an `Ellipse` (P0007).
     pub typed_ellipses: usize,
+    /// Of `typed_chords`, those re-typed onto a `Hyperbola` (P0033).
+    pub typed_hyperbolas: usize,
+    /// Of `typed_chords`, those re-typed onto a `SurfacePair` (P0033).
+    pub typed_pairs: usize,
+}
+
+/// Bit-pattern key of a pair surface — exact field identity, the same
+/// equality `from_yang`'s twin check and the chain decimation's `RunKey`
+/// apply (a pair's surfaces are copied bit-for-bit from the input edge).
+fn surface_bits(s: &Surface) -> Vec<u64> {
+    let mut k = Vec::with_capacity(8);
+    match *s {
+        Surface::Plane { normal, d } => {
+            k.push(1);
+            k.extend(normal.as_array().iter().map(|x| x.to_bits()));
+            k.push(d.to_bits());
+        }
+        Surface::Sphere { center, radius } => {
+            k.push(2);
+            k.extend(center.as_array().iter().map(|x| x.to_bits()));
+            k.push(radius.to_bits());
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            k.push(3);
+            k.extend(axis_point.as_array().iter().map(|x| x.to_bits()));
+            k.extend(axis_dir.as_array().iter().map(|x| x.to_bits()));
+            k.push(radius.to_bits());
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            k.push(4);
+            k.extend(apex.as_array().iter().map(|x| x.to_bits()));
+            k.extend(axis_dir.as_array().iter().map(|x| x.to_bits()));
+            k.push(half_angle.to_bits());
+        }
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            k.push(5);
+            k.extend(center.as_array().iter().map(|x| x.to_bits()));
+            k.extend(axis_dir.as_array().iter().map(|x| x.to_bits()));
+            k.push(major_radius.to_bits());
+            k.push(minor_radius.to_bits());
+        }
+    }
+    k
 }
 
 /// Canonical dedup key for a candidate conic (normal sign-canonicalized;
@@ -415,6 +527,29 @@ fn conic_key(curve: &Curve) -> Vec<u64> {
             k.extend(major_axis.as_array().iter().map(|x| x.to_bits()));
             k.push(major_radius.to_bits());
             k.push(minor_radius.to_bits());
+        }
+        Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            let n = canon_n(normal.as_array());
+            k.push(3);
+            k.extend(center.as_array().iter().map(|x| x.to_bits()));
+            k.extend(n.iter().map(|x| x.to_bits()));
+            k.extend(major_axis.as_array().iter().map(|x| x.to_bits()));
+            k.push(semi_transverse.to_bits());
+            k.push(semi_conjugate.to_bits());
+        }
+        Curve::SurfacePair { a, b } => {
+            // A pair in either argument order is the same curve.
+            let (ka, kb) = (surface_bits(&a), surface_bits(&b));
+            let (lo, hi) = if ka <= kb { (ka, kb) } else { (kb, ka) };
+            k.push(4);
+            k.extend(lo);
+            k.extend(hi);
         }
         _ => k.push(0),
     }
@@ -504,7 +639,18 @@ pub(crate) fn restore_carried_edge_curves(
                     let scale = match e.curve {
                         Curve::Circle { radius, .. } => radius,
                         Curve::Ellipse { major_radius, .. } => major_radius,
-                        _ => unreachable!("carried_residual admits conics only"),
+                        Curve::Hyperbola {
+                            semi_transverse,
+                            semi_conjugate,
+                            ..
+                        } => semi_transverse.max(semi_conjugate),
+                        // A pair endpoint's band is the coordinate magnitude
+                        // alone — never LOOSER than kernel-v2's K3 import band
+                        // (`TAU_EVAL·(1 + max(pair_surface_scale, coord))`),
+                        // so a chord certified here is a pair edge the import
+                        // accepts.
+                        Curve::SurfacePair { .. } => 0.0,
+                        _ => unreachable!("carried_residual admits typed input curves only"),
                     };
                     if d <= cad_primitives::TAU_EVAL * (1.0 + scale.max(coord)) {
                         in_band.insert(conic_key(&e.curve), e.curve);
@@ -525,6 +671,105 @@ pub(crate) fn restore_carried_edge_curves(
             continue;
         }
         let conic = *in_band.values().next().expect("len == 1");
+        // Surface-pair arm (P0033, 2026-10-11): a re-entering body's
+        // cylinder × cone (and any other pair) boundary is a procedural
+        // curve with no parameter, so its DOMAIN certification is the one
+        // Stage 1's chain pre-pass and kernel-v2's render sampler apply to a
+        // pair chord: the chord's midpoint Newton-projects onto BOTH
+        // surfaces (`relocate_onto_implicit_pair`, [#24] §4.3), lands inside
+        // the chord's own neighbourhood (foot strictly between the
+        // endpoints, sag below the chord — no basin escape toward another
+        // branch), within the pre-pass's OWN chord bound
+        // (`surface_pair_chain_bound` — the chord is one the Stage-1 chain
+        // would hold, so no new tolerance is introduced), and that projected
+        // point lies on BOTH owner surfaces. Both copies take the input
+        // edge's descriptor verbatim (a pair has no directional normal;
+        // `from_yang` demands bit-identical twins).
+        if let Curve::SurfacePair { a, b } = conic {
+            let (pa, qa) = (p.as_array(), q.as_array());
+            let mid = Point3::new(
+                0.5 * (pa[0] + qa[0]),
+                0.5 * (pa[1] + qa[1]),
+                0.5 * (pa[2] + qa[2]),
+            );
+            let Some(bound) = crate::surface_pair_chain_bound(a, b, p, q) else {
+                stats.declined_sweep += 1;
+                continue;
+            };
+            let Some(mp) = relocate_onto_implicit_pair(mid, a, b) else {
+                stats.declined_midpoint += 1;
+                continue;
+            };
+            let (ma, mpa) = (mid.as_array(), mp.as_array());
+            let d = [qa[0] - pa[0], qa[1] - pa[1], qa[2] - pa[2]];
+            let chord2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+            let w = [mpa[0] - pa[0], mpa[1] - pa[1], mpa[2] - pa[2]];
+            let foot = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / chord2;
+            let sag =
+                ((mpa[0] - ma[0]).powi(2) + (mpa[1] - ma[1]).powi(2) + (mpa[2] - ma[2]).powi(2))
+                    .sqrt();
+            if !(chord2 > 0.0 && foot > 0.0 && foot < 1.0 && sag * sag < chord2 && sag <= bound) {
+                stats.declined_sweep += 1;
+                continue;
+            }
+            let band = cad_primitives::TAU_EVAL * (1.0 + coord);
+            let on =
+                |surf| surface_distance_and_normal(surf, mpa).is_some_and(|(d, _)| d.abs() <= band);
+            if !(on(s0) && on(s1)) {
+                stats.declined_midpoint += 1;
+                continue;
+            }
+            for &(_, ei) in uses {
+                edges[ei].curve = conic;
+            }
+            stats.typed_chords += 1;
+            stats.typed_pairs += 1;
+            continue;
+        }
+        // Hyperbola arm (P0033, 2026-10-11): the axis-steep plane × cone
+        // section a prior boolean left on a re-entering body. The branch is
+        // unbounded and its parameter injective (`asinh`), so there is no
+        // wrap to guard; the chord's domain certification is the ellipse
+        // arm's — the mid-parameter point on BOTH owner surfaces — and both
+        // copies carry the input descriptor bit-for-bit (`from_yang`'s
+        // hyperbola twins are endpoint-oriented, like a pair's).
+        if let Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } = conic
+        {
+            let param = |x: Point3| {
+                crate::geom::hyperbola_param(x, center, normal, major_axis, semi_conjugate)
+            };
+            let (t0, t1) = (param(p), param(q));
+            let mid = crate::geom::hyperbola_point(
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+                0.5 * (t0 + t1),
+            );
+            let band =
+                cad_primitives::TAU_EVAL * (1.0 + semi_transverse.max(semi_conjugate).max(coord));
+            let on = |surf| {
+                surface_distance_and_normal(surf, mid.as_array())
+                    .is_some_and(|(d, _)| d.abs() <= band)
+            };
+            if !(on(s0) && on(s1)) {
+                stats.declined_midpoint += 1;
+                continue;
+            }
+            for &(_, ei) in uses {
+                edges[ei].curve = conic;
+            }
+            stats.typed_chords += 1;
+            stats.typed_hyperbolas += 1;
+            continue;
+        }
         // Ellipse arm (P0007): sweep guard and minor-arc midpoint DOMAIN
         // certification in the ellipse's own angular parameter, the same
         // two rules the circle branch below applies in its frame.

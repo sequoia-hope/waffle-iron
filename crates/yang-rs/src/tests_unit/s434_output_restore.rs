@@ -417,3 +417,287 @@ fn wide_ellipse_sweep_declined() {
     assert_eq!(stats.declined_sweep, 1, "{stats:?}");
     assert_eq!(fx.edges, before);
 }
+
+// ---- P0033 (2026-10-11): the hyperbola and surface-pair arms ----------------
+//
+// A re-entering body's axis-steep plane × cone sections (`Hyperbola`) and
+// cylinder × cone curves (`SurfacePair`) left the second boolean as
+// mesh-density `LineSegment` chords: the pair chord's 9.2e-7 sag sat inside
+// Stage 1's 1e-2·r chain bound and 25× above kernel-v2's render facet band,
+// the KV9-F2a deep-chord fold on P0033's face 45. The restoration vocabulary
+// is every typed input curve; these pins are RED before the two arms
+// (`no_candidate` — the pass read conics only).
+
+/// Cylinder (axis z through (0.5, 0, 0), r = 1) × cone (apex at the origin,
+/// axis +z, half-angle π/4): the pair curve satisfies x = z² − 3/4 with
+/// y² = z² − x². Points are seeded from that closed form at height `z` and
+/// Newton-polished onto both surfaces, exactly as a Stage-4 vertex is.
+fn pair_fixture_surfaces() -> (Surface, Surface) {
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.5, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    (cyl, cone)
+}
+
+fn pair_point_at(z: f64) -> Point3 {
+    let (cyl, cone) = pair_fixture_surfaces();
+    let x = z * z - 0.75;
+    let y = (z * z - x * x).sqrt();
+    crate::stage4_relocate::relocate_onto_implicit_pair(Point3::new(x, y, z), cyl, cone)
+        .expect("seed converges onto the pair curve")
+}
+
+fn pair_fixture(z0: f64, z1: f64) -> Fixture {
+    let (cyl, cone) = pair_fixture_surfaces();
+    let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::A, 1)]);
+    fx.verts[0] = pair_point_at(z0);
+    fx.verts[1] = pair_point_at(z1);
+    fx.faces[0].surface = cyl;
+    fx.faces[1].surface = cone;
+    fx
+}
+
+#[test]
+fn carried_surface_pair_chord_typed_on_both_copies() {
+    let (cyl, cone) = pair_fixture_surfaces();
+    let pair = Curve::SurfacePair { a: cyl, b: cone };
+    let mut fx = pair_fixture(1.40, 1.42);
+    let (in_faces, in_edges) = input_with_curves(&[pair, Curve::LineSegment]);
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_pairs, 1);
+    // Both copies carry the input descriptor bit-for-bit (a pair has no
+    // directional normal; `from_yang` demands identical twins).
+    assert_eq!(fx.edges[0].curve, pair);
+    assert_eq!(fx.edges[2].curve, pair);
+    assert!(matches!(fx.edges[1].curve, Curve::LineSegment));
+    assert!(matches!(fx.edges[3].curve, Curve::LineSegment));
+    assert_eq!((fx.edges[0].start, fx.edges[0].end), (0, 1));
+    assert_eq!((fx.edges[2].start, fx.edges[2].end), (1, 0));
+}
+
+#[test]
+fn off_pair_chord_declined() {
+    let (cyl, cone) = pair_fixture_surfaces();
+    let pair = Curve::SurfacePair { a: cyl, b: cone };
+    let mut fx = pair_fixture(1.40, 1.42);
+    // Lift one endpoint along the cylinder's generator: still on the
+    // cylinder, 7e-4 off the cone — far outside the 1e-9 import band.
+    let v = fx.verts[0];
+    fx.verts[0] = Point3::new(v.x(), v.y(), v.z() + 1e-3);
+    let (in_faces, in_edges) = input_with_curves(&[pair]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert!(stats.declined_offcurve >= 1, "{stats:?}");
+    assert_eq!(fx.edges, before, "declined pass must be the identity");
+}
+
+#[test]
+fn wide_pair_chord_past_the_chain_bound_declined() {
+    // Both endpoints ON the curve, but the chord spans a quarter of the
+    // loop: its midpoint projects 0.1 off the chord, past the Stage-1 chain
+    // bound (1e-2 × the smallest local radius) — not a chord the chain
+    // pre-pass would hold, so not one the restoration may mint.
+    let (cyl, cone) = pair_fixture_surfaces();
+    let pair = Curve::SurfacePair { a: cyl, b: cone };
+    let mut fx = pair_fixture(1.00, 1.45);
+    let (in_faces, in_edges) = input_with_curves(&[pair]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert_eq!(stats.declined_sweep, 1, "{stats:?}");
+    assert_eq!(fx.edges, before);
+}
+
+#[test]
+fn pair_chord_whose_owner_is_not_a_pair_surface_declined() {
+    // Endpoints on the pair curve, but one OWNER face is a plane the curve
+    // never touches: the projected midpoint fails the owner-domain check.
+    let (cyl, cone) = pair_fixture_surfaces();
+    let pair = Curve::SurfacePair { a: cyl, b: cone };
+    let mut fx = pair_fixture(1.40, 1.42);
+    fx.faces[1].surface = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let (in_faces, in_edges) = input_with_curves(&[pair]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert_eq!(stats.declined_midpoint, 1, "{stats:?}");
+    assert_eq!(fx.edges, before);
+}
+
+/// Cone (apex at the origin, axis +z, half-angle π/4) × the plane x = 2: the
+/// section is the hyperbola z²/4 − y²/4 = 1 in that plane — centre (2, 0, 0),
+/// normal x, transverse axis z, a = b = 2. `hyperbola_point` walks it as
+/// (2, −2 sinh t, 2 cosh t).
+fn steep_section() -> (Curve, Surface, Surface) {
+    let hyp = Curve::Hyperbola {
+        center: Point3::new(2.0, 0.0, 0.0),
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        major_axis: Vector3::new(0.0, 0.0, 1.0),
+        semi_transverse: 2.0,
+        semi_conjugate: 2.0,
+    };
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    let plane = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -2.0,
+    };
+    (hyp, cone, plane)
+}
+
+fn hyperbola_fixture(t0: f64, t1: f64) -> Fixture {
+    let (hyp, cone, plane) = steep_section();
+    let Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+    } = hyp
+    else {
+        unreachable!()
+    };
+    let at = |t: f64| {
+        crate::geom::hyperbola_point(
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+            t,
+        )
+    };
+    let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::A, 1)]);
+    fx.verts[0] = at(t0);
+    fx.verts[1] = at(t1);
+    fx.faces[0].surface = cone;
+    fx.faces[1].surface = plane;
+    fx
+}
+
+#[test]
+fn carried_hyperbola_chord_typed_on_both_copies() {
+    let (hyp, _, _) = steep_section();
+    let mut fx = hyperbola_fixture(0.3, 0.5);
+    let (in_faces, in_edges) = input_with_curves(&[hyp, Curve::LineSegment]);
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_hyperbolas, 1);
+    // Hyperbola twins are endpoint-oriented: identical descriptors.
+    assert_eq!(fx.edges[0].curve, hyp);
+    assert_eq!(fx.edges[2].curve, hyp);
+    assert!(matches!(fx.edges[1].curve, Curve::LineSegment));
+    assert!(matches!(fx.edges[3].curve, Curve::LineSegment));
+    assert_eq!((fx.edges[0].start, fx.edges[0].end), (0, 1));
+    assert_eq!((fx.edges[2].start, fx.edges[2].end), (1, 0));
+}
+
+#[test]
+fn off_hyperbola_chord_declined() {
+    // Wrong conjugate semi-axis: both endpoints sit ~3e-2 off the candidate.
+    let mut fx = hyperbola_fixture(0.3, 0.5);
+    let (hyp, _, _) = steep_section();
+    let Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        ..
+    } = hyp
+    else {
+        unreachable!()
+    };
+    let wrong = Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate: 2.1,
+    };
+    let (in_faces, in_edges) = input_with_curves(&[wrong]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert!(stats.declined_offcurve >= 1, "{stats:?}");
+    assert_eq!(fx.edges, before, "declined pass must be the identity");
+}
+
+#[test]
+fn hyperbola_chord_whose_owner_misses_the_branch_declined() {
+    let (hyp, _, _) = steep_section();
+    let mut fx = hyperbola_fixture(0.3, 0.5);
+    fx.faces[1].surface = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let (in_faces, in_edges) = input_with_curves(&[hyp]);
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 0);
+    assert_eq!(stats.declined_midpoint, 1, "{stats:?}");
+    assert_eq!(fx.edges, before);
+}

@@ -181,8 +181,18 @@ Do NOT skip to lower-priority items because they are easier.
    neighbor-chord criterion now tags boundary nodes with ANY twin face so
    two faces meeting at a knife-edge wedge no longer render the same ear,
    spec `kv2_cdt_triangulation_core.md` §6f; canonical corpus 332C / 0W /
-   14E / 5EE / 0T over 351).
-   Next: P0033, P0035–P0039 — each its own kernel session
+   14E / 5EE / 0T over 351). P0033 CONVERTED 2026-10-11 (night) (the
+   KV9-F2 fold was F2a — a boundary chord split 6.2e-6 off a cone against
+   a 2.4e-7 render facet band — and the deep chord was the PREVIOUS
+   boolean's cylinder × cone `SurfacePair` edge re-entering the cut, held
+   by Stage 1 as one chain chord inside the paper's 1e-2·r bound and
+   emitted as a `LineSegment` because the §4.4.2 carried-edge restoration
+   knew only `Circle`/`Ellipse`; it now re-types onto EVERY typed input
+   curve — `Hyperbola` and `SurfacePair` arms, each certified with the
+   bound Stage 1 already applies, spec `yang_434_output_chord_refinement.md`
+   "The hyperbola and surface-pair arms"; canonical corpus 333C / 0W /
+   13E / 5EE / 0T over 351).
+   Next: P0035–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

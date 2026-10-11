@@ -531,3 +531,100 @@ shell, genus 0) and declines the box union by its own limit ("a fully
 implicit patch that requires exact rationals"); the exact-membership
 ladder is STABLE (one component, χ_solid 1 at 256/512/1024; 6.4349 /
 6.4465 / 6.4448e-9) and the kernel agrees (one body, χ 2, 6.4452e-9).
+
+## The hyperbola and surface-pair arms — P0033 (2026-10-11 night): the vocabulary is EVERY typed input curve
+
+**Anchor (`KV2_PATCH_FOLD_PROBE`, `KV2_CHORD_DEPTH_CENSUS`,
+`KV2_PATCH_CHAIN_PROBE=45`, `YANG_BREP_PROBE`, `YANG_K11_CHAIN_PROBE`,
+`KV2_OUT_CURVE_CENSUS`).** P0033 (seed-3 index 166, minimized 5→4:
+`convex4:boss convex8:rev circle:boss convex4:cut`) STOPped in kernel-v2's
+render tessellator on `FaceId(45)`, a cone of the octagon revolve, with
+`patch triangulation folded (inverted triangle) — KV9-F2`. The fold probe
+classifies it as **F2a**, this spec's family, by the §5 discriminator of
+`kv9_f2b_lift_faithful_refinement.md`: the folded triangle's node `a` is a
+boundary `Chord` split sitting `dev = 6.203e-6` off the development —
+exactly the parent chord's `max_chord_sag` — beside an on-surface interior
+split 1.7e-6 away; `w_facet = 2.15e-5`, `r_unroll = 2.43e-4`, so the render
+facet band is `w²/8r ≈ 2.4e-7` and the chord is **25× deep**.
+
+The deep chord is NOT a carried rim circle. It is the boss cylinder ×
+revolve cone curve the PREVIOUS boolean (op 3's auto-union) had emitted as
+a `SurfacePair` edge (26 pair half-edges on the union, kernel-v2
+`[out-curve]` census), re-entering op 4's subtract as operand A. Stage 1's
+K11 chain pre-pass sampled it correctly — `[k11-chain] edge=37
+chord=1.214e-4 sag=9.24e-7 d_eps=1.2427e-6 accept=true`: the whole input
+edge is ONE chain chord, inside the paper's `1e-2·r` bound — and the
+emission then typed that carried chord `LineSegment`, because the §4.4.2
+restoration's candidate vocabulary was `Circle` and `Ellipse` only (§2
+above: "Circle today; the census names any further kinds if they appear").
+The subtract's output had **0** `SurfacePair` and **0** `HyperbolaArc`
+half-edges against the union's 26 and 24 — every re-entered pair curve and
+every re-entered plane × cone section (the revolve's end caps) left as
+mesh-density chords, 112 `Line` half-edges against 32. kernel-v2's
+developable tessellator keeps a `LineSegment` boundary split on its chord
+(the T-junction closure rule), so the 9.2e-7 pair sag became the permanent
+6.2e-6 off-development deviation the fold probe measured.
+
+**The fix: the restoration vocabulary is every typed input curve.**
+`restore_carried_edge_curves` gains two arms beside the circle and ellipse
+ones, same eligibility (a 2-use same-input `LineSegment` chord between two
+distinct input-face attributions), same "exactly ONE in-band candidate"
+rule, and a per-kind DOMAIN certification:
+
+- **`SurfacePair`** — the curve has no parameter, so the certification is
+  the one Stage 1's chain pre-pass and kernel-v2's render sampler already
+  apply to a pair chord: both endpoints on BOTH defining surfaces within
+  `TAU_EVAL·(1 + coord)` (never looser than kernel-v2's K3 import band,
+  which takes the max with `pair_surface_scale`); the chord midpoint
+  Newton-projected onto the pair (`relocate_onto_implicit_pair`, [#24]
+  §4.3) must converge, land with its foot strictly inside the chord and a
+  sag below the chord length (no basin escape toward another branch) and
+  **within `surface_pair_chain_bound`** — the pre-pass's own `chord_rel() ×
+  smallest local radius`, so the chord is one the Stage-1 chain would hold
+  and no new tolerance enters — and that projected point must lie on BOTH
+  owner surfaces. Both copies take the input edge's descriptor verbatim
+  (a pair has no directional normal; `from_yang` demands bit-identical
+  twins). Candidate dedup key: the two surfaces' bit patterns in either
+  order.
+- **`Hyperbola`** — the ellipse arm in the hyperbola's own parameter
+  (`hyperbola_param` is `asinh`, injective along the branch — no wrap, no
+  sweep guard): both endpoints within `TAU_EVAL·(1 + max(a, b, coord))` of
+  `hyperbola_point(hyperbola_param(·))`, the mid-parameter point on BOTH
+  owner surfaces; both copies carry the descriptor bit-for-bit (hyperbola
+  twins are endpoint-oriented like a pair's).
+
+`Parabola` has no producer (kernel-v2's `Curve` has no parabola variant),
+so `carried_residual` still returns `None` for it and the census's
+unmatched count would name it. `RestoreStats` gains `typed_hyperbolas` /
+`typed_pairs` and the `[s434-restore]` log prints them. Downstream nothing
+changes: the chain decimation keeps a pair run's descriptor, `from_yang`
+imports `SurfacePair`/`Hyperbola` → `SurfacePair`/`HyperbolaArc`, and
+kernel-v2 samples both at render density.
+
+**Pins.** `tests_unit/s434_output_restore.rs` (+7): a cylinder × cone pair
+chord (axis-z cylinder r 1 at x 0.5 against a 45° cone; endpoints
+Newton-polished from the closed form `x = z² − 3/4`) typed on both copies
+with identical descriptors (RED before: `no_candidate`), off-curve decline
+(an endpoint lifted 7e-4 off the cone) is the identity, a chord past the
+chain bound (a quarter of the loop) declines as `sweep`, an owner that is
+not a pair surface declines as `midpoint`; an axis-steep plane × cone
+section hyperbola (`z²/4 − y²/4 = 1` in `x = 2`) typed on both copies,
+off-branch and owner-miss declines. kernel-v2
+`kv9_cyl_cyl_special::unequal_perpendicular_union_reenters_with_far_pocket`
+now asserts the saddle's pair edges SURVIVE re-entry as `SurfacePair`
+(measured RED with `YANG_434_OUT=off`: 0 half-edges after vs 112 before),
+and `kv16_hyperbola_boolean::hyperbola_bounded_reentry_chain` asserts the
+section's hyperbolas survive as `HyperbolaArc`. Corpus: P0033 →
+SUPPORTED_CORRECT (3.6 s); its un-minimized seed-3 index-166 lineage (five
+ops, previously KV9-F2 on `FaceId(40)` plus an auto-union STOP on
+`FaceId(68)`) completes with every mesh oracle passing; index 85, the
+ledger's other KV9-F2 row, already read CORRECT on the pre-fix kernel
+(converted along the way by earlier work; 71 s).
+
+**Probe trap, recorded.** `YANG_434_OUT=census` is NOT read-only in
+effect: `restore_gate_enabled()` returns false under it, so the union's
+rims leave as chords and P0033's subtract then STOPs one wall earlier
+(`Stage-1 chart triangulation of face 14 cannot meet the face's chord
+budget`). Census the kernel-v2 side with `KV2_OUT_CURVE_CENSUS=1` and
+`KV2_PATCH_CHAIN_PROBE=<face>` instead when the question is "what kind did
+this edge leave as".
