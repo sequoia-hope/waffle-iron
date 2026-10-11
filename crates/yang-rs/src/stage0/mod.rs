@@ -1866,7 +1866,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             .and_then(|&(_, slot, _)| {
                                 rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(slot)
                             })
-                            .map(|ctx| chord_len * chord_len / (8.0 * ctx.radius));
+                            .and_then(|ctx| ctx.chord_sagitta(chord_len, coords[mq as usize]));
                         let contained = sagitta.is_some_and(|s| overshoot <= s);
                         // inc-3.5 measurement: is p on the union boundary
                         // (any 1-incident edge at p)? A boundary-vertex
@@ -1944,11 +1944,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             .map(|&(_, slot, _)| slot);
                         let ctx =
                             slot.and_then(|s| rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).nth(s));
-                        if let (Some(slot), Some(ctx)) = (slot, ctx) {
+                        // The cavity split reasons about angular order about
+                        // a rim CENTER — a circle context only; a pair chain's
+                        // sub-floor twin stays the loud downstream residue.
+                        let circle = ctx.and_then(|c| c.circle());
+                        if let (Some(slot), Some(ctx), Some((rim_center, rim_radius))) =
+                            (slot, ctx, circle)
+                        {
                             let (au, av) = frame.project(coords[sa as usize]);
                             let (bu, bv) = frame.project(coords[sb as usize]);
                             let clen = ((au - bu).powi(2) + (av - bv).powi(2)).sqrt();
-                            let sag = clen * clen / (8.0 * ctx.radius);
+                            let sag = clen * clen / (8.0 * rim_radius);
                             if fig11_split_cavity(
                                 &mut overlay,
                                 &mut edge_map,
@@ -1964,7 +1970,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                 &ctx.chords,
                                 &ctx.other_segs,
                                 slot < rim_ctxs_a.len(),
-                                ctx.center,
+                                rim_center,
                                 &mut split_extras,
                                 probe_flip,
                             ) {
@@ -1972,7 +1978,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                                 changed = true;
                             }
                         } else if probe_flip {
-                            eprintln!("  [split-reject] vert {sq} no rim-slot context");
+                            eprintln!("  [split-reject] vert {sq} no rim-slot CIRCLE context");
                         }
                     }
                 }

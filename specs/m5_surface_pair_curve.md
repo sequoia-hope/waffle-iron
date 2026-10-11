@@ -550,16 +550,17 @@ kernel-v2:
    **LANDED 2026-10-10 (P0032)**, section "Torus × plane" below.
 4. **Coaxial circle arms** in ssi-rs (T3/T5 special cases → `Circle`).
 
-## Torus × plane — increment 3, CHECKPOINT 1 LANDED 2026-10-10 (P0032): `Plane` joins the pair vocabulary and K8 is revised; the Stage-3 emission is GATED OFF
+## Torus × plane — increment 3 (P0032): `Plane` joins the pair vocabulary and K8 is revised; CHECKPOINT 1 LANDED GATED 2026-10-10, FLIPPED DEFAULT-ON 2026-10-11 after increments 3a + 3b
 
-**Status**: vocabulary + every consumer arm LANDED; the Stage-3 emission
-is **gated OFF** (`YANG_TORUS_PLANE_PAIR=1|on` is the A/B on-knob) because
-the arm-on corpus converts P0032 and moves SIX CORRECT cases onto three
-sites that have never seen a surface-pair edge on a planar loop (§Measured).
-Those three are the flip's owed increments (3a–3c below). With the knob
-unset the corpus is byte-identical by construction (Stage 3 never emits a
-plane-bearing pair; the K11 re-entry and K8 arms only ever see one when it
-does). **Owner of**: `docs/yang_tail_triage.md` §2026-10-10 (night), P0032
+**Status**: vocabulary + every consumer arm LANDED 2026-10-10 with the
+Stage-3 emission gated OFF, because the arm-on corpus converted P0032 and
+moved SIX CORRECT cases onto three sites that had never seen a
+surface-pair edge on a planar loop (§Measured) — the flip's owed increments
+3a–3c. **3a + 3b LANDED 2026-10-11** (section "Increments 3a + 3b" below)
+and converted all six; the arm-on corpus then differed from the canonical
+by exactly P0032 ERROR → CORRECT, so the emission is **DEFAULT ON**
+(`YANG_TORUS_PLANE_PAIR=0|off` is the A/B off-knob). 3c's remaining
+customer is P0034 (its own session). **Owner of**: `docs/yang_tail_triage.md` §2026-10-10 (night), P0032
 (prospector seed 3 index 80, `convex5:boss circle:rev-cut`).
 
 ### The defect, anchored
@@ -658,4 +659,82 @@ may sit on a face, never where a point goes.
 - **Gated (default) corpus (release, 8 jobs, 900 s; wall 930.1 s): 330C /
   0W / 16E / 5EE / 0T + 0 UNSUPPORTED over 351 — byte-identical to the
   2026-10-10 (later) canonical, zero category and zero detail moves.**
+
+### Increments 3a + 3b — LANDED 2026-10-11: a pair chain on a planar loop is Stage-0 overlay vocabulary; a torus-bearing edge selects at the torus owner's band
+
+**3a — Stage 0 (`stage0::frame`, `stage0::rim_chords`, Stage 1's pair
+pre-pass).** A planar face whose loops carry `SurfacePair` edges beside
+lines / circles joins the MIXED overlay class (`mixed_planar_face`;
+spec `m8_mixed_loop_coplanar_overlay.md` §3 row 6): its polygon is the
+pair edge's own Stage-1 chain (`loop_polyline_attributed`, the samples
+Newton-certified on both operands), and the pair chords are MASKED as
+curved so the overlay's subdivision of one is detected. The circle-only
+mint context became `RimChordCtx { curve: RimCurve::{Circle, Pair} }`:
+
+| overlay vertex on a pair chord | mint (`resolve_rim_chord_vertex`) | bound |
+|---|---|---|
+| also on another input's edge sub-segment (a crossing, I2) | the root of the curved operand's residual ALONG that edge's line (`line_partner_root`, 1D Newton from the overlay's exact crossing parameter — the pair analog of the circle∩line quadratic); `host = Some(segment)` so the ladder's `ExactPos` keeps it on the host line | within the chord's length of the vertex |
+| a sweep-column point | the root along the chord's own in-plane NORMAL through the vertex (a circle chord's normal IS radial — the same branch) | within 2 × the chord's sagitta bound `chord²/(8 r_local)`; a root further away is another branch of the quartic (the 3D nearest-point Newton took such a jump on R0026: 1.1e-3 on a 2e-4-sagitta chord) |
+
+Either refusal is the loud `NoIntersection` stop, never a chord-position
+mint. The collapse ladder's circle-only arms (`settle_rim_chain_order`,
+the Fig-11 cavity split about a rim CENTER) skip a pair context; its
+generic arms (flip, region re-triangulation, merge, revert) run as for a
+circle. `collect_mixed_crossings` pushes a pair edge's split points into
+the edge's shared chain (`rim_overrides`), one-sided — both faces incident
+to a pair edge splice that chain (a pair-bounded face is never a
+structured strip). Stage 1's pair pre-pass consumes them: each override is
+verified on the plane at the import band and located by its foot on the
+nearest sub-chord (ordinal `t`), admitted ON the curved operand (a mint)
+or ON that sub-chord within the chain's own bound `d_ε` (a mint the fold
+ladder REVERTED — R0026: a crossing mint 2.6e-3 along a grazing host line
+folded its triangles and every region arm was rejected; the rim circle's
+on-chord radial band is the precedent — a sub-chord's point keeps the
+chain inside the bound Stage 1 guarantees, and Stage 4's torus block
+relocates it exactly); a sub-`TAU_MODEL` twin of an interior sample takes
+the slot with the override's bits; anything else is loud. **Stage 4's
+torus block dedups coincident partner planes** (`geom::planes_coincide`):
+a §4.5.5 coplanar pair's two faces are ONE plane with opposite normals,
+and a split-point junction on the overlap boundary listed both, making
+the triple Newton rank-deficient (`LocalRefinementRequired`, measured on
+the kernel-v2 pin).
+
+**3b — Stage 3 (`torus_chord_tol_for_owner`).** A torus-bearing edge adds
+the torus owner's `input_curved_chord_bound` — the single source Stage 4's
+torus block relocates with (rims, the torus patch bound, pair chains) — to
+its selection band; with a plane partner the chain had left it at the
+planar `TAU_WORK`, which only a Stage-1 sample itself meets (R0077's
+(109,110): one endpoint 37.3 off a R 2051 / r 1367 torus at tol 1e-12,
+`YANG_S3_AMBIG_PROBE`). With a curved partner the two budgets add, as the
+cylinder × cylinder arm's do. A torus owner with no budget at all is the
+loud producer fault — raised only past the torus gate, so an untyped
+(arm-off / perpendicular) edge stays byte-identical.
+
+**Pins.** yang-rs `tests_unit/s0_pair_chain_mixed_admission.rs` (a cap
+bounded by a torus × plane spiric and two lines: mixed-admitted, polygon =
+the chain, masks, one Pair context with a sagitta; the x-event mint on the
+torus within a sagitta's move; the crossing mint on the host line AND the
+curve; Stage 1 takes a minted override in order, admits an on-chord
+midpoint, refuses an off-torus point; `planes_coincide` either way round).
+kernel-v2 `tests/m5_torus_plane_spiric.rs` (every test arms the knob
+first): a coplanar box on P0032's spiric cap whose columns miss the pair
+chords (volume = body + box), one whose edge y = −0.013 crosses the spiric
+twice (the split points minted on the curve; volume = body + box, no cap
+vertex inside the tube), and a re-entering torus met by an oblique plane
+x = 0.027 (3b; pair edges typed on that plane). `cargo fmt`, clippy
+`--all-targets -D warnings` clean on both crates.
+
+**Measured per case (arm-on, release `single_case`, 900 s):** P0032
+0.7 s, R0050 17.1 s, R0059 4.5 s, R0077 1.8 s, R0025 23.2 s, R0026 5.6 s
+— all SUPPORTED_CORRECT. R0025 (the planar ring CDT reject I had filed as
+3c) converts without any kernel-v2 sampler change: its eight-spiric ring
+was the chord-mesh region Stage 0 used to hand kernel-v2 before the pair
+chain was admitted. The remaining 3c customer is P0034 itself.
+
+**Corpus (release, 8 jobs, 900 s).** Arm-on before the flip (wall 939.6 s)
+and default-on after it (wall 973.3 s), identical verdicts: **331C / 0W /
+15E / 5EE / 0T + 0 UNSUPPORTED over 351** — versus the 2026-10-10 (later)
+canonical exactly ONE move, P0032 ERROR → CORRECT, zero regressions, zero
+detail drift. **FLIPPED DEFAULT-ON**; `YANG_TORUS_PLANE_PAIR=0|off` is the
+A/B off-knob; the committed `results.json` is the default-on run.
 

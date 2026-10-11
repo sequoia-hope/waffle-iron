@@ -113,7 +113,7 @@ Do NOT skip to lower-priority items because they are easier.
    un-minimized lineage now STOPs one crate later in kernel-v2's render
    tessellator, "patch triangulation folded — KV9-F2", a NEW signature to
    re-minimize). P0005–P0024 (seeds 1–2) are ALL CONVERTED (by
-   2026-10-03). **The open P-series ERROR tail is P0032–P0039 (seed 3,
+   2026-10-03). **The open P-series ERROR tail is P0033–P0039 (seed 3,
    `docs/yang_tail_triage.md` §2026-10-03, one row per distinct STOP
    site)** — P0025, the 14-row locus, CONVERTED 2026-10-08 (a coplanar
    ellipse PAIR on two cylinders is the {plane, cyl, cyl} triple corner;
@@ -152,26 +152,30 @@ Do NOT skip to lower-priority items because they are easier.
    ladder needs d_ε/16 against its [2, 4] budget; the ladder now has the
    paper's LOCAL form first, an apex-centred lens of extra rim samples on
    the cylinder the fires name, arcs included, spec
-   `yang_45_boundary_point_domain_certificate.md` §8); P0032 ANCHORED +
-   CHECKPOINT 1 LANDED 2026-10-10 (night), GATED OFF (a revolve's torus crossing a prism's end cap: the
-   cap∩torus SPIRIC section had been the one torus pair outside the M5
-   surface-pair vocabulary and left Stage 3 as LineSegment chords, so the
-   cap was bounded by a straight chord 7e-4 inside the true curve while the
-   torus face's render triangles followed the surface — `Plane` is now a
-   pair operand in yang-rs and kernel-v2 and the K8 rule reads "a pair edge
-   may bound a planar face only when one operand IS that plane"; converts
-   with `YANG_TORUS_PLANE_PAIR=1`, but the arm-on corpus moves SIX CORRECT
-   cases onto three planar-loop sites — Stage-0 overlay admission ×4, a
-   Stage-3 membership band, a planar ring at a spiric near-pinch — the
-   flip's owed increments 3a–3c; spec `m5_surface_pair_curve.md` "Torus ×
-   plane"). P0034's family is now
-   NAMED (`KV2_PAIR_SAMPLE_PROBE`): a cylinder×cylinder pair edge at a
-   near-tangent crossing whose chord straddles the pinch — chord-midpoint
-   bisection cannot resolve it; the P0032 lineage's remaining STOP is the
-   same text.
-   Next: the torus × plane flip (3a Stage-0 mixed admission of pair chains,
-   3b the plane-pair Stage-3 band, 3c with P0034), then P0033–P0039 — each
-   its own kernel session
+   `yang_45_boundary_point_domain_certificate.md` §8); P0032 CONVERTED 2026-10-11
+   (a revolve's torus crossing a prism's end cap: the cap∩torus SPIRIC
+   section had been the one torus pair outside the M5 surface-pair
+   vocabulary and left Stage 3 as LineSegment chords, so the cap was
+   bounded by a straight chord 7e-4 inside the true curve while the torus
+   face's render triangles followed the surface — `Plane` is a pair operand
+   in yang-rs and kernel-v2 and the K8 rule reads "a pair edge may bound a
+   planar face only when one operand IS that plane"; checkpoint 1 landed
+   GATED on 2026-10-10 because the arm-on corpus moved SIX CORRECT cases
+   onto planar-loop sites without pair vocabulary; increments 3a — a
+   `SurfacePair` chain on a planar loop is Stage-0 MIXED overlay
+   vocabulary, its overlay-subdivided chords minted ON the pair curve and
+   joined to the shared chain, Stage 4's torus block dedups a coplanar
+   pair's two faces as one partner plane — and 3b — a torus-bearing Stage-3
+   edge selects at the torus owner's own chord budget — converted all six,
+   the arm-on corpus then moved by exactly P0032, and the emission is
+   DEFAULT ON (`YANG_TORUS_PLANE_PAIR=0` is the off-knob); spec
+   `m5_surface_pair_curve.md` "Torus × plane" / "Increments 3a + 3b").
+   P0034's family is NAMED (`KV2_PAIR_SAMPLE_PROBE`): a cylinder×cylinder
+   pair edge at a near-tangent crossing whose chord straddles the pinch —
+   chord-midpoint bisection cannot resolve it; the P0032 lineage's
+   remaining STOP is the same text.
+   Next: P0033–P0039 — each its own kernel session (P0034 = a
+   tangent-following march in kernel-v2's pair sampler)
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

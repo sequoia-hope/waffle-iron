@@ -17,12 +17,87 @@ pub(crate) struct RimChordCtx {
     pub(crate) chords: Vec<(ExactPoint2, ExactPoint2)>,
     /// The OTHER input's boundary sub-segments (outer ring + holes), exact 2D.
     pub(crate) other_segs: Vec<(ExactPoint2, ExactPoint2)>,
-    /// The exact rim circle's center, snapped onto the pair plane (identity
-    /// for bit-exact coplanar input) so both minting branches stay in the
-    /// cap plane.
-    pub(crate) center: Point3,
-    /// The exact rim circle's radius.
-    pub(crate) radius: f64,
+    /// The exact curve the chords approximate, which split points are
+    /// minted ON.
+    pub(crate) curve: RimCurve,
+}
+
+/// The exact curve behind a face's chord ring (spec
+/// `m5_surface_pair_curve.md` "Torus × plane" 3a generalized the circle-only
+/// context).
+#[derive(Clone, Debug)]
+pub(crate) enum RimCurve {
+    /// A rim circle: center snapped onto the pair plane (identity for
+    /// bit-exact coplanar input) so both minting branches stay in the cap
+    /// plane, and the exact radius.
+    Circle { center: Point3, radius: f64 },
+    /// A procedural surface-pair chain on the face — the cap∩torus spiric a
+    /// prior boolean left there; one operand IS the face's plane (K8), so
+    /// every point of the plane on the other operand is on the curve.
+    Pair { a: Surface, b: Surface },
+}
+
+impl RimChordCtx {
+    /// The rim circle, if this context is one.
+    pub(crate) fn circle(&self) -> Option<(Point3, f64)> {
+        match self.curve {
+            RimCurve::Circle { center, radius } => Some((center, radius)),
+            RimCurve::Pair { .. } => None,
+        }
+    }
+
+    /// The curved operand of a pair context (the one that is not the
+    /// face's plane). `None` for a circle, or a pair of two planes.
+    fn pair_partner(&self) -> Option<Surface> {
+        match self.curve {
+            RimCurve::Pair { a, b } => [a, b]
+                .into_iter()
+                .find(|s| !matches!(s, Surface::Plane { .. })),
+            RimCurve::Circle { .. } => None,
+        }
+    }
+
+    /// The sagitta bound `chord² / (8 r)` of a chord of length `len` with its
+    /// foot near `at`: `r` the rim radius, or for a pair the curved
+    /// operand's smallest local radius there (the same scale the pair's
+    /// Stage-1 chain bound is sized from). `None` at a degenerate point.
+    pub(crate) fn chord_sagitta(&self, len: f64, at: Point3) -> Option<f64> {
+        let r = match self.curve {
+            RimCurve::Circle { radius, .. } => radius,
+            RimCurve::Pair { .. } => {
+                crate::stage1_tessellate::surface_pair_local_scale(self.pair_partner()?, at)?
+            }
+        };
+        (r > 0.0).then(|| len * len / (8.0 * r))
+    }
+}
+
+/// Increment 3a: the point of the line `p0 + t·d` (a line IN the face's
+/// plane) on `partner`, by 1D Newton from `t0` — the exact crossing of
+/// another input's edge with the pair curve, the pair analog of the circle
+/// branch's exact quadratic. Converges to the evaluation band
+/// `1e-12·(1 + |coord|)`; `None` when the line runs tangent to the partner
+/// (`|n·d|` below `TAU_WORK`) or the iteration does not converge — the
+/// caller stops loudly, never a chord-position point.
+fn line_partner_root(p0: [f64; 3], d: [f64; 3], t0: f64, partner: Surface) -> Option<Point3> {
+    let mut t = t0;
+    for _ in 0..64 {
+        let p = [p0[0] + t * d[0], p0[1] + t * d[1], p0[2] + t * d[2]];
+        let (dist, n) = crate::stage4_relocate::surface_distance_and_normal(partner, p)?;
+        let coord = p[0].abs().max(p[1].abs()).max(p[2].abs());
+        if dist.abs() <= 1e-12 * (1.0 + coord) {
+            return Some(Point3::new(p[0], p[1], p[2]));
+        }
+        let slope = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+        if slope.abs() < cad_primitives::TAU_WORK || !dist.is_finite() {
+            return None;
+        }
+        t -= dist / slope;
+        if !t.is_finite() {
+            return None;
+        }
+    }
+    None
 }
 
 /// Build the N2-3a mint contexts for face `fi` of `brep` — ONE
@@ -102,8 +177,10 @@ pub(crate) fn rim_chord_ctxs(
         out.push(RimChordCtx {
             chords,
             other_segs: other_segs.clone(),
-            center: frame.snap(center),
-            radius,
+            curve: RimCurve::Circle {
+                center: frame.snap(center),
+                radius,
+            },
         });
     }
     out
@@ -168,14 +245,20 @@ pub(crate) fn mixed_chord_ctxs(
     }
     let mut out = Vec::with_capacity(edge_order.len());
     for e in edge_order {
-        let Curve::Circle { center, radius, .. } = brep.edges()[e as usize].curve else {
-            return Vec::new();
+        let curve = match brep.edges()[e as usize].curve {
+            Curve::Circle { center, radius, .. } => RimCurve::Circle {
+                center: frame.snap(center),
+                radius,
+            },
+            // Increment 3a: a surface-pair chain's split points are minted
+            // on the pair curve (one operand is this face's plane).
+            Curve::SurfacePair { a, b } => RimCurve::Pair { a, b },
+            _ => continue,
         };
         out.push(RimChordCtx {
             chords: chords_of.remove(&e).unwrap_or_default(),
             other_segs: other_segs.clone(),
-            center: frame.snap(center),
-            radius,
+            curve,
         });
     }
     out
@@ -279,6 +362,93 @@ pub(crate) fn resolve_rim_chord_vertex(
         break;
     }
 
+    // Increment 3a: a surface-pair chord's mint. The chord's 3D length bounds
+    // how far a mint may move from the overlay vertex (the curve lies within
+    // a sagitta of its chord; a mint further away than the chord itself has
+    // found another branch) — loud, never the chord position.
+    if let Some(partner) = ctx.pair_partner() {
+        let (cs3, ce3) = (
+            frame.lift(cs.x.to_f64().value(), cs.y.to_f64().value()),
+            frame.lift(ce.x.to_f64().value(), ce.y.to_f64().value()),
+        );
+        let chord_len = {
+            let (a3, b3) = (cs3.as_array(), ce3.as_array());
+            ((a3[0] - b3[0]).powi(2) + (a3[1] - b3[1]).powi(2) + (a3[2] - b3[2]).powi(2)).sqrt()
+        };
+        let q3 = frame.lift(qx, qy);
+        let within = |m: Point3| -> bool {
+            let (ma, qa) = (m.as_array(), q3.as_array());
+            let d = ((ma[0] - qa[0]).powi(2) + (ma[1] - qa[1]).powi(2) + (ma[2] - qa[2]).powi(2))
+                .sqrt();
+            d <= chord_len
+        };
+        if let Some((si, s2, dx, dy)) = crossing {
+            // Along the OTHER input's edge line (I2: the junction stays on
+            // both the curve and that edge), from the overlay's exact
+            // crossing parameter.
+            let (sx, sy) = (s2.x.to_f64().value(), s2.y.to_f64().value());
+            let (dxf, dyf) = (dx.to_f64().value(), dy.to_f64().value());
+            let p0 = frame.lift(sx, sy);
+            let p1 = frame.lift(sx + dxf, sy + dyf);
+            let (p0a, p1a) = (p0.as_array(), p1.as_array());
+            let d3 = [p1a[0] - p0a[0], p1a[1] - p0a[1], p1a[2] - p0a[2]];
+            let wx = &q.x - &s2.x;
+            let wy = &q.y - &s2.y;
+            let len2 = &dx * &dx + &dy * &dy;
+            let t0 = ((&dx * &wx + &dy * &wy) / &len2).to_f64().value();
+            return match line_partner_root(p0a, d3, t0, partner) {
+                Some(m) if within(m) => RimResolve::OnCircle {
+                    point: m,
+                    crossing: true,
+                    host: Some(si),
+                },
+                _ => RimResolve::NoIntersection,
+            };
+        }
+        // Pure x-event subdivision: along the chord's own in-plane NORMAL
+        // through the vertex — the pair analog of the circle's radial
+        // projection (a circle chord's normal IS radial). The curve passes
+        // within the chain's sag of its chord, so the root is found within
+        // twice the chord's sagitta bound; a root further away is another
+        // branch of the quartic (the 3D nearest-point Newton took such a
+        // jump on R0026: 1.1e-3 on a 2e-4-sagitta chord), and the mint is
+        // refused loudly rather than placed off the local curve.
+        let (cdxf, cdyf) = (cdx.to_f64().value(), cdy.to_f64().value());
+        let clen2 = (cdxf * cdxf + cdyf * cdyf).sqrt();
+        if clen2 == 0.0 {
+            return RimResolve::NoIntersection;
+        }
+        let (nx, ny) = (-cdyf / clen2, cdxf / clen2);
+        let q3a = q3.as_array();
+        let far = frame.lift(qx + nx, qy + ny).as_array();
+        let d3 = [far[0] - q3a[0], far[1] - q3a[1], far[2] - q3a[2]];
+        let bound = ctx
+            .chord_sagitta(chord_len, q3)
+            .map_or(chord_len, |s| 2.0 * s);
+        return match line_partner_root(q3a, d3, 0.0, partner) {
+            Some(m) => {
+                let ma = m.as_array();
+                let moved = ((ma[0] - q3a[0]).powi(2)
+                    + (ma[1] - q3a[1]).powi(2)
+                    + (ma[2] - q3a[2]).powi(2))
+                .sqrt();
+                if moved <= bound {
+                    RimResolve::OnCircle {
+                        point: m,
+                        crossing: false,
+                        host: None,
+                    }
+                } else {
+                    RimResolve::NoIntersection
+                }
+            }
+            None => RimResolve::NoIntersection,
+        };
+    }
+    let Some((center, radius)) = ctx.circle() else {
+        return RimResolve::NotOnChord;
+    };
+
     if let Some((si, s2, dx, dy)) = crossing {
         // ── Exact 2D circle∩line intersection (spec §3 row 4, I2) ───────
         // Line p(t) = s + t·d against circle |p − c|² = r²: the quadratic
@@ -286,8 +456,8 @@ pub(crate) fn resolve_rim_chord_vertex(
         // discriminant sign is decided EXACTLY (spec §6), the root itself
         // via one f64 square root (closed-form, ~ULP accuracy — the same
         // class as the opposite-rim exact-radius projection).
-        let (cu, cv) = frame.project(ctx.center);
-        let (Some(cc), Ok(rr)) = (ExactPoint2::from_f64(cu, cv), rat(ctx.radius)) else {
+        let (cu, cv) = frame.project(center);
+        let (Some(cc), Ok(rr)) = (ExactPoint2::from_f64(cu, cv), rat(radius)) else {
             return RimResolve::NotOnChord;
         };
         let fx = &s2.x - &cc.x;
@@ -351,7 +521,7 @@ pub(crate) fn resolve_rim_chord_vertex(
     // onto the exact circle in the cap plane — the own-cap analog of the
     // opposite-rim exact-radius projection (`opp_radius` below):
     // center + radius·normalize(lift(q) − center).
-    let c3 = ctx.center.as_array();
+    let c3 = center.as_array();
     let l3 = frame.lift(qx, qy).as_array();
     let w = [l3[0] - c3[0], l3[1] - c3[1], l3[2] - c3[2]];
     let n = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
@@ -360,7 +530,7 @@ pub(crate) fn resolve_rim_chord_vertex(
         // sampled rim): fall through unchanged rather than divide by zero.
         return RimResolve::NotOnChord;
     }
-    let s = ctx.radius / n;
+    let s = radius / n;
     RimResolve::OnCircle {
         point: Point3::new(c3[0] + w[0] * s, c3[1] + w[1] * s, c3[2] + w[2] * s),
         crossing: false,
@@ -1221,6 +1391,26 @@ pub(crate) fn collect_mixed_crossings(
             }
             found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
             let pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
+            if matches!(be.curve, Curve::SurfacePair { .. }) {
+                // Increment 3a (spec `m5_surface_pair_curve.md` "Torus ×
+                // plane" 3a): the overlay subdivided a surface-pair chord.
+                // Its split points were minted ON the pair curve at the
+                // resolve step (`resolve_rim_chord_vertex`'s pair branches);
+                // they join the pair edge's shared Stage-1 chain, which BOTH
+                // faces incident to the edge splice (`loop_polyline` — a
+                // pair-bounded face is never a structured strip), so one
+                // insertion keeps the seam conformal.
+                for &pt in &pts {
+                    let r = rim_overrides.push_own(e, pt);
+                    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                        eprintln!(
+                            "[mixed-cross] face={fi} pair-edge={e} pt={:?} own {r:?}",
+                            pt.as_array()
+                        );
+                    }
+                }
+                continue;
+            }
 
             // Classify the shared lateral (spec `m8_mixed_arc_lateral_holed`
             // branch table): a structured 2-arc strip needs PAIRED insertion;
@@ -1519,7 +1709,13 @@ pub(crate) fn settle_rim_chain_order(
 ) -> usize {
     let rat2 = |u: f64, v: f64| ExactPoint2::from_f64(u, v);
     for ctx in ctxs {
-        let (cu, cv) = frame.project(ctx.center);
+        // Angular order about a center is a CIRCLE's check; a pair chain has
+        // no center (its split mints are nearest-point / host-line roots,
+        // and a leap stays the loud downstream residue).
+        let Some((center, _)) = ctx.circle() else {
+            continue;
+        };
+        let (cu, cv) = frame.project(center);
         let Some(c2) = rat2(cu, cv) else { continue };
         for (s2, e2) in &ctx.chords {
             // Chord arc direction about the center, exact.
@@ -1674,7 +1870,7 @@ mod settle_tests {
     //! on-circle azimuth LEAPS PAST a fold-reverted neighbor's chord
     //! azimuth, with a merged partner twinned onto the junction.
 
-    use super::{settle_rim_chain_order, CollapseGroups, Frame, RimChordCtx};
+    use super::{settle_rim_chain_order, CollapseGroups, Frame, RimChordCtx, RimCurve};
     use crate::coplanar_overlay::{ClassifiedOverlay, ExactPoint2};
     use cad_primitives::{Point2, Point3};
     use std::collections::BTreeMap;
@@ -1714,8 +1910,10 @@ mod settle_tests {
                 ExactPoint2::from_f64(CX, 0.5).unwrap(),
             )],
             other_segs: Vec::new(),
-            center: Point3::new(0.0, 0.0, 0.0),
-            radius: 1.0,
+            curve: RimCurve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 1.0,
+            },
         }
     }
 

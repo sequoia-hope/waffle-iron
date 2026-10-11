@@ -19,10 +19,10 @@
 //! only when one operand IS that plane" — the planar face then samples the
 //! same twin-canonical certified points as its torus neighbour.
 //!
-//! The Stage-3 emission is GATED OFF by default (checkpoint 1: the arm-on
-//! corpus exposed three further sites, spec "Torus × plane" §Measured), so
-//! this pin arms it with `YANG_TORUS_PLANE_PAIR=1` — the one test in this
-//! binary, so the process-global knob is safe. RED without it
+//! The Stage-3 emission was GATED OFF at checkpoint 1 (2026-10-10: the
+//! arm-on corpus exposed three further planar-loop sites) and is DEFAULT ON
+//! since increments 3a + 3b landed (2026-10-11); `YANG_TORUS_PLANE_PAIR=0`
+//! is the off-knob. The first pin was RED with the emission off
 //! (mutation-checked 2026-10-10: `SelfIntersectingBooleanOutput`), GREEN
 //! with it. The volume is pinned to
 //! a 2e8-sample Monte-Carlo over the exact membership — prism minus the
@@ -124,8 +124,6 @@ fn torus_residual(p: &[f64]) -> f64 {
 
 #[test]
 fn a_torus_crossing_a_planar_cap_leaves_the_spiric_as_a_shared_pair_edge() {
-    // Checkpoint 1: arm the gated Stage-3 emission (see the module docs).
-    std::env::set_var("YANG_TORUS_PLANE_PAIR", "1");
     let mut a = BrepArena::new();
     let p = prism(&mut a);
     let v_prism = mesh_signed_volume(&tessellate(&a, p).expect("prism tessellates"));
@@ -207,4 +205,157 @@ fn a_torus_crossing_a_planar_cap_leaves_the_spiric_as_a_shared_pair_edge() {
             torus_residual(q)
         );
     }
+}
+
+/// An axis-aligned box `[lo, hi]` by extruding its −x face along +x.
+fn abox(a: &mut BrepArena, lo: [f64; 3], hi: [f64; 3]) -> SolidId {
+    // Sketch basis for a +x plane: u = ŷ, v = ẑ.
+    let pts = vec![
+        Point2::new(lo[1], lo[2]),
+        Point2::new(hi[1], lo[2]),
+        Point2::new(hi[1], hi[2]),
+        Point2::new(lo[1], hi[2]),
+    ];
+    let p = Profile::new(
+        Point3::new(lo[0], 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        pts,
+        vec![],
+    )
+    .expect("box profile");
+    extrude(a, &p, Vector3::new(1.0, 0.0, 0.0), hi[0] - lo[0])
+        .expect("box extrude")
+        .solid
+}
+
+/// P0032's result — the prism minus the torus wedge — as a re-entering
+/// operand, with the cap's spiric pair edges on it.
+fn spiric_body(a: &mut BrepArena) -> (SolidId, f64) {
+    let p = prism(a);
+    let c = cutter(a);
+    let out = boolean_op(a, p, c, BoolOp::Subtract).expect("prism − torus wedge");
+    let v = mesh_signed_volume(&tessellate(a, out).expect("tessellates"));
+    (out, v)
+}
+
+/// Increment 3a (spec "Torus × plane" 3a): a planar face bounded by pair
+/// chains is Stage-0 overlay-ADMITTED. A box sitting on the cap x = 0.03 —
+/// its coplanar face covering the cap's y ≥ 0 half, where the pentagon's
+/// straight edges bound it (the wedge's spiric bites lie at y < −0.006,
+/// and the overlay's u axis for a ±x plane is world y, so no sweep column
+/// of the box's corners reaches a pair chord) — unions cleanly: one shell,
+/// the volume the sum of the two bodies' (they only touch on the cap).
+#[test]
+fn a_coplanar_box_on_the_spiric_cap_overlays_through_the_mixed_class() {
+    let mut a = BrepArena::new();
+    let (body, v_body) = spiric_body(&mut a);
+    let lo = [L_PRISM, 0.0, -0.03];
+    let hi = [L_PRISM + 0.02, 0.03, 0.03];
+    let b = abox(&mut a, lo, hi);
+    let v_box = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+    let out = boolean_op(&mut a, body, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("spiric body ∪ coplanar box failed: {e:?}"));
+    let report = validate_solid(&a, out).expect("output validates");
+    assert_eq!(report.shells, 1, "one connected shell");
+    assert_eq!(report.euler_lhs, report.euler_rhs);
+    let vol = mesh_signed_volume(&tessellate(&a, out).expect("output tessellates"));
+    let expect = v_body + v_box;
+    assert!(
+        ((vol - expect) / expect).abs() < 3e-3,
+        "union volume {vol:.6e} vs the sum of the bodies {expect:.6e}"
+    );
+}
+
+/// Increment 3a's second half: the overlap boundary SUBDIVIDES pair chords
+/// (the box's face edge y = −0.013 crosses the cap's spiric twice, at
+/// z ≈ ±0.0084, and the overlay's sweep columns split more). Every split
+/// point is minted ON the spiric (the host-line root for a crossing, the
+/// implicit-pair Newton for a column point) and joins the pair edge's
+/// shared chain, so the cap and the torus face stay conformal: the union
+/// validates, its volume is the sum (the box only touches the cap), and no
+/// cap vertex inside the wedge sits inside the tube.
+#[test]
+fn a_coplanar_box_whose_edge_crosses_the_spiric_splits_the_pair_chords_on_the_curve() {
+    let mut a = BrepArena::new();
+    let (body, v_body) = spiric_body(&mut a);
+    let lo = [L_PRISM, -0.03, -0.03];
+    let hi = [L_PRISM + 0.02, -0.013, 0.03];
+    let b = abox(&mut a, lo, hi);
+    let v_box = (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]);
+    let out = boolean_op(&mut a, body, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("spiric body ∪ crossing coplanar box failed: {e:?}"));
+    let report = validate_solid(&a, out).expect("output validates");
+    assert_eq!(report.shells, 1, "one connected shell");
+    assert_eq!(report.euler_lhs, report.euler_rhs);
+    let mesh = tessellate(&a, out).expect("output tessellates");
+    let vol = mesh_signed_volume(&mesh);
+    let expect = v_body + v_box;
+    assert!(
+        ((vol - expect) / expect).abs() < 3e-3,
+        "union volume {vol:.6e} vs the sum of the bodies {expect:.6e}"
+    );
+    for q in mesh.positions.chunks_exact(3) {
+        if (q[0] - L_PRISM).abs() > 1e-9 || !in_wedge(q) {
+            continue;
+        }
+        assert!(
+            torus_residual(q) >= -1e-7,
+            "cap vertex {q:?} sits {:.3e} INSIDE the cut torus",
+            torus_residual(q)
+        );
+    }
+}
+
+/// Increment 3b (spec "Torus × plane" 3b): a RE-ENTERING torus face met by
+/// an oblique plane of the next operand. The arrangement's vertices on that
+/// edge sit on the torus mesh's CHORDS, within the torus owner's own
+/// Stage-1 chord budget — Stage 3's selection band for a torus-bearing edge
+/// must be that budget (A14.3, the single source Stage 4's torus block
+/// relocates with), not the planar `TAU_WORK`. R0077's shape: a box filling
+/// the cut's hole up to x = 0.027, where that face crosses the tube's inner
+/// wall inside the prism (at y ≈ −0.0064, z ≈ ±0.0064), and whose +y face
+/// y = 0 runs through solid prism (the revolve's 94° gap).
+#[test]
+fn a_reentering_torus_met_by_an_oblique_plane_selects_the_spiric_at_the_torus_band() {
+    let mut a = BrepArena::new();
+    let (body, v_body) = spiric_body(&mut a);
+    let b = abox(&mut a, [0.0, -0.03, -0.03], [0.027, 0.0, 0.03]);
+    let out = boolean_op(&mut a, body, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("spiric body ∪ oblique box failed: {e:?}"));
+    let report = validate_solid(&a, out).expect("output validates");
+    assert_eq!(report.shells, 1, "one connected shell");
+    assert_eq!(report.euler_lhs, report.euler_rhs);
+    let vol = mesh_signed_volume(&tessellate(&a, out).expect("output tessellates"));
+    // The box adds exactly the part of itself outside the body; it lies
+    // inside the prism's y–z footprint only partly, so bound it: more than
+    // the body alone, less than body + box.
+    let v_box = 0.027 * 0.03 * 0.06;
+    assert!(
+        vol > v_body && vol < v_body + v_box,
+        "{vol:.6e} vs body {v_body:.6e}"
+    );
+    // And the torus × plane edges on the box's faces are typed pair edges.
+    let mut pair_edges_on_box_planes = 0usize;
+    for sh in &a.solid(out).unwrap().shells {
+        for &f in &a.shell(*sh).unwrap().faces {
+            let face = a.face(f).unwrap();
+            let Some(Surface::Plane(pl)) = face.surface else {
+                continue;
+            };
+            let on_box = (pl.point.x() - 0.027).abs() < 1e-12;
+            if !on_box {
+                continue;
+            }
+            for h in a.loop_half_edges(face.outer_loop).unwrap() {
+                if let Curve::SurfacePair { .. } = a.half_edge(h).unwrap().curve {
+                    pair_edges_on_box_planes += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        pair_edges_on_box_planes >= 2,
+        "got {pair_edges_on_box_planes} pair edges"
+    );
 }

@@ -124,19 +124,22 @@ pub(crate) fn torus_pair_arm_enabled() -> bool {
 /// `LineSegment` + torus-block path for now — recorded, not chased: a typed
 /// `Circle` there would enter the conic maps AND the torus block.
 ///
-/// **GATED OFF by default (checkpoint 1, 2026-10-10 night)**: the arm-on
-/// corpus converts P0032 but moves six CORRECT cases — four to the Stage-0
-/// `CoplanarFacesUnsupported` wall (`overlay_face_supported` has no
-/// surface-pair vocabulary on a planar loop: R0026, R0050, R0059, R0085),
-/// R0077 to a Stage-3 `AmbiguousCurve { 1, 0 }` (the plane-bearing pair
-/// candidate's membership band), R0025 to kernel-v2's planar ring CDT
-/// reject (a spiric chain at a near-pinch) — spec `m5_surface_pair_curve`
-/// "Torus × plane" §Measured. `YANG_TORUS_PLANE_PAIR=1|on` is the dev A/B
-/// on-knob until those three land; then the default flips.
+/// **DEFAULT ON since 2026-10-11** (`YANG_TORUS_PLANE_PAIR=0|off` is the
+/// A/B off-knob). Checkpoint 1 (2026-10-10 night) had it gated OFF: the
+/// arm-on corpus converted P0032 but moved six CORRECT cases — four to the
+/// Stage-0 `CoplanarFacesUnsupported` wall (no surface-pair vocabulary on a
+/// planar loop: R0026, R0050, R0059, R0085), R0077 to a Stage-3
+/// `AmbiguousCurve { 1, 0 }` (the plane-pair candidate measured at the
+/// planar `TAU_WORK`), R0025 to kernel-v2's planar ring CDT reject.
+/// Increments 3a (Stage-0 mixed admission of pair chains with exact-curve
+/// minting of their subdivided chords) and 3b (`torus_chord_tol_for_owner`)
+/// converted all six; the arm-on corpus then differed from the canonical by
+/// exactly P0032 ERROR → CORRECT — spec `m5_surface_pair_curve` "Torus ×
+/// plane", "Increments 3a + 3b".
 pub(crate) fn torus_plane_pair_arm_enabled() -> bool {
-    matches!(
+    !matches!(
         std::env::var("YANG_TORUS_PLANE_PAIR").as_deref(),
-        Ok("1") | Ok("on") | Ok("ON") | Ok("On")
+        Ok("0") | Ok("off") | Ok("OFF") | Ok("Off")
     )
 }
 
@@ -616,6 +619,49 @@ pub(crate) fn chord_tol_for_curved_owner(
     }
 }
 
+/// M5 torus arm increment 3b: the Stage-1 chord budget a TORUS-owning
+/// intersection edge adds to its selection band — the owner's
+/// `input_curved_chord_bound` (its circle / ellipse rims, its torus patch
+/// bound, its pair chains: whichever Stage 1 actually sized the torus face
+/// against — the same single source Stage 4's torus block reads, A14.3).
+/// `0.0` for a non-torus surface (the other arms own their bands). A torus
+/// owner that reports NO budget at all is a producer fault → the loud
+/// `AmbiguousCurve { matched: 0 }` (P9 — never a silent `TAU_WORK`).
+pub(crate) fn torus_chord_tol_for_owner(
+    surface: Surface,
+    input: InputId,
+    a: &BRep,
+    b: &BRep,
+    candidates: usize,
+    edge: (u32, u32),
+) -> Result<f64, YangError> {
+    if !matches!(surface, Surface::Torus { .. }) {
+        return Ok(0.0);
+    }
+    let owner = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    match crate::stage4_correct::input_curved_chord_bound(owner) {
+        Some(t) => Ok(t),
+        None => {
+            if std::env::var_os("YANG_S3_AMBIG_PROBE").is_some() {
+                eprintln!(
+                    "[s3-ambig-probe] PRODUCER FAULT edge {edge:?}: torus-owning input {input:?} \
+                     reports no Stage-1 chord budget at all"
+                );
+            }
+            Err(YangError::SsiRefinementFailed {
+                edge,
+                reason: SsiRefinementError::AmbiguousCurve {
+                    candidates,
+                    matched: 0,
+                },
+            })
+        }
+    }
+}
+
 /// PR-YR17: selection tolerance for a CONE-owning intersection edge. A cone
 /// edge is a `plane ∩ cone` cut whose exact `ssi_rs` curve is a `Circle` (⊥
 /// section) or `Ellipse` (oblique section); the mesh endpoints sit on the
@@ -842,6 +888,28 @@ pub(crate) fn build_intersection_curves(
         } else {
             (cad_primitives::TAU_WORK, None)
         };
+        // M5 torus arm increment 3b (spec `m5_surface_pair_curve.md` "Torus ×
+        // plane" 3b, R0077): a TORUS-bearing edge folds in the torus owner's
+        // own Stage-1 chord budget — `input_curved_chord_bound`, the single
+        // source Stage 4's torus block relocates with (A14.3). The
+        // arrangement vertex sits on the torus mesh's chord, off the exact
+        // torus by up to that budget; with a PLANE partner the chain above
+        // had left the band at the planar `TAU_WORK`, which only a Stage-1
+        // sample itself can meet, so a chord-interior vertex raised
+        // `AmbiguousCurve { 1, 0 }` on the one true candidate. With a curved
+        // partner the two budgets add, as the cylinder × cylinder arm's do
+        // (each endpoint is within its owner's band of its surface; the
+        // crossing inherits both) — derived, not widened.
+        // A torus owner reporting NO budget is a producer fault, but only
+        // for an edge the torus gate below actually sends to the SSI (an
+        // arm-off or perpendicular-section edge is skipped there, untyped,
+        // and must stay byte-identical): the fault is raised past the gate.
+        let (tol, torus_fault) = match torus_chord_tol_for_owner(surf0, input0, a, b, 0, (s, e))
+            .and_then(|t0| Ok(t0 + torus_chord_tol_for_owner(surf1, input1, a, b, 0, (s, e))?))
+        {
+            Ok(add) => (tol + add, None),
+            Err(err) => (tol, Some(err)),
+        };
 
         let p_s = mesh.verts[s as usize];
         let p_e = mesh.verts[e as usize];
@@ -1027,6 +1095,9 @@ pub(crate) fn build_intersection_curves(
             {
                 continue;
             }
+        }
+        if let Some(err) = torus_fault {
+            return Err(err);
         }
 
         let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {

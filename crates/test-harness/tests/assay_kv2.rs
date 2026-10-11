@@ -1940,12 +1940,15 @@ fn smoke_corpus_boundary_categories() {
         // planar face only when one operand IS that plane". Volume pinned:
         // 2e8-sample Monte-Carlo, 2.12567e-5 ± 1.7e-9 (CCW wedge).
         //
-        // CHECKPOINT 1 — the Stage-3 emission is GATED OFF
-        // (`YANG_TORUS_PLANE_PAIR=1` converts it, 0.7 s): the arm-on corpus
-        // moved six CORRECT cases (Stage-0 overlay vocabulary ×4, a Stage-3
-        // membership band, a planar ring CDT reject at a spiric near-pinch),
-        // each its own increment. The pin moves with the flip.
-        ("P0032", Category::Error),
+        // Checkpoint 1 (2026-10-10) landed the vocabulary GATED OFF: the
+        // arm-on corpus moved six CORRECT cases (Stage-0 overlay vocabulary
+        // ×4, a Stage-3 membership band, a planar ring CDT reject). FLIPPED
+        // DEFAULT-ON 2026-10-11 after increments 3a (a pair chain on a
+        // planar loop is Stage-0 mixed-overlay vocabulary, its subdivided
+        // chords minted on the curve) and 3b (a torus-bearing Stage-3 edge
+        // selects at the torus owner's band) converted all six; the corpus
+        // then moved by exactly this case. 0.7 s.
+        ("P0032", Category::SupportedCorrect),
         // P0033 (4 ops) ⇒ `TessellationFailed "patch triangulation folded
         // (inverted triangle) — KV9-F2"` on FaceId(45), kernel-v2's render
         // tessellator. This is the signature the UN-MINIMIZED P0004 lineage

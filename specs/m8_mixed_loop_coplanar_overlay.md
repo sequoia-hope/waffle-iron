@@ -89,7 +89,8 @@ unchanged.)
 | 3 | mixed × any | a curved sub-chord of the mixed face strictly contains an overlay vertex | LOUD wall `CoplanarFacesUnsupported`, probe `mixed-curved-chord-subdivided` |
 | 4 | mixed × disc | (any) | `build_disc_pair` fast path **excluded** — routed to general overlay (see §6 hazard) |
 | 5 | disc / annular / all-segment only (no mixed) | — | byte-identical to today (all existing paths untouched) |
-| 6 | planar face with any other curve (SurfacePair, …) | — | `face-unsupported` wall, unchanged |
+| 6 | planar face with a `SurfacePair` chain (the cap∩torus spiric a prior boolean left, the plane an operand) | (any) | HANDLED since 2026-10-11 — the mixed class admits the pair chain as a curved chord run; a subdivided pair chord is minted ON the pair curve (spec `m5_surface_pair_curve.md` "Torus × plane" 3a) |
+| 7 | planar face with any other curve (Ellipse, Hyperbola, …) | — | `face-unsupported` wall, unchanged |
 
 Straight-edge subdivision of a mixed face is NOT a wall — it flows through
 `collect_edge_splits` exactly like an all-segment face (branch 1/2 covers it).

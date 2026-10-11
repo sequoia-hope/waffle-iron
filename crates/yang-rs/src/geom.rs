@@ -528,3 +528,37 @@ pub(crate) fn surface_normal_at(surface: Surface, point: Point3) -> Option<[f64;
         }
     }
 }
+
+/// Are `a` and `b` the SAME plane — parallel normals (either orientation)
+/// and one offset — within the model band? The two faces of a §4.5.5
+/// coplanar pair are one plane carried twice (a union's touching caps face
+/// each other: opposite normals), and a junction that lists both as
+/// separate constraints is rank-deficient. `false` unless both are planes.
+pub(crate) fn planes_coincide(a: Surface, b: Surface) -> bool {
+    let (Surface::Plane { normal: na, d: da }, Surface::Plane { normal: nb, d: db }) = (a, b)
+    else {
+        return false;
+    };
+    let (na, nb) = (na.as_array(), nb.as_array());
+    let la = (na[0] * na[0] + na[1] * na[1] + na[2] * na[2]).sqrt();
+    let lb = (nb[0] * nb[0] + nb[1] * nb[1] + nb[2] * nb[2]).sqrt();
+    if la == 0.0 || lb == 0.0 {
+        return false;
+    }
+    let ua = [na[0] / la, na[1] / la, na[2] / la];
+    let ub = [nb[0] / lb, nb[1] / lb, nb[2] / lb];
+    let cross = [
+        ua[1] * ub[2] - ua[2] * ub[1],
+        ua[2] * ub[0] - ua[0] * ub[2],
+        ua[0] * ub[1] - ua[1] * ub[0],
+    ];
+    if (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt() > 1e-9 {
+        return false;
+    }
+    let dot = ua[0] * ub[0] + ua[1] * ub[1] + ua[2] * ub[2];
+    // Signed offsets along ONE orientation: `n·x + d = 0` ⇒ the plane sits
+    // at `−d/|n|` along `n̂`; flipping `n̂` flips the sign.
+    let oa = -da / la;
+    let ob = if dot > 0.0 { -db / lb } else { db / lb };
+    (oa - ob).abs() <= cad_primitives::TAU_MODEL * (1.0 + oa.abs().max(ob.abs()))
+}

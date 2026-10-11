@@ -13335,7 +13335,15 @@ fn stage4_relocate_and_correct_inner(
                 let base = *vert_torus.entry(v).or_insert(tori[0]);
                 let entry = vert_partners.entry(v).or_default();
                 for o in tori.iter().chain(others.iter()) {
-                    if *o != base && !entry.contains(o) {
+                    // A §4.5.5 coplanar pair's two faces are ONE plane carried
+                    // twice (opposite normals when a union's caps touch): a
+                    // second copy would make the junction Newton
+                    // rank-deficient (a split point of a spiric chain on the
+                    // overlap boundary, increment 3a). Keep one.
+                    let dup = entry
+                        .iter()
+                        .any(|q| q == o || crate::geom::planes_coincide(*q, *o));
+                    if *o != base && !dup {
                         entry.push(*o);
                     }
                 }

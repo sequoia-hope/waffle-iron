@@ -385,6 +385,7 @@ pub(crate) fn face_curve_histogram(brep: &BRep, fi: usize) -> String {
     let mut seg = 0;
     let mut circle = 0;
     let mut ellipse = 0;
+    let mut pair = 0;
     let mut other = 0;
     for &e in std::iter::once(&f.outer_loop)
         .chain(f.inner_loops.iter())
@@ -394,6 +395,7 @@ pub(crate) fn face_curve_histogram(brep: &BRep, fi: usize) -> String {
             Curve::LineSegment => seg += 1,
             Curve::Circle { .. } => circle += 1,
             Curve::Ellipse { .. } => ellipse += 1,
+            Curve::SurfacePair { .. } => pair += 1,
             _ => other += 1,
         }
     }
@@ -402,7 +404,8 @@ pub(crate) fn face_curve_histogram(brep: &BRep, fi: usize) -> String {
         _ => "nonplane",
     };
     format!(
-        "surf={surf} outer={} holes={} seg={seg} circle={circle} ellipse={ellipse} other={other}",
+        "surf={surf} outer={} holes={} seg={seg} circle={circle} ellipse={ellipse} pair={pair} \
+         other={other}",
         f.outer_loop.len(),
         f.inner_loops.len(),
     )
@@ -1023,7 +1026,14 @@ pub(crate) fn mixed_planar_face(brep: &BRep, fi: usize) -> bool {
     {
         match brep.edges()[e as usize].curve {
             Curve::LineSegment => {}
-            Curve::Circle { .. } => any_curved = true,
+            // M5 torus arm increment 3a (spec `m5_surface_pair_curve.md`
+            // "Torus × plane" 3a): a procedural surface-pair chain a prior
+            // boolean left on a planar face (the cap∩torus spiric, a plane
+            // operand) is a Stage-1 chain like an arc's, and the overlay
+            // samples it the same way. A pair chord the overlay SUBDIVIDES
+            // walls loudly in `collect_mixed_crossings` (no exact-curve
+            // minting for a pair edge yet).
+            Curve::Circle { .. } | Curve::SurfacePair { .. } => any_curved = true,
             _ => return false,
         }
     }
@@ -1049,7 +1059,12 @@ pub(crate) fn mixed_face_polygon_2d(
     .ok()?;
     let n_brep_verts = brep.vertices().len() as u32;
     let f = &brep.faces()[fi];
-    let is_curved = |e_idx: u32| matches!(brep.edges()[e_idx as usize].curve, Curve::Circle { .. });
+    let is_curved = |e_idx: u32| {
+        matches!(
+            brep.edges()[e_idx as usize].curve,
+            Curve::Circle { .. } | Curve::SurfacePair { .. }
+        )
+    };
 
     let mut corners: BTreeMap<ExactPoint2, u32> = BTreeMap::new();
     let mut rim_map: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();

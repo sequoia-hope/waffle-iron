@@ -43,6 +43,61 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-11 — Torus × plane increments 3a + 3b LANDED: a pair chain on a planar loop is Stage-0 overlay vocabulary, a torus-bearing edge selects at the torus owner's band; the six arm-on movers convert
+
+**3a diagnosis (`YANG_COPLANAR_PROBE`, `YANG_SPLIT_PROBE`, `YANG_LRR_SITE`,
+`YANG_TORUS_PROBE`).** With the emission armed, R0026 / R0050 / R0059 /
+R0085 hit `face-unsupported` on a planar face whose loop carried 6–690
+`SurfacePair` edges (histogram `other=`, now `pair=`). Admitting the chain
+as a MIXED-class curved run alone converted R0050; R0026, R0059 and R0085
+then walled at a new loud tag, `mixed-pair-chord-subdivided` — the
+overlay's trapezoidal sweep splits EVERY chord at every event column, so a
+pair chord is subdivided as a matter of course, exactly as a disc's rim
+chords are, and needs the same exact-curve minting. Built it (spec
+`m5_surface_pair_curve.md` "Increments 3a + 3b"): the mint context carries
+`RimCurve::{Circle, Pair}`; a crossing is the curved operand's root along
+the other input's edge line, a column point the root along the chord's own
+normal within 2× its sagitta (the 3D nearest-point Newton jumped branches
+on R0026: 1.1e-3 on a 2e-4-sagitta chord, and the move folded a triangle);
+the points join the pair edge's shared Stage-1 chain. Two residues on the
+way: (i) the kernel-v2 pin's crossing mint — the exact {torus, cap plane,
+box side} corner — STOPped in Stage 4's torus block
+(`triple_newton_none`): the coplanar pair's two faces, the same plane with
+opposite normals, were listed as two partners, rank-deficient; the block
+now dedups coincident planes (`geom::planes_coincide`). (ii) R0026's
+crossing mint sat 2.6e-3 along a GRAZING host line, folded its triangles,
+every fold-ladder region arm was rejected and the revert left the chord
+point, which the strict pair-chain import refused — the rim circle's
+on-chord radial band is the precedent: an on-sub-chord point within the
+chain's `d_ε` is admitted and Stage 4 relocates it exactly.
+
+**3b diagnosis (`YANG_S3_AMBIG_PROBE`).** R0077's (109,110): a R 2051 /
+r 1367 torus × plane edge with one endpoint 37.3 off the torus at
+tol 1e-12 — the selection chain had no torus arm, so a torus × PLANE edge
+sat at the planar `TAU_WORK` (torus × cylinder had been borrowing the
+cylinder's band). `torus_chord_tol_for_owner` adds the torus owner's
+`input_curved_chord_bound` (Stage 4's own single source); the producer
+fault is raised only past the torus gate so untyped edges stay
+byte-identical.
+
+**Measured per case (arm-on, release `single_case`, 900 s):** P0032
+0.7 s, R0050 17.1 s, R0059 4.5 s, R0077 1.8 s, R0025 23.2 s, R0026 5.6 s,
+all SUPPORTED_CORRECT — R0025 (filed as 3c, the planar ring CDT reject)
+converts without a sampler change: its ring was the chord-mesh region
+Stage 0 handed down before the pair chain was admitted. 3c's remaining
+customer is P0034 itself. Pins: yang-rs
+`tests_unit/s0_pair_chain_mixed_admission.rs` (7), kernel-v2
+`tests/m5_torus_plane_spiric.rs` (4, every test arms the knob).
+
+**Arm-ON corpus (release, 8 jobs, 900 s; wall 939.6 s): 331C / 0W / 15E /
+5EE / 0T + 0 UNSUPPORTED over 351** — versus the 2026-10-10 (later)
+canonical (330C/16E) the per-case diff is **exactly ONE move, P0032 ERROR →
+CORRECT, zero regressions, zero detail drift** (the six checkpoint-1 movers
+all back at CORRECT). **FLIPPED DEFAULT-ON** (`YANG_TORUS_PLANE_PAIR=0|off`
+is the off-knob); P0032's smoke pin → `SupportedCorrect`. The DEFAULT-ON run (knob unset; wall 973.3 s) is the committed canonical: 331C / 0W / 15E / 5EE / 0T, the same single move, zero detail drift.
+The 15 ERROR rows: the seven loud-by-design C-series walls + P0026 (minted
+tangency) + P0033–P0039.
+
 ## 2026-10-10 (night) — P0032 ANCHORED and its remedy LANDED GATED: torus × PLANE joins the surface-pair vocabulary; the arm-on corpus names three more planar-loop sites before the flip
 
 **Diagnosis (`KV2_SELFX_SITE_PROBE`, `YANG_V_PROBE_NEAR`, `YANG_BREP_PROBE`).**

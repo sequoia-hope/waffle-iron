@@ -45,6 +45,7 @@ mod p3b_rim_pierce;
 mod p3b_tube_insertion;
 mod plane_weld;
 mod s0_cluster_corner_weld;
+mod s0_pair_chain_mixed_admission;
 mod s188_envelope;
 mod s194_edge_collapse;
 mod s195_rim_plane_graze;

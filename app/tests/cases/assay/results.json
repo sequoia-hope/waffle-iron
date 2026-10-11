@@ -1,8 +1,8 @@
 {
-  "errored": 16,
+  "errored": 15,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 330,
+  "passed": 331,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2063,10 +2063,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): caf7e883-853a-4d32-b4f4-ac0fe9bde426: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(10), face_b: FaceId(13), penetrations: 11 }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0032",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

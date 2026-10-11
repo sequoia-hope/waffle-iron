@@ -1486,6 +1486,125 @@ pub(crate) fn stage1_tessellate_once(
             }
             let mut steiner: Vec<(f64, Point3)> = Vec::new();
             refine(e_idx, a, b, (0.0, p0, 1.0, p1), d_eps, 12, &mut steiner)?;
+            // Increment 3a (spec `m5_surface_pair_curve.md` "Torus × plane"
+            // 3a): Stage 0's coplanar overlay may hand this chain extra
+            // samples — split points of its chords, minted ON the pair curve
+            // (`resolve_rim_chord_vertex`'s pair branches), or, when the
+            // overlay's fold ladder had to REVERT a mint, the chord point
+            // itself. Each is verified on the plane operand at the import
+            // band and located on the chain by its foot on the nearest
+            // sub-chord (ordinal `t` between the two neighbours); it is
+            // admitted either ON the curved operand (a mint) or ON that
+            // sub-chord within the chain's own sag bound `d_ε` of the curved
+            // operand (a reverted mint — the rim circle's on-chord radial
+            // band is the precedent: a sub-chord's point keeps the chain
+            // inside the bound Stage 1 guarantees, and Stage 4's torus block
+            // relocates it exactly). A sub-`TAU_MODEL` twin of an interior
+            // sample takes that sample's slot with the override's exact bits
+            // (the shared point is authoritative, as on a rim); a twin of a
+            // B-Rep endpoint, or a point neither on the curve nor on a
+            // sub-chord, is loud.
+            if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
+                let mut nodes: Vec<(f64, Point3)> = Vec::with_capacity(steiner.len() + 2);
+                nodes.push((0.0, p0));
+                nodes.extend(steiner.iter().copied());
+                nodes.push((1.0, p1));
+                let bits = |p: Point3| {
+                    let q = p.as_array();
+                    [q[0].to_bits(), q[1].to_bits(), q[2].to_bits()]
+                };
+                let dist3 = |p: Point3, q: Point3| {
+                    let (pa, qa) = (p.as_array(), q.as_array());
+                    ((pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2))
+                        .sqrt()
+                };
+                for &pt in extra {
+                    let pa = pt.as_array();
+                    let coord = pa[0].abs().max(pa[1].abs()).max(pa[2].abs());
+                    // Residual on each operand; a plane's must be at the band.
+                    let mut off_curved = 0.0_f64;
+                    let mut band_curved = 0.0_f64;
+                    for s in [a, b] {
+                        let scale = if matches!(s, Surface::Plane { .. }) {
+                            0.0
+                        } else {
+                            surface_pair_local_scale(s, pt).unwrap_or(0.0)
+                        };
+                        let band = 1e-9 * (1.0 + coord.max(scale));
+                        let off = surface_distance_and_normal(s, pa).map(|(d, _)| d.abs());
+                        let Some(off) = off.filter(|d| d.is_finite()) else {
+                            return Err(YangError::MalformedTopology(format!(
+                                "surface-pair edge {e_idx}: chain override {pa:?} has no \
+                                 residual on {s:?} (an axis)"
+                            )));
+                        };
+                        if matches!(s, Surface::Plane { .. }) {
+                            if off > band {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "surface-pair edge {e_idx}: chain override {pa:?} is not \
+                                     on {s:?} (deviation {off}, band {band})"
+                                )));
+                            }
+                        } else {
+                            off_curved = off_curved.max(off);
+                            band_curved = band_curved.max(band);
+                        }
+                    }
+                    let key = bits(pt);
+                    if nodes.iter().any(|&(_, q)| bits(q) == key) {
+                        continue;
+                    }
+                    let mut best: Option<(usize, f64, f64)> = None;
+                    for i in 0..nodes.len() - 1 {
+                        let (qa, qb) = (nodes[i].1.as_array(), nodes[i + 1].1.as_array());
+                        let d = [qb[0] - qa[0], qb[1] - qa[1], qb[2] - qa[2]];
+                        let w = [pa[0] - qa[0], pa[1] - qa[1], pa[2] - qa[2]];
+                        let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                        if len2 == 0.0 {
+                            continue;
+                        }
+                        let u = ((w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / len2).clamp(0.0, 1.0);
+                        let foot =
+                            Point3::new(qa[0] + u * d[0], qa[1] + u * d[1], qa[2] + u * d[2]);
+                        let dd = dist3(pt, foot);
+                        if best.is_none_or(|(_, _, bd)| dd < bd) {
+                            best = Some((i, u, dd));
+                        }
+                    }
+                    let Some((i, u, dd)) = best else {
+                        return Err(YangError::MalformedTopology(format!(
+                            "surface-pair edge {e_idx}: chain override {pa:?} has no sub-chord"
+                        )));
+                    };
+                    let chord = dist3(nodes[i].1, nodes[i + 1].1);
+                    let on_curve = off_curved <= band_curved && dd <= chord;
+                    let on_sub_chord =
+                        dd <= 1e-9 * (1.0 + coord) && off_curved <= d_eps + band_curved;
+                    if !(on_curve || on_sub_chord) {
+                        return Err(YangError::MalformedTopology(format!(
+                            "surface-pair edge {e_idx}: chain override {pa:?} is neither on the \
+                             curve (curved-operand deviation {off_curved}, band {band_curved}) \
+                             nor on a sub-chord within the chain bound (foot distance {dd} on a \
+                             {chord}-long chord, bound {d_eps})"
+                        )));
+                    }
+                    let near = if u <= 0.5 { i } else { i + 1 };
+                    if dist3(pt, nodes[near].1) < cad_primitives::TAU_MODEL {
+                        if near == 0 || near == nodes.len() - 1 {
+                            return Err(YangError::MalformedTopology(format!(
+                                "surface-pair edge {e_idx}: chain override {pa:?} coincides with \
+                                 a B-Rep endpoint but differs in bits (the vertex is \
+                                 authoritative; merge refused)"
+                            )));
+                        }
+                        nodes[near].1 = pt;
+                        continue;
+                    }
+                    let (ta, tb) = (nodes[i].0, nodes[i + 1].0);
+                    nodes.insert(i + 1, (ta + u * (tb - ta), pt));
+                }
+                steiner = nodes[1..nodes.len() - 1].to_vec();
+            }
             let mut chain: Vec<u32> = Vec::with_capacity(steiner.len() + 2);
             chain.push(e.start);
             for (t, p) in steiner {
