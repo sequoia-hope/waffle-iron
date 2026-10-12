@@ -2024,7 +2024,7 @@ fn smoke_corpus_boundary_categories() {
         // smallest segment at 2.83e-2, far above the floor — a scale-SENSITIVE
         // contact, so the finding is the band's absolute behaviour, not the
         // geometry alone.
-        ("P0037", Category::Error),
+        ("P0037", Category::SupportedCorrect),
         // P0038 (4 ops) ⇒ `malformed B-Rep topology: face 328: bounded lateral
         // patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge
         // for a single-sheet unroll` — a cylinder patch whose own boundary

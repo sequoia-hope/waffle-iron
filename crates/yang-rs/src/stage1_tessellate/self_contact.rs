@@ -49,6 +49,16 @@ pub(crate) struct SelfContactReport {
     pub(crate) face_bounds: BTreeMap<u32, f64>,
 }
 
+/// Is the chart-bound channel of a CHART-path cylinder lateral on (spec §2
+/// "channel", P0037, 2026-10-12)? `YANG_S1_SELF_CONTACT_CHART=0|off` keeps
+/// the pre-P0037 rule (the shared rim N alone) for dev A/B.
+pub(crate) fn chart_channel_on() -> bool {
+    !matches!(
+        std::env::var("YANG_S1_SELF_CONTACT_CHART").as_deref(),
+        Ok("0") | Ok("off")
+    )
+}
+
 /// Exact self-contact scan of one Stage-1 tessellation plus the derived
 /// refinement. `None` when the mesh is clean (no improper or unresolved pair
 /// anywhere — the fast path, byte-identical for every operand that already
@@ -80,6 +90,12 @@ pub(crate) fn scan_self_contacts(
         demand_n: None,
         face_bounds: BTreeMap::new(),
     };
+    // The operand's chord budget as the cylinder chart CDT reads it
+    // (`stage1_tessellate_once`'s `operand_chord_budget`, the bound a
+    // chart-path lateral's interior census enforces): the "own" bound the
+    // chart channel halves.
+    let operand_budget: Option<f64> =
+        curved_chord_bound(edges).or_else(|| ellipse_rim_chord_bound(edges));
     let mut shown = 0usize;
     let mut relevant = 0usize;
     let tri_pts = |t: u32| -> [Point3; 3] {
@@ -166,6 +182,7 @@ pub(crate) fn scan_self_contacts(
                 faces,
                 edges,
                 n_used,
+                operand_budget,
                 current_face_bounds,
                 &mut report.demand_n,
                 &mut report.face_bounds,
@@ -240,16 +257,58 @@ fn coplanar_planar_pair(a: &BRepFace, b: &BRepFace) -> bool {
 /// refined); every other face asks the shared rim N to halve the sagitta at
 /// its largest rim radius (a face with no rim circle has no density channel
 /// — nothing is demanded, the driver's loud stop stands).
-fn refine_face(
+///
+/// A CYLINDER lateral additionally halves its per-face CHART bound (P0037,
+/// 2026-10-12): on the seeded chart path (`tessellate_lateral_holed_cdt`)
+/// the face's chord band is governed by `ChartBudget`'s `sag_bound =
+/// min(budget, demand)` — the bound the interior-edge census enforces — and
+/// the rim N only CAPS the seed-grid step. P0037's boss lateral meets a cut
+/// cylinder across a 0.1-unit lens on a 36.1 radius with the operand budget
+/// at 1.496 (the rim AABB × 1e-2): four rounds raised N 11 → 47 while the
+/// chord from the lens corner to the nearest grid row kept spanning 8.9°
+/// – 15° (the grid's phase against the corner, never the halving), and the
+/// contact survived every round. Halving the bound the census enforces is
+/// the spec's derived rule applied to the channel this path actually reads;
+/// the tube path ignores the chart budget, so the demand is inert there.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refine_face(
     f: usize,
     faces: &[BRepFace],
     edges: &[BRepEdge],
     n_used: Option<usize>,
+    operand_budget: Option<f64>,
     current_face_bounds: &BTreeMap<u32, f64>,
     demand_n: &mut Option<usize>,
     face_bounds: &mut BTreeMap<u32, f64>,
 ) {
     let face = &faces[f];
+    let halve_face_bound = |own: Option<f64>, face_bounds: &mut BTreeMap<u32, f64>| {
+        let cur = current_face_bounds.get(&(f as u32)).copied().or(own);
+        let Some(cur) = cur.filter(|c| c.is_finite() && *c > 0.0) else {
+            return;
+        };
+        let half = cur / 2.0;
+        face_bounds
+            .entry(f as u32)
+            .and_modify(|b| *b = b.min(half))
+            .or_insert(half);
+    };
+    let demand_rim_n = |demand_n: &mut Option<usize>| {
+        let r_max = face
+            .outer_loop
+            .iter()
+            .chain(face.inner_loops.iter().flatten())
+            .filter_map(|&e| match edges[e as usize].curve {
+                Curve::Circle { radius, .. } => Some(radius),
+                _ => None,
+            })
+            .fold(0.0f64, f64::max);
+        if let (true, Some(n)) = (r_max > 0.0, n_used) {
+            if let Some(want) = rim_n_halving_sagitta(r_max, n) {
+                *demand_n = Some(demand_n.map_or(want, |d| d.max(want)));
+            }
+        }
+    };
     match face.surface {
         Surface::Plane { .. } => {}
         Surface::Torus {
@@ -257,32 +316,18 @@ fn refine_face(
             minor_radius,
             ..
         } if torus_face_takes_patch_path(face, edges, major_radius, minor_radius) => {
-            let cur = current_face_bounds
-                .get(&(f as u32))
-                .copied()
-                .unwrap_or_else(|| torus_chord_bound(major_radius, minor_radius));
-            let half = cur / 2.0;
-            face_bounds
-                .entry(f as u32)
-                .and_modify(|b| *b = b.min(half))
-                .or_insert(half);
+            halve_face_bound(
+                Some(torus_chord_bound(major_radius, minor_radius)),
+                face_bounds,
+            );
         }
-        _ => {
-            let r_max = face
-                .outer_loop
-                .iter()
-                .chain(face.inner_loops.iter().flatten())
-                .filter_map(|&e| match edges[e as usize].curve {
-                    Curve::Circle { radius, .. } => Some(radius),
-                    _ => None,
-                })
-                .fold(0.0f64, f64::max);
-            if let (true, Some(n)) = (r_max > 0.0, n_used) {
-                if let Some(want) = rim_n_halving_sagitta(r_max, n) {
-                    *demand_n = Some(demand_n.map_or(want, |d| d.max(want)));
-                }
+        Surface::Cylinder { .. } => {
+            demand_rim_n(demand_n);
+            if chart_channel_on() {
+                halve_face_bound(operand_budget, face_bounds);
             }
         }
+        _ => demand_rim_n(demand_n),
     }
 }
 

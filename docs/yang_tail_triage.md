@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (night) — P0037 CONVERTED: the Stage-1 self-contact guard halved the rim N while the chart path's census bound never moved — a cylinder lateral now halves its CHART bound
+
+**Anchor (`replay_waffle_env` on the un-minimized index-189 lineage;
+`YANG_SPLIT_PROBE` + `YANG_S1_CHART_PROBE`, 2026-10-12).** The lineage raised
+the minimum's signature verbatim (faces 0 and 2, four rounds), so the site was
+honest. The body is a cylinder boss (r 36.1 along +y, 64 tall) cut by an
+equal-radius cylinder along x at (y 31.2, z 37.2), x ∈ [9, 36]: the cut's
+start-cap plane x = 36 passes 0.1 inside the boss wall, leaving a LENS of
+material at most 0.1 thick beyond the plane and a sliver of cap between the
+boss rim (z = ±2.685 at x = 36) and the cutter circle (z ≥ 1.1) — the ledger's
+"a face's chord band reaches another face of the SAME solid", exactly, and far
+above the feature floor (0.1 against 1e-6). Face 0 is the boss lateral, face 2
+the cutter lateral; both take Stage 1's seeded CHART path, whose interior
+census enforces `sag_bound = min(budget, demand)` with the OPERAND budget
+1.496 (the rim AABB × 1e-2 on a 36.1 radius) and `demand: None`. A chord
+leaving the lens corner (azimuth 4.27°) for a grid row more than 8.54° away
+ends at x < 36 and passes through the cutter lateral. The guard's cylinder
+channel is the shared rim N, which only CAPS the chart's seed-grid step
+(32.7° → 7.66° over N 11 → 47); the census bound stayed 1.496, and the chord
+from the corner to the nearest grid row spanned 13°, 15°, 10.2°, 13°, 8.87°
+— the grid's phase against the corner, never a halving (contact deviations
+0.145 / 0.17 / 0.098 / 0.133 / 0.086). The derived rule was being applied to a
+channel the chart path does not read.
+
+**Fix (yang-rs only, `stage1_tessellate/self_contact.rs`).** `refine_face`'s
+cylinder arm records, besides the rim-N demand, a per-face chart bound: half
+the bound in force (`current_face_bounds[f]`, else the operand budget — the
+same `curved_chord_bound` / `ellipse_rim_chord_bound` value the chart receives
+as `budget`). `cylinder_seed_step` already reads `min(budget, demand)`, so the
+seed step and the interior census tighten together, and the halving converges:
+at bound 1.496/16 every interior chord spans ≤ 8.26° < 8.54°, whatever the
+grid phase. The tube path ignores the chart budget (inert there); every
+operand that already meets §4.1.1 is byte-identical (the guard's fast path).
+Gate `YANG_S1_SELF_CONTACT_CHART=0|off`. Spec `yang_stage1_self_contact_guard`
+§7. Pins: `yang-rs/tests_unit/s1_self_contact.rs`
+(`a_cylinder_face_halves_its_chart_bound_and_asks_the_shared_rim_n`, five
+branches; the pocket pin now expects the lateral's chart entry) and
+`kernel-v2/tests/s1_chart_self_contact_chain.rs` (P0037's boss − cutter ∪
+prism through `extrude` + `boolean_op`: RED under the gate with the verbatim
+STOP, GREEN with the channel — the union validates).
+
+**Measured.** P0037 → SUPPORTED_CORRECT 2.7 s (three rounds, face bounds
+0.748 → 0.374 → 0.187 on faces 0 and 2). The un-minimized index-189 lineage
+builds through all five ops with no auto-union warning (Main volume 1.368e6,
+every oracle PASS — before, the refused union left the body standalone at
+1.142e6). Smoke pin flipped.
+
+**Corpus (release, 8 jobs, 900 s; wall 971.6 s): 336C / 0W / 10E / 5EE / 0T + 0 UNSUPPORTED over 351** — versus the 2026-10-12 (later) canonical exactly ONE move, P0037 ERROR → CORRECT, zero regressions, zero detail drift. The 10 ERROR rows: seven C-series walls + P0026 + P0038–P0039.
+
 ## 2026-10-12 (later) — P0036 CONVERTED: a relocated rim × cutter corner overtook an unmoved rim chord vertex along a CARRIED circle — the §4.5.3 overtake arm now reads carried conic runs by parameter order
 
 **Anchor (`KV2_RING_REJECT_PROBE` + `KV2_RING_PROVENANCE` + `YANG_FACE_CENSUS`
@@ -864,7 +913,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
 | ~~**P0035**~~ | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12** → SUPPORTED_CORRECT 0.5 s (the boss wall's barrel seam bridge was anchored at the bottom of the slab cap's boundary generator and ran along it one f64 ulp away; a seam bridge now clears every boundary node by the render floor — spec `kv2_cdt_triangulation_core` §6g; see the 2026-10-12 section) |
 | ~~**P0036**~~ | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ~~ERROR 0.4 s~~ **CONVERTED 2026-10-12 (later)** → SUPPORTED_CORRECT 0.7 s (neither family: the revolve cap's rim kept a Stage-1 chord vertex 3.4e-5 inside the exact cutter, and Stage 4 relocated the rim × cutter corner past it along the rim; the §4.5.3 overtake arm now reads carried conic runs — spec `yang_453_line_overtake` §6; see the 2026-10-12 (later) section) |
-| **P0037** | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ERROR 1.1 s |
+| ~~**P0037**~~ | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ~~ERROR 1.1 s~~ **CONVERTED 2026-10-12 (night)** → SUPPORTED_CORRECT 2.7 s (a 0.1 lens between the cut's cap plane and the boss wall; the guard halved the rim N while the chart path's census bound stayed at the operand budget — a cylinder lateral now halves its chart bound, spec `yang_stage1_self_contact_guard` §7; see the 2026-10-12 (night) section) |
 | **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |
 | **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |
 
@@ -888,7 +937,8 @@ P0036 1.41e-7 ⇒ Stage-3 `AmbiguousCurve`). The fourth is **P0035 at 1.28e-6,
 1.3× the floor** ⇒ `malformed B-Rep topology: interior junction`, a genuine
 near-floor sensitivity. **P0037 reads SUPPORTED_CORRECT at ×1e-3** with its
 smallest segment at 2.83e-2, far above the floor — a scale-SENSITIVE contact,
-recorded, not explained.
+recorded, not explained. (CONVERTED 2026-10-12 (night); the ×1e-3 reading
+is moot and still unexplained.)
 
 **Two minima changed SITE, so both halves are promoted.** The minimizer keeps a
 reduction when the signature string is byte-identical, and a signature string

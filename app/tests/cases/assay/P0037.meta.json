@@ -1,6 +1,6 @@
 {
   "id": "P0037",
-  "description": "prospector seed 3 index 189, minimized 5->3 ops (circle:boss circle:cut convex4:boss): auto-union input rejection 'Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s): a face's chord band reaches another face of the same solid'. x1e3 same class; x1e-3 reads SUPPORTED_CORRECT — a scale-SENSITIVE contact (recorded, not explained). derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 189, minimized 5->3 ops (circle:boss circle:cut convex4:boss): auto-union input rejection 'Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s): a face's chord band reaches another face of the same solid'. x1e3 same class; x1e-3 reads SUPPORTED_CORRECT \u2014 a scale-SENSITIVE contact (recorded, not explained). derived_meta; the pin IS the expectation. CONVERTED 2026-10-12 (night): the guard halved the rim N while the seeded chart path's census bound stayed at the operand budget; a cylinder lateral now halves its chart bound (spec yang_stage1_self_contact_guard \u00a77). Pin SUPPORTED_CORRECT.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 64.0,

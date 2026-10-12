@@ -57,7 +57,7 @@ that misrepresents the geometry is §4.1.1's iterative scheme / §4.5's
 |---|---|
 | detect | `cherchi_rs::detect_improper_contacts` over the operand mesh after every completed Stage-1 pass — the SAME exact tri–tri classification the arrangement runs, so a reported pair is precisely one the arrangement would split. Cost: negligible (three operands incl. a 96k-triangle gear: +0.7 s on a 74 s case) |
 | derive | at a contact point `p` on both triangles the TRUE gap between the two surfaces is exactly `τ = dev_a(p) + dev_b(p)`, the two chord deviations there (`\|signed_distance_to_surface\|`). The rim-pair guard's half-gap margin (`sag ≤ gap/2`) then asks the DOMINANT face — the one whose chord band reached farther — to HALVE its chord bound: the paper's uniform 2× refinement, derived, applied to the face that caused the contact. Ties refine both. A planar face never deviates and is never refined |
-| channel | a torus face on the PATCH path (`torus_face_takes_patch_path`): a per-face chord bound (`face_chord_demands`, threaded through `stage1_tessellate_once` into `tessellate_torus_band`, `d_ε = min(own, demand)` — never looser, so the Stage-4 band that reads `torus_chord_bound` back stays a valid upper bound). Every rim-sampled face (cylinder / cone laterals, caps with rims, structured tori): the shared rim N — `rim_n_halving_sagitta(r_max, N)`, the smallest N whose sagitta at the face's largest rim radius is half the current one (≈ √2·N), folded into the driver's `force` like a chart-crossing demand |
+| channel | a torus face on the PATCH path (`torus_face_takes_patch_path`): a per-face chord bound (`face_chord_demands`, threaded through `stage1_tessellate_once` into `tessellate_torus_band`, `d_ε = min(own, demand)` — never looser, so the Stage-4 band that reads `torus_chord_bound` back stays a valid upper bound). Every rim-sampled face (cylinder / cone laterals, caps with rims, structured tori): the shared rim N — `rim_n_halving_sagitta(r_max, N)`, the smallest N whose sagitta at the face's largest rim radius is half the current one (≈ √2·N), folded into the driver's `force` like a chart-crossing demand. **A CYLINDER lateral additionally halves its per-face CHART bound (§7, P0037, 2026-10-12)**: on the seeded chart path the face's interior census enforces `sag_bound = min(budget, demand)` and the rim N only caps the seed-grid step, so the same `face_chord_demands` entry (half the bound in force — the operand budget until a demand exists) is what that path reads; the tube path ignores it. Gate `YANG_S1_SELF_CONTACT_CHART=0\|off` (dev A/B, the rim-N-only rule) |
 | refine | the driver re-runs the whole pass with the tightened demands, at most `SELF_CONTACT_ROUNDS = 4` (16× tighter torus bound / 4× finer N) |
 | report | typed `YangError::Stage1SelfContact { face_a, face_b, pairs, unresolved, rounds }` when the rounds are spent, when no contact names a face with a channel (two planar faces crossing: a genuine B-Rep self-intersection), or when the demand does not tighten |
 | not a contact | (a) two COPLANAR planar faces of one solid (a stepped body's shared plane, the intra-solid flush pairs) — Stage 0's §4.5.5 case, planar triangles have no chord band; (b) a pair ADJACENT BY POSITION — sharing a vertex within `TAU_WORK·(1+scale)` — the index rule extended to positional twins (measured: a re-entering lineage-less output tessellates its cap and lateral rims with bit-identical or few-ulp twins instead of one shared index — the `stage6_arc_orientation` pocket operand reported 96 → 305 such touches over four wasted rounds, the chord midpoint between two twin rim vertices reading as a 0.021 "deviation"); (c) a pair with NO proper crossing — every edge×plane crossing at an edge endpoint or along a coplanar edge (a T-junction, an endpoint touch): `contact_point` is `None`. Index-SHARING crossing pairs are outside `detect_improper_contacts`' sweep (a crossing that also shares a vertex stays the downstream watertight gates' tripwire). Sphere faces and chord-only-bounded cone / cylinder faces (no rim circle) have no density channel yet: loud |
@@ -137,3 +137,66 @@ n=118->None torus={0: 0.3799}` — the same operand's two Stage-1 passes (the
 input conversion and the junction-override rebuild), one round each. **No
 other operand of any boolean in the corpus self-contacts**: the guard is
 byte-identical everywhere but the case it converts.
+
+## 7. P0037 — the chart-bound channel (2026-10-12)
+
+**Anchor.** Seed-3 index 189 (`circle:boss circle:cut convex4:boss`); the
+un-minimized lineage raised the minimum's signature verbatim through
+`replay_waffle_env`. A cylinder boss (r 36.1 along +y, 64 tall) is cut by an
+equal-radius cylinder whose axis runs along x at (y 31.2, z 37.2), x ∈
+[9, 36]. The cut's start-cap plane x = 36 passes 0.1 inside the boss wall
+(boss x reaches 36.1 at z = 0), leaving a LENS of boss material at most 0.1
+thick beyond the plane and a sliver of cap between the boss rim (z = ±2.685
+at x = 36) and the cutter circle (z ≥ 1.1). The op-3 union's Stage-1 pass
+on that body reported faces 0 (boss lateral) × 2 (cutter lateral) — 9 → 8
+→ 10 → 13 → 16 improper contacts over the rounds — and STOPped after four.
+
+**Why the rounds did not converge (`YANG_SPLIT_PROBE` +
+`YANG_S1_CHART_PROBE`).** Both laterals take the seeded CHART path
+(`tessellate_lateral_holed_cdt`, single complex loop). The chart budget was
+`ChartBudget { budget: 1.496, demand: None, rim_step: 2π/N }` — the operand
+budget is the rim AABB × 1e-2, 1.496 on a 36.1 radius — so the interior
+census bound stayed 1.496 in every round while the rim N went 11 → 16 → 23
+→ 33 → 47 and only CAPPED the seed-grid step (32.7° → 7.66°). The contact
+is geometric: a chord leaving the lens corner (azimuth 4.27° on the boss)
+for a grid row more than 8.54° away ends at x < 36 and passes through the
+cutter lateral (which lives at x ≤ 36, z ≥ 1.1); the CDT's chord from the
+corner to the nearest grid row spanned 13°, 15°, 10.2°, 13°, 8.87° — the
+grid's PHASE against the corner, never the halving — and the contact
+deviations read 0.145 / 0.17 / 0.098 / 0.133 / 0.086, not a geometric
+sequence. The derived rule ("halve the dominant face's chord bound") was
+being applied to a channel this path does not read.
+
+**The rule.** `refine_face`'s cylinder arm records, besides the shared rim
+N, `face_bounds[f] = cur / 2` with `cur` the bound in force
+(`current_face_bounds[f]`, else the operand chord budget
+`curved_chord_bound(edges).or(ellipse_rim_chord_bound)` — the same value
+`stage1_tessellate_once` hands the chart as `budget`). `cylinder_seed_step`
+already takes `sag_bound = min(budget, demand)`, so the seed step AND the
+interior census tighten together: round k enforces every interior chord's
+sagitta ≤ 1.496 / 2^k. On P0037 the body is clean after three rounds (bound
+0.187, N 33). The certificate for termination is the census itself: at
+bound 0.0935 (round 4) every interior chord spans ≤ 8.26° < 8.54°, so no
+corner chord can reach x < 36 whatever the grid phase.
+
+**Not done.** The operand budget itself (4 % of the radius here, a
+consequence of the rim-AABB rule over a body whose rims span 150 units) is
+the pre-existing Stage-1 contract and is untouched; the ×1e-3 scale reading
+recorded in the seed-3 adjudication is now moot and remains unexplained.
+
+**Pins.** `tests_unit/s1_self_contact.rs`:
+`a_cylinder_face_halves_its_chart_bound_and_asks_the_shared_rim_n` (no bound
+in force → half the operand budget + the rim demand; a bound in force halves
+from itself; two dominants keep the tighter; no budget → rim channel alone;
+a planar face has no channel) and the existing pocket pin now expects the
+lateral's chart entry. `kernel-v2/tests/s1_chart_self_contact_chain.rs`:
+P0037's boss − cutter ∪ diamond prism through `extrude` + `boolean_op` —
+GREEN (the union validates, one shell, Euler balanced, volume between the
+body's and body + prism); RED under `YANG_S1_SELF_CONTACT_CHART=0` with the
+verbatim STOP (16 contacts, faces 0 and 2, 4 rounds), verified by hand.
+
+**Measured.** P0037 → SUPPORTED_CORRECT 2.7 s (three guard rounds, face
+bounds 0.748 → 0.374 → 0.187 on faces 0 and 2). The un-minimized index-189
+lineage builds through all five ops with no auto-union warning (Main volume
+1.368e6, every oracle PASS — before, the failed union left the body
+standalone at 1.142e6). Corpus (release, 8 jobs, 900 s; wall 971.6 s): **336C / 0W / 10E / 5EE / 0T over 351** — exactly one move (P0037), zero detail drift.

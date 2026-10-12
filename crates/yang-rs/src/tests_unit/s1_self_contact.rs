@@ -198,15 +198,113 @@ fn a_cylinder_skin_thinner_than_its_sagitta_reports_the_pocket_with_a_rim_demand
         (0, 3),
         "cylinder lateral × pocket wall: {report:?}"
     );
-    assert!(
-        report.face_bounds.is_empty(),
-        "no torus face here: {report:?}"
+    // P0037: a cylinder lateral also halves its CHART bound (inert on this
+    // tube-path fixture, read by the seeded chart path).
+    let budget = curved_chord_bound(&edges).expect("rim circles give a budget");
+    assert_eq!(
+        report.face_bounds,
+        [(0u32, budget / 2.0)]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>(),
+        "the lateral's chart bound halves from the operand budget: {report:?}"
     );
     assert_eq!(
         report.demand_n,
         rim_n_halving_sagitta(10.0, n),
         "{report:?}"
     );
+}
+
+/// P0037 (2026-10-12): the refinement channel of a CYLINDER lateral is
+/// both the shared rim N (the tube path's density) and a per-face chart
+/// bound halved from the bound in force (the seeded chart path's census
+/// bound — the operand budget until a demand exists). A plane has no
+/// channel; a face already under a demand halves THAT, never the budget.
+#[test]
+fn a_cylinder_face_halves_its_chart_bound_and_asks_the_shared_rim_n() {
+    let (_verts, edges, faces) = cylinder_over_pocket(0.1);
+    let budget = curved_chord_bound(&edges).expect("rim circles give a budget");
+    let n = 14usize;
+
+    // No bound in force: half the operand budget, plus the rim demand.
+    let mut demand_n = None;
+    let mut bounds = BTreeMap::new();
+    refine_face(
+        0,
+        &faces,
+        &edges,
+        Some(n),
+        Some(budget),
+        &BTreeMap::new(),
+        &mut demand_n,
+        &mut bounds,
+    );
+    assert_eq!(demand_n, rim_n_halving_sagitta(10.0, n));
+    assert_eq!(bounds.get(&0).copied(), Some(budget / 2.0));
+
+    // A bound already in force halves from ITSELF (the second round).
+    let in_force: BTreeMap<u32, f64> = [(0u32, 0.3)].into_iter().collect();
+    let mut bounds2 = BTreeMap::new();
+    let mut dn2 = None;
+    refine_face(
+        0,
+        &faces,
+        &edges,
+        Some(n),
+        Some(budget),
+        &in_force,
+        &mut dn2,
+        &mut bounds2,
+    );
+    assert_eq!(bounds2.get(&0).copied(), Some(0.15));
+
+    // Two dominants naming the same face keep the TIGHTER demand.
+    let mut bounds3: BTreeMap<u32, f64> = [(0u32, 0.05)].into_iter().collect();
+    let mut dn3 = None;
+    refine_face(
+        0,
+        &faces,
+        &edges,
+        Some(n),
+        Some(budget),
+        &BTreeMap::new(),
+        &mut dn3,
+        &mut bounds3,
+    );
+    assert_eq!(bounds3.get(&0).copied(), Some(0.05));
+
+    // No operand budget and no bound in force: the rim channel alone (the
+    // chart path has no bound to halve — it is boundary-only there).
+    let mut bounds4 = BTreeMap::new();
+    let mut dn4 = None;
+    refine_face(
+        0,
+        &faces,
+        &edges,
+        Some(n),
+        None,
+        &BTreeMap::new(),
+        &mut dn4,
+        &mut bounds4,
+    );
+    assert_eq!(dn4, rim_n_halving_sagitta(10.0, n));
+    assert!(bounds4.is_empty(), "{bounds4:?}");
+
+    // A planar face (the pocket wall, face 3) has no channel at all.
+    let mut bounds5 = BTreeMap::new();
+    let mut dn5 = None;
+    refine_face(
+        3,
+        &faces,
+        &edges,
+        Some(n),
+        Some(budget),
+        &BTreeMap::new(),
+        &mut dn5,
+        &mut bounds5,
+    );
+    assert_eq!(dn5, None);
+    assert!(bounds5.is_empty(), "{bounds5:?}");
 }
 
 #[test]

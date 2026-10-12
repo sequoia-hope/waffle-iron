@@ -214,7 +214,17 @@ Do NOT skip to lower-priority items because they are easier.
    operand's own typed B-Rep edge, tested by exact parameter order and
    certified by the junction's displacement arc, spec
    `yang_453_line_overtake.md` §6; canonical corpus 335C / 0W / 11E / 5EE / 0T over 351).
-   Next: P0037–P0039 — each its own kernel session
+   P0037 CONVERTED 2026-10-12 (night) (a cylinder boss cut by an
+   equal-radius cylinder whose start-cap plane passes 0.1 inside the boss
+   wall leaves a 0.1 LENS; both laterals take Stage 1's seeded CHART path,
+   and the self-contact guard's cylinder channel — the shared rim N — only
+   CAPS the chart's seed-grid step while the chart's interior census bound
+   stayed at the operand budget (1.496 on a 36.1 radius) through all four
+   rounds, so the corner chord's span tracked the grid's phase and never
+   halved; a cylinder lateral now also halves its per-face CHART bound,
+   the entry `cylinder_seed_step` already reads, spec
+   `yang_stage1_self_contact_guard.md` §7; canonical corpus 336C / 0W / 10E / 5EE / 0T over 351).
+   Next: P0038–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

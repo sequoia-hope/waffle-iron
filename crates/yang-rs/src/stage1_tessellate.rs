@@ -347,7 +347,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                     if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                         eprintln!(
                             "[stage1-self-contact] round {contact_round}: pairs={} unresolved={} \
-                             first={:?} N {cur} -> {:?} torus bounds {:?}",
+                             first={:?} N {cur} -> {:?} face bounds {:?}",
                             report.pairs, report.unresolved, report.first, n_up, report.face_bounds
                         );
                     }
@@ -364,7 +364,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                             let _ = writeln!(
                                 f,
                                 "{} round={contact_round} pairs={} unresolved={} first={:?} \
-                                 n={cur}->{:?} torus={:?}",
+                                 n={cur}->{:?} face_bounds={:?}",
                                 std::env::var("ASSAY_CASE").unwrap_or_default(),
                                 report.pairs,
                                 report.unresolved,
