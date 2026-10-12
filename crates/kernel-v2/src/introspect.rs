@@ -182,6 +182,37 @@ pub type Aabb = ([f64; 3], [f64; 3]);
 /// overlap. Never under-covers. Same family of bound as yang-rs's
 /// disjoint-union passthrough (`specs/yang_disjoint_union_passthrough.md`).
 pub fn conservative_aabb(arena: &BrepArena, solid: SolidId) -> Result<Option<Aabb>, KernelV2Error> {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for &sh in &arena.solid(solid)?.shells {
+        let Some((slo, shi)) = conservative_shell_aabb(arena, sh)? else {
+            return Ok(None);
+        };
+        for k in 0..3 {
+            lo[k] = lo[k].min(slo[k]);
+            hi[k] = hi[k].max(shi[k]);
+        }
+    }
+    Ok(lo[0].is_finite().then_some((lo, hi)))
+}
+
+/// [`conservative_aabb`] of ONE shell — the same per-face bound, so a
+/// closed shell's box covers every point of the surface it bounds, not just
+/// its B-Rep vertices. The distinction matters for a curved shell: a plain
+/// cylinder's B-Rep carries exactly two vertices, both on its seam, so its
+/// vertex hull is a line segment that misses almost all of the solid. The
+/// body splitter ([`crate::split_solid_into_bodies`]) clusters shells by
+/// this box so an internal void — whose box nests inside its lump's — stays
+/// with the lump (P0041, 2026-10-12: a square cavity sunk into a cylinder
+/// boss was split off as its own "body" because the cylinder's vertex hull
+/// was its seam, and the next cut ran against the inside-out cavity shell
+/// alone).
+///
+/// `None` as for the solid: an edge carrying an unbounded-bulge curve.
+pub fn conservative_shell_aabb(
+    arena: &BrepArena,
+    shell: crate::arena::ShellId,
+) -> Result<Option<Aabb>, KernelV2Error> {
     use crate::arena::Curve;
     struct Bx {
         lo: [f64; 3],
@@ -212,8 +243,8 @@ pub fn conservative_aabb(arena: &BrepArena, solid: SolidId) -> Result<Option<Aab
         lo: [f64::INFINITY; 3],
         hi: [f64::NEG_INFINITY; 3],
     };
-    for &sh in &arena.solid(solid)?.shells {
-        for &f in &arena.shell(sh)?.faces {
+    {
+        for &f in &arena.shell(shell)?.faces {
             let face = arena.face(f)?;
             match face.surface {
                 Some(Surface::Sphere { center, radius, .. }) => bx.grow(center.as_array(), radius),

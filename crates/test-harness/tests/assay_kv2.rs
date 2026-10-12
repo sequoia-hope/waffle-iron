@@ -2078,7 +2078,17 @@ fn smoke_corpus_boundary_categories() {
         ("P0040", Category::SupportedCorrect),
         // P0041 (3 ops) ⇒ the same text on `boolean_subtract`, Seg edges of a
         // planar cap loop used once. Same class at ×1e-3 and ×1e3.
-        ("P0041", Category::Error),
+        // CONVERTED 2026-10-12 (seed 4, P0041): not a yang STOP at all — the
+        // first cut sank a square CAVITY into the cylinder boss, kernel-v2's
+        // body splitter clustered shells by their B-Rep VERTEX hull (a plain
+        // cylinder has two vertices, both on its seam), the cavity became
+        // its own "body", and the second cut — sharing the cavity's floor
+        // and ceiling planes — ran against the inside-out cavity shell
+        // alone. The splitter now clusters by the shell's CONSERVATIVE box
+        // (`introspect::conservative_shell_aabb`); the 2-shell operand opens
+        // its cavity into the cut (spec `kv2_multishell_boolean_operands`
+        // Amendment 2).
+        ("P0041", Category::SupportedCorrect),
         // P0042 (3 ops) ⇒ auto-union Stage-4 `LocalRefinementRequired` at
         // `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned
         // None. Its lineage STOPs at a DIFFERENT site (P0043). ×1e3 keeps the

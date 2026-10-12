@@ -139,3 +139,41 @@ Amended oracles (all exact, all-planar):
 - Subtract an x-through tunnel that OPENS the cavity (void topology
   destroyed correctly) → volume 56 − 0.72.
 - Intersect with a slab straddling the cavity wall → volume 22.
+
+## Amendment 2 (2026-10-12) — the splitter's box is the shell's CONSERVATIVE box, not its vertex hull
+
+**Finding (P0041, prospector seed 4 index 42).** `split_solid_into_bodies`
+clustered shells by the axis-aligned hull of each shell's loop VERTICES. For a
+curved shell that hull under-covers the surface it bounds — a plain cylinder's
+B-Rep carries exactly two vertices, both on its seam, so its "box" was a line
+segment on the lateral. A square cavity sunk into a cylinder boss (an engine
+cut whose direction-less sweep ran INTO the body from a plane 10 below the top
+cap; the subtract took the clear-operands set-algebra path and minted the
+2-shell solid correctly) therefore clustered with nothing, the splitter
+returned the cavity as a second body, the adapter handed the engine two
+bodies, and the next cut — a wider prism sharing the cavity's floor and
+ceiling planes — ran as two subtracts: the boss alone (fine) and the
+inside-out cavity shell alone, whose output kept the cavity's floor and
+ceiling squares with every edge used once:
+`InvalidBooleanOutput("an undirected output edge is not used by exactly two
+directed edges")`. The same proxy defect the seed-4 WRONG rows found in the
+engine's cut auto-reversal (`specs/assay_prospector.md` §8 lessons 2 and 4):
+B-Rep vertices do not represent a curved body's bulk.
+
+**Rule.** The splitter clusters by `introspect::conservative_shell_aabb` —
+the per-shell form of the solid bound `conservative_aabb` already computes
+(vertex hull grown by every conic edge's circle box, a cylinder or cone face by
+its slab, a sphere or torus by its centre box), so a closed shell's box covers
+every point of the surface it bounds. A shell with no cheap bound (an edge on
+an unbounded-bulge curve, `None`) overlaps EVERY other shell — the splitter's
+standing rule is never to over-split, and under-splitting is a display
+artifact. Nothing else changes: closed-interval overlap, union-find,
+deterministic order.
+
+**Oracles.** kernel-v2 `tests/void_shell_stays_with_its_lump.rs`: the boss +
+cavity solid splits to ONE body (RED before: 2); the P0041 chain completes,
+one shell, exact volume π·110²·210 − 100·33078.129 (the diamond ∩ disc area by
+a 6000-column integration) within 5e-4. The disjoint-lump tests of this spec
+are unchanged (boxes of planar solids ARE their vertex hulls). Corpus: P0041
+ERROR → SUPPORTED_CORRECT 0.9 s; its un-minimized 8-op lineage completes.
+

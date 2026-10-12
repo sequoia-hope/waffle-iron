@@ -43,6 +43,62 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (seed 4, P0041) — P0041 CONVERTED: not a yang STOP — kernel-v2's body splitter clustered shells by their B-Rep VERTEX hull, a cylinder boss's hull is its seam, and a cavity sunk into the boss became a "body" of its own
+
+**Anchor.** P0041 is seed 4's index-42 lineage minimized 8 → 3 ops
+(`circle:boss convex4:cut convex4:cut`), and `KV2_SHELL_CONTACT_PROBE=1` /
+`KV2_PLANE_TRACE=1` show the same two-stage shape on the minimum and on the
+lineage. The boss is an x-axis cylinder r 110, x ∈ [0, 210]. The first cut is a
+square of half-diagonal 40 on the plane x = 200 — 10 below the top cap — with no
+`direction`, and the auto-reversal (both the engine's and the chain's) sweeps
+it INTO the body, x ∈ [100, 200]: a wholly enclosed subtract. The clear-operands
+census reads `A [Clear] B [Clear inside]`, the set-algebra path mints the
+2-shell solid (boss + complemented cavity) correctly — and then the adapter's
+`boolean_subtract_multi` calls `split_solid_into_bodies`, whose clusters are by
+the hull of each shell's loop VERTICES. A plain cylinder has exactly two,
+both on its seam, so the boss's "box" was a line segment on its lateral, the
+cavity's box (y ∈ [−27.7, 39.7], z ∈ [36.3, 103.7]) met nothing, and the
+engine received TWO bodies. The second cut — a diamond of half-diagonal 200
+on the plane x = 100, swept x ∈ [100, 200], sharing the cavity's floor AND
+ceiling planes and reaching past the lateral on three sides — then ran as two
+subtracts (the two `A [Contact] B [Contact]` census lines): the boss alone,
+which completes, and the inside-out cavity shell alone, whose Stage-0
+overlay pairs the cavity's floor and ceiling with the diamond's caps and
+whose output keeps both squares as faces with every edge used once —
+`InvalidBooleanOutput("an undirected output edge is not used by exactly two
+directed edges")`. The lineage does the same from a cavity at x ∈ [39.8,
+150.6] (its `input A` is six planes with inward normals and no cap of the
+body — the signature of this shape).
+
+This is the seed-4 WRONG rows' mechanism (the engine's `solids_projection_range`
+measuring a cylinder's "bulk" on its two seam vertices) with a KERNEL
+customer: the splitter's docstring promised "a void shell (its AABB nested
+inside the lump's) stays with its lump", true for planar lumps, whose vertex
+hull IS their box, and false for every curved one.
+
+**Fix (kernel-v2, structural).** `shell_aabb_clusters` now clusters by
+`introspect::conservative_shell_aabb`, the per-shell form of the solid bound
+`conservative_aabb` already computes (vertex hull grown by each conic edge's
+circle box, cylinder and cone faces by their slab, sphere and torus by the
+centre box); a shell with no cheap bound (an unbounded-bulge edge curve)
+overlaps everything — the splitter never over-splits. Spec
+`kv2_multishell_boolean_operands.md` Amendment 2; prospector spec §8 lesson 4.
+
+**Measured.** With the void kept with its boss the second subtract sees the
+2-shell operand (`A [Contact, Contact] B [Contact]`), yang's cavity-agnostic
+in/out labelling opens the cavity into the cut, and P0041 reads
+**SUPPORTED_CORRECT 0.9 s** (mesh volume 4.6694e6 against the exact
+π·110²·210 − 100·33078.13 = 4.6750e6, the 0.12 % being the render mesh's
+chord deficit; kernel-v2's analytic volume on the B-Rep is within 5e-4 of the
+exact value in the pin). The un-minimized 8-op lineage completes with no
+engine error. Corpus (release, 8 jobs, 900 s): **340C / 0W / 19E / 5EE / 0T over 364** (wall 973.2 s) — versus 339C / 0W / 20E exactly ONE move, P0041 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 19 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0042–P0052.
+
+**Pins.** kernel-v2 `tests/void_shell_stays_with_its_lump.rs` (the boss +
+cavity solid splits to ONE body — RED before: 2; the P0041 chain completes
+as one shell with the exact volume); smoke pin `P0041 → SupportedCorrect`.
+The spec's planar disjoint-lump and void tests are unchanged.
+
+
 ## 2026-10-12 (seed 4, later) — P0040 CONVERTED: a circle crease seen from the PLANAR face that contains it divided nothing, and the §4.5.1 transit could land its corrected junction OUTSIDE the face it transited onto
 
 **Anchor.** P0040 is seed 4's index-190 lineage truncated to its first two
@@ -160,7 +216,7 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 | case | source | ops | error text | SITE | ×1e-3 / ×1e3 |
 |---|---|---|---|---|---|
 | ~~**P0040**~~ | #190, min 8→2 by TRUNCATION ONLY (`circle:boss circle:boss`, the lineage's coordinates) | 2 | auto-union `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")` | `from_yang.rs` pairing: the top cap's 42-edge loop runs the rim circle AND the rectangular hole through ONE vertex, v50 at (−271.50, −359.99, 540.38) = the {top cap z = 540.38, big lateral r 450.9, start-cap PLANE x = −271.50} triple point — which is **10 units (3.4 %) outside the start cap's disc** (300 from the small axis, r 290.09), so no exact edge ends there. The true corner is {top cap, start cap, small lateral} at (−271.50, −347.87, 540.38), 12 units away; the rim chord sagitta is 10.7 and `YANG_451_CORNER_PROBE` shows the triple gate (d_ε 13.85) accepting the mesh vertex's relocation onto the phantom (`v=50 rho=17.8 gate=124.9 metric=slab`). Same probe output on the lineage | **CORRECT / CORRECT** — scale-sensitive in BOTH directions. ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, later)** → SUPPORTED_CORRECT 0.9 s (the radial divider + the transit's neighbour-side certificate; see the section above) |
-| **P0041** | #42, min 8→3 `circle:boss convex4:cut convex4:cut` | 3 | `boolean_subtract` the same text | Seg edges of a planar cap loop (yang face 0 at x = 100) used once; the lineage: the same on its plane x = 124.88 | same / same |
+| ~~**P0041**~~ | #42, min 8→3 `circle:boss convex4:cut convex4:cut` | 3 | `boolean_subtract` the same text | Seg edges of a planar cap loop (yang face 0 at x = 100) used once; the lineage: the same on its plane x = 124.88 | same / same — ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, P0041)** → SUPPORTED_CORRECT 0.9 s (the body splitter's vertex-hull box; see the section above) |
 | **P0042** | #11, min 5→3 `convex4:boss convex5:rev circle:boss` | 3 | auto-union Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned None (v29). **Not the lineage's site** | CORRECT / same |
 | **P0043** | #11 **UN-MINIMIZED** `circle:boss circle:cut circle:∪ convex5:rev circle:∪` | 5 | the same text | `stage4_correct.rs:13236` — `surface_pair_endpoint_mix` (P0026's site, there a minted tangency; here generic): v38 on a cylinder (r 487.5, axis x) × cone (half-angle 0.019) pair edge whose endpoint also lies on the cylinder's cap plane, `n_inc_surfs=3 {A cone, B plane, B cylinder}`, `cone_ell=true`, no junction map claims it | — (unminimized) |
 | **P0044** | #37, min 6→4 `convex4:boss convex4:boss star6(0.45):sym circle:cut` | 4 | `boolean_subtract CurvedGeometryMismatch "bounded cylinder patch must have exactly one material-CCW loop"` | kernel-v2 `validate/faces.rs`: the cut cylinder's lateral (r 0.133, axis y) keeps ONE loop, wrap 0, mean_h 8e-4, NEGATIVE area2 (LineSegment + Arc + EllipseArc …) — zero material-CCW loops; identical face on the lineage | same / CORRECT |

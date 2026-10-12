@@ -271,7 +271,19 @@ Do NOT skip to lower-priority items because they are easier.
    — both transits decline, two fires, the local §4.5.2 rung d_ε/2 clears
    them; spec `yang_451_corner_transit.md` §3aj; canonical corpus
    **339C / 0W / 20E / 5EE / 0T over 364** (wall 938.8 s) — versus the post-promotion 338C / 0W / 21E exactly ONE move, P0040 ERROR → CORRECT, zero regressions, zero detail drift; the 20 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0041–P0052).
-   **The open P-series ERROR tail is P0041–P0052** (seed 4; P0001–P0040
+   P0041 CONVERTED 2026-10-12 (seed 4, P0041) (NOT a yang STOP: the first
+   cut's direction-less sweep ran INTO the cylinder boss from a plane 10
+   below its top and sank a square CAVITY — minted correctly by the
+   clear-operands set algebra — and kernel-v2's body splitter, clustering
+   shells by their B-Rep VERTEX hull, found the cavity's box meeting nothing
+   because a plain cylinder has two vertices, both on its seam; the engine
+   got two "bodies" and the second cut, sharing the cavity's floor and
+   ceiling planes, ran against the inside-out cavity shell alone — the
+   seed-4 WRONG rows' vertex-proxy mechanism with a kernel customer; the
+   splitter now clusters by `introspect::conservative_shell_aabb`, spec
+   `kv2_multishell_boolean_operands.md` Amendment 2; canonical corpus
+   **340C / 0W / 19E / 5EE / 0T over 364** (wall 973.2 s) — versus 339C / 0W / 20E exactly ONE move, P0041 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 19 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0042–P0052).
+   **The open P-series ERROR tail is P0042–P0052** (seed 4; P0001–P0041
    CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-4/
    candidates/`, the minima under `target/prospect/seed-4/findings/`;

@@ -861,27 +861,18 @@ fn shell_aabb_clusters(
     arena: &BrepArena,
     shells: &[ShellId],
 ) -> Result<Vec<Vec<ShellId>>, KernelV2Error> {
-    // Per-shell AABB over its faces' loop vertices.
-    let mut boxes: Vec<([f64; 3], [f64; 3])> = Vec::with_capacity(shells.len());
+    // Per-shell CONSERVATIVE AABB (`introspect::conservative_shell_aabb`):
+    // the box of the SURFACE the shell bounds, not of its B-Rep vertices. A
+    // vertex hull under-covers every curved shell — a plain cylinder has two
+    // vertices, both on its seam, so its hull is a segment on the lateral
+    // and a cavity sunk into the cylinder clustered with nothing (P0041,
+    // 2026-10-12: the void became its own "body" and the next cut ran
+    // against the inside-out cavity shell alone). A shell without a cheap
+    // bound (`None`: an unbounded-bulge edge curve) overlaps everything —
+    // the splitter's rule is never to over-split.
+    let mut boxes: Vec<Option<([f64; 3], [f64; 3])>> = Vec::with_capacity(shells.len());
     for &sh in shells {
-        let mut lo = [f64::INFINITY; 3];
-        let mut hi = [f64::NEG_INFINITY; 3];
-        for &f in &arena.shell(sh)?.faces {
-            let face = arena.face(f)?;
-            let mut loops = vec![face.outer_loop];
-            loops.extend(face.inner_loops.iter().copied());
-            for lid in loops {
-                for h in arena.loop_half_edges(lid)? {
-                    let v = arena.half_edge(h)?.origin;
-                    let p = arena.vertex(v)?.point.as_array();
-                    for k in 0..3 {
-                        lo[k] = lo[k].min(p[k]);
-                        hi[k] = hi[k].max(p[k]);
-                    }
-                }
-            }
-        }
-        boxes.push((lo, hi));
+        boxes.push(crate::introspect::conservative_shell_aabb(arena, sh)?);
     }
 
     // Union-find: cluster shells whose AABBs overlap (closed intervals, so
@@ -895,8 +886,10 @@ fn shell_aabb_clusters(
         }
         i
     }
-    let overlap = |a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])| {
-        (0..3).all(|k| a.1[k] >= b.0[k] && b.1[k] >= a.0[k])
+    let overlap = |a: &Option<([f64; 3], [f64; 3])>, b: &Option<([f64; 3], [f64; 3])>| match (a, b)
+    {
+        (Some(a), Some(b)) => (0..3).all(|k| a.1[k] >= b.0[k] && b.1[k] >= a.0[k]),
+        _ => true,
     };
     for i in 0..n {
         for j in (i + 1)..n {

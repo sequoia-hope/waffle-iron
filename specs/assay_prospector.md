@@ -511,6 +511,23 @@ budget (1341 s wall unbudgeted), so the honest histogram is 183 C / 14 E /
    minimizer can hand over.** P0040 was reached by truncation alone (no
    rounding), so the minted-contact hazard does not arise and the minimum's
    probe output is identical to the lineage's.
+4. **The vertex-hull proxy of lesson 2 has a KERNEL sibling, and P0041 was
+   it.** kernel-v2's body splitter (`split_solid_into_bodies`, the adapter's
+   `*_multi` booleans) clustered a solid's shells by the hull of their B-Rep
+   VERTICES — the same two seam vertices for a plain cylinder — so a cavity
+   sunk into a cylinder boss (seed 4 index 42's first cut, a direction-less
+   cut that swept INTO the body from a plane 10 below its top) clustered with
+   nothing and became a "body" of its own; the next cut then ran per body,
+   once against the inside-out cavity shell alone, and that output's cavity
+   floor and ceiling squares kept their edges used once. Converted
+   2026-10-12 by clustering on the shell's conservative box
+   (`introspect::conservative_shell_aabb`, spec
+   `kv2_multishell_boolean_operands.md` Amendment 2). A `boolean_subtract`
+   STOP whose A-side input (`KV2_PLANE_TRACE=1`) shows a handful of planar
+   faces with inward normals and no cap of the body is this shape; the
+   `KV2_SHELL_CONTACT_PROBE=1` census printing TWO subtracts for one engine
+   cut, each with a one-shell A, names it in two lines. Any place that reads
+   "the body's extent" off B-Rep vertices is suspect for curved bodies.
 
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
