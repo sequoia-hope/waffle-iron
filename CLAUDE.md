@@ -191,8 +191,19 @@ Do NOT skip to lower-priority items because they are easier.
    curve — `Hyperbola` and `SurfacePair` arms, each certified with the
    bound Stage 1 already applies, spec `yang_434_output_chord_refinement.md`
    "The hyperbola and surface-pair arms"; canonical corpus 333C / 0W /
-   13E / 5EE / 0T over 351).
-   Next: P0035–P0039 — each its own kernel session
+   13E / 5EE / 0T over 351). P0035 CONVERTED 2026-10-12 (not the slab
+   tip's tiny window and not P0001's §4.5.5 class despite the shared text:
+   the boss wall is a BARREL segment, and kernel-v2's developable
+   tessellator cuts it open along a seam bridge anchored at the first
+   outer-loop node no boundary edge blocks — the BOTTOM of the slab cap's
+   boundary generator, so the cut ran along that generator one f64 ulp
+   away (the generator top's accumulated-`u` roundoff, 5e-20 against a
+   6.9e-10 render floor) and the CDT tiled the corridor with 3D-collinear
+   ears; a seam bridge now clears every boundary node by
+   `render_height_floor`, the emit gate's own floor, spec
+   `kv2_cdt_triangulation_core.md` §6g; canonical corpus 334C / 0W / 12E /
+   5EE / 0T over 351).
+   Next: P0036–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

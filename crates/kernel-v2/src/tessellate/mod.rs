@@ -1444,6 +1444,8 @@ mod cdt_core_m1c_tests;
 
 #[cfg(test)]
 mod pinched_ring_patch_tests;
+#[cfg(test)]
+mod seam_bridge_clearance_tests;
 
 #[cfg(test)]
 mod arc_grid_sampling_tests;

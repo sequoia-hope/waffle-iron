@@ -43,6 +43,73 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 — P0035 CONVERTED: a barrel patch's seam bridge hugged a boundary generator one f64 ulp away — the cut must clear the boundary by render resolution
+
+**Anchor (`replay_waffle_env` on the un-minimized index-90 lineage,
+`YANG_BREP_PROBE`, `KV2_PATCH_CHAIN_PROBE=16`, `KV2_SUBRES_PROBE`,
+`KV2_PATCH_PASS_PROBE`).** The un-minimized lineage raises the minimum's
+signature verbatim (auto-union `TessellationFailed "patch triangle
+collapsed at render precision"`), so the site is honest. The failing face
+is the boss cylinder of a circular boss standing through a thin diamond
+slab: the slab's −Y tip EDGE pierces the boss wall (a triangular window
+1.7e-4 tall bounded by a generator segment and two ellipse arcs — the
+face's second hole) and the slab's +X cap meets the wall along one
+GENERATOR. The ledger row had guessed the window; the probe says
+otherwise. The bitwise gate had no diagnostic, so it now shares the
+sub-resolution gate's `KV2_SUBRES_PROBE`, which names the collapsed
+triangle: three nodes with chart `u ∈ {0, 2.5e-20, 5.1e-20}` — the
+generator's top vertex and two LEPP split nodes of the SEAM BRIDGE, all on
+one 3D generator. The union's cylinder face is a barrel segment (its
+bottom boundary wraps the axis once, the top rim is the second wrapping
+loop), which `tessellate_developable_patch` cuts open along a seam bridge
+pair anchored at the first node of the +wrap loop that no boundary edge
+blocks. That first node was the generator's BOTTOM, so the left bridge
+ran from the top rim straight down the generator's supporting line and
+the boundary generator ran back up it: one line in 3D, two chart edges
+kept apart only by the generator top's accumulated-u roundoff (`u` is
+summed from `atan2` deltas; the top vertex is Stage 4's {cap, flank,
+cylinder} corner and differs from the bottom's {cap, cylinder cap,
+cylinder} corner in its last bits — 5.08e-20 against a 6.9e-10 render
+floor). The exact crossing predicate cannot see a corridor open by one
+ulp; the CDT tiled it; the emit gate STOPped the ears (B3, zero f32
+cross). Not P0001's §4.5.5 class despite the shared text, and not the
+§6a seam femto-twin (every vertex here is honest — the CHOICE of cut made
+the sub-resolution region).
+
+**Remedy (kernel-v2 `tessellate/developable.rs`, the anchor search).** A
+seam bridge is a cut through the face INTERIOR, and the corridor it opens
+must be one the render channel can represent: a candidate bridge that
+passes any boundary node (ring or hole at its window image, other than
+the bridge's own endpoints) closer than `render_height_floor` — the emit
+gate's own f32-ulp floor, no new constant — is rejected like a crossing
+one. On P0035 the anchor moves one node up, to the generator's top
+(`seam anchor xi=1 x=node1 y=node131 dpr=-5.082e-20 floor=6.909e-10`),
+and the union renders. Canonicalizing the generator's `u` to exactly zero
+was considered and declined: the top rim's bridge partner carries its OWN
+accumulated residue, so an exact generator still leaves a 1e-19 corridor;
+the clearance belongs to the cut, the only free choice. Not a band:
+nothing refused is now accepted, no geometry moves, and a face with no
+clearing anchor stays loud. Spec `kv2_cdt_triangulation_core.md` §6g.
+
+**Pins.** kernel-v2 `tessellate/seam_bridge_clearance_tests.rs`: a
+hand-built barrel whose outer loop starts at the bottom of a
+seam-azimuth generator with its top 1e-17 rad off the seam — RED under
+the old search (the corridor ear STOPs at the sibling sub-resolution
+gate), GREEN with the rule — plus the 0.3-rad companion where the first
+anchor is accepted as before. The case's own operands through
+`kernel_v2::extrude` + `boolean_op` do NOT reproduce (yang's assembly
+starts that loop at the generator's top there), so the app-level pin is
+the smoke row: P0035 → SUPPORTED_CORRECT (0.5 s). The un-minimized
+index-90 lineage no longer raises the auto-union STOP (its Main-body
+oracles were, and remain, all PASS).
+
+**Corpus (release, 8 jobs, 900 s; wall 939.9 s): 334C / 0W / 12E / 5EE /
+0T + 0 UNSUPPORTED over 351** — versus the 2026-10-11 (night) canonical
+exactly ONE move, P0035 ERROR → CORRECT, zero regressions, zero detail
+drift. P0036 ("ring rejected by CDT", a candidate sibling of the exact
+overlap this rule's predicate already refuses) did NOT move. The 12 ERROR
+rows: seven C-series walls + P0026 + P0036–P0039.
+
 ## 2026-10-11 (night) — P0033 CONVERTED: a re-entering body's cylinder × cone curve left the second boolean as a Stage-1-density chord — the §4.4.2 carried-edge restoration now re-types onto EVERY typed input curve (`Hyperbola` and `SurfacePair` join `Circle`/`Ellipse`)
 
 **Anchor (`KV2_PATCH_FOLD_PROBE` + `KV2_CHORD_DEPTH_CENSUS`,
@@ -743,7 +810,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | **P0032** | #80, min 6→2 `convex5:boss circle:rev-cut` | 2 | `SelfIntersectingBooleanOutput { penetrations: 9 }` | `FaceId(10)` **PLANE** × `FaceId(13)` **TORUS** — the torus arm of the output gate | ERROR 0.3 s |
 | ~~**P0033**~~ | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ~~ERROR 2.0 s~~ **CONVERTED 2026-10-11 (night)** → SUPPORTED_CORRECT 3.6 s (KV9-F2a: the deep chord was the previous boolean's cylinder × cone `SurfacePair` edge, re-entered and emitted as a Stage-1-density `LineSegment`; the §4.4.2 restoration now re-types onto every typed input curve — see the 2026-10-11 (night) section) |
 | **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
-| **P0035** | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ERROR 0.1 s |
+| ~~**P0035**~~ | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12** → SUPPORTED_CORRECT 0.5 s (the boss wall's barrel seam bridge was anchored at the bottom of the slab cap's boundary generator and ran along it one f64 ulp away; a seam bridge now clears every boundary node by the render floor — spec `kv2_cdt_triangulation_core` §6g; see the 2026-10-12 section) |
 | **P0036** | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ERROR 0.4 s |
 | **P0037** | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ERROR 1.1 s |
 | **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |

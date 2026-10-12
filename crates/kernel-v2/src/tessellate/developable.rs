@@ -1206,6 +1206,40 @@ fn tessellate_developable_patch(
                 let hole_window_k = |c: &Chain, base_x: f64| -> f64 {
                     ((base_x + span / 2.0 - mid_u(c, &nodes)) / span).round()
                 };
+                // P0035 (2026-10-12): a seam bridge is a cut through the
+                // face INTERIOR, and the corridor it opens must be wide
+                // enough for the render channel to represent. The first
+                // outer vertex sat at the bottom of a boundary GENERATOR
+                // (the +X cap's line on a boss through a slab), so the
+                // left bridge ran down that generator's supporting line
+                // while the boundary edge ran back up it, the two
+                // separated only by the generator top's accumulated-u
+                // roundoff (5e-20 against a 6.9e-10 floor). The exact
+                // crossing predicate below cannot see a corridor that is
+                // open by one ulp: the ring was weakly simple, the CDT
+                // tiled the corridor with ears whose three corners all lie
+                // on one 3D generator, and the emit gate STOPped them as
+                // "collapsed at render precision". A bridge that passes a
+                // boundary node closer than the emit gate's own f32 floor
+                // (`render_height_floor`, no new constant) is rejected
+                // here, so the anchor moves to the generator's top and the
+                // cut leaves the boundary at a visible angle. Nodes that
+                // ARE the bridge's endpoints (by exact p2 equality, as
+                // `bridge_blocked_by` keys them) do not count.
+                let seam_floor = render_height_floor(nodes.iter().map(|n| &n.pos));
+                let within_floor = |n: Point2, p: Point2, q: Point2| -> bool {
+                    if n == p || n == q {
+                        return false;
+                    }
+                    let (dx, dy) = (q.x() - p.x(), q.y() - p.y());
+                    let l2 = dx * dx + dy * dy;
+                    if !l2.is_finite() || l2 <= 0.0 {
+                        return false;
+                    }
+                    let t = (((n.x() - p.x()) * dx + (n.y() - p.y()) * dy) / l2).clamp(0.0, 1.0);
+                    let (cx, cy) = (p.x() + t * dx - n.x(), p.y() + t * dy - n.y());
+                    (cx * cx + cy * cy).sqrt() < seam_floor
+                };
                 let blocked = |p: Point2, q: Point2, base_x: f64| -> bool {
                     let mut edges_iter: Vec<(Point2, Point2)> = Vec::new();
                     let rl = ring.len();
@@ -1237,9 +1271,11 @@ fn tessellate_developable_patch(
                             ));
                         }
                     }
-                    edges_iter
-                        .into_iter()
-                        .any(|(ea, eb)| exact2d::bridge_blocked_by(p, q, ea, eb))
+                    edges_iter.into_iter().any(|(ea, eb)| {
+                        exact2d::bridge_blocked_by(p, q, ea, eb)
+                            || within_floor(ea, p, q)
+                            || within_floor(eb, p, q)
+                    })
                 };
                 if bridge_pairs
                     .iter()
@@ -1262,6 +1298,21 @@ fn tessellate_developable_patch(
                 // Register the bridge edges (Chord kind) for refinement.
                 let xs = pe[xi].0;
                 let ys = me[yi].0;
+                if std::env::var_os("KV2_PATCH_PASS_PROBE").is_some() {
+                    eprintln!(
+                        "[pass-probe] face={fid:?} seam anchor xi={xi} x=node{xs} y=node{ys} \
+                         dpr={dpr:.3e} floor={seam_floor:.3e} right=({:.6e},{:.6e})->({:.6e},{:.6e}) \
+                         left=({:.6e},{:.6e})->({:.6e},{:.6e})",
+                        bridge_pairs[0].0.x(),
+                        bridge_pairs[0].0.y(),
+                        bridge_pairs[0].1.x(),
+                        bridge_pairs[0].1.y(),
+                        bridge_pairs[1].0.x(),
+                        bridge_pairs[1].0.y(),
+                        bridge_pairs[1].1.x(),
+                        bridge_pairs[1].1.y(),
+                    );
+                }
                 let b1 = (xs.min(ys), xs.max(ys));
                 built = Some((ring, vec![b1]));
                 break;
@@ -2088,9 +2139,7 @@ fn tessellate_developable_patch(
         // B2: two vertices bitwise-identical after f32 rounding. B3: the
         // f32 cross product exactly zero (collinear at render precision).
         // Always-on (I3) — never debug-gated, never a skip/snap (P9).
-        if f32_render_degenerate(pa, pb, pc) {
-            return Err(fail("patch triangle collapsed at render precision"));
-        }
+        let f32_degenerate = f32_render_degenerate(pa, pb, pc);
         // P10 safety net (R0085 op 3, 2026-09-18): the corpus oracle's own
         // SUB-RESOLUTION rule (area < 1e-12 AND height < 4 f32 ulps of the
         // coordinate scale). A needle triangle the bitwise gate cannot see
@@ -2102,7 +2151,9 @@ fn tessellate_developable_patch(
         // was MINTED by the M1 grid-degeneracy flip pass (spec
         // `kv2_cdt_triangulation_core` §6e M1c, 2026-09-22) — the CDT itself
         // fanned the run legally.
-        if render_subresolution_triangle(pa, pb, pc, height_floor) {
+        // Both gates share the diagnostic probe below so a collapse class
+        // self-localizes the same way a sub-resolution class does.
+        if f32_degenerate || render_subresolution_triangle(pa, pb, pc, height_floor) {
             // Diagnostic probe (env-gated, zero-cost off): the triangle's
             // corners with node provenance, then the face's boundary loops
             // edge by edge (curve kind, chord length, interior sample
@@ -2228,6 +2279,9 @@ fn tessellate_developable_patch(
                         );
                     }
                 }
+            }
+            if f32_degenerate {
+                return Err(fail("patch triangle collapsed at render precision"));
             }
             return Err(fail(
                 "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps)",

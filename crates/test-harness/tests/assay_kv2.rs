@@ -2000,7 +2000,7 @@ fn smoke_corpus_boundary_categories() {
         // ×1e-3 its smallest segment is 1.28e-6 — 1.3 × the floor — and the
         // class becomes `malformed B-Rep topology: interior junction`: a
         // genuine near-floor sensitivity, recorded rather than explained.
-        ("P0035", Category::Error),
+        ("P0035", Category::SupportedCorrect),
         // P0036 (3 ops) ⇒ `TessellationFailed "ring rejected by CDT
         // (degenerate/self-intersecting)"` on FaceId(51) — the text of P0002
         // (converted 2026-09-27) AND P0013 (converted 2026-10-03, the §4.3.3

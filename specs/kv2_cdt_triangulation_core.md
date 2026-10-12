@@ -413,6 +413,75 @@ boundaries; the corpus run is the cost verdict. Pin:
 `tests/p0034_pinch_wedge_render.rs` (P0034's four operations through the
 `Kernel` trait; render edges used by at most two triangles).
 
+## 6g. P0035 — a seam bridge clears the boundary by render resolution (2026-10-12, prospector seed 3 index 90)
+
+**Finding.** A barrel segment (branch C3 — two opposite-winding
+axis-wrapping loops) is cut open along a seam bridge pair anchored at a
+node of the +wrap loop, and the anchor search takes the FIRST node whose
+two bridges no boundary edge blocks (`exact2d::bridge_blocked_by`: proper
+crossing, a foreign endpoint on the bridge, a bridge endpoint inside an
+edge, full coincidence). P0035 is a circular boss standing through a thin
+diamond slab: the slab's −Y tip EDGE pierces the boss wall (a triangular
+window, 1.7e-4 tall, the face's second hole) and the slab's +X cap meets
+the wall along one GENERATOR. The union's cylinder face is a barrel whose
+outer loop happened to START at that generator's bottom, so the first
+anchor's left bridge ran from the top rim straight down the generator's
+supporting line, and the boundary generator ran back up it to its top
+vertex — one line in 3D, two edges in the chart kept apart only by the
+generator top's accumulated-u roundoff: `u` is summed edge by edge from
+`atan2` deltas, and the top vertex (Stage 4's {cap, flank, cylinder}
+corner) differs from the bottom one (the {cap, cylinder cap, cylinder}
+corner) in its last bits, giving `u = 5.08e-20` against a
+`render_height_floor` of 6.9e-10. The exact crossing predicate cannot see
+a corridor open by one ulp: the ring was weakly simple, the CDT tiled the
+corridor with ears whose three corners all lie on the same 3D generator
+(the generator's two ends and the bridge's LEPP split nodes, measured
+`KV2_SUBRES_PROBE`: `p2.x ∈ {0, 2.5e-20, 5.1e-20}`), and the emit gate
+STOPped them as "patch triangle collapsed at render precision" (B3: the
+f32 cross product is exactly zero) — the app's auto-union failure. Not the
+tiny window, which tessellates fine; and not the §6a seam femto-twin,
+whose two vertices are a B-Rep output defect — here every vertex is
+honest and the CHOICE of cut created the sub-resolution region.
+
+**Rule.** A seam bridge is a cut through the face INTERIOR, and the
+corridor it opens must be one the render channel can represent. In the
+anchor search, a candidate bridge that passes any boundary node — ring or
+hole, at the hole's window image, other than the bridge's own two
+endpoints by exact `p2` equality (as `bridge_blocked_by` keys them) —
+closer than `render_height_floor` over the face's nodes is rejected like a
+crossing one. The floor is the emit gate's own f32-ulp floor (§6e's
+visible-lift yardstick), not a new constant; the test is a chart-space
+point-to-segment distance. On P0035 the anchor moves one node up, to the
+generator's top (`[pass-probe] … seam anchor xi=1 x=node1 y=node131
+dpr=-5.082e-20 floor=6.909e-10`), the left bridge leaves the boundary at
+the ellipse's angle, the right bridge continues the generator upward with
+nothing folded back onto it, and the union renders. Why not canonicalize
+the generator's `u` to exactly zero instead: the top rim's bridge partner
+carries its OWN accumulated residue (the −wrap chain's `u` is summed
+around the whole rim), so an exactly-zero generator still leaves a 1e-19
+corridor against the bridge; the clearance belongs to the cut, which is
+the only free choice here. Not a band: nothing is accepted that was
+refused, no geometry moves, and a face whose EVERY anchor fails stays
+loud ("no unblocked seam bridge for the wrapping patch loops").
+
+**Probes.** The bitwise gate now shares `KV2_SUBRES_PROBE` with the
+sub-resolution gate (corner provenance, boundary loops edge by edge),
+and `KV2_PATCH_PASS_PROBE` prints the accepted seam anchor with both
+bridges and the floor.
+
+**Pins.** `tessellate/seam_bridge_clearance_tests.rs`: a hand-built
+barrel whose outer loop starts at the bottom of a seam-azimuth generator
+with its top `1e-17` rad off the seam (sub-f32 at scale 1) — RED under
+the old search (the corridor ear STOPs at the sub-resolution gate), GREEN
+with the rule (no f32-degenerate triangle, edge-manifold partition); and
+the same barrel with the top 0.3 rad off, where the first anchor is
+accepted exactly as before. The assay case's own operands do not
+reproduce through `kernel_v2::extrude` + `boolean_op` (the output loop
+starts at the generator's TOP there — the configuration is the loop
+rotation yang's assembly happens to emit), so the app-level pin is the
+`assay_kv2` smoke row. The un-minimized index-90 lineage no longer
+raises the auto-union STOP.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:

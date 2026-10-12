@@ -1,6 +1,6 @@
 {
   "id": "P0035",
-  "description": "prospector seed 3 index 90, minimized 6->2 ops (convex4:sym circle:boss): auto-union TessellationFailed 'patch triangle collapsed at render precision' on FaceId(12) — P0001's error text at a new locus (P0001 CONVERTED 2026-09-27 via the 4.5.5 edge-in-plane rule). x1e3 identical; x1e-3 (segment 1.28e-6, 1.3x the feature floor) reads 'malformed B-Rep topology: interior junction'. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 90, minimized 6->2 ops (convex4:sym circle:boss): auto-union TessellationFailed 'patch triangle collapsed at render precision' on FaceId(12) — P0001's error text at a new locus (P0001 CONVERTED 2026-09-27 via the 4.5.5 edge-in-plane rule). x1e3 identical; x1e-3 (segment 1.28e-6, 1.3x the feature floor) reads 'malformed B-Rep topology: interior junction'. derived_meta; the pin IS the expectation. CONVERTED 2026-10-12: the boss wall's barrel seam bridge was anchored at the bottom of the slab cap's boundary GENERATOR, so the cut ran along that generator one f64 ulp (5e-20) away from it and the CDT tiled the corridor with 3D-collinear ears; a seam bridge now must clear every boundary node by the render floor (spec kv2_cdt_triangulation_core.md section 6g).",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.0016280706406172692,
