@@ -483,12 +483,25 @@ fn judge_recipe_via_child(recipe: &gen3::Recipe, stem: &Path, budget: Duration) 
 /// recipe, its document and meta, and a README. Env: `PROSPECT_SEED` /
 /// `PROSPECT_OUT` (which report), `PROSPECT_BUDGET_SECS` (per verdict),
 /// `PROSPECT_MIN_STEPS` (verdicts per finding, default 60).
+///
+/// Minimizing is embarrassingly parallel per signature (spec §8, seed-3
+/// lesson 5), so two knobs let one invocation per signature share a report:
+/// `PROSPECT_SIGNATURE=<substring of the signature or of its slug>` restricts
+/// the walk to the matching signature(s), and a signature whose
+/// `findings/<slug>/README.md` already exists is skipped unless
+/// `PROSPECT_REDO=1`.
 #[test]
 #[ignore = "the prospector minimizer (long, release); run by hand after prospect_run — spec §7"]
 fn prospect_minimize() {
     let seed = env_u64("PROSPECT_SEED", 1);
     let budget = Duration::from_secs(env_u64("PROSPECT_BUDGET_SECS", 600));
     let min_steps = env_u64("PROSPECT_MIN_STEPS", 60) as usize;
+    let only = std::env::var("PROSPECT_SIGNATURE")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let redo = std::env::var("PROSPECT_REDO")
+        .map(|v| v == "1")
+        .unwrap_or(false);
     let out = out_dir(seed);
     let report_path = out.join("report.jsonl");
     let lines: Vec<ReportLine> = std::fs::read_to_string(&report_path)
@@ -510,6 +523,16 @@ fn prospect_minimize() {
         report_path.display()
     );
     for (sig, ls) in &by_sig {
+        let slug = signature_slug(sig);
+        if let Some(only) = &only {
+            if !sig.contains(only.as_str()) && !slug.contains(only.as_str()) {
+                continue;
+            }
+        }
+        if !redo && out.join("findings").join(&slug).join("README.md").exists() {
+            eprintln!("[minimize] {sig}: findings/{slug}/README.md exists — skipped (PROSPECT_REDO=1 to redo)");
+            continue;
+        }
         let example = ls.iter().min_by_key(|l| l.steps).unwrap();
         let lineage_path = out
             .join("candidates")
@@ -523,7 +546,7 @@ fn prospect_minimize() {
             eprintln!("[minimize] {sig}: {} has no recipe — skipped", example.id);
             continue;
         };
-        let dir = out.join("findings").join(signature_slug(sig));
+        let dir = out.join("findings").join(&slug);
         std::fs::create_dir_all(&dir).unwrap();
         let work = dir.join("work");
         std::fs::create_dir_all(&work).unwrap();

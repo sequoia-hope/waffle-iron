@@ -1,0 +1,52 @@
+{
+  "id": "P0045",
+  "description": "prospector seed 4 index 88, minimized 7->3 ops (convex4:boss circle:rev convex3:boss): auto-union TessellationFailed 'torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)' (kernel-v2 tessellate/surfaces/torus.rs) — P0003's text (CONVERTED 2026-09-28) on P0030's recipe shape (CONVERTED 2026-10-10, whole-shell passthrough) but with a prism that TOUCHES the torus; same text on the un-minimized lineage (FaceId 21). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 18.10509912380729,
+  "log_scale": 1.2578009068831981,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 10.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 264.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 18.10509912380729,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 1810.5099123807288,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

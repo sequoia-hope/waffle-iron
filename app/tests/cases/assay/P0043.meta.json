@@ -1,0 +1,80 @@
+{
+  "id": "P0043",
+  "description": "prospector seed 4 index 11, UN-MINIMIZED 5 ops (circle:boss circle:cut circle:U convex5:rev circle:U), original coordinates: auto-union Stage-4 'relocation region around vertex 38 is invalid: LocalRefinementRequired' raised at stage4_correct.rs:13236 — the surface_pair_endpoint_mix decline (P0026's site, there adjudicated a minimizer-minted tangency; here the geometry is generic). The vertex sits on a cylinder (r 487.5, axis x) x cone (half-angle 0.019, the revolve's lateral) pair edge whose endpoint also lies on the cylinder's start-cap plane: n_inc_surfs=3 {A cone, B plane, B cylinder}, cone_ell=true, no junction map claims it. The 3-op minimum moves to a different site (previous case). derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 706.69747052453,
+  "log_scale": 2.8492335368514357,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 236.44050397147973,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 74.7657901488869,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 205.72393685772062,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 100.33367876029199,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 706.69747052453,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-union",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 70669.74705245299,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

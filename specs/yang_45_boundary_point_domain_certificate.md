@@ -394,3 +394,21 @@ ERROR → SUPPORTED_CORRECT) and ZERO detail moves against the 2026-10-10
 P0030 baseline (`results.json` diffed per id).** The ungated first run
 (no `LOCAL_452_MAX_SAMPLES_PER_N`): 329C / 16E / **1T** — R0070 CORRECT →
 TIMEOUT, the measurement behind §8.3's budget.
+
+## 9. A circle crease seen from the planar face that contains it — the RADIAL divider (2026-10-12, P0040)
+
+The certificate's divider for a `Circle` edge was the circle's plane. For a
+cap disc or a plate around a hole that plane is the face's OWN plane, every
+point of the face has a zero residual against it, and a relocation that steps
+within the cap from inside its rim to outside it is invisible — P0040's v53,
+287.3 → 300.0 from the rim's axis against r 290.09, read `f_pre = f_post = 0`.
+`crease_divider` (via `crease_divider_for`, shared with the triple arm's §3t
+certificate) now presents the rim's CYLINDER as a planar face's divider when
+the face normal is parallel to the circle normal, and
+`boundary_crease_crossed`'s `CreaseExtent::Circle` arm reads the crossing's
+axial offset against that cylinder (the plane divider still reads the radial
+offset). Nothing changes for a curved face: the plane cuts a cylinder, cone
+or torus transversally and remains its divider. The full anchor, the
+companion neighbour-side certificate for the corner transit, and the
+measurements are in `specs/yang_451_corner_transit.md` §3aj; pins
+`tests_unit/s451_crease_domain.rs` (`the_brep_crease_index_gives_a_cap_its_radial_divider`).

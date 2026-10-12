@@ -1,0 +1,767 @@
+{
+  "format": "waffle-iron",
+  "version": 15,
+  "min_reader_version": 15,
+  "document": {
+    "id": "371df855-afbc-4b41-9106-82839fce7136",
+    "name": "Untitled",
+    "created": "2026-10-12T19:18:53.853653393Z",
+    "modified": "2026-10-12T19:18:53.853653393Z",
+    "display_unit": "mm"
+  },
+  "sources": [],
+  "tabs": [
+    {
+      "id": "03c13776-5493-4603-ba39-ddb2e6551f7e",
+      "name": "Part 1",
+      "kind": {
+        "type": "Part",
+        "features": {
+          "features": [
+            {
+              "id": "db838916-c5eb-4838-bf2f-771e13abb661",
+              "name": "Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "4d7c1aa5-aedb-4472-8fc7-b811883aeaf6",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "d9a09c06-4965-4915-b052-610b93dbed37"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.00010108153262595525,
+                      "y": 0.00014285490457799458,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 2,
+                      "x": 0.00001911555882640342,
+                      "y": 0.0001134001561319662,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 3,
+                      "x": -0.00004866515707550851,
+                      "y": 0.00016809730065297327,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 4,
+                      "x": -0.00007674145619566793,
+                      "y": 0.00008564898657292087,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 5,
+                      "x": -0.00016176599091082114,
+                      "y": 0.00006675900077622591,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 6,
+                      "x": -0.00011481058946197879,
+                      "y": -6.597616796462666e-6,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 7,
+                      "x": -0.00015305373416543062,
+                      "y": -0.00008485018832046098,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 8,
+                      "x": -0.00006642500715419918,
+                      "y": -0.00009387608015125359,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 9,
+                      "x": -0.000029088893866266094,
+                      "y": -0.00017256545498342681,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 10,
+                      "x": 0.00003197996036390558,
+                      "y": -0.00011046394042909673,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 11,
+                      "x": 0.00011678047681949466,
+                      "y": -0.000130335414350097,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 12,
+                      "x": 0.00010630336545568243,
+                      "y": -0.00004387020051009142,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 13,
+                      "x": 0.00017471176657257641,
+                      "y": 0.000010039851646790994,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 14,
+                      "x": 0.00010057816816585437,
+                      "y": 0.000055758695182017296,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 100,
+                      "start_id": 1,
+                      "end_id": 2,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 101,
+                      "start_id": 2,
+                      "end_id": 3,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 102,
+                      "start_id": 3,
+                      "end_id": 4,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 103,
+                      "start_id": 4,
+                      "end_id": 5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 104,
+                      "start_id": 5,
+                      "end_id": 6,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 105,
+                      "start_id": 6,
+                      "end_id": 7,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 106,
+                      "start_id": 7,
+                      "end_id": 8,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 107,
+                      "start_id": 8,
+                      "end_id": 9,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 108,
+                      "start_id": 9,
+                      "end_id": 10,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 109,
+                      "start_id": 10,
+                      "end_id": 11,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 110,
+                      "start_id": 11,
+                      "end_id": 12,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 111,
+                      "start_id": 12,
+                      "end_id": 13,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 112,
+                      "start_id": 13,
+                      "end_id": 14,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 113,
+                      "start_id": 14,
+                      "end_id": 1,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "UnderConstrained",
+                    "dof": 0
+                  },
+                  "solved_positions": {
+                    "14": [
+                      0.00010057816816585437,
+                      0.000055758695182017296
+                    ],
+                    "3": [
+                      -0.00004866515707550851,
+                      0.00016809730065297327
+                    ],
+                    "9": [
+                      -0.000029088893866266094,
+                      -0.00017256545498342681
+                    ],
+                    "8": [
+                      -0.00006642500715419918,
+                      -0.00009387608015125359
+                    ],
+                    "1": [
+                      0.00010108153262595525,
+                      0.00014285490457799458
+                    ],
+                    "6": [
+                      -0.00011481058946197879,
+                      -6.597616796462666e-6
+                    ],
+                    "13": [
+                      0.00017471176657257641,
+                      0.000010039851646790994
+                    ],
+                    "5": [
+                      -0.00016176599091082114,
+                      0.00006675900077622591
+                    ],
+                    "4": [
+                      -0.00007674145619566793,
+                      0.00008564898657292087
+                    ],
+                    "10": [
+                      0.00003197996036390558,
+                      -0.00011046394042909673
+                    ],
+                    "11": [
+                      0.00011678047681949466,
+                      -0.000130335414350097
+                    ],
+                    "2": [
+                      0.00001911555882640342,
+                      0.0001134001561319662
+                    ],
+                    "12": [
+                      0.00010630336545568243,
+                      -0.00004387020051009142
+                    ],
+                    "7": [
+                      -0.00015305373416543062,
+                      -0.00008485018832046098
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14
+                      ],
+                      "is_outer": true,
+                      "vertex_ids": [
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
+                        8,
+                        9,
+                        10,
+                        11,
+                        12,
+                        13,
+                        14
+                      ]
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "b895b321-92a9-4816-9a89-0f4d1c8e225f",
+              "name": "Extrude",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "db838916-c5eb-4838-bf2f-771e13abb661",
+                  "profile_index": 0,
+                  "depth": 0.000121,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": false,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null,
+                  "combine": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "3ef1c06b-7422-4afa-a60f-b5eb46c0ec45",
+              "name": "Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "57f996a0-94d3-49db-a419-0018cb4a688b",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "cb1c4ea7-1e43-41c3-8397-90124031677e"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0002,
+                    -0.0001,
+                    0.0001
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 2,
+                      "x": 0.0,
+                      "y": 0.0,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 1,
+                      "center_id": 2,
+                      "radius": 0.00009,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "UnderConstrained",
+                    "dof": 0
+                  },
+                  "solved_positions": {
+                    "2": [
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        1
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.0,
+                        "center_v": 0.0,
+                        "radius": 0.00009
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "c8c804cf-030d-4a0c-a90d-93b5f6067714",
+              "name": "Extrude",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "3ef1c06b-7422-4afa-a60f-b5eb46c0ec45",
+                  "profile_index": 0,
+                  "depth": 0.0005,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null,
+                  "combine": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "1f81ff2b-e28e-495b-b9d3-ef8d0e53454d",
+              "name": "Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "fdf84c19-ea52-4758-beae-dc9150a9a2cc",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "52dcc7c8-7baa-4471-8f80-df6fe0a62388"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.00027468333766575794,
+                    -3.0727964031409313e-6,
+                    -0.0001623446811747449
+                  ],
+                  "plane_normal": [
+                    -0.7825208841179233,
+                    0.13425355789764135,
+                    -0.6079778352136929
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": 0.000019396006854475255,
+                      "y": -0.00017006473679723392,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 2,
+                      "x": 0.00017006473679723392,
+                      "y": 0.000019396006854475245,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 3,
+                      "x": -0.000019396006854475235,
+                      "y": 0.00017006473679723392,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 4,
+                      "x": -0.0001700647367972339,
+                      "y": -0.000019396006854475377,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 100,
+                      "start_id": 1,
+                      "end_id": 2,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 101,
+                      "start_id": 2,
+                      "end_id": 3,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 102,
+                      "start_id": 3,
+                      "end_id": 4,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 103,
+                      "start_id": 4,
+                      "end_id": 1,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "UnderConstrained",
+                    "dof": 0
+                  },
+                  "solved_positions": {
+                    "3": [
+                      -0.000019396006854475235,
+                      0.00017006473679723392
+                    ],
+                    "1": [
+                      0.000019396006854475255,
+                      -0.00017006473679723392
+                    ],
+                    "2": [
+                      0.00017006473679723392,
+                      0.000019396006854475245
+                    ],
+                    "4": [
+                      -0.0001700647367972339,
+                      -0.000019396006854475377
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        1,
+                        2,
+                        3,
+                        4
+                      ],
+                      "is_outer": true,
+                      "vertex_ids": [
+                        1,
+                        2,
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "56206a30-2209-4fc5-abba-7bbb5a61748a",
+              "name": "Revolve",
+              "operation": {
+                "type": "Revolve",
+                "params": {
+                  "sketch_id": "1f81ff2b-e28e-495b-b9d3-ef8d0e53454d",
+                  "profile_index": 0,
+                  "axis_origin": [
+                    0.00034409215314646323,
+                    0.00040148890390538807,
+                    -0.0001623446811747449
+                  ],
+                  "axis_direction": [
+                    -0.5992228189239717,
+                    0.10280594045062454,
+                    0.793953998597445
+                  ],
+                  "angle": 360.0,
+                  "cut": true,
+                  "merge": true,
+                  "combine": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "34d1cb65-5d31-45b5-8d2b-e77dd6cb888e",
+              "name": "Sketch",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "340ce631-93e5-4534-a756-21855155d9b5",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "0bfc2464-013a-4b99-a2fa-4c7109dd32ec"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.000108,
+                    0.000217,
+                    -0.0000952
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    1.0,
+                    0.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 2,
+                      "x": 0.0,
+                      "y": 0.0,
+                      "construction": true
+                    },
+                    {
+                      "type": "Circle",
+                      "id": 1,
+                      "center_id": 2,
+                      "radius": 0.000106,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "UnderConstrained",
+                    "dof": 0
+                  },
+                  "solved_positions": {
+                    "2": [
+                      0.0,
+                      0.0
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        1
+                      ],
+                      "is_outer": true,
+                      "circle": {
+                        "center_u": 0.0,
+                        "center_v": 0.0,
+                        "radius": 0.000106
+                      }
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "578065d2-fbe1-46e3-8cc8-35fe3fd3899e",
+              "name": "Extrude",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "34d1cb65-5d31-45b5-8d2b-e77dd6cb888e",
+                  "profile_index": 0,
+                  "depth": 0.000136,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": true,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null,
+                  "combine": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            }
+          ],
+          "active_index": null
+        }
+      }
+    }
+  ],
+  "active_tab": "03c13776-5493-4603-ba39-ddb2e6551f7e"
+}

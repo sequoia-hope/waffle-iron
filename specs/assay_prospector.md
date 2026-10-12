@@ -472,6 +472,46 @@ spec, all of which sharpen seed 2's:
    `report.jsonl` plus a symlink to the shared `candidates/` — minimized 13
    signatures six-at-a-time in minutes. Worth building into the entry point.
 
+**Seed 4 (`prospect_run`, 200 candidates, 968 s at 8 jobs, 2026-10-12):** 182
+SUPPORTED_CORRECT, 14 ERROR, 3 SUPPORTED_WRONG, 1 TIMEOUT over 16 report
+signatures — and the TIMEOUT is an honest CORRECT whose cost exceeds the
+budget (1341 s wall unbudgeted), so the honest histogram is 183 C / 14 E /
+3 W / 0 T. Adjudicated and promoted the same day as **P0040–P0052** (corpus
+351 → 364); the narrative and per-case evidence live in
+`docs/yang_tail_triage.md` §"2026-10-12 (seed 4)". Lessons for this spec:
+
+1. **Seed 3's lesson 5 is built in.** `prospect_minimize` takes
+   `PROSPECT_SIGNATURE=<substring of the signature or of its slug>` and skips
+   a signature whose `findings/<slug>/README.md` already exists
+   (`PROSPECT_REDO=1` to redo), so one invocation per signature shares the
+   report and the `candidates/` directory. Thirteen ran side by side and the
+   minimize phase took ~25 min wall. Do NOT rebuild the `prospect` binary
+   while they run: a verdict child is `current_exe()`, and a rewrite mid-run
+   fails the next spawn (`driver: cannot spawn`), leaves `final signature:
+   error[driver …]` in the README and no `-min.waffle` — re-judge the `-min`
+   stem through `PROSPECT_RECIPE` to materialize it.
+2. **The cut-auto-reversal hole has a precise mechanism, and the engine side
+   of it is the weaker proxy.** All three seed-4 WRONG rows (and all three of
+   seed 3's) are documents where the engine and the chain chose opposite
+   sweeps for a direction-less cut. The chain uses the target's bounding-box
+   mid-extent; the engine (`rebuild.rs` `solids_projection_range`) uses the
+   mid-extent of the target's **B-Rep vertices** — and a plain cylinder has
+   two, both on its seam, so for a curved body the engine's "bulk property"
+   is measured on two points of one rim. `EXACT_CUT_TRACE=1` (chain) beside
+   `FE_CUT_TRACE=1` (engine) shows the two readings; authoring the engine's
+   traced sweep as the cut's `direction` flips every such document to CORRECT
+   with the kernel volume byte-identical, and an independent integration of
+   the 2-op case agrees with the kernel to 0.1 %. **Open follow-up (engine +
+   chain, not kernel):** define the decision on the body's TRUE extent along
+   the direction (tessellation vertices or curved-edge extremes in the
+   engine; the same support function in the chain) so the two sides share
+   one definition. Until then, the first move on any `wrong[exact_volume]`
+   row is the explicit-`direction` test, which costs a minute per row.
+3. **A 2-op finding with the lineage's own coordinates is the best anchor the
+   minimizer can hand over.** P0040 was reached by truncation alone (no
+   rounding), so the minted-contact hazard does not arise and the minimum's
+   probe output is identical to the lineage's.
+
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y
 plane, `TessellationFailed{FaceId, "planar triangle collapsed at render

@@ -1,0 +1,45 @@
+{
+  "id": "P0040",
+  "description": "prospector seed 4 index 190, minimized 8->2 ops by TRUNCATION ONLY (circle:boss circle:boss, original coordinates): auto-union InvalidBooleanOutput 'an undirected output edge is not used by exactly two directed edges' from kernel-v2 from_yang.rs edge pairing. A z-cylinder boss (r 450.9, h 540.4) with an x-cylinder boss (r 290.1, x in [-271.5, 39.0], axis y -112.4 z 370.9) whose start cap pokes out of the big lateral and above the top cap. The top cap's output loop is pinched: the rim circle and the rectangular hole share vertex 50 at (-271.5, -359.99, 540.38) = {top cap, big lateral, start-cap PLANE} \u2014 a point 10 units (3.4 %) OUTSIDE the start cap's disc (300 from its axis vs r 290.1), so no exact edge ends there; the rim chord sagitta is 10.7 and Stage 4's triple gate (d_eps 13.85) relocated the mesh vertex near the true {top cap, start cap, small lateral} corner at (-271.5, -347.87) onto a phantom triple. Same site on the un-minimized lineage (identical probe output). x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation. CONVERTED 2026-10-12 (seed 4, later): a circle crease seen from the PLANAR face that contains it now divides that face radially (crease_divider_for), and the \u00a74.5.1 transit certifies the SIDE its corrected junction lands on against the B-Rep face (transit_lands_inside_neighbour); both transits decline, the \u00a74.5 postcondition records two fires, the local \u00a74.5.2 rung d_eps/2 clears them. SUPPORTED_CORRECT 0.9 s (spec yang_451_corner_transit \u00a73aj).",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 540.3786532902026,
+  "log_scale": 2.732698184647954,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 540.3786532902026,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 310.5453979432958,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 54037.86532902026,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

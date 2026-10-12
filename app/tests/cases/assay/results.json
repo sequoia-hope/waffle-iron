@@ -1,8 +1,8 @@
 {
-  "errored": 8,
+  "errored": 20,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 338,
+  "passed": 339,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2109,7 +2109,85 @@
       "detail": "all checks passed",
       "id": "P0039",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "P0040",
+      "status": "pass"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): b91b3fc0-648f-4e3a-9259-a1ac0530e04c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\")",
+      "id": "P0041",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 29 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "id": "P0042",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 7b455f24-2cbd-4739-961f-6d8c795ec8e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 38 is invalid: LocalRefinementRequired\")",
+      "id": "P0043",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): ddd37e9e-6fc1-4db8-9c23-01dc91523866: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(81), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" }",
+      "id": "P0044",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(16), reason: \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" }. Body created as standalone.",
+      "id": "P0045",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(60), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
+      "id": "P0046",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 578065d2-fbe1-46e3-8cc8-35fe3fd3899e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(79), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "id": "P0047",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: interior junction (-0.00005878622337366421,0.0000634429843029614,0.0001140798078880682) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)\"). Body created as standalone.",
+      "id": "P0048",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): f29bbafe-2042-4708-8d8f-4bb34046b52e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(31), face_b: FaceId(34), penetrations: 16 }",
+      "id": "P0049",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 0ac5f515-638f-46fd-bdc5-3f485cc135c7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(1168), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "id": "P0050",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-1 chart triangulation of face 12 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.886× the budget)\"). Body created as standalone.",
+      "id": "P0051",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): abe6f0fb-14a4-40e8-8f85-fa7696041819: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(992), reason: \"surface-pair Newton projection did not converge\" }",
+      "id": "P0052",
+      "status": "error"
     }
   ],
-  "total": 351
+  "total": 364
 }

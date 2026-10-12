@@ -1,0 +1,52 @@
+{
+  "id": "P0048",
+  "description": "prospector seed 4 index 158, minimized 5->3 ops (convex4:boss convex6:boss circle:boss): auto-union 'yang-rs: malformed B-Rep topology: face 2: interior junction (-5.88e-5, 6.34e-5, 1.14e-4) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)' (stage1_tessellate.rs inc-4e splice) — a Stage-1 junction mint on the cylinder lateral landing within the weld band of TWO grid edges, i.e. at a grid corner. Same site and same point (to 3 digits) on the un-minimized lineage; seed-4 index 139 (convex4:boss x3 circle:cut, subtract, scale 2e-3) raises the same return and is NOT promoted separately (one case per site). Smallest authored segment 1.17e-4 = 117 x MIN_FEATURE_SIZE. x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.000259,
+  "log_scale": -3.586700235918748,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.000113,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.000104,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.000259,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.0259,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

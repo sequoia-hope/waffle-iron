@@ -937,6 +937,14 @@ impl ExactChain {
                                 let body_mid = 0.5 * (pmin + pmax);
                                 let sketch_proj = dot(sk.basis.origin, direction);
                                 let rev = body_mid < sketch_proj;
+                                if std::env::var_os("EXACT_CUT_TRACE").is_some() {
+                                    eprintln!(
+                                        "[exact-cut] {name}: targets={:?} target_box=({lo:?},{hi:?}) \
+                                         proj=[{pmin:.6e}, {pmax:.6e}] sketch_proj={sketch_proj:.6e} \
+                                         basis.n={:?} direction={direction:?} reverse={rev}",
+                                        targets, sk.basis.n
+                                    );
+                                }
                                 // The engine keeps a merge's targets as
                                 // SEPARATE bodies when the solids never
                                 // meet, and then measures the tool body

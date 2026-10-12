@@ -865,6 +865,52 @@ pub(crate) fn crease_circle_from_pair(surf0: Surface, surf1: Surface) -> Option<
 /// The plane of a crease `Curve::Circle`, as a `Surface::Plane` — the object
 /// the domain certificate takes signed distances against. `None` for a
 /// non-circle or a degenerate normal.
+/// The divider a crease circle presents to the face on `s_own` — the surface a
+/// step must not cross to leave that face's domain through this crease.
+///
+/// For a face whose surface the circle's plane cuts TRANSVERSALLY (a cylinder,
+/// cone or torus rim) the divider is the circle's plane, as [`crease_plane`]
+/// gives it. For a PLANAR face that CONTAINS the circle — a cap disc, a plate
+/// around a hole — that plane is the face's own plane: every point of the face
+/// lies in it, its residual is identically zero, and it divides nothing. The
+/// domain boundary of such a face is radial, and the divider is the cylinder
+/// through the circle about its own axis. Measured on P0040 (2026-10-12): two
+/// triple relocations stepped WITHIN a cylinder's cap plane from inside its
+/// rim to 10 units outside it, and both the triple arm's certificate and the
+/// §4.5 postcondition read a zero residual at both ends.
+pub(crate) fn crease_divider_for(curve: &Curve, s_own: Surface) -> Option<Surface> {
+    if let (
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        },
+        Surface::Plane { normal: n_face, .. },
+    ) = (*curve, s_own)
+    {
+        let n = normal.as_array();
+        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let m = n_face.as_array();
+        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        if nl.is_finite() && nl > 0.0 && ml.is_finite() && ml > 0.0 {
+            let cx = [
+                n[1] * m[2] - n[2] * m[1],
+                n[2] * m[0] - n[0] * m[2],
+                n[0] * m[1] - n[1] * m[0],
+            ];
+            let sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / (nl * ml);
+            if sin <= 1e-9 && radius.is_finite() && radius > 0.0 {
+                return Some(Surface::Cylinder {
+                    axis_point: center,
+                    axis_dir: cad_primitives::Vector3::new(n[0] / nl, n[1] / nl, n[2] / nl),
+                    radius,
+                });
+            }
+        }
+    }
+    crease_plane(curve)
+}
+
 pub(crate) fn crease_plane(curve: &Curve) -> Option<Surface> {
     let Curve::Circle { center, normal, .. } = *curve else {
         return None;
@@ -922,7 +968,7 @@ pub(crate) fn crease_crossed_by_step(
         if on_crease(p, s_own, s_other) {
             continue;
         }
-        let Some(plane) = crease_plane(&c) else {
+        let Some(plane) = crease_divider_for(&c, s_own) else {
             continue;
         };
         let (Some(fp), Some(fq)) = (surface_distance(plane, p), surface_distance(plane, q)) else {
@@ -1231,18 +1277,14 @@ pub(crate) fn crease_divider(
             }
             Some((plane(n, a)?, CreaseExtent::Segment { p0, p1 }))
         }
-        Curve::Circle {
-            center,
-            normal,
-            radius,
-        } => {
+        Curve::Circle { center, radius, .. } => {
             if !(radius.is_finite() && radius > 0.0) {
                 return None;
             }
-            Some((
-                plane(normal.as_array(), center.as_array())?,
-                CreaseExtent::Circle { center, radius },
-            ))
+            // A planar face containing the circle: the radial divider
+            // (`crease_divider_for`); every other face: the circle's plane.
+            let divider = crease_divider_for(&e.curve, s_own)?;
+            Some((divider, CreaseExtent::Circle { center, radius }))
         }
         Curve::Ellipse { center, normal, .. } | Curve::Hyperbola { center, normal, .. } => Some((
             plane(normal.as_array(), center.as_array())?,
@@ -1337,14 +1379,25 @@ pub(crate) fn boundary_crease_crossed(
             CreaseExtent::Circle { center, radius } => {
                 let cc = center.as_array();
                 let w = [x[0] - cc[0], x[1] - cc[1], x[2] - cc[2]];
-                let Surface::Plane { normal, .. } = c.divider else {
-                    continue;
-                };
-                let n = normal.as_array();
-                let h = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
-                let r = [w[0] - h * n[0], w[1] - h * n[1], w[2] - h * n[2]];
-                let rho = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
-                (rho - radius).abs() <= tol
+                match c.divider {
+                    // The circle's plane divides a curved face: the crossing
+                    // must sit at the circle's RADIUS within that plane.
+                    Surface::Plane { normal, .. } => {
+                        let n = normal.as_array();
+                        let h = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+                        let r = [w[0] - h * n[0], w[1] - h * n[1], w[2] - h * n[2]];
+                        let rho = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+                        (rho - radius).abs() <= tol
+                    }
+                    // The circle's cylinder divides a planar face: the
+                    // crossing must sit at the circle's PLANE on that cylinder.
+                    Surface::Cylinder { axis_dir, .. } => {
+                        let n = axis_dir.as_array();
+                        let h = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+                        h.abs() <= tol
+                    }
+                    _ => continue,
+                }
             }
             CreaseExtent::Whole => true,
         };
@@ -1583,6 +1636,160 @@ pub(crate) fn solve_crease_transit(
         q_margin: margins,
         others: [others[0], others[1]],
     })
+}
+
+/// Does the transited junction `j` lie INSIDE the neighbour face's domain, on
+/// the far side of the crease `c_b` it was transited across?
+///
+/// [`solve_crease_transit`]'s own postcondition asks whether the step
+/// `p_trunc → j` crosses one of the neighbour's creases — but `p_trunc` lies ON
+/// `c_b` by construction, and a step that starts on a crease is exempt from the
+/// sign-change test (it may glide). So for `c_b` ITSELF the question is not
+/// "did the step cross" but "which side did it land on", and that needs the
+/// face's SIDE of its own boundary, which the incidence-derived crease circles
+/// do not carry. The B-Rep does: a face's loop lists the edge, and
+///
+/// * a PLANAR face lies inside a circle that is its OUTER loop and outside one
+///   that is an INNER loop — no orientation convention needed;
+/// * a CURVED face (a cylinder or cone band between two rims) lies on the side
+///   of the circle's plane where its OTHER loop vertices are.
+///
+/// `Some((true, d))` — inside (or on the crease within its band), `Some((false,
+/// d))` — outside by the signed residual `d`, `None` — no face of either
+/// operand on `s_nbr` carries `c_b` as a loop edge (or the curved face has no
+/// off-crease vertex to take a side from): undetermined, and the caller keeps
+/// today's behaviour rather than guessing. Measured on P0040 (2026-10-12): the
+/// transit of v50 across the small cylinder's start-cap rim re-solved the
+/// triple ON the start-cap plane at a point 9.9 OUTSIDE that cap's disc (300.0
+/// from the axis against r 290.09), and the emission wrote that phantom into
+/// the mesh; the certificate declines it.
+pub(crate) fn transit_lands_inside_neighbour(
+    brep_a: &crate::BRep,
+    brep_b: &crate::BRep,
+    s_nbr: Surface,
+    c_b: &Curve,
+    j: Point3,
+) -> Option<(bool, f64)> {
+    let Curve::Circle {
+        center,
+        normal,
+        radius,
+    } = *c_b
+    else {
+        return None;
+    };
+    let n = normal.as_array();
+    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if !(nl.is_finite() && nl > 0.0 && radius.is_finite() && radius > 0.0) {
+        return None;
+    }
+    let nu = [n[0] / nl, n[1] / nl, n[2] / nl];
+    let c0 = center.as_array();
+    // Is this B-Rep edge the crease circle? Same centre and radius to the
+    // circle's own certificate band, normal parallel either way.
+    let same_circle = |e: &crate::BRepEdge| -> bool {
+        let Curve::Circle {
+            center: ec,
+            normal: en,
+            radius: er,
+        } = e.curve
+        else {
+            return false;
+        };
+        let tol =
+            crate::stage4_relocate::junction_certificate_band(c0, c_b_as_cylinder(c0, nu, radius))
+                .max(1e-12 * radius);
+        let eca = ec.as_array();
+        let dc =
+            ((eca[0] - c0[0]).powi(2) + (eca[1] - c0[1]).powi(2) + (eca[2] - c0[2]).powi(2)).sqrt();
+        let m = en.as_array();
+        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+        if !(ml.is_finite() && ml > 0.0) {
+            return false;
+        }
+        let cx = [
+            nu[1] * m[2] - nu[2] * m[1],
+            nu[2] * m[0] - nu[0] * m[2],
+            nu[0] * m[1] - nu[1] * m[0],
+        ];
+        let sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / ml;
+        dc <= tol && (er - radius).abs() <= tol && sin <= 1e-9
+    };
+    let cyl = c_b_as_cylinder(c0, nu, radius);
+    let plane = crease_plane(c_b)?;
+    for brep in [brep_a, brep_b] {
+        let edges = brep.edges();
+        let verts = brep.vertices();
+        for f in brep.faces() {
+            if f.surface != s_nbr {
+                continue;
+            }
+            let outer_hit = f
+                .outer_loop
+                .iter()
+                .any(|&ei| edges.get(ei as usize).is_some_and(same_circle));
+            let inner_hit = !outer_hit
+                && f.inner_loops
+                    .iter()
+                    .flatten()
+                    .any(|&ei| edges.get(ei as usize).is_some_and(same_circle));
+            if !outer_hit && !inner_hit {
+                continue;
+            }
+            if matches!(s_nbr, Surface::Plane { .. }) {
+                // Radial: inside the circle for an outer loop, outside for a
+                // hole. On the crease within its band counts as inside.
+                let d = surface_distance(cyl, j)?;
+                let band = crate::stage4_relocate::junction_certificate_band(j.as_array(), cyl);
+                let inside = if outer_hit { d <= band } else { d >= -band };
+                return Some((inside, d));
+            }
+            // A curved face: the side of the circle's plane its OTHER loop
+            // vertices occupy (vertices on the crease itself abstain).
+            let mut side_sum = 0.0;
+            let mut n_side = 0usize;
+            for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                let Some(e) = edges.get(ei as usize) else {
+                    continue;
+                };
+                for vi in [e.start, e.end] {
+                    let Some(v) = verts.get(vi as usize) else {
+                        continue;
+                    };
+                    let Some(fv) = surface_distance(plane, v.point) else {
+                        continue;
+                    };
+                    if fv.abs()
+                        > crate::stage4_relocate::junction_certificate_band(
+                            v.point.as_array(),
+                            plane,
+                        )
+                    {
+                        side_sum += fv.signum();
+                        n_side += 1;
+                    }
+                }
+            }
+            if n_side == 0 || side_sum == 0.0 {
+                return None;
+            }
+            let fj = surface_distance(plane, j)?;
+            let band = crate::stage4_relocate::junction_certificate_band(j.as_array(), plane);
+            let inside = fj.abs() <= band || (fj < 0.0) == (side_sum < 0.0);
+            return Some((inside, fj));
+        }
+    }
+    None
+}
+
+/// The cylinder through a crease circle about its own axis — the radial
+/// divider of a planar face bounded by that circle.
+fn c_b_as_cylinder(center: [f64; 3], axis_unit: [f64; 3], radius: f64) -> Surface {
+    Surface::Cylinder {
+        axis_point: Point3::new(center[0], center[1], center[2]),
+        axis_dir: cad_primitives::Vector3::new(axis_unit[0], axis_unit[1], axis_unit[2]),
+        radius,
+    }
 }
 
 // ---------------------------------------------------------------------------

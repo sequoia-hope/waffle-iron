@@ -1,0 +1,66 @@
+{
+  "id": "P0051",
+  "description": "prospector seed 4 index 188, minimized 7->4 ops (convex8:boss convex4:- circle:cut circle:boss): auto-union 'yang-rs: Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765x the budget)' — a NEW text: the seeded chart path's domain-grid refinement converges on a face whose interior edges stay 1.77x over its chord budget (the lineage: the same text after a convex8 boss, a convex4 subtract and two circle cuts take a circle boss). x1e3 keeps the class; x1e-3 stops earlier in the chain with a different error. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.001,
+  "log_scale": -3.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0008,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0009,
+      "is_cut": false
+    },
+    {
+      "kind": "boolean-subtract",
+      "profile_type": "none",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.001,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.00079,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.1,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

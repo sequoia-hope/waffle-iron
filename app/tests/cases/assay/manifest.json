@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 351,
+  "count": 364,
   "generator_version": 4,
   "cases": [
     {
@@ -2458,6 +2458,97 @@
       "filename": "P0039.waffle",
       "meta_filename": "P0039.meta.json",
       "description": "prospector seed 3 index 42, minimized 7->3 ops (nonconvex9:boss circle:boss gear23:boss): auto-union Stage-4 'relocation region around vertex 197 is invalid: RelocationCrossedCarrierVertex' raised at stage4_correct.rs:8605 — P0015's error text (CONVERTED 2026-10-03 by letting the 4.5.2 ladder run past its ceiling) with a residual customer on the auto-union path. Same class at x1e-3 and x1e3. Smallest authored segment 2.3862e-5 = 23.9 x MIN_FEATURE_SIZE, the tightest of the seed-3 promotions. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0040",
+      "filename": "P0040.waffle",
+      "meta_filename": "P0040.meta.json",
+      "description": "prospector seed 4 index 190, minimized 8->2 ops by TRUNCATION ONLY (circle:boss circle:boss, original coordinates): auto-union InvalidBooleanOutput 'an undirected output edge is not used by exactly two directed edges' from kernel-v2 from_yang.rs edge pairing. A z-cylinder boss (r 450.9, h 540.4) with an x-cylinder boss (r 290.1, x in [-271.5, 39.0], axis y -112.4 z 370.9) whose start cap pokes out of the big lateral and above the top cap. The top cap's output loop is pinched: the rim circle and the rectangular hole share vertex 50 at (-271.5, -359.99, 540.38) = {top cap, big lateral, start-cap PLANE} — a point 10 units (3.4 %) OUTSIDE the start cap's disc (300 from its axis vs r 290.1), so no exact edge ends there; the rim chord sagitta is 10.7 and Stage 4's triple gate (d_eps 13.85) relocated the mesh vertex near the true {top cap, start cap, small lateral} corner at (-271.5, -347.87) onto a phantom triple. Same site on the un-minimized lineage (identical probe output). x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0041",
+      "filename": "P0041.waffle",
+      "meta_filename": "P0041.meta.json",
+      "description": "prospector seed 4 index 42, minimized 8->3 ops (circle:boss convex4:cut convex4:cut): boolean_subtract InvalidBooleanOutput 'an undirected output edge is not used by exactly two directed edges' (from_yang.rs edge pairing) — Seg edges of a PLANAR loop (the cylinder's cap at x = 100, yang face 0) used once; the lineage raises the same text on its plane x = 124.88 (KV2_OUT_TWIN_PROBE). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0042",
+      "filename": "P0042.waffle",
+      "meta_filename": "P0042.meta.json",
+      "description": "prospector seed 4 index 11, minimized 5->3 ops (convex4:boss convex5:rev circle:boss): auto-union Stage-4 'relocation region around vertex 29 is invalid: LocalRefinementRequired' raised at stage4_correct.rs:13243 — relocate_onto_implicit_pair returned None for a procedural surface-pair edge endpoint (YANG_LRR_PROBE loc). NOT the lineage's site: the un-minimized index-11 document STOPs at 13236 (surface_pair_endpoint_mix) and is promoted separately as the next case. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0043",
+      "filename": "P0043.waffle",
+      "meta_filename": "P0043.meta.json",
+      "description": "prospector seed 4 index 11, UN-MINIMIZED 5 ops (circle:boss circle:cut circle:U convex5:rev circle:U), original coordinates: auto-union Stage-4 'relocation region around vertex 38 is invalid: LocalRefinementRequired' raised at stage4_correct.rs:13236 — the surface_pair_endpoint_mix decline (P0026's site, there adjudicated a minimizer-minted tangency; here the geometry is generic). The vertex sits on a cylinder (r 487.5, axis x) x cone (half-angle 0.019, the revolve's lateral) pair edge whose endpoint also lies on the cylinder's start-cap plane: n_inc_surfs=3 {A cone, B plane, B cylinder}, cone_ell=true, no junction map claims it. The 3-op minimum moves to a different site (previous case). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0044",
+      "filename": "P0044.waffle",
+      "meta_filename": "P0044.meta.json",
+      "description": "prospector seed 4 index 37, minimized 6->4 ops (convex4:boss convex4:boss star6(0.45):sym circle:cut): boolean_subtract CurvedGeometryMismatch 'bounded cylinder patch must have exactly one material-CCW loop' (kernel-v2 validate/faces.rs) — the cut cylinder's lateral patch (r 0.133, axis y) is left with ONE loop of wrap 0, mean_h 8e-4 and NEGATIVE area2 (LineSegment + Arc + EllipseArc + ...), i.e. zero material-CCW loops; identical face shape on the un-minimized lineage (KV2_CYLPATCH_PROBE). x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0045",
+      "filename": "P0045.waffle",
+      "meta_filename": "P0045.meta.json",
+      "description": "prospector seed 4 index 88, minimized 7->3 ops (convex4:boss circle:rev convex3:boss): auto-union TessellationFailed 'torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)' (kernel-v2 tessellate/surfaces/torus.rs) — P0003's text (CONVERTED 2026-09-28) on P0030's recipe shape (CONVERTED 2026-10-10, whole-shell passthrough) but with a prism that TOUCHES the torus; same text on the un-minimized lineage (FaceId 21). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0046",
+      "filename": "P0046.waffle",
+      "meta_filename": "P0046.meta.json",
+      "description": "prospector seed 4 index 108, minimized 6->4 ops (convex4:boss convex7:rev convex3:cut circle:boss): auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' (kernel-v2 tessellate/mod.rs) — the text of P0002, P0013 and P0036 (all CONVERTED, three distinct loci) at a fourth locus: the lineage rejects FaceId 1394 after a gear14 + star7 + revolve body takes a circle boss. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0047",
+      "filename": "P0047.waffle",
+      "meta_filename": "P0047.meta.json",
+      "description": "prospector seed 4 index 159, minimized 8->4 ops (star7(0.66):boss circle:cut convex4:rev-cut circle:cut): boolean_subtract TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' — a 32-point planar ring at scale 1.7e-4 with no holes (KV2_RING_REJECT_PROBE cdt_err=TriangulationFailed outer_len=32), the same ring on the un-minimized lineage (FaceId 210, which also raises 'output surface-pair endpoint does not lie on both surfaces' at an earlier op). Smallest authored segment 8.71e-5 = 87 x MIN_FEATURE_SIZE. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0048",
+      "filename": "P0048.waffle",
+      "meta_filename": "P0048.meta.json",
+      "description": "prospector seed 4 index 158, minimized 5->3 ops (convex4:boss convex6:boss circle:boss): auto-union 'yang-rs: malformed B-Rep topology: face 2: interior junction (-5.88e-5, 6.34e-5, 1.14e-4) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)' (stage1_tessellate.rs inc-4e splice) — a Stage-1 junction mint on the cylinder lateral landing within the weld band of TWO grid edges, i.e. at a grid corner. Same site and same point (to 3 digits) on the un-minimized lineage; seed-4 index 139 (convex4:boss x3 circle:cut, subtract, scale 2e-3) raises the same return and is NOT promoted separately (one case per site). Smallest authored segment 1.17e-4 = 117 x MIN_FEATURE_SIZE. x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0049",
+      "filename": "P0049.waffle",
+      "meta_filename": "P0049.meta.json",
+      "description": "prospector seed 4 index 175, minimized 7->3 ops (convex4:boss circle:cut nonconvex9:rev-cut): boolean_subtract SelfIntersectingBooleanOutput { FaceId(31) x FaceId(34), penetrations 3 } — kernel-v2's output self-intersection gate on two PLANAR faces (the lineage: faces 67 x 71, 12 penetrations, the same triangle pair to 3 digits; KV2_SELFX_SITE_PROBE). Not P0021's cylinder x cylinder family nor P0031's cylinder x plane. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0050",
+      "filename": "P0050.waffle",
+      "meta_filename": "P0050.meta.json",
+      "description": "prospector seed 4 index 193, minimized 5->4 ops (convex4:boss circle:rev circle:sym gear22:U): boolean_union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' (kernel-v2 tessellate/mod.rs) on an explicit Union of a 22-tooth gear prism with a revolve-bearing body — the fifth locus of the P0002 / P0013 / P0036 text (the lineage rejects FaceId 1156). x1e3 keeps the class; x1e-3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0051",
+      "filename": "P0051.waffle",
+      "meta_filename": "P0051.meta.json",
+      "description": "prospector seed 4 index 188, minimized 7->4 ops (convex8:boss convex4:- circle:cut circle:boss): auto-union 'yang-rs: Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765x the budget)' — a NEW text: the seeded chart path's domain-grid refinement converges on a face whose interior edges stay 1.77x over its chord budget (the lineage: the same text after a convex8 boss, a convex4 subtract and two circle cuts take a circle boss). x1e3 keeps the class; x1e-3 stops earlier in the chain with a different error. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0052",
+      "filename": "P0052.waffle",
+      "meta_filename": "P0052.meta.json",
+      "description": "prospector seed 4 index 84, minimized 8->3 ops (gear12:boss circle:cut convex7:rev-cut): boolean_subtract TessellationFailed 'surface-pair Newton projection did not converge' (kernel-v2 tessellate/sampling.rs) on a revolve cut through a 12-tooth gear boss already holding a circle cut — the lineage (8 ops, 686 s under the prospector) raises the same text on FaceId 1370; the minimum on FaceId 992. derived_meta; the pin IS the expectation.",
       "featured": true
     }
   ]

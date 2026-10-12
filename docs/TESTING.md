@@ -622,6 +622,9 @@ Three more entry points share the machinery (`--ignored`, same env knobs):
 
 ```
 prospect_minimize     # shrink every finding of a report to its signature's minimum → findings/<slug>/
+                      #   PROSPECT_SIGNATURE=<substring> restricts it to matching signature(s); a
+                      #   signature with findings/<slug>/README.md is skipped (PROSPECT_REDO=1) —
+                      #   run one invocation per signature in parallel; never rebuild mid-run
 prospect_mutate       # one knob on a CORRECT corpus case per mutant (PROSPECT_MUTATE=<dir>, default the corpus)
 prospect_metamorphic  # explicit-axis / rigid-motion / uniform-scale pairs per CORRECT case; ORACLE vs METAMORPHIC
 prospect_promote      # PROSPECT_FROM=<absolute stem> PROSPECT_DESCRIPTION=… → next P case + manifest entry

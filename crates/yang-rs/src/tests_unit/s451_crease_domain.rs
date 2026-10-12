@@ -3139,3 +3139,187 @@ fn refinement_propagates_through_a_thin_band_by_matched_splits() {
         assert!(ls.new_along == 0 || ls.new_against == 0, "{ls:?}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// P0040 (2026-10-12): a circle crease seen from the PLANAR face that contains
+// it — the radial divider, and the transit's neighbour-side certificate.
+// ---------------------------------------------------------------------------
+
+/// A cylinder boss's top cap: the plane `z = 1` bounded by the rim circle of
+/// radius 1 about the z axis, with the lateral cylinder across the rim.
+fn cap_rim_fixture() -> (Curve, Surface, Surface) {
+    let rim = Curve::Circle {
+        center: Point3::new(0.0, 0.0, 1.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1.0,
+    };
+    let lateral = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    (rim, cap, lateral)
+}
+
+/// The circle's plane is the cap's OWN plane: a step within the cap from
+/// inside the rim to outside it has a zero residual against that plane at
+/// both ends and divides nothing. The divider the cap presents is the rim's
+/// cylinder, and the step fires on it.
+#[test]
+fn a_step_within_a_cap_plane_that_leaves_its_rim_fires_on_the_radial_divider() {
+    let (rim, cap, lateral) = cap_rim_fixture();
+    let creases = vec![(rim, cap, lateral)];
+    let p = Point3::new(0.5, 0.0, 1.0);
+    let q = Point3::new(1.5, 0.0, 1.0);
+    // The divider itself: the rim's cylinder for the cap …
+    assert!(matches!(
+        crate::stage4_boundary_curve::crease_divider_for(&rim, cap),
+        Some(Surface::Cylinder { radius, .. }) if (radius - 1.0).abs() < 1e-15
+    ));
+    // … and still the circle's plane for the lateral, whose surface the plane
+    // cuts transversally.
+    assert_eq!(
+        crate::stage4_boundary_curve::crease_divider_for(&rim, lateral),
+        crease_plane(&rim)
+    );
+    let fire = crease_crossed_by_step(p, q, &creases).expect("the cap step leaves its disc");
+    assert_eq!(fire.0, 0);
+    assert!(
+        fire.1 < 0.0 && fire.2 > 0.0,
+        "inside (−0.5) to outside (+0.5): {fire:?}"
+    );
+    assert!((fire.1 + 0.5).abs() < 1e-12 && (fire.2 - 0.5).abs() < 1e-12);
+    // A step that stays inside the disc does not fire.
+    assert!(crease_crossed_by_step(p, Point3::new(-0.5, 0.3, 1.0), &creases).is_none());
+    // The lateral's own reading of the same rim is unchanged: a step along the
+    // cylinder past the cap plane fires on the circle's plane.
+    let lat = vec![(rim, lateral, cap)];
+    let fire = crease_crossed_by_step(Point3::new(1.0, 0.0, 0.5), Point3::new(1.0, 0.0, 1.5), &lat)
+        .expect("the lateral step leaves the band");
+    assert!(fire.1 < 0.0 && fire.2 > 0.0);
+}
+
+/// The B-Rep crease index reads the same rim the same way: the cap face's
+/// crease carries the cylinder divider, and the §4.5 postcondition fires on a
+/// step within the cap that leaves the disc — the P0040 v53 step, which the
+/// plane divider read as a zero residual at both ends.
+#[test]
+fn the_brep_crease_index_gives_a_cap_its_radial_divider() {
+    use crate::brep::{BRepEdge, BRepFace, BRepVertex};
+    use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex};
+    let (rim, cap, lateral) = cap_rim_fixture();
+    let bottom = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 0.0,
+    };
+    let rim0 = Curve::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        radius: 1.0,
+    };
+    // A closed unit cylinder: two rim vertices, two full-circle edges, a cap,
+    // a bottom and the lateral (which lists both rims).
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(1.0, 0.0, 1.0),
+        },
+        BRepVertex {
+            point: Point3::new(1.0, 0.0, 0.0),
+        },
+    ];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: rim,
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: rim0,
+        },
+    ];
+    let faces = vec![
+        BRepFace {
+            surface: cap,
+            outer_loop: vec![0],
+            inner_loops: vec![],
+            reversed: false,
+        },
+        BRepFace {
+            surface: bottom,
+            outer_loop: vec![1],
+            inner_loops: vec![],
+            reversed: false,
+        },
+        BRepFace {
+            surface: lateral,
+            outer_loop: vec![0, 1],
+            inner_loops: vec![],
+            reversed: false,
+        },
+    ];
+    let brep = crate::BRep::new(verts, edges, faces).expect("a closed unit cylinder");
+    let idx = CreaseIndex::build(&brep);
+    let cap_creases = &idx.faces[0];
+    assert_eq!(cap_creases.len(), 1, "{cap_creases:?}");
+    assert!(
+        matches!(cap_creases[0].divider, Surface::Cylinder { radius, .. } if (radius - 1.0).abs() < 1e-15),
+        "{:?}",
+        cap_creases[0].divider
+    );
+    let fire = boundary_crease_crossed(
+        Point3::new(0.9, 0.0, 1.0),
+        Point3::new(1.1, 0.0, 1.0),
+        cap_creases,
+    )
+    .expect("a step within the cap past its rim is a crossing");
+    assert!(fire.f_pre < 0.0 && fire.f_post > 0.0, "{fire:?}");
+    // The lateral face keeps the plane divider for the same rim.
+    let lat_creases = &idx.faces[2];
+    assert!(lat_creases
+        .iter()
+        .all(|c| matches!(c.divider, Surface::Plane { .. })));
+
+    // The transit certificate on this B-Rep: a junction re-solved on the cap
+    // plane must lie INSIDE the rim (the cap is bounded by the rim as its
+    // OUTER loop); one re-solved on the lateral must lie on the band's side of
+    // the rim's plane (below z = 1, where the lateral's other rim is).
+    use crate::stage4_boundary_curve::transit_lands_inside_neighbour;
+    let other = crate::BRep::new(vec![], vec![], vec![]).expect("an empty operand");
+    let inside =
+        transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(0.5, 0.0, 1.0))
+            .expect("the cap carries the rim");
+    assert!(inside.0 && inside.1 < 0.0, "{inside:?}");
+    let outside =
+        transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(1.034, 0.0, 1.0))
+            .expect("the cap carries the rim");
+    assert!(
+        !outside.0 && (outside.1 - 0.034).abs() < 1e-12,
+        "{outside:?}"
+    );
+    let on = transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(1.0, 0.0, 1.0))
+        .expect("the cap carries the rim");
+    assert!(on.0, "on the rim counts as inside: {on:?}");
+    let below =
+        transit_lands_inside_neighbour(&other, &brep, lateral, &rim, Point3::new(1.0, 0.0, 0.5))
+            .expect("the lateral carries the rim");
+    assert!(below.0 && below.1 < 0.0, "{below:?}");
+    let above =
+        transit_lands_inside_neighbour(&brep, &other, lateral, &rim, Point3::new(1.0, 0.0, 1.5))
+            .expect("the lateral carries the rim");
+    assert!(!above.0 && above.1 > 0.0, "{above:?}");
+    // A surface no face of either operand carries is undetermined, not guessed.
+    assert!(transit_lands_inside_neighbour(
+        &brep,
+        &other,
+        bottom,
+        &rim,
+        Point3::new(0.0, 0.0, 0.0)
+    )
+    .is_none());
+}

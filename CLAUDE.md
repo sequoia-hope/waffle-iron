@@ -248,13 +248,40 @@ Do NOT skip to lower-priority items because they are easier.
    persists"; the boundary-domain ladder keeps `[2, 4]` deliberately;
    P0026's minted tangency stays loud at every rung — spec
    `yang_452_local_refinement.md` §11; canonical corpus 338C / 0W / 8E / 5EE / 0T).
-   **The open P-series ERROR tail is EMPTY** (P0001–P0039 all CONVERTED
-   except P0026, ADJUDICATED).
-   Next: run `prospect_run` / `prospect_minimize` for a fourth seed
-   (`docs/TESTING.md` §"Running the assay prospector"); anchor every
-   promotion against its un-minimized lineage in `target/prospect/seed-N/
-   candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`
-   (the minimizer's rounding can mint a contact that keeps a signature). The boundary-point
+   **Prospector seed 4 ran 2026-10-12 (seed 4)** (200 candidates: 182 C /
+   14 E / 3 W / 1 T — the TIMEOUT an honest CORRECT past the budget, the
+   three WRONGs the cut-auto-reversal disagreement with the kernel right
+   every time: the ENGINE measures a direction-less cut's target on its
+   B-Rep VERTICES, a cylinder having two, both on its seam, while the exact
+   chain measures the bounding box — an engine + harness follow-up, not
+   kernel; `EXACT_CUT_TRACE=1` beside `FE_CUT_TRACE=1`). Its 14 ERROR rows
+   are thirteen distinct STOP sites, promoted one per site as
+   **P0040–P0052** (`docs/yang_tail_triage.md` §"2026-10-12 (seed 4)";
+   corpus after the promotions 338C / 0W / 21E / 5EE / 0T over 364).
+   P0040 CONVERTED 2026-10-12 (seed 4, later) (two plain cylinder bosses:
+   the big rim's chord ran 3.5 inside the small cylinder's footprint where
+   the exact rim clears it by 12, the mesh held two phantom triple points,
+   and the §4.5.1 transit "repaired" one onto the start-cap PLANE 9.9
+   outside that cap's disc — a circle crease seen from the planar face that
+   CONTAINS it was divided by the face's own plane (a zero residual at both
+   ends), and the transit's neighbour-domain postcondition starts ON the
+   crossed crease, exempt from the sign test; a planar face now gets the
+   rim's cylinder as its RADIAL divider in both certificates and the
+   transit certifies the SIDE its junction lands on against the B-Rep face
+   — both transits decline, two fires, the local §4.5.2 rung d_ε/2 clears
+   them; spec `yang_451_corner_transit.md` §3aj; canonical corpus
+   **339C / 0W / 20E / 5EE / 0T over 364** (wall 938.8 s) — versus the post-promotion 338C / 0W / 21E exactly ONE move, P0040 ERROR → CORRECT, zero regressions, zero detail drift; the 20 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0041–P0052).
+   **The open P-series ERROR tail is P0041–P0052** (seed 4; P0001–P0040
+   CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
+   and anchor each against its lineage first (`target/prospect/seed-4/
+   candidates/`, the minima under `target/prospect/seed-4/findings/`;
+   re-creatable with `PROSPECT_SEED=4 PROSPECT_COUNT=200 prospect_run` and
+   per-signature `prospect_minimize` with `PROSPECT_SIGNATURE=…`). When the
+   tail empties again: run `prospect_run` / `prospect_minimize` for a fifth
+   seed (`docs/TESTING.md` §"Running the assay prospector"); anchor every
+   promotion against its un-minimized lineage first via `WAFFLE_PATH=…
+   user_case_probe replay_waffle_env` (the minimizer's rounding can mint a
+   contact that keeps a signature, and dropping steps can move the site). The boundary-point
    certificate's INVENTORY (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the
    out-of-domain relocations the gear cases (R0003 ×42, R0004, R0032,
    R0049, R0070) survive today — the §4.5.1 corridor family's open

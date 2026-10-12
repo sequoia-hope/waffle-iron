@@ -1,0 +1,52 @@
+{
+  "id": "P0052",
+  "description": "prospector seed 4 index 84, minimized 8->3 ops (gear12:boss circle:cut convex7:rev-cut): boolean_subtract TessellationFailed 'surface-pair Newton projection did not converge' (kernel-v2 tessellate/sampling.rs) on a revolve cut through a 12-tooth gear boss already holding a circle cut — the lineage (8 ops, 686 s under the prospector) raises the same text on FaceId 1370; the minimum on FaceId 992. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 837.7365184558744,
+  "log_scale": 2.9231074475400365,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 580.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 374.9152034067346,
+      "is_cut": true
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 107.48652502295754,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 83773.65184558743,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

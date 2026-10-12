@@ -43,6 +43,168 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (seed 4, later) — P0040 CONVERTED: a circle crease seen from the PLANAR face that contains it divided nothing, and the §4.5.1 transit could land its corrected junction OUTSIDE the face it transited onto
+
+**Anchor.** P0040 is seed 4's index-190 lineage truncated to its first two
+ops with the lineage's own coordinates (no rounding), and its
+`KV2_OUT_TWIN_PROBE` / `YANG_451_CORNER_PROBE` output is identical to the
+lineage's, so the site is honest. Two plain cylinder bosses: z-cylinder
+r 450.896 × h 540.379; x-cylinder r 290.089, x ∈ [−271.499, 39.046], axis at
+(y −112.404, z 370.941), whose start cap pokes out of the big lateral and
+above the big top cap. The exact big rim clears the small cylinder's
+footprint on the top cap by 12.1 at the corner where the small start cap
+meets the top cap; the big rim's Stage-1 chord (sagitta 10.7) runs 3.5 INSIDE
+it. So the arrangement holds two mesh triple points the exact topology does
+not have, and Stage 4 solved both exactly on the extended surfaces:
+v50 → {top cap, big lateral, small lateral} at (−286.87, −347.87, 540.38),
+15.4 outside the small lateral's x-range; v53 → {top cap, big lateral,
+start-cap PLANE} at (−271.50, −359.99, 540.38), 9.9 outside the start cap's
+disc (300.0 from its axis against r 290.09). The §3t certificate fired on
+v50, the §3u transit re-solved it ON the start-cap plane — at v53's phantom —
+and the emission wrote it (`[s451-apply] WRITTEN`); v53's own step, within the
+cap plane from inside the rim to outside it, fired nowhere. The top cap's
+output loop ran the rim circle and the rectangular hole through that one
+vertex and kernel-v2 refused the body (`an undirected output edge is not
+used by exactly two directed edges`).
+
+**Two certificate gaps, one cause.** (1) Both certificates divide a face's
+domain by the crease circle's PLANE, which for a planar face that CONTAINS
+the circle is the face's own plane — a zero residual at both ends of any
+in-plane step. The domain boundary of a cap is RADIAL: `crease_divider_for`
+now presents the rim's cylinder to such a face (the plane stays the divider
+for a curved face), and the postcondition's `CreaseExtent::Circle` arm reads
+the crossing's axial offset against it. (2) The transit solver's
+neighbour-domain postcondition asks whether `p_trunc → j` crosses one of the
+neighbour's creases, but `p_trunc` lies ON `C_b` by construction and an
+on-crease start is exempt from the sign-change test — so for `C_b` itself it
+could never fire. `transit_lands_inside_neighbour` certifies the SIDE `j`
+lands on against the B-Rep face (a planar face is inside its OUTER-loop
+circle and outside an inner one; a curved band is on the side of the circle's
+plane where its other loop vertices are; no carrying face ⇒ undetermined,
+today's behaviour, said in the census). Spec `yang_451_corner_transit.md`
+§3aj and `yang_45_boundary_point_domain_certificate.md` §9.
+
+**Measured.** `ASSAY_CASE=P0040 single_case` with
+`YANG_S45_BOUNDARY_DOMAIN_LOG`: both transits decline, the postcondition
+records TWO fires (`v50 B:2 f_pre −2.401 f_post +15.374`, `v53 B:0 f_pre
+−2.839 f_post +9.928` — the second is the radial divider's), and the LOCAL
+§4.5.2 ladder's first rung (`step/2`, 12 extra rim samples on A, 6 on B)
+emits 194 triangles, 0 unpaired, 0 improper, 0 fires and is adopted:
+**SUPPORTED_CORRECT 0.9 s**. Corpus (release, 8 jobs, 900 s): **339C / 0W / 20E / 5EE / 0T over 364** (wall 938.8 s) — versus the post-promotion 338C / 0W / 21E exactly ONE move, P0040 ERROR → CORRECT, zero regressions, zero detail drift; the 20 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0041–P0052.
+
+**Pins.** yang-rs `tests_unit/s451_crease_domain.rs` ×2 (the radial divider
+in both certificates on a cap fixture; a hand-built closed unit cylinder
+B-Rep for the crease index and the transit certificate, inside / outside /
+on-rim / below / above / undetermined); kernel-v2
+`tests/s451_transit_neighbour_side_chain.rs` (P0040's two bosses: one shell,
+Euler balanced, proper volume, no output vertex on the phantom corner); smoke
+pin `P0040 → SupportedCorrect`.
+
+## 2026-10-12 (seed 4) — prospector seed 4 (200 candidates) adjudicated: the 14 ERROR rows are **eleven** texts at **thirteen** distinct STOP sites; all **three** `wrong[exact_volume]` rows are the cut-auto-reversal disagreement (kernel right every time); promoted P0040–P0052; **corpus re-measured: 338C / 0W / 21E / 5EE / 0T over 364** (release, 8 jobs, 900 s; wall 926.3 s — the thirteen new ERROR rows and nothing else moved; every new case is 0.1–78 s)
+
+`PROSPECT_SEED=4 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`
+(spec `specs/assay_prospector.md`) returned **182 SUPPORTED_CORRECT, 14 ERROR,
+3 SUPPORTED_WRONG, 1 TIMEOUT** in 968 s at 8 jobs — 16 report signatures, 0
+UNSUPPORTED. Every verdict was measured on HEAD `8bc9007e` (P0039 CONVERTED).
+The seed-3 lessons were applied as written: minimize per signature in
+PARALLEL (thirteen `prospect_minimize` invocations at once, each restricted
+with the new `PROSPECT_SIGNATURE=<substring>` knob; the whole minimize phase
+took ~25 min wall instead of hours), probe every row for its SITE, compare the
+minimum's site with its lineage's, and open the `wrong[exact_volume]` bucket
+by prefix-judging.
+
+### The three SUPPORTED_WRONG rows: the kernel is right in every one
+
+All three are the ledgered cut-auto-reversal disagreement, and this seed names
+its mechanism precisely. The exact chain decides a direction-less cut by the
+target's **bounding-box** mid-extent along the sketch normal; the engine
+(`feature-engine/src/rebuild.rs`, `solids_projection_range`) decides it from
+the target's **B-Rep vertices** — and a plain cylinder has exactly TWO, both on
+its seam. On index 115's 2-op prefix (a cylinder r 99.5 along x, a circle cut
+on an oblique plane) the engine's vertex range along the normal is
+`[78.1, 93.7]` against a sketch projection of 42.3 ⇒ sweep +n, while the
+chain's box range is `[-128.6, 142.6]` (mid 7.0 < 42.3) ⇒ sweep −n
+(`EXACT_CUT_TRACE=1`, a knob added this session next to `FE_CUT_TRACE=1`).
+The two sides modelled different solids.
+
+| candidate | first diverging op | kernel | exact | explicit `direction` = the engine's traced sweep | the other sign |
+|---|---|---|---|---|---|
+| index 115 (3 ops → 2-op prefix `circle:boss circle:cut`) | op 2 | 1.053496e6 | 7.209688e5 | **SUPPORTED_CORRECT**, volume byte-identical | CORRECT at 7.146650e5 — the chain's own reading to 1 % |
+| index 36 (7 ops, 2 bodies) | op 7 (`convex3:cut`; prefixes 2..6 all CORRECT) | 4.203393e5 | 5.373347e5 | **SUPPORTED_CORRECT**, byte-identical | CORRECT at 5.394454e5 |
+| index 137 (5 ops, 9 bodies) | op 3 (a cut that ANNIHILATES one of 8 bodies) | 1.346343e-2 | 1.201897e-2 | **SUPPORTED_CORRECT**, byte-identical | CORRECT at 1.206463e-2 |
+
+Independent reading for index 115: integrating the authored cylinder against
+the authored oblique cut cylinder exactly in x on a 1200 × 1200 (y, z) grid
+gives a remaining volume of **1.054589e6** against the kernel's 1.053496e6
+(0.1 %, the chord deficit) and the chain's 7.21e5. So the kernel is right, the
+chain modelled the wrong sweep, and — this is new — the ENGINE's proxy is the
+weak one: "the measured body's mid-extent along the axis — a bulk property"
+(its own comment) is measured on vertices that, for a curved body, do not
+represent its bulk at all. The oracle hole and the engine proxy are the same
+defect seen from two sides; neither is kernel, and neither is promoted. The
+engine side is now a named follow-up (spec `assay_prospector.md` §8): measure
+the TRUE extent along the direction (tessellation or curved-edge extremes),
+and give the chain the same definition.
+
+### Thirteen promotions, one per distinct STOP site
+
+All thirteen are ERROR-class pins with `derived_meta: true` — the pin IS the
+expectation and a conversion moves it. Site probes: `KV2_OUT_TWIN_PROBE`
+(the `from_yang.rs` edge-pairing gate, dumps every once-used key and the loops
+touching it), `YANG_LRR_PROBE`, `KV2_SELFX_SITE_PROBE`, `KV2_RING_REJECT_PROBE`,
+`KV2_CYLPATCH_PROBE`, `YANG_451_CORNER_PROBE`. Feature floor: the tightest is
+P0047 at 87 × `MIN_FEATURE_SIZE` (8.71e-5), then P0048 at 117 ×; every other
+promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
+`.recipe.json` (`PROSPECT_RECIPE`); the column records what changed.
+
+| case | source | ops | error text | SITE | ×1e-3 / ×1e3 |
+|---|---|---|---|---|---|
+| ~~**P0040**~~ | #190, min 8→2 by TRUNCATION ONLY (`circle:boss circle:boss`, the lineage's coordinates) | 2 | auto-union `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")` | `from_yang.rs` pairing: the top cap's 42-edge loop runs the rim circle AND the rectangular hole through ONE vertex, v50 at (−271.50, −359.99, 540.38) = the {top cap z = 540.38, big lateral r 450.9, start-cap PLANE x = −271.50} triple point — which is **10 units (3.4 %) outside the start cap's disc** (300 from the small axis, r 290.09), so no exact edge ends there. The true corner is {top cap, start cap, small lateral} at (−271.50, −347.87, 540.38), 12 units away; the rim chord sagitta is 10.7 and `YANG_451_CORNER_PROBE` shows the triple gate (d_ε 13.85) accepting the mesh vertex's relocation onto the phantom (`v=50 rho=17.8 gate=124.9 metric=slab`). Same probe output on the lineage | **CORRECT / CORRECT** — scale-sensitive in BOTH directions. ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, later)** → SUPPORTED_CORRECT 0.9 s (the radial divider + the transit's neighbour-side certificate; see the section above) |
+| **P0041** | #42, min 8→3 `circle:boss convex4:cut convex4:cut` | 3 | `boolean_subtract` the same text | Seg edges of a planar cap loop (yang face 0 at x = 100) used once; the lineage: the same on its plane x = 124.88 | same / same |
+| **P0042** | #11, min 5→3 `convex4:boss convex5:rev circle:boss` | 3 | auto-union Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned None (v29). **Not the lineage's site** | CORRECT / same |
+| **P0043** | #11 **UN-MINIMIZED** `circle:boss circle:cut circle:∪ convex5:rev circle:∪` | 5 | the same text | `stage4_correct.rs:13236` — `surface_pair_endpoint_mix` (P0026's site, there a minted tangency; here generic): v38 on a cylinder (r 487.5, axis x) × cone (half-angle 0.019) pair edge whose endpoint also lies on the cylinder's cap plane, `n_inc_surfs=3 {A cone, B plane, B cylinder}`, `cone_ell=true`, no junction map claims it | — (unminimized) |
+| **P0044** | #37, min 6→4 `convex4:boss convex4:boss star6(0.45):sym circle:cut` | 4 | `boolean_subtract CurvedGeometryMismatch "bounded cylinder patch must have exactly one material-CCW loop"` | kernel-v2 `validate/faces.rs`: the cut cylinder's lateral (r 0.133, axis y) keeps ONE loop, wrap 0, mean_h 8e-4, NEGATIVE area2 (LineSegment + Arc + EllipseArc …) — zero material-CCW loops; identical face on the lineage | same / CORRECT |
+| **P0045** | #88, min 7→3 `convex4:boss circle:rev convex3:boss` | 3 | auto-union `TessellationFailed "torus patch UV-CDT failed …"` | P0003's text on P0030's recipe shape, with a prism that TOUCHES the torus (so the whole-shell passthrough does not apply); same text on the lineage (FaceId 21) | same / same |
+| **P0046** | #108, min 6→4 `convex4:boss convex7:rev convex3:cut circle:boss` | 4 | auto-union `ring rejected by CDT` | a FOURTH locus of the P0002 / P0013 / P0036 text (lineage FaceId 1394) | same / same |
+| **P0047** | #159, min 8→4 `star7(0.66):boss circle:cut convex4:rev-cut circle:cut` | 4 | `boolean_subtract` `ring rejected by CDT` | a 32-point hole-free planar ring at scale 1.7e-4 (`cdt_err=TriangulationFailed outer_len=32`), the same ring on the lineage (FaceId 210) | same / same |
+| **P0048** | #158, min 5→3 `convex4:boss convex6:boss circle:boss` | 3 | auto-union `malformed B-Rep topology: face 2: interior junction (…) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)` | `stage1_tessellate.rs` inc-4e splice: a Stage-1 junction mint landing at a cylinder-grid CORNER; same point to 3 digits on the lineage. **Index 139** (`convex4:boss ×3 circle:cut`, subtract, scale 2e-3, 1.4e3 × floor, same class at ×1e-3, CORRECT at ×1e3) raises the same return and is NOT promoted separately | same / CORRECT |
+| **P0049** | #175, min 7→3 `convex4:boss circle:cut nonconvex9:rev-cut` | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 31 × 34, penetrations: 3 }` | two PLANAR faces (the lineage: 67 × 71, 12 penetrations, the same triangle pair to 3 digits). Not P0021's cylinder × cylinder nor P0031's cylinder × plane | same / same |
+| **P0050** | #193, min 5→4 `convex4:boss circle:rev circle:sym gear22:∪` | 4 | explicit-Union `ring rejected by CDT` | a FIFTH locus (lineage FaceId 1156), a 22-tooth gear | CORRECT / same |
+| **P0051** | #188, min 7→4 `convex8:boss convex4:− circle:cut circle:boss` | 4 | auto-union `Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765× the budget)` | a NEW text: the seeded chart path's domain-grid refinement converges 1.77× over budget | stops earlier / same |
+| **P0052** | #84, min 8→3 `gear12:boss circle:cut convex7:rev-cut` | 3 | `boolean_subtract TessellationFailed "surface-pair Newton projection did not converge"` | kernel-v2 `tessellate/sampling.rs`; the lineage (686 s under the prospector) raises it on FaceId 1370, the minimum on FaceId 992 | — |
+
+**Two of seed 4's minima are NOT the lineage's finding.** #11's 3-op minimum
+STOPs seven lines away from its lineage in the same function but at a
+different return — `relocate_onto_implicit_pair` failing (P0042) versus the
+endpoint-mix decline (P0043) — so, as for P0026/P0027 and P0028/P0029, both
+halves are promoted. Every other minimum reproduces its lineage's probe output
+(same loop, same triangle pair, same ring, same face shape).
+
+### Duplicates and retirements, with reasons
+
+| rows | why not promoted |
+|---|---|
+| `cone periodic strip (2 encircling rims) not yet supported (KV14 Slice E holed frustum band — later sub-slice)` ×1 (index 41, auto-union) | the DOCUMENTED deferred sub-slice, as in seeds 1 and 3 |
+| `interior junction … within the weld band of 2 distinct grid edges` ×1 (index 139) | P0048's site on a subtract — one case per site (recipe above) |
+| `wrong[exact_volume]` ×3 | the cut-auto-reversal disagreement (above); the kernel is right in all three |
+| TIMEOUT ×1 (index 64, `steps: 0`, a BUILD-phase timeout) | re-run with NO budget per the seed-3 rule it completes in **1341 s wall** and reads **SUPPORTED_CORRECT** (8 ops `convex8:boss nonconvex6:cut gear9:rev nonconvex7:cut convex4:cut nonconvex5:cut convex7:− convex6:solo`, scale 5.9, a 9-tooth gear revolve) — an honest CORRECT whose cost exceeds the 900 s budget, the seed-3 index-48 shape without the silent wrong. Not a finding; the honest histogram is **183 C / 14 E / 3 W / 0 T** |
+
+### Tooling that landed with this seed
+
+- `prospect_minimize` takes `PROSPECT_SIGNATURE=<substring of the signature or
+  its slug>` and skips a signature whose `findings/<slug>/README.md` exists
+  (`PROSPECT_REDO=1` to redo) — seed 3's lesson 5, built in. Thirteen
+  minimizers ran side by side.
+- `EXACT_CUT_TRACE=1` prints the exact chain's auto-reversal inputs (targets,
+  box, projection range, sketch projection, basis normal, decision) at every
+  direction-less cut — the twin of the engine's `FE_CUT_TRACE=1`.
+- Minimizer hazard, operational: a `cargo` build that rewrites the `prospect`
+  test binary while a minimizer is running makes its next verdict children
+  fail to spawn (`driver: cannot spawn`); the README then records `final
+  signature: error[driver: cannot spawn …]` and the `-min.waffle` is not
+  written — re-judge the `-min` stem through `PROSPECT_RECIPE` to materialize
+  it (P0052 was recovered this way).
+
 ## 2026-10-12 (latest) — P0039 CONVERTED: the §4.5.2 STOP ladder ended at the fixed `[2, 4]` when the natural certificate was satisfied — each rung's denser mesh crossed the NEXT tooth corner, and the op converges at the ceiling
 
 **Anchor (`replay_waffle_env` on the un-minimized index-42 lineage,

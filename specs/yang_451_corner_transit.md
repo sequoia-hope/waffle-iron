@@ -3450,6 +3450,111 @@ increment of the epic. Also carried, unchanged: the seven other R0044 fires
 (`ChainAbsent`, `AlreadyCarried`, `TransitLeavesNeighbour`) are
 declines the chain reports in `census` mode, not STOPs.
 
+## 3aj. P0040 — the NEIGHBOUR-SIDE certificate: a transit may not land outside the face it transits onto (LANDED 2026-10-12)
+
+**The defect, anchored** (prospector seed 4 index 190, a 2-op TRUNCATION-only
+minimum with the lineage's own coordinates — `circle:boss circle:boss`). A
+z-cylinder boss (r 450.896, h 540.379) takes an x-cylinder boss (r 290.089,
+x ∈ [−271.499, 39.046], axis at y −112.404, z 370.941) whose start cap pokes
+out of the big lateral and above the big top cap. At the corner where the
+small cylinder's start cap meets the big top cap, the exact rim circle clears
+the small cylinder's footprint by 12.1 — but the big rim's Stage-1 chord
+(sagitta 10.7) runs 3.5 INSIDE that footprint, so the arrangement holds two
+mesh triple points the exact topology does not have, and Stage 4 solved both
+exactly on the extended surfaces (`YANG_451_CORNER_PROBE`):
+
+| mesh vertex | triple | exact solution | and it is |
+|---|---|---|---|
+| v50 | {top cap, big lateral, small lateral} | (−286.87, −347.87, 540.38) | 15.4 outside the small lateral's x-range |
+| v53 | {top cap, big lateral, start-cap PLANE} | (−271.50, −359.99, 540.38) | 9.9 outside the start cap's disc (300.0 from its axis vs r 290.09) |
+
+The true corner is {top cap, start cap, small lateral} at (−271.50, −347.87,
+540.38), 12 units from either phantom and never solved. The §3t certificate
+fired on v50 (crease 3/4 of the small lateral, `d_pre 2.40 / d_post −15.37`),
+the §3u solver transited it across the start-cap rim onto the start-cap PLANE
+and re-solved the triple there — at v53's phantom, `j = (−271.50, −359.99,
+540.38)` — and the emission chain (§3v–§3ac) wrote it: `[s451-apply] WRITTEN
+… minted 2 removed 6 added 10`. v53's own step, WITHIN the cap plane from
+inside the rim to outside it, fired nowhere. The output's top-cap loop ran the
+rim circle and the rectangular hole through that one vertex (a 42-edge loop
+with the slit `80→50→49` doubled back along x = −271.5), and kernel-v2 refused
+the body: `InvalidBooleanOutput("an undirected output edge is not used by
+exactly two directed edges")`. ×1e-3 and ×1e3 both read CORRECT: the natural
+scale is the one where the rim sagitta and the corner clearance coincide.
+
+**Two certificate gaps, one cause: a circle crease seen from the PLANAR face
+that contains it.**
+
+1. **The radial divider.** Both certificates — §3t's `crease_crossed_by_step`
+   (incidence circles) and the §4.5 postcondition's `CreaseIndex` (B-Rep
+   edges) — divide a face's domain by the crease circle's PLANE. That plane
+   cuts a cylinder, cone or torus transversally and is the right divider
+   there; for a planar face that CONTAINS the circle (a cap disc, a plate
+   around a hole) it is the face's own plane: every point of the face lies in
+   it, the residual is identically zero at both ends of any in-plane step,
+   and the step v53 took — 287.3 → 300.0 from the small axis, straight out of
+   the disc — read as no crossing. The domain boundary of such a face is
+   radial, and `crease_divider_for` now presents it as the circle's own
+   CYLINDER (axis = the circle normal through its centre); the postcondition's
+   `CreaseExtent::Circle` check reads the crossing's axial offset against that
+   cylinder where it read the radial offset against the plane. Nothing
+   changes for a curved face.
+2. **The neighbour-side certificate.** §3u's postcondition asks whether the
+   step `p_trunc → j` crosses one of the NEIGHBOUR's creases — but `p_trunc`
+   lies ON `C_b` by construction, and an on-crease start is exempt from the
+   sign-change test (it may glide; §3t's noise lesson). So for `C_b` ITSELF
+   the postcondition could never fire, and a transit could carry an overrun
+   one face over exactly as the postcondition's comment says it must not.
+   The question for `C_b` is not "did the step cross" but "which SIDE did it
+   land on", and that needs the face's side of its own boundary, which an
+   incidence circle does not carry. The B-Rep does:
+   `transit_lands_inside_neighbour(brep_a, brep_b, s_nbr, c_b, j)` finds the
+   face on `s_nbr` whose loop lists `C_b` and reads
+   - a PLANAR face as inside the circle when `C_b` is its OUTER loop and
+     outside when it is an inner loop (no orientation convention needed —
+     loop membership alone), the residual being the radial distance against
+     the circle's cylinder;
+   - a CURVED face (a band between two rims) as lying on the side of the
+     circle's plane where its OTHER loop vertices are (vertices on the crease
+     abstain).
+   `Some((false, d))` declines the transit as `TransitLeavesNeighbour`;
+   `Some((true, d))` keeps it; `None` — no face of either operand on `s_nbr`
+   carries `C_b`, or a curved face has no off-crease vertex — keeps today's
+   behaviour and says so in the census (`[s451-transit-side] UNDETERMINED`),
+   never a guess. The check is wired at the call site in
+   `stage4_relocate_and_correct_inner`, between the §3u solve and the §3v
+   anatomy, so the solver stays pure and its fixture tests unchanged.
+
+A declined transit leaves the vertex at its out-of-domain exact solution,
+which is what the §4.5 postcondition is for: it records the fire, and the
+op-level §4.5.2 domain ladder (`refine_452_domain`, the fixed `[2, 4]`) runs
+the op at d_ε/2 — rim sagitta 2.7 against the 12.1 clearance — where the big
+rim's chord no longer enters the small cylinder's footprint, the mesh topology
+is the exact one, no phantom is solved, and the rung is adopted.
+
+**Measured.** `ASSAY_CASE=P0040 single_case` with
+`YANG_S45_BOUNDARY_DOMAIN_LOG`: both transits decline, the §4.5 postcondition
+records TWO fires — `v50 B:2 f_pre −2.401 f_post +15.374` (the small
+lateral's start-cap rim, as before) and `v53 B:0 f_pre −2.839 f_post +9.928`
+(the start cap's own rim, the radial divider's first fire) — and the LOCAL
+§4.5.2 ladder's first rung (`step/2`, 12 extra rim samples on A, 6 on B)
+emits 194 triangles, 0 unpaired, 0 improper, 0 fires, and is adopted:
+**SUPPORTED_CORRECT 0.9 s** (ERROR 0.1 s before). Corpus (release, 8 jobs,
+900 s): **339C / 0W / 20E / 5EE / 0T over 364** (wall 938.8 s) — versus the post-promotion 338C / 0W / 21E exactly ONE move, P0040 ERROR → CORRECT, zero regressions, zero detail drift; the 20 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0041–P0052.
+
+**Pins.** `tests_unit/s451_crease_domain.rs`:
+`a_step_within_a_cap_plane_that_leaves_its_rim_fires_on_the_radial_divider`
+(both certificates' divider for a cap and for the lateral, the in-plane step
+firing, the in-disc step not) and
+`the_brep_crease_index_gives_a_cap_its_radial_divider` (a hand-built closed
+unit cylinder: the cap's `FaceCrease` carries the cylinder divider, the
+postcondition fires on the in-plane step, and the transit certificate reads
+inside / outside / on-the-rim for the cap and below / above for the lateral,
+`None` for a surface no face carries). kernel-v2
+`tests/s451_transit_neighbour_side_chain.rs` builds P0040's two bosses and
+unions them (one shell, Euler balanced, a proper volume, no output vertex on
+the phantom corner). Smoke pin `P0040` → `SupportedCorrect`.
+
 ## 4. Increment ledger
 
 - **inc-0** (2026-08-29): feasibility census LANDED + COMPLETE (this file

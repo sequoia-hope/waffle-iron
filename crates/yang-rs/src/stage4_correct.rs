@@ -11415,13 +11415,63 @@ fn stage4_relocate_and_correct_inner(
                         &creases_by_surf,
                         &[creases[ci].2],
                     );
-                    match crate::stage4_boundary_curve::solve_crease_transit(
+                    // P0040 (2026-10-12): the solver's own neighbour-domain
+                    // postcondition cannot see the crease it just crossed —
+                    // `p_trunc` lies ON it, and an on-crease start is exempt
+                    // from the sign-change test — so the SIDE the corrected
+                    // junction lands on is certified against the B-Rep face
+                    // (`transit_lands_inside_neighbour`). A junction outside
+                    // the neighbour's own domain is the same defect one face
+                    // over, and the transit is declined: the vertex keeps its
+                    // out-of-domain position, the §4.5 postcondition records
+                    // the fire, and the §4.5.2 ladder answers it.
+                    let solved = crate::stage4_boundary_curve::solve_crease_transit(
                         p,
                         proj,
                         surfs,
                         &creases[ci],
                         &nbr_creases,
-                    ) {
+                    )
+                    .and_then(|t| {
+                        match crate::stage4_boundary_curve::transit_lands_inside_neighbour(
+                            brep_a,
+                            brep_b,
+                            t.s_nbr,
+                            &creases[ci].0,
+                            t.j,
+                        ) {
+                            Some((false, d)) => {
+                                say!(
+                                    "[s451-transit-side] case={} v={v} DECLINE j={:?} s_nbr={:?} \
+                                     lands OUTSIDE the neighbour face across the crossed \
+                                     crease by {d:.6e}",
+                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                                    t.j.as_array(),
+                                    t.s_nbr
+                                );
+                                Err(crate::stage4_boundary_curve::CreaseTransitFailure::TransitLeavesNeighbour {
+                                    d_pre: 0.0,
+                                    d_post: d,
+                                })
+                            }
+                            Some((true, d)) => {
+                                say!(
+                                    "[s451-transit-side] case={} v={v} inside by {d:.6e}",
+                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                                );
+                                Ok(t)
+                            }
+                            None => {
+                                say!(
+                                    "[s451-transit-side] case={} v={v} UNDETERMINED (no B-Rep \
+                                     face on s_nbr carries the crease) — transit kept",
+                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                                );
+                                Ok(t)
+                            }
+                        }
+                    });
+                    match solved {
                         Ok(t) => {
                             say!(
                                 "[s451-transit-solve] case={} v={v} OK correction={:.6e} \

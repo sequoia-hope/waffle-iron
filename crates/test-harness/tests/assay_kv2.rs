@@ -2046,6 +2046,87 @@ fn smoke_corpus_boundary_categories() {
         // "repeated if optimization failure persists" (spec
         // `yang_452_local_refinement` §11).
         ("P0039", Category::SupportedCorrect),
+        // P0040–P0051 PROMOTED 2026-10-12 (night) — prospector seed 4 × 200
+        // candidates (182 CORRECT / 14 ERROR / 3 WRONG / 1 TIMEOUT), 968 s at
+        // 8 jobs, adjudicated per `specs/assay_prospector.md` §8 by SITE.
+        // Narrative and per-case evidence: `docs/yang_tail_triage.md`
+        // §"2026-10-12 (night)". All are ERROR-class pins with `derived_meta`
+        // — the pin IS the expectation and a conversion moves it. None of the
+        // three `wrong[exact_volume]` rows is promoted: all three are the
+        // cut-auto-reversal disagreement between the engine (which measured
+        // its B-Rep VERTICES — a cylinder has two, both on its seam) and the
+        // exact chain (bounding box); authoring the engine's own traced
+        // `direction` leaves every kernel volume byte-identical and flips the
+        // documents to CORRECT, and an independent x-exact integration of the
+        // 2-op case agrees with the kernel to 0.1 %.
+        //
+        // P0040 (2 ops, two plain cylinder bosses, TRUNCATION-only minimum
+        // with the lineage's coordinates) ⇒ auto-union `InvalidBooleanOutput
+        // ("an undirected output edge is not used by exactly two directed
+        // edges")`: the top cap's loop is pinched through a vertex at the
+        // {top cap, big lateral, start-cap PLANE} triple point, 10 units
+        // outside the start cap's disc — a phantom corner the chord mesh
+        // (rim sagitta 10.7) could not tell from the true {top cap, start
+        // cap, small lateral} corner 12 units away. CORRECT at ×1e-3 and ×1e3.
+        // CONVERTED 2026-10-12 (seed 4): a circle crease seen from the PLANAR
+        // face that contains it now divides that face RADIALLY (its own plane
+        // divided nothing), and the §4.5.1 transit certifies the SIDE its
+        // corrected junction lands on against the B-Rep face (an on-crease
+        // start was exempt from the sign test); both transits decline, the
+        // §4.5 postcondition records two fires, and the local §4.5.2 ladder's
+        // first rung clears them (spec `yang_451_corner_transit` §3aj).
+        ("P0040", Category::SupportedCorrect),
+        // P0041 (3 ops) ⇒ the same text on `boolean_subtract`, Seg edges of a
+        // planar cap loop used once. Same class at ×1e-3 and ×1e3.
+        ("P0041", Category::Error),
+        // P0042 (3 ops) ⇒ auto-union Stage-4 `LocalRefinementRequired` at
+        // `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned
+        // None. Its lineage STOPs at a DIFFERENT site (P0043). ×1e3 keeps the
+        // class, ×1e-3 reads CORRECT.
+        ("P0042", Category::Error),
+        // P0043 (5 ops, the UN-MINIMIZED index-11 lineage) ⇒ the same text at
+        // `stage4_correct.rs:13236`, the `surface_pair_endpoint_mix` decline
+        // — P0026's site with GENERIC geometry (a cylinder × cone pair edge
+        // ending on the cylinder's cap plane, no junction map claims it).
+        ("P0043", Category::Error),
+        // P0044 (4 ops) ⇒ `CurvedGeometryMismatch "bounded cylinder patch must
+        // have exactly one material-CCW loop"` — one loop, wrap 0, negative
+        // area. ×1e-3 keeps the class, ×1e3 reads CORRECT.
+        ("P0044", Category::Error),
+        // P0045 (3 ops) ⇒ auto-union `torus patch UV-CDT failed` — P0003's
+        // text on P0030's recipe shape, with a prism that TOUCHES the torus.
+        // Same class at ×1e-3 and ×1e3.
+        ("P0045", Category::Error),
+        // P0046 (4 ops) ⇒ auto-union `ring rejected by CDT` — a fourth locus
+        // of the P0002 / P0013 / P0036 text. Same class at ×1e-3 and ×1e3.
+        ("P0046", Category::Error),
+        // P0047 (4 ops) ⇒ `boolean_subtract` `ring rejected by CDT` — a
+        // 32-point hole-free planar ring at scale 1.7e-4 (smallest segment
+        // 87 × MIN_FEATURE_SIZE). Same class at ×1e-3 and ×1e3.
+        ("P0047", Category::Error),
+        // P0048 (3 ops) ⇒ auto-union Stage-1 `interior junction … is within
+        // the weld band of 2 distinct grid edges — ambiguous edge-split`: a
+        // junction mint at a cylinder-grid CORNER (smallest segment 117 ×
+        // MIN_FEATURE_SIZE; seed-4 index 139 is the same site on a subtract).
+        // ×1e-3 keeps the class, ×1e3 reads CORRECT.
+        ("P0048", Category::Error),
+        // P0049 (3 ops) ⇒ `boolean_subtract` `SelfIntersectingBooleanOutput`
+        // on two PLANAR faces (31 × 34, 3 penetrations). Same class at ×1e-3
+        // and ×1e3.
+        ("P0049", Category::Error),
+        // P0050 (4 ops) ⇒ explicit-Union `ring rejected by CDT` with a
+        // 22-tooth gear — a fifth locus. ×1e3 keeps the class, ×1e-3 CORRECT.
+        ("P0050", Category::Error),
+        // P0051 (4 ops) ⇒ auto-union `Stage-1 chart triangulation of face 14
+        // cannot meet the face's chord budget after 4 domain-grid round(s)
+        // (worst interior edge 1.765× the budget)` — a NEW text. ×1e3 keeps
+        // the class; ×1e-3 stops earlier in the chain.
+        ("P0051", Category::Error),
+        // P0052 (3 ops) ⇒ `boolean_subtract` `TessellationFailed
+        // "surface-pair Newton projection did not converge"` — a revolve cut
+        // through a 12-tooth gear boss (the lineage cost 686 s under the
+        // prospector; the minimum is cheap).
+        ("P0052", Category::Error),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -2151,8 +2232,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        351,
-        "expected the 351-case assay corpus (194 legacy + 118 C-series + 39 P-series)"
+        364,
+        "expected the 364-case assay corpus (194 legacy + 118 C-series + 52 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

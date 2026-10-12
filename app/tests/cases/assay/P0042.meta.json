@@ -1,0 +1,52 @@
+{
+  "id": "P0042",
+  "description": "prospector seed 4 index 11, minimized 5->3 ops (convex4:boss convex5:rev circle:boss): auto-union Stage-4 'relocation region around vertex 29 is invalid: LocalRefinementRequired' raised at stage4_correct.rs:13243 — relocate_onto_implicit_pair returned None for a procedural surface-pair edge endpoint (YANG_LRR_PROBE loc). NOT the lineage's site: the un-minimized index-11 document STOPs at 13236 (surface_pair_endpoint_mix) and is promoted separately as the next case. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 700.0,
+  "log_scale": 2.845098040014257,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 200.0,
+      "is_cut": false
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 100.33367876029199,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 700.0,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 70000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

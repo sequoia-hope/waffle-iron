@@ -1,0 +1,59 @@
+{
+  "id": "P0044",
+  "description": "prospector seed 4 index 37, minimized 6->4 ops (convex4:boss convex4:boss star6(0.45):sym circle:cut): boolean_subtract CurvedGeometryMismatch 'bounded cylinder patch must have exactly one material-CCW loop' (kernel-v2 validate/faces.rs) — the cut cylinder's lateral patch (r 0.133, axis y) is left with ONE loop of wrap 0, mean_h 8e-4 and NEGATIVE area2 (LineSegment + Arc + EllipseArc + ...), i.e. zero material-CCW loops; identical face shape on the un-minimized lineage (KV2_CYLPATCH_PROBE). x1e3 reads SUPPORTED_CORRECT (scale-sensitive). derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.189,
+  "log_scale": -0.7235381958267558,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.09,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0782,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.097,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.189,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 18.9,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

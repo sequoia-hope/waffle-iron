@@ -1,0 +1,52 @@
+{
+  "id": "P0041",
+  "description": "prospector seed 4 index 42, minimized 8->3 ops (circle:boss convex4:cut convex4:cut): boolean_subtract InvalidBooleanOutput 'an undirected output edge is not used by exactly two directed edges' (from_yang.rs edge pairing) — Seg edges of a PLANAR loop (the cylinder's cap at x = 100, yang face 0) used once; the lineage raises the same text on its plane x = 124.88 (KV2_OUT_TWIN_PROBE). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 210.0,
+  "log_scale": 2.322219294733919,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 210.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 100.0,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 100.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 21000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

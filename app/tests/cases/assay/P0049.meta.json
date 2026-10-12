@@ -1,0 +1,52 @@
+{
+  "id": "P0049",
+  "description": "prospector seed 4 index 175, minimized 7->3 ops (convex4:boss circle:cut nonconvex9:rev-cut): boolean_subtract SelfIntersectingBooleanOutput { FaceId(31) x FaceId(34), penetrations 3 } — kernel-v2's output self-intersection gate on two PLANAR faces (the lineage: faces 67 x 71, 12 penetrations, the same triangle pair to 3 digits; KV2_SELFX_SITE_PROBE). Not P0021's cylinder x cylinder family nor P0031's cylinder x plane. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.06,
+  "log_scale": -1.2218487496163564,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.04,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.06,
+      "is_cut": true
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 64.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 6.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

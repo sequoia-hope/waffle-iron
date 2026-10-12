@@ -1,0 +1,59 @@
+{
+  "id": "P0047",
+  "description": "prospector seed 4 index 159, minimized 8->4 ops (star7(0.66):boss circle:cut convex4:rev-cut circle:cut): boolean_subtract TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' — a 32-point planar ring at scale 1.7e-4 with no holes (KV2_RING_REJECT_PROBE cdt_err=TriangulationFailed outer_len=32), the same ring on the un-minimized lineage (FaceId 210, which also raises 'output surface-pair endpoint does not lie on both surfaces' at an earlier op). Smallest authored segment 8.71e-5 = 87 x MIN_FEATURE_SIZE. x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0005,
+  "log_scale": -3.3010299956639813,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    1.0,
+    0.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.000121,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0005,
+      "is_cut": true
+    },
+    {
+      "kind": "revolve",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 360.0,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.000136,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 0.05,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}
