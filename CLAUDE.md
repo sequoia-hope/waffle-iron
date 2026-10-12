@@ -224,7 +224,18 @@ Do NOT skip to lower-priority items because they are easier.
    halved; a cylinder lateral now also halves its per-face CHART bound,
    the entry `cylinder_seed_step` already reads, spec
    `yang_stage1_self_contact_guard.md` §7; canonical corpus 336C / 0W / 10E / 5EE / 0T over 351).
-   Next: P0038–P0039 — each its own kernel session
+   P0038 CONVERTED 2026-10-12 (late) (a unit-cylinder boss lateral between
+   two OBLIQUE diamond prisms is a SHEARED band — bottom rim −51° … 295°,
+   top rim 54° … 382°, the complement wedge rotating ~290° between them,
+   so no generator meridian misses the face although every latitude meets
+   it in under a turn; Slice A's single-sheet unroll had no wedge for its
+   seam and STOPped the cut; when a bounded patch's outer loop unwraps to
+   ≥ 2π the chart is now the cylinder's UNIVERSAL COVER — the unwrapped
+   polyline is a simple chart polygon, Steiner points lift back mod 2π,
+   the lift and its 2πr translate must be disjoint — spec
+   `yang_stage1_curved_holed_patch.md` §"Slice I"; canonical corpus
+   337C / 0W / 9E / 5EE / 0T over 351).
+   Next: P0039 — its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

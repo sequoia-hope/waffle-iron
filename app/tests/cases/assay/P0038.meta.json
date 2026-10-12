@@ -1,6 +1,6 @@
 {
   "id": "P0038",
-  "description": "prospector seed 3 index 129, minimized 8->4 ops (convex4:boss convex4:boss circle:boss convex4:cut): yang-rs input rejection 'malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (>= 2pi): no seam wedge for a single-sheet unroll' — a cylinder patch whose own boundary wraps past a full turn, so Stage 1 has no wedge to cut the single-sheet unroll at. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 129, minimized 8->4 ops (convex4:boss convex4:boss circle:boss convex4:cut): yang-rs input rejection 'malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (>= 2pi): no seam wedge for a single-sheet unroll' \u2014 a cylinder patch whose own boundary wraps past a full turn, so Stage 1 has no wedge to cut the single-sheet unroll at. Same class at x1e-3 and x1e3. derived_meta; the pin IS the expectation. CONVERTED 2026-10-12 (late): a SHEARED band (the complement wedge rotates ~290\u00b0 from rim to rim); the chart is now the universal cover (spec yang_stage1_curved_holed_patch Slice I). Pin SUPPORTED_CORRECT.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 2.0,

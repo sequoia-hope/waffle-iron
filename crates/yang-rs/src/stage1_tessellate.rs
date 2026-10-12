@@ -2984,6 +2984,29 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     // Branch cut: place the seam so the unroll is contiguous AND — for a
     // periodic strip — the seam AVOIDS the interior windows (a window
     // straddling the cut would split into two u-fragments and break the CDT).
+    // The isometric development of one (θ', v) chart point, θ' measured from
+    // the seam: a CYLINDER to the rectangular strip `(r·θ', v)`, a CONE to
+    // its annular sector (slant `ℓ = |v|/cosα`, flattened angle `ψ = θ'·sinα`).
+    let develop = |un: f64, v: f64| -> cad_primitives::Point2 {
+        match kind {
+            LateralKind::Cylinder { radius } => cad_primitives::Point2::new(radius * un, v),
+            LateralKind::Cone { half_angle } => {
+                let ell = v.abs() / half_angle.cos();
+                let psi = un * half_angle.sin();
+                cad_primitives::Point2::new(ell * psi.cos(), ell * psi.sin())
+            }
+        }
+    };
+    // UNIVERSAL-COVER unroll (P0038, 2026-10-12, spec
+    // `yang_stage1_curved_holed_patch` §"Slice I"): a boundary vertex's
+    // azimuth in the cylinder's universal cover, accumulated along its loop
+    // instead of reduced mod 2π against the seam. Filled only for a bounded
+    // patch whose outer loop's unwrapped range reaches a full turn — a
+    // SHEARED band whose complement wedge rotates from one rim to the other
+    // so that no generator meridian avoids the face — and read by
+    // `project_at` in place of `rem_euclid`. Empty on every other face
+    // (byte-identical).
+    let mut cover_theta: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
     let cut_scan = if encircling.is_empty() {
         // Bounded partial patch (Slice A): the face covers ONE contiguous
         // azimuth interval and the seam belongs in its COMPLEMENT wedge. That
@@ -2999,35 +3022,123 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         // When the widest vertex gap IS the wedge (every non-straddling
         // patch: the unwrapped angles equal the raw ones) this is the same
         // `hi + ½·((lo + 2π) − hi)` the gap scan produced — bit-identical.
-        let n = outer_poly.len();
-        let mut th = raw(outer_poly[0]).0;
-        let (mut lo, mut hi) = (th, th);
-        for i in 1..n {
-            let (t0, _) = raw(outer_poly[i - 1]);
-            let (t1, _) = raw(outer_poly[i]);
-            let mut d = t1 - t0;
-            while d > std::f64::consts::PI {
-                d -= two_pi;
-            }
-            while d < -std::f64::consts::PI {
-                d += two_pi;
-            }
-            th += d;
-            lo = lo.min(th);
-            hi = hi.max(th);
-        }
+        // The unwrapped walk: each vertex's azimuth in the universal cover,
+        // `unwrap_loop` accumulating the (−π, π]-wrapped steps.
+        let unwrapped: Vec<f64> =
+            unwrap_loop(&outer_poly.iter().map(|&g| raw(g).0).collect::<Vec<_>>());
+        let lo = unwrapped.iter().copied().fold(f64::INFINITY, f64::min);
+        let hi = unwrapped.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         if hi - lo >= two_pi {
-            // A non-encircling loop whose unwrapped range still spans a full
-            // turn (a helical strip of ≥ 1 turn) has no seam wedge: one
-            // sheet of the chart cannot hold it. Loud, typed (P9).
-            return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: bounded lateral patch spans {:.4} rad of azimuth \
-                 unwrapped (≥ 2π): no seam wedge for a single-sheet unroll",
-                hi - lo
-            )));
+            if std::env::var_os("YANG_T145_PROBE").is_some() {
+                let walk: Vec<(u32, f64, f64)> = outer_poly
+                    .iter()
+                    .zip(unwrapped.iter())
+                    .map(|(&g, &t)| (g, t.to_degrees(), raw(g).1))
+                    .collect();
+                eprintln!("[t145] face {f_idx} unwrapped outer walk (vert, θ°, v): {walk:?}");
+            }
+            // A non-encircling loop whose unwrapped range reaches a full
+            // turn has no seam wedge — no generator meridian misses the face.
+            // The face is still an embedded disc when every circle of
+            // latitude meets it in less than a full turn (P0038: a cylinder
+            // boss lateral between two oblique prism bosses — its bottom rim
+            // spans −51° … 295°, its top rim 54° … 382°, the complement wedge
+            // rotating 290° between them). An embedded disc bounded by a
+            // null-homotopic loop lifts homeomorphically to the universal
+            // cover, so the loop's unwrapped polyline is a SIMPLE chart
+            // polygon and the CDT runs there; a Steiner point lifts back by
+            // `θ = cut + u/r mod 2π` exactly as before. The cover is read
+            // through `cover_theta`; the seam is `lo` (every u ≥ 0). The
+            // development of a CONE's cover is injective only while the
+            // flattened angle stays under 2π (`(hi − lo)·sinα < 2π`); past
+            // that, and under the gate, the STOP stands. A lift that
+            // overlaps its own 2π·r translate (a face wider than a turn on
+            // some latitude — not an embedded disc) is refused below.
+            let developable = match kind {
+                LateralKind::Cylinder { .. } => true,
+                LateralKind::Cone { half_angle } => (hi - lo) * half_angle.sin() < two_pi,
+            };
+            if !developable || !cover_unroll_on() {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: bounded lateral patch spans {:.4} rad of azimuth \
+                     unwrapped (≥ 2π): no seam wedge for a single-sheet unroll",
+                    hi - lo
+                )));
+            }
+            for (&g, &t) in outer_poly.iter().zip(unwrapped.iter()) {
+                cover_theta.entry(g).or_insert(t);
+            }
+            let outer_chart: Vec<cad_primitives::Point2> = outer_poly
+                .iter()
+                .zip(unwrapped.iter())
+                .map(|(&g, &t)| develop(t - lo, raw(g).1))
+                .collect();
+            // An interior window lives at ONE place in the cover: of its
+            // first vertex's copies `θ₀ + 2πk` inside [lo, hi], exactly one
+            // lands inside the outer chart polygon (even-odd); the whole
+            // window unwraps from that copy. None or several: loud.
+            for (w, inner) in inner_polys.iter().enumerate() {
+                let raw_th: Vec<f64> = inner.iter().map(|&g| raw(g).0).collect();
+                let local = unwrap_loop(&raw_th);
+                let base = lo + (local[0] - lo).rem_euclid(two_pi);
+                let mut placed: Vec<f64> = Vec::new();
+                let mut t0 = base;
+                while t0 <= hi {
+                    let p = develop(t0 - lo, raw(inner[0]).1);
+                    if chart_point_in_polygon(p, &outer_chart) {
+                        placed.push(t0);
+                    }
+                    t0 += two_pi;
+                }
+                let [t_start] = placed[..] else {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: window {w} of a cover-unrolled lateral patch has {} \
+                         placement(s) inside the outer chart polygon (expected 1)",
+                        placed.len()
+                    )));
+                };
+                for (&g, &t) in inner.iter().zip(local.iter()) {
+                    cover_theta.entry(g).or_insert(t - local[0] + t_start);
+                }
+            }
+            // The embedding certificate (cylinder): the lifted outer polygon
+            // and its translate by one turn are disjoint — no chord
+            // crossing, neither containing a vertex of the other.
+            if let LateralKind::Cylinder { radius } = kind {
+                let shift = two_pi * radius;
+                let translate: Vec<cad_primitives::Point2> = outer_chart
+                    .iter()
+                    .map(|p| cad_primitives::Point2::new(p.x() + shift, p.y()))
+                    .collect();
+                let crossings = chart_polygon_crossings(&[outer_chart.clone(), translate.clone()]);
+                let cross_pair = crossings.iter().any(|(a, b)| a.0 != b.0);
+                let nested = translate
+                    .iter()
+                    .any(|&p| chart_point_in_polygon(p, &outer_chart))
+                    || outer_chart
+                        .iter()
+                        .any(|&p| chart_point_in_polygon(p, &translate));
+                if cross_pair || nested {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: bounded lateral patch spans {:.4} rad of azimuth \
+                         unwrapped and its cover lift overlaps its own 2π translate: \
+                         the face is not an embedded disc",
+                        hi - lo
+                    )));
+                }
+            }
+            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                eprintln!(
+                    "[stage1-cover-unroll] face {f_idx}: span {:.4} rad, {} window(s), seam at lo",
+                    hi - lo,
+                    inner_polys.len()
+                );
+            }
+            lo
+        } else {
+            let wrap = (lo + two_pi) - hi;
+            hi + 0.5 * wrap // may exceed π; only used mod 2π below
         }
-        let wrap = (lo + two_pi) - hi;
-        hi + 0.5 * wrap // may exceed π; only used mod 2π below
     } else {
         // Periodic strip: any seam opens the ribbon; choose the widest gap
         // between boundary vertices. When windows exist inside the strip,
@@ -3073,15 +3184,11 @@ pub(crate) fn tessellate_lateral_holed_cdt(
     // seam meridian (`cut`); the seam itself is chosen below.
     let project_at = |g: u32, cut: f64| -> cad_primitives::Point2 {
         let (theta, v) = raw(g);
-        let un = (theta - cut).rem_euclid(two_pi);
-        match kind {
-            LateralKind::Cylinder { radius } => cad_primitives::Point2::new(radius * un, v),
-            LateralKind::Cone { half_angle } => {
-                let ell = v.abs() / half_angle.cos();
-                let psi = un * half_angle.sin();
-                cad_primitives::Point2::new(ell * psi.cos(), ell * psi.sin())
-            }
-        }
+        let un = match cover_theta.get(&g) {
+            Some(&t) => t - cut,
+            None => (theta - cut).rem_euclid(two_pi),
+        };
+        develop(un, v)
     };
 
     // Open a closed encircling loop into a u-ASCENDING chain. The loop

@@ -207,3 +207,78 @@ pub(crate) fn cone_chart_rim_demand(
         })
     })
 }
+
+/// Is the universal-cover unroll of a sheared bounded lateral patch on
+/// (P0038, 2026-10-12)? `YANG_S1_COVER_UNROLL=0|off` restores the
+/// single-sheet STOP for dev A/B.
+pub(crate) fn cover_unroll_on() -> bool {
+    if let Some(v) = COVER_UNROLL_OVERRIDE.with(|c| c.get()) {
+        return v;
+    }
+    !matches!(
+        std::env::var("YANG_S1_COVER_UNROLL").as_deref(),
+        Ok("0") | Ok("off")
+    )
+}
+
+thread_local! {
+    /// Test-only override of the `YANG_S1_COVER_UNROLL` gate — per THREAD, so
+    /// parallel unit tests never race on process-global env: `Some(false)`
+    /// forces the single-sheet STOP, `Some(true)` the cover unroll, `None`
+    /// (production) reads the env gate.
+    pub(crate) static COVER_UNROLL_OVERRIDE: std::cell::Cell<Option<bool>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// A closed loop's azimuths lifted to the universal cover: the first kept
+/// as given, each later one the previous plus the step wrapped to (−π, π]
+/// (the `winding` convention). The loop's net winding is `last + (first −
+/// last wrapped) − first`; a null-homotopic loop returns near its start.
+pub(crate) fn unwrap_loop(theta: &[f64]) -> Vec<f64> {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut out: Vec<f64> = Vec::with_capacity(theta.len());
+    let Some(&first) = theta.first() else {
+        return out;
+    };
+    let mut th = first;
+    out.push(th);
+    for w in theta.windows(2) {
+        let mut d = w[1] - w[0];
+        while d > std::f64::consts::PI {
+            d -= two_pi;
+        }
+        while d < -std::f64::consts::PI {
+            d += two_pi;
+        }
+        th += d;
+        out.push(th);
+    }
+    out
+}
+
+/// Even-odd point-in-polygon in the chart (a half-open ray along +x; a
+/// vertex exactly on the ray counts once). Boundary points are not
+/// distinguished — callers test points that are strictly interior or
+/// strictly exterior by construction.
+pub(crate) fn chart_point_in_polygon(
+    p: cad_primitives::Point2,
+    poly: &[cad_primitives::Point2],
+) -> bool {
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let (px, py) = (p.x(), p.y());
+    let mut inside = false;
+    for k in 0..n {
+        let (a, b) = (poly[k], poly[(k + 1) % n]);
+        let (ax, ay, bx, by) = (a.x(), a.y(), b.x(), b.y());
+        if (ay > py) != (by > py) {
+            let x = ax + (py - ay) / (by - ay) * (bx - ax);
+            if px < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}

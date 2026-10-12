@@ -818,6 +818,67 @@ SupportedCorrect`. Torus and sphere faces have their own tessellators and
 are outside this slice (their plane sections are quartics / chart-curved
 circles); a count-4 residue there is its own finding.
 
+## Slice I — the universal-cover unroll of a SHEARED bounded patch (2026-10-12, P0038)
+
+**The configuration.** Slice A assumes a bounded (non-encircling) patch
+covers ONE contiguous azimuth interval, so a generator meridian in the
+complement wedge opens it onto a single sheet; a loop whose unwrapped range
+reached 2π was the typed STOP `bounded lateral patch spans … rad of azimuth
+unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` ("a helical strip
+of ≥ 1 turn"). P0038 (seed-3 index 129, `convex4:boss convex4:boss
+circle:boss convex4:cut`; the un-minimized lineage raised the signature
+verbatim at its own face index) is not helical: the union's cylinder boss
+lateral (face 15, r 1, x ∈ [−0.6, 0.8]) lies between two OBLIQUE prism
+bosses whose section ellipses bound it on both sides. Its bottom rim arc
+spans −51° … 295°, its top rim arc 54° … 382°, and the ellipse walls carry
+the loop from one to the other, so the complement wedge rotates ~290°
+between the rims and NO generator meridian misses the face — yet every
+circle of latitude meets it in less than a full turn. The outer loop nets
+zero winding and unwraps to 7.5551 rad.
+
+**The rule.** An embedded disc bounded by a null-homotopic loop lifts
+homeomorphically to the cylinder's universal cover, so the loop's UNWRAPPED
+polyline (`unwrap_loop`: each step wrapped to (−π, π], the `winding`
+convention) is a simple chart polygon there and the CDT runs in the cover:
+
+- `cover_theta` records every outer-loop vertex's cover azimuth; the seam
+  is `lo` (the unwrapped minimum), `project_at` reads `θ_cover − cut` in
+  place of `rem_euclid`, and a Steiner point lifts back by `θ = cut + u/r mod
+  2π` exactly as before (the seeded path is unchanged).
+- An interior window lives at ONE place in the cover: of its first vertex's
+  copies `θ₀ + 2πk` within [lo, hi], exactly one lies inside the outer
+  chart polygon (`chart_point_in_polygon`, even-odd); the window unwraps
+  from that copy. None or several: typed STOP.
+- The embedding certificate (cylinder): the lifted outer polygon and its
+  translate by 2πr are DISJOINT — no chord crossing between them
+  (`chart_polygon_crossings`), neither containing a vertex of the other. A
+  lift that overlaps its own translate is a face wider than a turn on some
+  latitude, not an embedded disc: typed STOP.
+- A cone's cover develops injectively only while the flattened angle stays
+  under 2π: the arm admits a cone when `(hi − lo)·sin α < 2π`, else the
+  single-sheet STOP stands.
+- Every face whose unwrapped range is below 2π keeps the Slice A seam
+  bit-for-bit (`cover_theta` stays empty). Gate `YANG_S1_COVER_UNROLL=0|off`
+  (dev A/B, the STOP); probe `[stage1-cover-unroll]` under `YANG_SPLIT_PROBE`,
+  `[t145] … unwrapped outer walk` under `YANG_T145_PROBE`.
+
+**Pins.** `tests_unit/s1_cover_unroll.rs`: a hand-built sheared band (two
+170° rim arcs per rim, two plane∩cylinder ellipse walls advancing 40° over
+the height; bottom 0° … 340°, top 40° … 380°) is the verbatim STOP with the
+arm off (thread-local override) and tessellates with it — every vertex on
+the cylinder, no chord spanning a quarter turn, area within 3 % of
+r·H·340° and above the chord bound, no triangle centroid in the rotating
+complement wedge; `unwrap_loop` and `chart_point_in_polygon`.
+`kernel-v2/tests/s1_cover_unroll_chain.rs`: P0038's four operations through
+`extrude` + `boolean_op` with the engine's sketch frame — RED under
+`YANG_S1_COVER_UNROLL=0` with the verbatim STOP (face 15, 7.5551 rad), GREEN
+with the arm (the cut validates). Smoke pin `P0038 → SupportedCorrect`.
+
+**Measured.** P0038 → SUPPORTED_CORRECT 4.6 s (face 15: span 7.5551 rad, no
+windows, seeded chart census interior_max 0.756 of the bound). The
+un-minimized index-129 lineage builds through all eight ops (before, the
+cut failed as an engine error). Corpus (release, 8 jobs, 900 s; wall 1053.5 s): **337C / 0W / 9E / 5EE / 0T over 351** — exactly one move (P0038), zero detail drift.
+
 ## Slice F-4 — CLOSED torus with WINDOWS only (2026-09-17, C0065)
 
 **The configuration.** A through-slot bitten out of a torus tube (C0065's

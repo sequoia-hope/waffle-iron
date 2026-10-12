@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (late) — P0038 CONVERTED: a cylinder lateral SHEARED past a full turn has no seam meridian — the chart is the universal cover
+
+**Anchor (`replay_waffle_env` on the un-minimized index-129 lineage;
+`YANG_T145_PROBE` unwrapped walk, 2026-10-12).** The lineage raised the
+signature verbatim (its face 328, 6.9927 rad; the minimum now reads face 15,
+7.5551 rad after the P0036/P0037 conversions renumbered its body), so the
+site was honest. Face 15 is the unit cylinder boss's lateral (axis +x,
+x ∈ [−0.6, 0.8]) in the union of the three bosses: two OBLIQUE diamond prisms
+meet it on both sides, their plane∩cylinder ellipses carrying the loop from
+rim to rim. The walk: bottom rim arc −51° → 295° at v = 0, up the ellipse
+walls 293° → 335° → 382° to the top rim at v = 1.4, top rim arc 382° → 54°,
+down the far walls 87° → 41° → −7° → −51°. Winding zero, unwrapped range
+432.8° = 7.5551 rad. The complement wedge is (295°, 309°) at the bottom and
+(22°, 54°) at the top — it rotates ~290° between the rims, so no generator
+meridian misses the face, which is why Slice A's single-sheet unroll
+(seam in the complement wedge) had no wedge to put its seam in. Yet every
+circle of latitude meets the face in under a full turn: the ledger's "a
+cylinder patch whose own boundary wraps past a full turn" is a SHEARED band,
+an embedded disc, not a helix.
+
+**Fix (yang-rs only, `stage1_tessellate.rs` holed-lateral path +
+`chart_crossing.rs`).** An embedded disc bounded by a null-homotopic loop
+lifts homeomorphically to the cylinder's universal cover, so the loop's
+unwrapped polyline is a simple chart polygon there: when a bounded patch's
+outer loop unwraps to ≥ 2π the chart IS the cover — `cover_theta` holds each
+boundary vertex's cover azimuth, the seam is the unwrapped minimum,
+`project_at` reads the cover angle instead of `rem_euclid`, and Steiner
+points lift back by `θ = cut + u/r mod 2π` unchanged. Windows are placed at
+the one copy of their first vertex inside the outer chart polygon (even-odd;
+none/several is a typed STOP). Certificate: the lifted polygon and its 2πr
+translate are disjoint (no crossing, no nesting) — a face wider than a turn
+on some latitude is refused; a cone is admitted only while its developed
+angle stays under 2π. Every face below 2π keeps the Slice A seam
+bit-for-bit. Gate `YANG_S1_COVER_UNROLL=0|off`. Spec
+`yang_stage1_curved_holed_patch` §"Slice I". Pins:
+`yang-rs/tests_unit/s1_cover_unroll.rs` (a hand-built 380° sheared band:
+the verbatim STOP with the arm off, on-surface / quarter-turn-chord / area /
+wedge-free with it; `unwrap_loop`; `chart_point_in_polygon`) and
+`kernel-v2/tests/s1_cover_unroll_chain.rs` (P0038's four ops through
+`extrude` + `boolean_op`: RED under the gate with the verbatim STOP, GREEN
+with the arm).
+
+**Measured.** P0038 → SUPPORTED_CORRECT 4.6 s (face 15 span 7.5551 rad, no
+windows; chart census interior_max 0.756 of the bound). The un-minimized
+index-129 lineage builds through all eight ops (before, the cut was an
+engine error). Smoke pin flipped.
+
+**Corpus (release, 8 jobs, 900 s; wall 1053.5 s): 337C / 0W / 9E / 5EE / 0T + 0 UNSUPPORTED over 351** — versus the 2026-10-12 (night) canonical exactly ONE move, P0038 ERROR → CORRECT, zero regressions, zero detail drift. The 9 ERROR rows: seven C-series walls + P0026 + P0039.
+
 ## 2026-10-12 (night) — P0037 CONVERTED: the Stage-1 self-contact guard halved the rim N while the chart path's census bound never moved — a cylinder lateral now halves its CHART bound
 
 **Anchor (`replay_waffle_env` on the un-minimized index-189 lineage;
@@ -914,7 +963,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0035**~~ | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12** → SUPPORTED_CORRECT 0.5 s (the boss wall's barrel seam bridge was anchored at the bottom of the slab cap's boundary generator and ran along it one f64 ulp away; a seam bridge now clears every boundary node by the render floor — spec `kv2_cdt_triangulation_core` §6g; see the 2026-10-12 section) |
 | ~~**P0036**~~ | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ~~ERROR 0.4 s~~ **CONVERTED 2026-10-12 (later)** → SUPPORTED_CORRECT 0.7 s (neither family: the revolve cap's rim kept a Stage-1 chord vertex 3.4e-5 inside the exact cutter, and Stage 4 relocated the rim × cutter corner past it along the rim; the §4.5.3 overtake arm now reads carried conic runs — spec `yang_453_line_overtake` §6; see the 2026-10-12 (later) section) |
 | ~~**P0037**~~ | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ~~ERROR 1.1 s~~ **CONVERTED 2026-10-12 (night)** → SUPPORTED_CORRECT 2.7 s (a 0.1 lens between the cut's cap plane and the boss wall; the guard halved the rim N while the chart path's census bound stayed at the operand budget — a cylinder lateral now halves its chart bound, spec `yang_stage1_self_contact_guard` §7; see the 2026-10-12 (night) section) |
-| **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |
+| ~~**P0038**~~ | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ~~ERROR 7.8 s~~ **CONVERTED 2026-10-12 (late)** → SUPPORTED_CORRECT 4.6 s (a SHEARED band between two oblique prisms — its complement wedge rotates 290° from rim to rim, so no generator meridian misses it, yet every latitude meets it in under a turn; the chart is now the universal cover, spec `yang_stage1_curved_holed_patch` §"Slice I"; see the 2026-10-12 (late) section) |
 | **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |
 
 **Adjudication, per case** (spec §8): each minimum re-judged on the current

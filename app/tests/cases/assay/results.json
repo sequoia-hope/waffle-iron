@@ -1,8 +1,8 @@
 {
-  "errored": 10,
+  "errored": 9,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 336,
+  "passed": 337,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2099,10 +2099,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): e9336930-d402-4032-8b99-606239ddfa1f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 15: bounded lateral patch spans 7.5551 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0038",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

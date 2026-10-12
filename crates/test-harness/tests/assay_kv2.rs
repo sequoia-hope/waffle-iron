@@ -2030,7 +2030,7 @@ fn smoke_corpus_boundary_categories() {
         // for a single-sheet unroll` — a cylinder patch whose own boundary
         // wraps past a full turn, so Stage 1 has nowhere to cut the
         // single-sheet unroll. Same class at ×1e-3 and ×1e3.
-        ("P0038", Category::Error),
+        ("P0038", Category::SupportedCorrect),
         // P0039 (3 ops) ⇒ auto-union Stage-4 `RelocationCrossedCarrierVertex`
         // at `stage4_correct.rs:8605` — P0015's error text (CONVERTED
         // 2026-10-03 evening, when the §4.5.2 under-resolution certificate
