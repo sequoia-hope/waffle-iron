@@ -43,6 +43,58 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (later) — P0036 CONVERTED: a relocated rim × cutter corner overtook an unmoved rim chord vertex along a CARRIED circle — the §4.5.3 overtake arm now reads carried conic runs by parameter order
+
+**Anchor (`KV2_RING_REJECT_PROBE` + `KV2_RING_PROVENANCE` + `YANG_FACE_CENSUS`
++ `YANG_S6_CYCLE_DUMP=all` + `YANG_V_PROBE=5,7,9`, 2026-10-12).** The
+un-minimized seed-3 index-102 lineage raised the minimum's signature verbatim
+(`FaceId(51)`; the minimum's `FaceId(12)`), so the site was honest. The ledger
+row filed it as "the text of P0002 AND P0013 — a third locus"; it is neither
+family. Face 12 is the revolve's START cap (a disc of radius 4e-4 in the plane
+z = −1e-4) minus the cut cylinder (radius 1.25e-3): a lune with two exact rim ∩
+cutter corners, A at −12.124° and B at 178.369° on the rim. The ring kernel-v2
+refused has ONE crossing, at A: the loop kernel-v2 was handed runs … rim `Arc`
+→ a vertex at **−6.923°** → rim `Arc` → A — the vertex at −6.923° lies on the
+rim and **3.4e-5 INSIDE the exact cutter**. Stage 1 renders the cap rim as a
+13-gon (that vertex is v7) and the cutter as a 12-gon whose sagitta is 4.26e-5,
+so v7 is OUTSIDE the cutter's chord polygon and Stage 2 keeps it; the
+arrangement's corner v9 sits at −5.864°, 1° past v7, and Stage 4 relocates v9
+in closed form onto the exact A — 6.3° back along the rim, OVER v7. The cap
+cycle then walks v5 (−34.6°) → v7 (−6.9°) → A (−12.1°), forward and back along
+one circle. kernel-v2's grid sampler emitted the same −10.141° azimuth from both
+arcs, its sweep-dedup removed the spike's duplicate together with v7, and the
+exact CDT saw the remaining crossing: a correct refusal of a wrong loop. The
+§4.5.3 sweep never tested the site — the rim edges are solid edges of operand A
+with no Stage-3 curve, so the both-untyped branch handed them to the PAIR arm,
+which needs both inputs on the edge; the §4.5 domain certificate is silent (A
+glides within the cap plane, crossing no crease — the boundary-point class the
+paper exempts from §4.5.1).
+
+**Fix (yang-rs only; spec `yang_453_line_overtake.md` §6).** The straight-run
+OVERTAKE arm (R0059: a junction relocated along its run over unmoved run
+vertices, certified by its own displacement) now has a CARRIED-CURVE sibling:
+a both-untyped site whose two edges carry the same two surfaces of ONE input is
+a run on that operand's own typed B-Rep edge (`carried_edge_curve`: the edge
+shared by the two faces, through `p_r`, bit-exact surface identity); for a
+periodic conic the paper's progression test is the curve's exact parameter
+order (`conic_param_deltas`, the #145 arm's criterion) and the certificate is
+`p_r` strictly inside the junction's displacement arc; a carried `LineSegment`
+keeps the straight arm's geometry. Victim `p_r` collapses onto the junction;
+every declining branch is byte-identical. Gate shared with the straight arm
+(`YANG_453_OVERTAKE=0|off`). Pins: `yang-rs/tests_unit/s453_carried_curve_overtake.rs`
+(4 functions — the P0036 run on a unit rim both ways, nine fail-closed
+branches, the edge lookup, the straight geometry) and
+`kernel-v2/tests/s453_carried_rim_overtake_chain.rs` (P0036's tube − cylinder
+through `revolve` + `boolean_op`: RED under `YANG_453_OVERTAKE=0` with the
+verbatim STOP, GREEN with the arm, no cap rim vertex inside the cutter).
+
+**Measured.** P0036 → SUPPORTED_CORRECT 0.7 s (`YANG_V_PROBE`: exactly the one
+predicted collapse, v7 onto v9 = A). The un-minimized index-102 lineage now
+builds through all seven ops (Main volume 3.007e-9, every oracle PASS — before,
+the failed cut was skipped and Main measured 3.635e-9). Smoke pin flipped.
+
+**Corpus (release, 8 jobs, 900 s; wall 1089.5 s): 335C / 0W / 11E / 5EE / 0T + 0 UNSUPPORTED over 351** — versus the 2026-10-12 canonical exactly ONE move, P0036 ERROR → CORRECT, zero regressions, zero detail drift. The 11 ERROR rows: seven C-series walls + P0026 + P0037–P0039.
+
 ## 2026-10-12 — P0035 CONVERTED: a barrel patch's seam bridge hugged a boundary generator one f64 ulp away — the cut must clear the boundary by render resolution
 
 **Anchor (`replay_waffle_env` on the un-minimized index-90 lineage,
@@ -811,7 +863,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0033**~~ | #166, min 5→4 `convex4:boss convex8:rev circle:boss convex4:cut` | 4 | `TessellationFailed "patch triangulation folded (inverted triangle) — KV9-F2"`, `FaceId(45)` | kernel-v2's render tessellator. **This is the signature the un-minimized P0004 lineage was left STOPping on (2026-09-28) with no corpus customer since** | ~~ERROR 2.0 s~~ **CONVERTED 2026-10-11 (night)** → SUPPORTED_CORRECT 3.6 s (KV9-F2a: the deep chord was the previous boolean's cylinder × cone `SurfacePair` edge, re-entered and emitted as a Stage-1-density `LineSegment`; the §4.4.2 restoration now re-types onto every typed input curve — see the 2026-10-11 (night) section) |
 | **P0034** | #71, min 7→4 `convex4:boss convex6:rev circle:boss circle:thru` | 4 | `TessellationFailed "surface-pair projection left the chord neighborhood"`, `FaceId(29)` | — | ERROR 1.1 s |
 | ~~**P0035**~~ | #90, min 6→2 `convex4:sym circle:boss` | 2 | auto-union `TessellationFailed "patch triangle collapsed at render precision"` | P0001's error text (CONVERTED 2026-09-27 by the §4.5.5 edge-in-plane rule) at a new locus — **two plain bosses** | ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12** → SUPPORTED_CORRECT 0.5 s (the boss wall's barrel seam bridge was anchored at the bottom of the slab cap's boundary generator and ran along it one f64 ulp away; a seam bridge now clears every boundary node by the render floor — spec `kv2_cdt_triangulation_core` §6g; see the 2026-10-12 section) |
-| **P0036** | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ERROR 0.4 s |
+| ~~**P0036**~~ | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ~~ERROR 0.4 s~~ **CONVERTED 2026-10-12 (later)** → SUPPORTED_CORRECT 0.7 s (neither family: the revolve cap's rim kept a Stage-1 chord vertex 3.4e-5 inside the exact cutter, and Stage 4 relocated the rim × cutter corner past it along the rim; the §4.5.3 overtake arm now reads carried conic runs — spec `yang_453_line_overtake` §6; see the 2026-10-12 (later) section) |
 | **P0037** | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ERROR 1.1 s |
 | **P0038** | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ERROR 7.8 s |
 | **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |

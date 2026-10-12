@@ -203,7 +203,18 @@ Do NOT skip to lower-priority items because they are easier.
    `render_height_floor`, the emit gate's own floor, spec
    `kv2_cdt_triangulation_core.md` §6g; canonical corpus 334C / 0W / 12E /
    5EE / 0T over 351).
-   Next: P0036–P0039 — each its own kernel session
+   P0036 CONVERTED 2026-10-12 (later) (not P0002's or P0013's family
+   despite the shared text: the revolve's start-cap rim kept a Stage-1
+   chord vertex 3.4e-5 INSIDE the exact cutter — outside the cutter's
+   12-gon, sagitta 4.26e-5 — and Stage 4 relocated the rim × cutter corner
+   in closed form 6.3° back along the rim, PAST it, so the cap loop walked
+   forward-back along one circle and kernel-v2's CDT refused the ring,
+   correctly; the §4.5.3 straight-run OVERTAKE arm (R0059) gained a
+   CARRIED-CURVE sibling — a both-untyped same-input site is a run on the
+   operand's own typed B-Rep edge, tested by exact parameter order and
+   certified by the junction's displacement arc, spec
+   `yang_453_line_overtake.md` §6; canonical corpus 335C / 0W / 11E / 5EE / 0T over 351).
+   Next: P0037–P0039 — each its own kernel session
    (anchor against the un-minimized lineage in `target/prospect/seed-3/
    candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
    the minimizer's rounding can mint a contact that keeps a

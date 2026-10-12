@@ -179,6 +179,11 @@ pub(crate) fn sweep_reversed_intersections(
                 // sites, tested by exact parameter order instead of the
                 // P10-disproven angle band.
                 let mut conic_backtrack: Option<(u32, u32)> = None;
+                // Spec `yang_453_line_overtake`: an OVERTAKE verdict (the
+                // straight-run arm below, or the carried-curve arm here) is
+                // certified by the junction's own displacement, so the 2·d_ε
+                // resolution gate is not its bound.
+                let mut overtake = false;
                 if !all_conic {
                     let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
                     let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
@@ -190,20 +195,37 @@ pub(crate) fn sweep_reversed_intersections(
                     // matches! on `Some(..)` are false for `None`, so today
                     // these sites die in the shared-conic `continue`).
                     if !curves.contains_key(&key_n) && !curves.contains_key(&key_b) {
-                        if !(pair_arm_act || pair_arm_census) {
-                            continue;
+                        // Spec `yang_453_line_overtake` §6 (P0036): a
+                        // both-untyped site on ONE operand's own typed B-Rep
+                        // edge (a carried rim circle) overtaken by a relocated
+                        // junction — tested FIRST, since a single-input run
+                        // is never a pair site (the pair arm needs both inputs
+                        // on the edge) and would otherwise `continue` here.
+                        if overtake_act {
+                            if let Some(vs) = carried_curve_overtake_site(
+                                mesh, a, b, &curves, &incidence, moved, entry_pos, p_b, p_r, p_n,
+                            ) {
+                                conic_backtrack = Some(vs);
+                                overtake = true;
+                            }
                         }
-                        let Some((vic, sur)) = pair_site_reversal(mesh, &incidence, p_b, p_r, p_n)
-                        else {
-                            continue;
-                        };
-                        if pair_arm_census {
-                            eprintln!(
-                                "[s453-pair] REVERSAL p_b={p_b} p_r={p_r} p_n={p_n}                                  victim={vic} survivor={sur} (census: not acting)"
-                            );
-                            continue;
+                        if conic_backtrack.is_none() {
+                            if !(pair_arm_act || pair_arm_census) {
+                                continue;
+                            }
+                            let Some((vic, sur)) =
+                                pair_site_reversal(mesh, &incidence, p_b, p_r, p_n)
+                            else {
+                                continue;
+                            };
+                            if pair_arm_census {
+                                eprintln!(
+                                    "[s453-pair] REVERSAL p_b={p_b} p_r={p_r} p_n={p_n}                                  victim={vic} survivor={sur} (census: not acting)"
+                                );
+                                continue;
+                            }
+                            conic_backtrack = Some((vic, sur));
                         }
-                        conic_backtrack = Some((vic, sur));
                     } else if !both_line_edges(&curves, key_b, key_n) {
                         // Task #145 diagnosis probe (read-only, env-gated): a
                         // conic site skipped by the mixed-cycle rule whose two
@@ -286,7 +308,6 @@ pub(crate) fn sweep_reversed_intersections(
                 // coplanar overlay seam does not have — and certified by the
                 // junction's own displacement, so the 2·d_ε resolution gate
                 // below is not the bound here.
-                let mut overtake = false;
                 if conic_backtrack.is_none() && overtake_act {
                     if let Some(vs) = line_overtake_site(
                         mesh, &curves, &incidence, moved, entry_pos, p_b, p_r, p_n,
@@ -496,6 +517,274 @@ pub(crate) fn line_overtake_site(
         return None;
     }
     Some((p_r, j))
+}
+
+/// Spec `yang_453_line_overtake` §6 (2026-10-12, P0036): the CARRIED-CURVE
+/// OVERTAKE site — the straight-run arm's rule on an operand's own typed
+/// B-Rep edge. P0036: a revolve's start cap (a disc, r 4e-4) is cut by a
+/// cylinder (r 1.25e-3) whose Stage-1 12-gon recedes from its circle by a
+/// 4.26e-5 sagitta; the cap rim's 13-gon vertex v7 sits 3.4e-5 INSIDE the
+/// exact cutter and OUTSIDE its chord polygon, so Stage 2 keeps it, and the
+/// arrangement's rim × cutter corner lands 1° beyond it. Stage 4 relocates
+/// that corner in closed form onto the exact rim ∩ cutter point A, 5.2°
+/// back along the rim — PAST v7. The cap loop then walks v5 → v7 → A
+/// forward-back along one circle and kernel-v2 rejects the ring (its
+/// grid sampler emits the same azimuth from both arcs, dedups the spike,
+/// and the CDT sees the crossing). Yang §4.5.3 verbatim — "a reverse
+/// sequence of points after convergence" — on a CARRIED curve, where the
+/// straight arm's collinear test does not apply and the exact test is the
+/// curve's own parameter order (the #145 shared-conic arm's criterion).
+///
+/// The site is `p_r` unmoved, flanked on ONE side by a moved vertex `J`
+/// with an entry position; both incident edges UNTYPED (no Stage-3 curve —
+/// not intersection edges) with the SAME two distinct surfaces of ONE input
+/// (a solid edge of that operand); the operand's B-Rep edge shared by those
+/// two faces and passing through `p_r` carries the run's curve. For a
+/// periodic conic (`Circle` / `Ellipse`): the walk REVERSES at `p_r` in
+/// parameter order (`conic_param_deltas`, `d1·d2 < 0`) AND `p_r` lies
+/// strictly inside `J`'s displacement arc `[t(J_old), t(J_new)]` (the
+/// OVERTAKE certificate, in the curve's parameter — the short way round,
+/// never the complement). For a `LineSegment` carried edge the straight
+/// arm's own geometry applies (`segment_overtake`). Returns `(victim = p_r,
+/// survivor = J)`; the caller's 2·d_ε gate is bypassed exactly as for the
+/// straight arm (I2: the collapse length is bounded by `J`'s certified
+/// displacement). `None` leaves the site to the pair arm / `is_reversed`
+/// byte-identically: a typed or mixed-input edge, a pair change at `p_r`,
+/// no / both / self moved, no entry position, a sub-band displacement, no
+/// shared B-Rep edge through `p_r` (or several with different curves), an
+/// open or untyped curve, a monotone walk, or `p_r` outside the arc.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn carried_curve_overtake_site(
+    mesh: &Mesh,
+    a: &BRep,
+    b: &BRep,
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    moved: &std::collections::HashSet<u32>,
+    entry_pos: &[[f64; 3]],
+    p_b: u32,
+    p_r: u32,
+    p_n: u32,
+) -> Option<(u32, u32)> {
+    let key = |x: u32, y: u32| if x < y { (x, y) } else { (y, x) };
+    let (key_b, key_n) = (key(p_b, p_r), key(p_r, p_n));
+    if curves.contains_key(&key_b) || curves.contains_key(&key_n) {
+        return None;
+    }
+    // A solid edge of ONE operand: the incidence dedups to exactly two
+    // entries, both from the same input, on two distinct surfaces.
+    let solid_edge = |k: (u32, u32)| -> Option<[(InputId, Surface); 2]> {
+        let entries = incidence.get(&k)?;
+        let mut ded: Vec<(InputId, Surface)> = Vec::new();
+        for &e in entries {
+            if !ded.contains(&e) {
+                ded.push(e);
+            }
+        }
+        match ded[..] {
+            [x, y] if x.0 == y.0 && x.1 != y.1 => Some([x, y]),
+            _ => None,
+        }
+    };
+    let eb = solid_edge(key_b)?;
+    let en = solid_edge(key_n)?;
+    if !(eb == en || (eb[0] == en[1] && eb[1] == en[0])) {
+        return None;
+    }
+    if moved.contains(&p_r) {
+        return None;
+    }
+    let j = match (moved.contains(&p_b), moved.contains(&p_n)) {
+        (true, false) => p_b,
+        (false, true) => p_n,
+        _ => return None,
+    };
+    let old = *entry_pos.get(j as usize)?;
+    let new = mesh.verts[j as usize].as_array();
+    let pr = mesh.verts[p_r as usize].as_array();
+    let scale = old
+        .iter()
+        .chain(new.iter())
+        .chain(pr.iter())
+        .fold(0.0f64, |m, &c| m.max(c.abs()));
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+    let d = [new[0] - old[0], new[1] - old[1], new[2] - old[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if len <= band {
+        return None;
+    }
+    let brep = match eb[0].0 {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    let curve = carried_edge_curve(
+        brep,
+        eb[0].1,
+        eb[1].1,
+        Point3::new(pr[0], pr[1], pr[2]),
+        band,
+    )?;
+    let pb = mesh.verts[p_b as usize].as_array();
+    let pn = mesh.verts[p_n as usize].as_array();
+    match curve {
+        Curve::LineSegment => segment_overtake(old, new, pr, pb, pn, band).then_some((p_r, j)),
+        c if conic_param_periodic(&c) => {
+            // The walk reverses at p_r along the carried conic (the paper's
+            // criterion in parameter order — never the angle band).
+            let (d1, d2) = conic_param_deltas(
+                &c,
+                mesh.verts[p_b as usize],
+                mesh.verts[p_r as usize],
+                mesh.verts[p_n as usize],
+            )?;
+            let prod = d1 * d2;
+            if !prod.is_finite() || prod >= 0.0 {
+                return None;
+            }
+            // The OVERTAKE certificate: p_r strictly inside J's displacement
+            // arc, measured the short way round from J_old.
+            let t_old = conic_param(&c, Point3::new(old[0], old[1], old[2]))?;
+            let t_new = conic_param(&c, Point3::new(new[0], new[1], new[2]))?;
+            let t_r = conic_param(&c, Point3::new(pr[0], pr[1], pr[2]))?;
+            let s = wrap_pi(t_new - t_old);
+            let u = wrap_pi(t_r - t_old);
+            if !(s.is_finite() && u.is_finite()) || s == 0.0 || u * s <= 0.0 || u.abs() >= s.abs() {
+                return None;
+            }
+            Some((p_r, j))
+        }
+        _ => None,
+    }
+}
+
+/// The straight-run OVERTAKE geometry shared by the carried `LineSegment`
+/// arm: the polyline doubles back exactly at `p_r` (`|unit(p_r−p_b) +
+/// unit(p_n−p_r)| < TAU_WORK`) and `p_r` lies strictly inside `[old, new]`
+/// along `unit(new − old)`, within `band` of that line.
+pub(crate) fn segment_overtake(
+    old: [f64; 3],
+    new: [f64; 3],
+    pr: [f64; 3],
+    pb: [f64; 3],
+    pn: [f64; 3],
+    band: f64,
+) -> bool {
+    let d = [new[0] - old[0], new[1] - old[1], new[2] - old[2]];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if !len.is_finite() || len <= band {
+        return false;
+    }
+    let v1 = normalize3([pr[0] - pb[0], pr[1] - pb[1], pr[2] - pb[2]]);
+    let v2 = normalize3([pn[0] - pr[0], pn[1] - pr[1], pn[2] - pr[2]]);
+    let t = [v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]];
+    if (t[0] * t[0] + t[1] * t[1] + t[2] * t[2]).sqrt() >= cad_primitives::TAU_WORK {
+        return false;
+    }
+    let u = [d[0] / len, d[1] / len, d[2] / len];
+    let w = [pr[0] - old[0], pr[1] - old[1], pr[2] - old[2]];
+    let s_par = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+    if s_par <= 0.0 || s_par >= len {
+        return false;
+    }
+    let perp = [
+        w[0] - s_par * u[0],
+        w[1] - s_par * u[1],
+        w[2] - s_par * u[2],
+    ];
+    (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt() <= band
+}
+
+/// Wrap an angle difference into `(−π, π]`.
+fn wrap_pi(mut d: f64) -> f64 {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    while d > std::f64::consts::PI {
+        d -= two_pi;
+    }
+    while d <= -std::f64::consts::PI {
+        d += two_pi;
+    }
+    d
+}
+
+/// The typed curve of the operand's B-Rep edge shared by the faces carrying
+/// surfaces `s0` and `s1` (bit-exact surface identity — the Phase-A
+/// `inherited` surface IS the operand face's) that passes through `p`
+/// (within `band`). A rim split into several edges of one circle is one
+/// curve; shared edges through `p` with DIFFERENT curves are ambiguous and
+/// decline (`None`), as does a shared edge whose curve has no point-distance
+/// here (a `SurfacePair` / open conic).
+pub(crate) fn carried_edge_curve(
+    brep: &BRep,
+    s0: Surface,
+    s1: Surface,
+    p: Point3,
+    band: f64,
+) -> Option<Curve> {
+    use std::collections::BTreeSet;
+    let mut on0: BTreeSet<u32> = BTreeSet::new();
+    let mut on1: BTreeSet<u32> = BTreeSet::new();
+    for f in brep.faces() {
+        let edges = f.outer_loop.iter().chain(f.inner_loops.iter().flatten());
+        if f.surface == s0 {
+            on0.extend(edges.clone().copied());
+        }
+        if f.surface == s1 {
+            on1.extend(edges.copied());
+        }
+    }
+    let mut found: Option<Curve> = None;
+    for &ei in on0.intersection(&on1) {
+        let e = &brep.edges()[ei as usize];
+        let dist = match e.curve {
+            Curve::LineSegment => {
+                let a = brep.vertices()[e.start as usize].point.as_array();
+                let b = brep.vertices()[e.end as usize].point.as_array();
+                let q = p.as_array();
+                let d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let l2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if !l2.is_finite() || l2 <= 0.0 {
+                    continue;
+                }
+                let w = [q[0] - a[0], q[1] - a[1], q[2] - a[2]];
+                let t = ((w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / l2).clamp(0.0, 1.0);
+                let r = [w[0] - t * d[0], w[1] - t * d[1], w[2] - t * d[2]];
+                (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+            }
+            Curve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                let Ok((proj, _)) = project_onto_circle(p, center, normal, radius) else {
+                    continue;
+                };
+                let (q, r) = (p.as_array(), proj.as_array());
+                ((q[0] - r[0]).powi(2) + (q[1] - r[1]).powi(2) + (q[2] - r[2]).powi(2)).sqrt()
+            }
+            Curve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => {
+                let t = ellipse_param(p, center, normal, major_axis, major_radius, minor_radius);
+                let proj = ellipse_point(center, normal, major_axis, major_radius, minor_radius, t);
+                let (q, r) = (p.as_array(), proj.as_array());
+                ((q[0] - r[0]).powi(2) + (q[1] - r[1]).powi(2) + (q[2] - r[2]).powi(2)).sqrt()
+            }
+            _ => continue,
+        };
+        if dist > band {
+            continue;
+        }
+        match found {
+            None => found = Some(e.curve),
+            Some(c) if c == e.curve => {}
+            Some(_) => return None,
+        }
+    }
+    found
 }
 
 fn both_line_edges(

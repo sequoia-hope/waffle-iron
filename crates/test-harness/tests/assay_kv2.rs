@@ -2006,8 +2006,14 @@ fn smoke_corpus_boundary_categories() {
         // (converted 2026-09-27) AND P0013 (converted 2026-10-03, the §4.3.3
         // local-form guard), so a third locus for the family CLAUDE.md records
         // as having no customer left. ×1e-3 drops its 1.41e-4 segment below
-        // the floor and reads Stage-3 `AmbiguousCurve` instead.
-        ("P0036", Category::Error),
+        // the floor and reads Stage-3 `AmbiguousCurve` instead. CONVERTED
+        // 2026-10-12 (later): the revolve's start-cap rim kept a Stage-1
+        // chord vertex 3.4e-5 inside the exact cutter (outside the cutter's
+        // 12-gon), and Stage 4 relocated the rim × cutter corner PAST it
+        // along the rim; the §4.5.3 overtake arm now reads carried conic
+        // runs by parameter order and collapses the overtaken vertex onto
+        // the exact corner (spec `yang_453_line_overtake` §6). 0.7 s.
+        ("P0036", Category::SupportedCorrect),
         // P0037 (3 ops) ⇒ an INPUT rejection: `Stage-1 mesh of one operand
         // self-intersects: 17 improper triangle contact(s) (0 unresolved;
         // first between faces 0 and 2) after 4 refinement round(s)` — a face's

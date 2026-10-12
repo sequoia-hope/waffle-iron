@@ -1,6 +1,6 @@
 {
   "id": "P0036",
-  "description": "prospector seed 3 index 102, minimized 7->3 ops (convex4:boss circle:rev circle:cut): kernel-v2 TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId(51) — the text of P0002 and P0013, both CONVERTED, so a third locus. x1e3 identical; x1e-3 drops the 1.41e-4 segment below MIN_FEATURE_SIZE and reads a Stage-3 AmbiguousCurve. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 3 index 102, minimized 7->3 ops (convex4:boss circle:rev circle:cut): kernel-v2 TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId(51) — the text of P0002 and P0013, both CONVERTED, so a third locus. x1e3 identical; x1e-3 drops the 1.41e-4 segment below MIN_FEATURE_SIZE and reads a Stage-3 AmbiguousCurve. derived_meta; the pin IS the expectation. CONVERTED 2026-10-12 (later): the revolve's start-cap rim kept a Stage-1 chord vertex 3.4e-5 inside the exact cutter (the cutter's 12-gon sagitta is 4.26e-5) and Stage 4 relocated the rim x cutter corner past it along the rim; the Yang 4.5.3 overtake arm now reads carried conic runs by exact parameter order (spec yang_453_line_overtake section 6) — SUPPORTED_CORRECT 0.7 s.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 0.0029,
