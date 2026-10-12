@@ -2038,7 +2038,14 @@ fn smoke_corpus_boundary_categories() {
         // AUTO-UNION path. Its smallest authored segment is 2.3862e-5 =
         // 23.9 × MIN_FEATURE_SIZE, the tightest of the seed-3 promotions and
         // still clear of the floor; same class at ×1e-3 and ×1e3.
-        ("P0039", Category::Error),
+        // CONVERTED 2026-10-12 (latest): the natural certificate's demand
+        // (2.24) sat inside the fixed `[2, 4]` ladder, but each rung's denser
+        // cylinder mesh crossed the NEXT tooth corner with its own demand
+        // (14.6 at d_ε/4) and the op converges at d_ε/64 — the §4.5.2 STOP
+        // ladder now runs from wherever it starts to the ceiling, the paper's
+        // "repeated if optimization failure persists" (spec
+        // `yang_452_local_refinement` §11).
+        ("P0039", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and

@@ -235,12 +235,26 @@ Do NOT skip to lower-priority items because they are easier.
    the lift and its 2πr translate must be disjoint — spec
    `yang_stage1_curved_holed_patch.md` §"Slice I"; canonical corpus
    337C / 0W / 9E / 5EE / 0T over 351).
-   Next: P0039 — its own kernel session
-   (anchor against the un-minimized lineage in `target/prospect/seed-3/
-   candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`:
-   the minimizer's rounding can mint a contact that keeps a
-   signature); then run `prospect_run` / `prospect_minimize` for more
-   (`docs/TESTING.md` §"Running the assay prospector"). The boundary-point
+   P0039 CONVERTED 2026-10-12 (latest) (a 23-tooth gear boss auto-unioned
+   onto a circle boss: the gear's cap∩flank edge pierces the cylinder
+   1.5e-4 below its chord facet and the relocation crosses the tooth corner
+   by 1.26e-4 — the §4.5.2 certificate's demand was 2.24, INSIDE the fixed
+   `[2, 4]` ladder, but each rung's denser cylinder mesh crossed the NEXT
+   corner along the tooth with its own demand (14.6 at d_ε/4) and the op
+   converges only at d_ε/64, the ceiling; the ladder ended at 4 and the
+   STOP stood. The STOP ladder now runs from wherever the certificate
+   starts it to the ceiling — the fixed ladder is the FLOOR of the
+   doubling sequence, the paper's "repeated if optimization failure
+   persists"; the boundary-domain ladder keeps `[2, 4]` deliberately;
+   P0026's minted tangency stays loud at every rung — spec
+   `yang_452_local_refinement.md` §11; canonical corpus 338C / 0W / 8E / 5EE / 0T).
+   **The open P-series ERROR tail is EMPTY** (P0001–P0039 all CONVERTED
+   except P0026, ADJUDICATED).
+   Next: run `prospect_run` / `prospect_minimize` for a fourth seed
+   (`docs/TESTING.md` §"Running the assay prospector"); anchor every
+   promotion against its un-minimized lineage in `target/prospect/seed-N/
+   candidates/` first via `WAFFLE_PATH=… user_case_probe replay_waffle_env`
+   (the minimizer's rounding can mint a contact that keeps a signature). The boundary-point
    certificate's INVENTORY (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the
    out-of-domain relocations the gear cases (R0003 ×42, R0004, R0032,
    R0049, R0070) survive today — the §4.5.1 corridor family's open

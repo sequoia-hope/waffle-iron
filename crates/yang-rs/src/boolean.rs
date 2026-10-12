@@ -665,22 +665,37 @@ pub(crate) const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
 /// can afford, under the unchanged Q3 guard shell.
 pub(crate) const REFINE_452_MAX_FACTOR: f64 = 64.0;
 
-/// The rung ladder in force for one STOP. Production uses
-/// [`REFINE_452_ROUNDS`] unless the STOP's under-resolution certificate
-/// demands more than its last rung — then the ladder STARTS at the first
-/// power of two strictly above the demand (`d_ε/f < |d_far(q)|` for every
-/// crossed corner is the certificate's own inequality) and doubles up to
-/// [`REFINE_452_MAX_FACTOR`]. Rungs below the demand are skipped as an
+/// The rung ladder in force for one STOP: the whole doubling budget,
+/// [`REFINE_452_ROUNDS`]'s first rung up to [`REFINE_452_MAX_FACTOR`]. When
+/// the STOP's under-resolution certificate demands more than the fixed
+/// ladder's last rung, the ladder STARTS at the first power of two strictly
+/// above the demand (`d_ε/f < |d_far(q)|` for every crossed corner is the
+/// certificate's own inequality). Rungs below the demand are skipped as an
 /// ECONOMY — the paper's loop "repeated if optimization failure persists"
 /// reaches the same rung, one full op per skipped rung slower.
 ///
-/// A demand the ceiling cannot reach narrows nothing (see
-/// [`REFINE_452_MAX_FACTOR`]): the ladder is then the whole doubling budget,
-/// [`REFINE_452_ROUNDS`]'s first rung up to the ceiling.
+/// The ladder never STOPS short of the ceiling on a prediction (P0039,
+/// 2026-10-12): the certificate is read at the natural resolution and
+/// names the rung that places the corner the natural mesh crossed; each
+/// rung's refined mesh can cross a NEW corner — on a gear tooth, the next
+/// one along — with its own, tighter demand. P0039's natural demand is 2.24
+/// (inside the fixed `[2, 4]`), its d_ε/4 rung re-reads 14.6 at the next
+/// corner, and the op converges at d_ε/64, the ceiling; the fixed ladder
+/// ended at 4 and the STOP stood. The paper's procedure is "repeated if
+/// optimization failure persists" with termination guaranteed by
+/// convergence under refinement (`refs/text/yang2025_hybrid_boolean.txt:665-670`),
+/// so a failed rung is followed by the next one until the budget is spent —
+/// the fixed ladder is the FLOOR of that sequence, not its end. (P0015 had
+/// already established the same for a demand the ceiling cannot reach.)
 /// `YANG_452_ROUNDS=3,6,8` overrides everything for the census ladder that
 /// MEASURES the budget (spec §6).
 fn refine_452_rounds(under_resolution: Option<f64>) -> Vec<f64> {
-    if let Some(v) = std::env::var("YANG_452_ROUNDS")
+    refine_452_rounds_override().unwrap_or_else(|| refine_452_rounds_for(under_resolution))
+}
+
+/// `YANG_452_ROUNDS=3,6,8`: the census override of either ladder's rungs.
+fn refine_452_rounds_override() -> Option<Vec<f64>> {
+    std::env::var("YANG_452_ROUNDS")
         .ok()
         .map(|s| {
             s.split(',')
@@ -689,10 +704,6 @@ fn refine_452_rounds(under_resolution: Option<f64>) -> Vec<f64> {
                 .collect::<Vec<f64>>()
         })
         .filter(|v| !v.is_empty())
-    {
-        return v;
-    }
-    refine_452_rounds_for(under_resolution)
 }
 
 /// The pure half of [`refine_452_rounds`] (no environment): the ladder a
@@ -716,7 +727,9 @@ pub(crate) fn refine_452_rounds_for(under_resolution: Option<f64>) -> Vec<f64> {
             }
             rungs
         }
-        _ => REFINE_452_ROUNDS.to_vec(),
+        // No certificate, or one the fixed ladder already satisfies: the
+        // fixed ladder first, then on to the ceiling (P0039).
+        _ => refine_452_full_budget(),
     }
 }
 
@@ -1147,7 +1160,13 @@ fn refine_452_domain(
         return None;
     }
     let probe = std::env::var_os("YANG_452_PROBE").is_some();
-    let rounds = refine_452_rounds(None);
+    // The FIXED budget, deliberately: this ladder runs on ops that EMITTED
+    // (the natural body stands when no rung clears the fires), and the
+    // many-facet gear cases keep their fires at every rung — each rung is a
+    // whole op on a mesh twice as dense, paid by a case that is already
+    // CORRECT. The STOP ladder's run-to-the-ceiling rule (P0039) is for ops
+    // that have no body at all without it.
+    let rounds = refine_452_rounds_override().unwrap_or_else(|| REFINE_452_ROUNDS.to_vec());
     if probe {
         eprintln!(
             "[s452-domain] op={op:?} natural emitted with {natural_fires} boundary-domain \

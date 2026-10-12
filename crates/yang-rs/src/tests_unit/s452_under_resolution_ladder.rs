@@ -25,24 +25,85 @@ const R0085_TIGHTEST_CLEARANCE: f64 = 1.441027e-3;
 const R0085_STOP_SITE_CLEARANCE: f64 = 1.402243e-2;
 
 #[test]
-fn no_certificate_keeps_the_fixed_budget() {
-    assert_eq!(refine_452_rounds_for(None), REFINE_452_ROUNDS.to_vec());
+fn no_certificate_runs_the_fixed_budget_then_on_to_the_ceiling() {
+    // P0039 (2026-10-12): the fixed ladder is the FLOOR of the doubling
+    // sequence, never its end — a failed rung is followed by the next one
+    // until the budget is spent (the paper's "repeated if optimization
+    // failure persists").
+    let rungs = refine_452_rounds_for(None);
+    assert_eq!(rungs, P0015_FULL_LADDER.to_vec());
+    assert!(rungs.starts_with(REFINE_452_ROUNDS));
+    assert_eq!(rungs.last().copied(), Some(REFINE_452_MAX_FACTOR));
 }
 
 #[test]
-fn resolved_sites_keep_the_fixed_budget() {
+fn resolved_sites_start_the_fixed_budget() {
     // The STOP'd site alone reads 1.87 (the census prints its reciprocal,
-    // 0.535) — the fixed ladder's d_ε/2 already places its corner; the
-    // fixed ladder is the (unchanged) answer. Likewise any demand the fixed
-    // ladder's last rung already exceeds.
+    // 0.535) — the fixed ladder's d_ε/2 already places its corner, so the
+    // ladder starts there; likewise any demand the fixed ladder's last rung
+    // already exceeds, and a certificate that reads nothing.
     let own = R0085_D_EPS_FAR / R0085_STOP_SITE_CLEARANCE;
     assert!((own - 1.8688).abs() < 1e-3, "own ratio {own}");
-    assert_eq!(refine_452_rounds_for(Some(own)), REFINE_452_ROUNDS.to_vec());
-    assert_eq!(refine_452_rounds_for(Some(3.9)), REFINE_452_ROUNDS.to_vec());
-    assert_eq!(
-        refine_452_rounds_for(Some(f64::NAN)),
-        REFINE_452_ROUNDS.to_vec()
-    );
+    for demand in [own, 3.9, f64::NAN] {
+        let rungs = refine_452_rounds_for(Some(demand));
+        assert!(
+            rungs.starts_with(REFINE_452_ROUNDS),
+            "demand {demand}: {rungs:?}"
+        );
+        assert_eq!(rungs, P0015_FULL_LADDER.to_vec(), "demand {demand}");
+    }
+}
+
+/// P0039 (prospector seed 3 index 42, minimized 3 ops: a non-convex 9-gon
+/// boss, a circle boss, a 23-tooth gear boss; the gear's auto-union),
+/// measured 2026-10-12 in release with `YANG_452_PROBE=1
+/// YANG_452_ROUNDS=2,4,8,16,32,64`.
+///
+/// The gear's cap∩flank edge pierces the circle boss's cylinder (r
+/// 8.4678e-3, chord band d_ε = 2.654530e-4) 1.5e-4 below the cylinder's
+/// chord facet; the relocation along the edge runs 1.26e-4 PAST the tooth
+/// corner, which clears the cylinder by 1.185749e-4 — demand **2.24**,
+/// inside the fixed `[2, 4]` ladder. Each rung's denser cylinder mesh then
+/// crosses the NEXT corner along the tooth, with its own demand:
+///
+/// | rung | A tris | result |
+/// |---|---|---|
+/// | natural | 118 | `RelocationCrossedCarrierVertex` v139, demand 2.24 |
+/// | d_ε/2 | 170 | `LocalRefinementRequired` v149 |
+/// | d_ε/4 | 292 | `RelocationCrossedCarrierVertex` v161, demand **14.6** |
+/// | d_ε/8 | 474 | `RelocationCrossedCarrierVertex` v176, demand 7.3 |
+/// | d_ε/16 | 3002 | `LocalRefinementRequired` v237 |
+/// | d_ε/32 | 5824 | `LocalRefinementRequired` v285 |
+/// | **d_ε/64** | **11496** | **Ok, 9100 tris, unpaired 0, improper 0** |
+///
+/// The certificate read at the natural resolution names the rung that
+/// places the corner the NATURAL mesh crossed; it cannot see the corner the
+/// refined mesh will cross. So the fixed ladder ended at 4 and the STOP
+/// stood, while the ceiling rung converges (the un-minimized lineage,
+/// index 42, converges at the same rung). The ladder now runs on to the
+/// ceiling from wherever it starts.
+const P0039_D_EPS_FAR: f64 = 2.654530e-4;
+const P0039_CORNER_CLEARANCE: f64 = 1.185749e-4;
+const P0039_D_EPS4_REDEMAND: f64 = 14.596191765978551;
+const P0039_CONVERGING_RUNG: f64 = 64.0;
+
+#[test]
+fn p0039_demand_inside_the_fixed_ladder_still_reaches_the_ceiling() {
+    let demand = P0039_D_EPS_FAR / P0039_CORNER_CLEARANCE;
+    assert!((demand - 2.2387).abs() < 1e-3, "demand {demand}");
+    let rungs = refine_452_rounds_for(Some(demand));
+    // The fixed ladder first (the certificate is satisfied by d_ε/4) …
+    assert!(rungs.starts_with(REFINE_452_ROUNDS));
+    // … and then every rung to the ceiling, where the op converges.
+    assert_eq!(rungs, P0015_FULL_LADDER.to_vec());
+    assert!(rungs.contains(&P0039_CONVERGING_RUNG));
+    // The re-read demand at d_ε/4 (a different corner) names d_ε/64 on its
+    // own: 4 × the first power of two strictly above 14.6.
+    let mut g = 1.0;
+    while g <= P0039_D_EPS4_REDEMAND {
+        g *= 2.0;
+    }
+    assert_eq!(4.0 * g, P0039_CONVERGING_RUNG);
 }
 
 #[test]

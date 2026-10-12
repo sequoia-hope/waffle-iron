@@ -43,6 +43,67 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-12 (latest) — P0039 CONVERTED: the §4.5.2 STOP ladder ended at the fixed `[2, 4]` when the natural certificate was satisfied — each rung's denser mesh crossed the NEXT tooth corner, and the op converges at the ceiling
+
+**Anchor (`replay_waffle_env` on the un-minimized index-42 lineage,
+2026-10-12).** The lineage raised the signature verbatim (`Stage-4 relocation
+region around vertex 197 is invalid: RelocationCrossedCarrierVertex` on the
+gear's auto-union; the minimum reads v139), so the site was honest. The body
+A is a non-convex 9-gon boss ∪ a circle boss (cylinder A:7, r 8.4678e-3,
+Stage-1 chord band d_ε = 2.654530e-4); B is a 23-tooth gear boss (644-vertex
+profile, smallest segment 2.3862e-5). `YANG_S4_CARRIER_DOMAIN=census`: the
+gear's cap∩flank edge pierces the cylinder 1.5e-4 below its chord facet, the
+relocation along the edge travels 1.6258e-4 and crosses the still tooth
+corner v1200 {cap, flank 285, flank 286} by 1.2602e-4; the corner clears the
+cylinder by 1.185749e-4, demand **2.24**, inside the fixed `[2, 4]` ladder.
+The corner-transit planner's corrected triple {A:7, cap, 286} converges on the
+cap∩286 edge (t 0.9716, in-segment) but that edge is not corner-incident to
+v1200 (`q_end 1.19e-4` — the flank facets here are shorter than the overrun),
+so the plan is `NoRealCandidate`: Fig. 13's excluded shape, the paper's own
+hand-off to §4.5.2. The ladder ran d_ε/2 (`LocalRefinementRequired` v149) and
+d_ε/4 (`RelocationCrossedCarrierVertex` v161, re-read demand **14.6** at the
+NEXT corner along the tooth, clearance 4.5466e-6, whose real transit walks
+into `AmbiguousExit(5)`) and ended: `BUDGET EXHAUSTED`.
+
+**The measured ladder (`YANG_452_ROUNDS=2,4,8,16,32,64`).** d_ε/8 crosses a
+third corner (demand 7.3); d_ε/16 and d_ε/32 STOP `LocalRefinementRequired`;
+**d_ε/64 converges** — 9100 tris, 0 unpaired, 0 improper — and the case reads
+SUPPORTED_CORRECT on every oracle. The lineage walks the same ladder and
+converges at the same rung (volume 3.711713e-4). The certificate read at the
+natural resolution names the rung that places the corner the NATURAL mesh
+crossed; it cannot see the corner the refined mesh will cross. "The fixed
+ladder satisfies the demand" was true of the natural site and said nothing
+about the rungs the ladder stopped short of — the mirror image of P0015
+(2026-10-03), where a demand past the ceiling ran NO rung.
+
+**Fix (yang-rs `boolean.rs`, `refine_452_rounds_for`).** The
+no-certificate / satisfied-certificate arm now returns the whole doubling
+budget `[2, 4, 8, 16, 32, 64]`: the fixed ladder is the FLOOR of the
+sequence, never its end; the certificate still picks the START (R0085's
+18.19 ⇒ `[32, 64]` bit-for-bit) and nothing below the ceiling ends the ladder
+but convergence, the Q3 strict-decrease monitor or the budget — the paper's
+"repeated if optimization failure persists" (`refs/text/yang2025_hybrid_boolean.txt:665-670`).
+The boundary-domain ladder keeps its fixed `[2, 4]` deliberately (it runs on
+ops that EMITTED; the gear cases keep fires at every rung and would pay six
+whole ops each while CORRECT). Blast radius: only ops that failed BOTH fixed
+rungs change behaviour, and every such op previously failed its boolean —
+P0039 converts, P0026 (the adjudicated minted tangency) keeps
+`LocalRefinementRequired` at every rung including d_ε/64 and stays loud
+(2.8 s). Spec `yang_452_local_refinement` §11. Pins:
+`yang-rs/tests_unit/s452_under_resolution_ladder.rs`
+(`no_certificate_runs_the_fixed_budget_then_on_to_the_ceiling`,
+`resolved_sites_start_the_fixed_budget`,
+`p0039_demand_inside_the_fixed_ladder_still_reaches_the_ceiling`) and the
+smoke pin `("P0039", Category::SupportedCorrect)` — a kernel-v2 chain test is
+deliberately not added: the 644-vertex gear at six rungs is a release-only
+workload the CI smoke gate already runs.
+
+**Measured.** P0039 → SUPPORTED_CORRECT 54.6 s (six rungs, the last on an
+11 496-triangle cylinder operand; before: ERROR 6.8 s). P0026 → ERROR 2.8 s,
+unchanged text. Smoke pin flipped.
+
+**Corpus (release, 8 jobs, 900 s; wall 956.6 s): 338C / 0W / 8E / 5EE / 0T + 0 UNSUPPORTED over 351 — versus the 2026-10-12 (late) canonical exactly ONE move, P0039 ERROR → CORRECT, zero regressions, zero detail drift. The 8 ERROR rows: seven C-series walls + P0026 (the adjudicated minted tangency); the P-series tail is EMPTY.**
+
 ## 2026-10-12 (late) — P0038 CONVERTED: a cylinder lateral SHEARED past a full turn has no seam meridian — the chart is the universal cover
 
 **Anchor (`replay_waffle_env` on the un-minimized index-129 lineage;
@@ -964,7 +1025,7 @@ conversion moves it. Every one was re-judged under the corpus runner
 | ~~**P0036**~~ | #102, min 7→3 `convex4:boss circle:rev circle:cut` | 3 | `TessellationFailed "ring rejected by CDT (degenerate/self-intersecting)"`, `FaceId(51)` | the text of P0002 AND P0013, both CONVERTED — a third locus | ~~ERROR 0.4 s~~ **CONVERTED 2026-10-12 (later)** → SUPPORTED_CORRECT 0.7 s (neither family: the revolve cap's rim kept a Stage-1 chord vertex 3.4e-5 inside the exact cutter, and Stage 4 relocated the rim × cutter corner past it along the rim; the §4.5.3 overtake arm now reads carried conic runs — spec `yang_453_line_overtake` §6; see the 2026-10-12 (later) section) |
 | ~~**P0037**~~ | #189, min 5→3 `circle:boss circle:cut convex4:boss` | 3 | input rejection `Stage-1 mesh of one operand self-intersects: 17 improper triangle contact(s) (0 unresolved; first between faces 0 and 2) after 4 refinement round(s)` | a face's chord band reaches another face of the SAME solid | ~~ERROR 1.1 s~~ **CONVERTED 2026-10-12 (night)** → SUPPORTED_CORRECT 2.7 s (a 0.1 lens between the cut's cap plane and the boss wall; the guard halved the rim N while the chart path's census bound stayed at the operand budget — a cylinder lateral now halves its chart bound, spec `yang_stage1_self_contact_guard` §7; see the 2026-10-12 (night) section) |
 | ~~**P0038**~~ | #129, min 8→4 `convex4:boss convex4:boss circle:boss convex4:cut` | 4 | `malformed B-Rep topology: face 328: bounded lateral patch spans 6.9927 rad of azimuth unwrapped (≥ 2π): no seam wedge for a single-sheet unroll` | a cylinder patch whose own boundary wraps past a full turn | ~~ERROR 7.8 s~~ **CONVERTED 2026-10-12 (late)** → SUPPORTED_CORRECT 4.6 s (a SHEARED band between two oblique prisms — its complement wedge rotates 290° from rim to rim, so no generator meridian misses it, yet every latitude meets it in under a turn; the chart is now the universal cover, spec `yang_stage1_curved_holed_patch` §"Slice I"; see the 2026-10-12 (late) section) |
-| **P0039** | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ERROR 10.2 s |
+| ~~**P0039**~~ | #42, min 7→3 `nonconvex9:boss circle:boss gear23:boss` | 3 | `RelocationCrossedCarrierVertex` | `stage4_correct.rs:8605` — P0015's error text (CONVERTED 2026-10-03 evening by letting the §4.5.2 ladder run past its ceiling) with a residual customer on the AUTO-UNION path | ~~ERROR 10.2 s~~ **CONVERTED 2026-10-12 (latest)** → SUPPORTED_CORRECT 54.6 s (the natural certificate's demand 2.24 sat inside the fixed `[2, 4]` ladder, but each rung crossed the NEXT tooth corner — 14.6 at d_ε/4 — and the op converges at d_ε/64; the STOP ladder now runs from wherever it starts to the ceiling, spec `yang_452_local_refinement` §11; see the 2026-10-12 (latest) section) |
 
 **Adjudication, per case** (spec §8): each minimum re-judged on the current
 kernel; its smallest authored 2D segment measured against `MIN_FEATURE_SIZE`;

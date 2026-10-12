@@ -887,3 +887,118 @@ body and its cost, so it is NOT touched here. The honest next measurement is
 R0085 under `YANG_452_ROUNDS=2,4,8,16,32` with the per-rung verdicts recorded;
 if a cheaper rung converges, the skip becomes a start HINT (try the cheap
 rungs first, then jump) rather than a skip.
+
+## 11. The fixed ladder is the FLOOR of the doubling sequence, not its end (2026-10-12) — P0039 CONVERTS at `d_ε/64` with a natural demand of 2.24
+
+### 11.1 The site, measured (`YANG_S4_CARRIER_DOMAIN=census`, release; anchored first on the un-minimized seed-3 index-42 lineage, which raised the signature verbatim at v197)
+
+P0039 (prospector seed 3 index 42, minimized 7→3: `nonconvex9:boss
+circle:boss gear23:boss`, scale 4.46e-2). The third op auto-unions a 23-tooth
+gear boss B (644-vertex profile, smallest segment 2.3862e-5) with the body A
+= a non-convex 9-gon boss ∪ a circle boss (cylinder A:7, r 8.4678e-3, axis
++z, Stage-1 chord band `d_ε = 2.654530e-4`). The §4-I9 STOP names traveller
+v139 {A:7, B:1 cap, B:285 flank}: the gear's cap∩flank edge pierces the
+cylinder 1.5e-4 below its chord facet, the relocation along the edge runs
+1.6258e-4 and crosses the still tooth corner q = v1200 {B:1, B:285, B:286} by
+1.2602e-4. The corner clears the cylinder by `|d_far(q)| = 1.185749e-4`, so
+the certificate reads **2.24** — inside the fixed `[2, 4]` ladder. The
+corner-transit planner finds the corrected triple {A:7, B:1, B:286} converged
+6.2e-6 from the post position, in the next face's hull, on the cap∩286 edge
+(t 0.9716) — but that edge is not corner-incident to v1200 (`q_end 1.19e-4`:
+the gear's flank facets here are shorter than the overrun), so the plan is
+`NoRealCandidate`, Fig. 13's excluded shape (a boundary point gliding past a
+corner where more than two surfaces meet) and the paper's own hand-off to
+§4.5.2.
+
+### 11.2 The ladder, measured (`YANG_452_PROBE=1 YANG_452_ROUNDS=2,4,8,16,32,64`, release)
+
+| rung | A tris | result |
+|---|---|---|
+| natural | 118 | `RelocationCrossedCarrierVertex` v139, demand 2.24 |
+| d_ε/2 | 170 | `LocalRefinementRequired` v149 |
+| d_ε/4 | 292 | `RelocationCrossedCarrierVertex` v161, demand **14.60** (the NEXT corner along the tooth, clearance 4.5466e-6; its transit plan is REAL on the cap∩286 edge but the walk ends `AmbiguousExit(5)` — `assembly declines: 1`) |
+| d_ε/8 | 474 | `RelocationCrossedCarrierVertex` v176, demand 7.30 |
+| d_ε/16 | 3002 | `LocalRefinementRequired` v237 |
+| d_ε/32 | 5824 | `LocalRefinementRequired` v285 |
+| **d_ε/64** | **11496** | **Ok, 9100 tris, unpaired 0, improper 0** |
+
+The un-minimized lineage walks the same ladder (d_ε/2 demand 29.19, d_ε/4
+14.60, then three `LocalRefinementRequired` rungs) and converges at the same
+rung, volume 3.711713e-4, every oracle passing.
+
+### 11.3 What the fixed `[2, 4]` was, and why it ended the ladder here
+
+§8.3's first clause — *no certificate, or one the fixed ladder already
+satisfies ⇒ the fixed `[2, 4]`* — was an ECONOMY read from R0050 (§6.3: d_ε/4
+resolved it, d_ε/8 opened a new wall on a denser torus chart). It also made
+the fixed ladder the END of the sequence for that bucket, while a demand of
+4.5 ran `[8, 16, 32, 64]` and a demand of 159 (P0015, §10) ran the whole
+budget. The certificate is read at the NATURAL resolution and names the rung
+that places the corner the natural mesh crossed; it cannot see the corner the
+refined mesh will cross. On a gear tooth the refined cylinder mesh crosses the
+next corner along, with its own clearance — P0039's d_ε/4 re-reads 14.6 — so
+"the fixed ladder satisfies the demand" is true of the natural site and says
+nothing about the rungs the ladder stops short of. §10.5 recorded the mirror
+image of this (the skip of rungs BELOW a demand is not a futility proof
+either); P0039 is the first customer of the clause above.
+
+### 11.4 The change
+
+`refine_452_rounds_for`: the no-certificate / satisfied-certificate arm
+returns `refine_452_full_budget()` — `[2, 4, 8, 16, 32, 64]`. The certificate
+still chooses the START (R0085's 18.19 ⇒ `[32, 64]`, unchanged bit-for-bit;
+P0015's 159 ⇒ the full budget, unchanged); nothing below the ceiling ends the
+ladder but convergence, the Q3 strict-decrease monitor, or the budget. The
+paper's loop: *"The above procedures are repeated if optimization failure
+persists. The algorithm is guaranteed to terminate since the mesh
+intersections converge to the spline surface intersections under refinement"*
+(`refs/text/yang2025_hybrid_boolean.txt:665-670`).
+
+The boundary-domain ladder (`refine_452_domain`, §8 of the certificate spec
+and P0031's local form) keeps the fixed `[2, 4]` DELIBERATELY — it runs on ops
+that EMITTED (the natural body stands when no rung clears the fires), and the
+many-facet gear cases keep their fires at every rung, so each extra rung
+there is a whole op on a twice-denser mesh paid by a CORRECT case. The split
+is explicit in the code (`refine_452_rounds_override` is the shared census
+knob).
+
+Not a band: no threshold moved, no acceptance widened; a rung is adopted only
+when it emits a watertight 2-manifold body and every downstream gate applies
+unchanged.
+
+**Blast radius.** Only ops whose natural `Stage4RegionInvalid` ran the fixed
+ladder and FAILED both rungs change behaviour — every such op previously
+failed its boolean, so no SUPPORTED_CORRECT case is in the bucket; a case
+that converged at d_ε/2 or d_ε/4 returns there as before. The known members
+are P-series rows: P0039 (converts) and P0026, the adjudicated minted
+tangency, which keeps `LocalRefinementRequired` at every rung including
+d_ε/64 and keeps its STOP (2.8 s — the rungs are cheap on 52-triangle
+operands). None of the seven canonical C-series ERRORs carries a
+`Stage4RegionInvalid`.
+
+### 11.5 Measurements
+
+- P0039 single case (release): **ERROR 6.8 s → SUPPORTED_CORRECT 54.6 s**
+  (six rungs, the last on an 11 496-triangle cylinder operand). The index-42
+  lineage converts with it.
+- P0026 single case (release): ERROR 2.8 s, the same `LocalRefinementRequired`
+  STOP at v19 — the adjudicated tangency stays loud.
+- Pins: `tests_unit/s452_under_resolution_ladder.rs` —
+  `no_certificate_runs_the_fixed_budget_then_on_to_the_ceiling`,
+  `resolved_sites_start_the_fixed_budget`,
+  `p0039_demand_inside_the_fixed_ladder_still_reaches_the_ceiling` (the
+  measured demands; the d_ε/4 re-read names d_ε/64 on its own). The smoke pin
+  `("P0039", Category::SupportedCorrect)` is the case-level RED→GREEN; a
+  kernel-v2 chain test is deliberately NOT added — the 644-vertex gear at six
+  rungs is a release-only workload the CI smoke gate already runs.
+- Corpus (release, 8 jobs, 900 s; wall 956.6 s): 338C / 0W / 8E / 5EE / 0T + 0 UNSUPPORTED over 351 — versus the 2026-10-12 (late) canonical exactly ONE move, P0039 ERROR → CORRECT, zero regressions, zero detail drift. The 8 ERROR rows: seven C-series walls + P0026 (the adjudicated minted tangency); the P-series tail is EMPTY..
+
+### 11.6 Open, recorded rather than changed
+
+The re-read certificate at a failed rung is informative about the NEXT start:
+P0039's d_ε/4 demand of 14.6 names 4 × 16 = d_ε/64 directly, which would skip
+three rungs (/8, /16, /32 — ~20 s of the 55 s). That economy (re-plan from the
+fresh certificate) is the dynamic form of §8.3's skip and inherits §10.5's
+caveat (a skipped rung may be the cheaper converging one). Not taken: the
+step-by-step loop is the paper's literal procedure and the cost is paid only
+by ops that have no body without it.
