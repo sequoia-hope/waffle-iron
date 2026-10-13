@@ -117,12 +117,12 @@ its lineage.
 | index 32 `GeomRef resolution failed: Output key Main not found` (`convex4:boss circle:cut convex4:∩ convex4:−`) | the known harness hole: a disjoint Intersect annihilates the body silently and the next op references it (seeds 1–4) |
 | index 166 `yang-rs rejected the converted input B-Rep: face 0 is degenerate (zero-area / collinear)` (min `star7(0.14):boss convex7:cut convex4:cut`, scale 4.7e-3) | the **A14.2 INPUT feature-floor wall**, one op late: the first cut's plane passes 1.77e-6 from a star needle's tip and the exact result includes that tip as a sliver body (`YANG_BREP_PROBE`: op-2 output face f7 = three vertices 1.87e-6 / 2.7e-7 / 1.9e-6 apart, area ≈ 2.5e-13 m² < `MIN_FEATURE_SIZE²`); the body splitter makes it a body and the NEXT cut rejects it as input (Stage 1's absolute floor, `stage1_tessellate.rs`). Identical on the lineage; ×1e3 CORRECT, ×1e-3 `NonPlanarFace` — a floor shape. Whether a boolean should EMIT a sub-floor body is a design call (the paper has no floor); today's loud STOP is the contract. |
 | index 37 TIMEOUT (`convex5:boss nonconvex6:boss convex6:boss gear24:rev nonconvex6:∪`, 5 ops, 2 examples) | unbudgeted it completes in **366 s wall** as an ERROR with a NEW text: `boolean_union TessellationFailed { face 1378, "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps)" }` (cherchi-rs runs rayon, so CPU exceeds wall and the 900 s budget). The minimizer kept nothing because the report's signature was `timeout`; every rounding that finished read the same NEW text or CORRECT. Re-minimize against that signature (a report row rewritten to it, `PROSPECT_REDO=1 PROSPECT_SIGNATURE=…`) before promoting — a 366 s case would read TIMEOUT in the corpus. |
-| index 44 TIMEOUT (build phase, `steps: 0`, no document materialized) | regenerated unbudgeted (`PROSPECT_INDEX=44 prospect_judge`): see the addendum below when it completes |
+| index 44 TIMEOUT (build phase, `steps: 0`, no document materialized) | regenerated and judged unbudgeted (`PROSPECT_INDEX=44 prospect_judge`): **SUPPORTED_CORRECT in 2627 s wall** — 3 ops `nonconvex8:boss gear20:rev circle:boss`, scale 9.8, a 20-tooth gear REVOLVE; the seed-4 index-64 shape, an honest CORRECT whose cost exceeds the budget by a wide margin (the gear revolve's cost is itself worth a look, but it is not a finding) |
 | index 95 `wrong[exact_volume]`, index 39 `wrong[volume_magnitude]` | above — the kernel is right in both |
 
 The fresh-geometry ERROR rate by seed (same generator): **30 → 10.5 → 16 → 7 →
-5 %**, the honest seed-5 histogram being 185 C / 11 E / 3 W / 1 T once index
-37 is read unbudgeted.
+5 %**, the honest seed-5 histogram being **186 C / 11 E / 3 W / 0 T** once both
+TIMEOUT rows are read unbudgeted (index 37 an ERROR, index 44 a CORRECT).
 
 ## 2026-10-13 (later) — P0040 GENERALIZED to every planar conic (the crease's OTHER surface is the divider); the crease index's neighbour pairing was blind on real outputs; prospector SEED 5: 185 C / 10 E / 3 W / 2 T; canonical 340C / 0W / 19E / 5EE / 0T over 364, byte-identical
 
