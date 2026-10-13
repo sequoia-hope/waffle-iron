@@ -280,8 +280,14 @@ Do NOT skip to lower-priority items because they are easier.
    got two "bodies" and the second cut, sharing the cavity's floor and
    ceiling planes, ran against the inside-out cavity shell alone — the
    seed-4 WRONG rows' vertex-proxy mechanism with a kernel customer; the
-   splitter now clusters by `introspect::conservative_shell_aabb`, spec
-   `kv2_multishell_boolean_operands.md` Amendment 2; canonical corpus
+   splitter now clusters by ORIENTATION and CONTAINMENT — an outward shell
+   is a body, a void files with the innermost lump whose
+   `introspect::conservative_shell_aabb` contains its own; the interim
+   box-OVERLAP rule glued R0052's two disjoint lumps into one body and CI's
+   render-view parity golden caught it — spec
+   `kv2_multishell_boolean_operands.md` Amendments 2 + 3 (re-measured
+   2026-10-13 after Amendment 3: the same score, wall 943.6 s, one detail
+   drift — P0046's face id, its severed boss now two bodies); canonical corpus
    **340C / 0W / 19E / 5EE / 0T over 364** (wall 973.2 s) — versus 339C / 0W / 20E exactly ONE move, P0041 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 19 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0042–P0052).
    **The open P-series ERROR tail is P0042–P0052** (seed 4; P0001–P0041
    CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness

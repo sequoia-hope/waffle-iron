@@ -201,12 +201,11 @@ pub fn conservative_aabb(arena: &BrepArena, solid: SolidId) -> Result<Option<Aab
 /// its B-Rep vertices. The distinction matters for a curved shell: a plain
 /// cylinder's B-Rep carries exactly two vertices, both on its seam, so its
 /// vertex hull is a line segment that misses almost all of the solid. The
-/// body splitter ([`crate::split_solid_into_bodies`]) clusters shells by
-/// this box so an internal void — whose box nests inside its lump's — stays
-/// with the lump (P0041, 2026-10-12: a square cavity sunk into a cylinder
-/// boss was split off as its own "body" because the cylinder's vertex hull
-/// was its seam, and the next cut ran against the inside-out cavity shell
-/// alone).
+/// body splitter ([`crate::split_solid_into_bodies`]) files each void with
+/// the innermost lump whose box of this kind CONTAINS the void's (P0041,
+/// 2026-10-12: a square cavity sunk into a cylinder boss was split off as
+/// its own "body" because the cylinder's vertex hull was its seam, and the
+/// next cut ran against the inside-out cavity shell alone).
 ///
 /// `None` as for the solid: an edge carrying an unbounded-bulge curve.
 pub fn conservative_shell_aabb(

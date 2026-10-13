@@ -687,6 +687,25 @@ pub(crate) fn mesh_bounds(
     Ok((lo, hi))
 }
 
+/// The signed volume ONE shell encloses, by the face integrators Q3 uses (the
+/// exact arm where a face has one, its render triangles otherwise). Positive
+/// for an outward-oriented shell — a lump — and negative for an inward one —
+/// a void. The body splitter ([`crate::split_solid_into_bodies`]) reads the
+/// SIGN; the magnitude is at the mesh tier whenever a face fell through to
+/// triangles, which a sign survives for any shell thicker than its chord band.
+pub(crate) fn shell_signed_volume(
+    arena: &BrepArena,
+    shell: crate::arena::ShellId,
+) -> Result<f64, KernelV2Error> {
+    let mut acc = Moments::default();
+    for &f in &arena.shell(shell)?.faces {
+        if !try_exact_face(arena, f, &mut acc)? {
+            mesh_face(arena, f, &mut acc)?;
+        }
+    }
+    Ok(acc.v)
+}
+
 /// The bounding-box diagonal — the `extent` the documented chord band
 /// `d_ε(r) = rel · r` is relative to.
 pub(crate) fn diagonal(lo: [f64; 3], hi: [f64; 3]) -> f64 {

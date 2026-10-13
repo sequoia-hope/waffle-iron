@@ -522,7 +522,11 @@ budget (1341 s wall unbudgeted), so the honest histogram is 183 C / 14 E /
    floor and ceiling squares kept their edges used once. Converted
    2026-10-12 by clustering on the shell's conservative box
    (`introspect::conservative_shell_aabb`, spec
-   `kv2_multishell_boolean_operands.md` Amendment 2). A `boolean_subtract`
+   `kv2_multishell_boolean_operands.md` Amendment 2) — and the next day's CI
+   showed box OVERLAP to be the proxy's other half (R0052's two disjoint
+   lumps became one body): the splitter now reads ORIENTATION (an outward
+   shell is a body) and files each void with the innermost lump whose box
+   CONTAINS it (Amendment 3). A `boolean_subtract`
    STOP whose A-side input (`KV2_PLANE_TRACE=1`) shows a handful of planar
    faces with inward normals and no cap of the body is this shape; the
    `KV2_SHELL_CONTACT_PROBE=1` census printing TWO subtracts for one engine

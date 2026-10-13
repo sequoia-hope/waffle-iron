@@ -177,3 +177,45 @@ a 6000-column integration) within 5e-4. The disjoint-lump tests of this spec
 are unchanged (boxes of planar solids ARE their vertex hulls). Corpus: P0041
 ERROR → SUPPORTED_CORRECT 0.9 s; its un-minimized 8-op lineage completes.
 
+
+## Amendment 3 (2026-10-13) — a body is an OUTWARD shell; a void files with the lump whose box contains it
+
+**Finding (CI on the Amendment 2 push, `render_view_parity`).** With honest
+boxes, box-OVERLAP union-find glued two disjoint lumps into one body: R0052 is
+a gear revolve beside an oblique gear extrude that never meet, and their
+conservative boxes overlap although their vertex hulls had not. The render-view
+parity golden pinned R0052 at two bodies and went red at one. Amendments 2 and
+3 are the same defect seen from both sides: box overlap only approximates
+containment in one direction, and the vertex hull approximated the box in the
+other. The corpus did not move (the assay checks volume, not body count); the
+body count is a render-view and engine-body fact.
+
+**Rule.** `split_solid_into_bodies` clusters by ORIENTATION and CONTAINMENT
+(`shell_body_clusters`):
+
+1. A shell whose signed volume is positive (`mass::shell_signed_volume` — the
+   Q3 face integrators, exact where a face has an exact arm, render triangles
+   otherwise; only the sign is read) is a LUMP and a body of its own.
+2. A shell whose signed volume is not positive is a VOID. A valid solid
+   encloses every void in some lump, so the void's extent lies inside that
+   lump's and its box inside the lump's conservative box
+   (`introspect::conservative_shell_aabb`). The void files with the innermost
+   such lump — the smallest containing box — which places a matryoshka
+   (lump ⊃ void ⊃ lump) correctly.
+3. Never over-split: a void no lump's box contains (its own box
+   over-estimated by a conic edge's full circle) files with the lump whose
+   box overlaps it most, then with the first lump; a shell with no cheap bound
+   (`None`) is treated as contained by and containing everything; a solid with
+   no outward shell is one body.
+
+Bodies come out in the order their lumps appear in the solid's shell list.
+
+**Oracles.** kernel-v2 `tests/disjoint_body_split.rs`:
+`disjoint_lumps_with_overlapping_boxes_are_two_bodies` (a cylinder and a block
+tucked into its box corner outside the disc → 2 bodies; RED under Amendment 2's
+box overlap) and `a_void_files_with_its_enclosing_lump_not_an_overlapping_neighbour`
+(the same with a cavity whose box reaches the block's → the cavity stays with
+the cylinder, `[2, 1]` shells, exact voided volume). The Amendment 2 pins
+(`void_shell_stays_with_its_lump.rs`) and the Amendment 1 operand oracles are
+unchanged and green. `wasm-bridge/tests/render_view_parity.rs` green again
+with the unchanged golden (R0052 back to two bodies).

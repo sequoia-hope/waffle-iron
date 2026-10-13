@@ -850,80 +850,101 @@ fn record_evolution_from_sources(
     });
 }
 
-/// Cluster shells by AABB overlap (closed intervals — touching boxes also
-/// cluster; conservative). Returned in deterministic (union-find root)
-/// order. Shared by [`split_solid_into_bodies`] (body decomposition) and
-/// `boolean_op`'s operand admission (spec `kv2_multishell_boolean_operands`):
-/// a cluster of ≥2 shells is either a lump with an internal void (nested
-/// AABBs) or interlocking lumps — both stay behind the typed multi-shell
-/// wall, while singleton clusters are freely re-enterable disjoint lumps.
-fn shell_aabb_clusters(
+/// Cluster a solid's shells into BODIES: one cluster per outward shell (a
+/// lump), each inward shell (a void) filed with the innermost lump whose
+/// conservative box contains its own. Returned in the order the lumps appear
+/// in `shells` (deterministic).
+///
+/// Orientation, not box overlap, is the criterion (spec
+/// `kv2_multishell_boolean_operands` Amendment 3). A void is a shell whose
+/// signed volume is negative — `mass::shell_signed_volume`, the exact arm
+/// where a face has one and render triangles otherwise — and a valid solid
+/// encloses every void in some lump, so the void's extent lies inside that
+/// lump's and its box inside the lump's conservative box
+/// (`introspect::conservative_shell_aabb`, a bound of the surface). Two
+/// outward shells are two bodies no matter how their boxes sit: a gear
+/// revolve and an oblique gear extrude that never meet have overlapping
+/// boxes (R0052), and the earlier box-overlap union-find glued them into
+/// one body once the boxes became honest (Amendment 2). Before that the
+/// boxes were vertex hulls and under-covered curved shells, so a cavity in
+/// a cylinder boss clustered with nothing (P0041). Both were the same
+/// mistake — reading containment off a proxy that only approximates it in
+/// one direction.
+///
+/// The splitter's standing rule is never to OVER-split: a void whose box no
+/// lump's box contains (a void box over-estimated by a conic edge's full
+/// circle) goes to the lump whose box overlaps it most, then to the first
+/// lump; a shell with no cheap bound (`None`) is treated as contained by and
+/// containing everything; a solid with no outward shell at all is one body.
+fn shell_body_clusters(
     arena: &BrepArena,
     shells: &[ShellId],
 ) -> Result<Vec<Vec<ShellId>>, KernelV2Error> {
-    // Per-shell CONSERVATIVE AABB (`introspect::conservative_shell_aabb`):
-    // the box of the SURFACE the shell bounds, not of its B-Rep vertices. A
-    // vertex hull under-covers every curved shell — a plain cylinder has two
-    // vertices, both on its seam, so its hull is a segment on the lateral
-    // and a cavity sunk into the cylinder clustered with nothing (P0041,
-    // 2026-10-12: the void became its own "body" and the next cut ran
-    // against the inside-out cavity shell alone). A shell without a cheap
-    // bound (`None`: an unbounded-bulge edge curve) overlaps everything —
-    // the splitter's rule is never to over-split.
-    let mut boxes: Vec<Option<([f64; 3], [f64; 3])>> = Vec::with_capacity(shells.len());
-    for &sh in shells {
+    type Bx = Option<([f64; 3], [f64; 3])>;
+    let mut boxes: Vec<Bx> = Vec::with_capacity(shells.len());
+    let mut lumps: Vec<usize> = Vec::new();
+    let mut voids: Vec<usize> = Vec::new();
+    for (i, &sh) in shells.iter().enumerate() {
         boxes.push(crate::introspect::conservative_shell_aabb(arena, sh)?);
+        if crate::mass::shell_signed_volume(arena, sh)? > 0.0 {
+            lumps.push(i);
+        } else {
+            voids.push(i);
+        }
+    }
+    if lumps.is_empty() {
+        return Ok(vec![shells.to_vec()]);
     }
 
-    // Union-find: cluster shells whose AABBs overlap (closed intervals, so
-    // touching boxes also cluster — conservative).
-    let n = shells.len();
-    let mut parent: Vec<usize> = (0..n).collect();
-    fn find(parent: &mut [usize], mut i: usize) -> usize {
-        while parent[i] != i {
-            parent[i] = parent[parent[i]];
-            i = parent[i];
-        }
-        i
-    }
-    let overlap = |a: &Option<([f64; 3], [f64; 3])>, b: &Option<([f64; 3], [f64; 3])>| match (a, b)
-    {
-        (Some(a), Some(b)) => (0..3).all(|k| a.1[k] >= b.0[k] && b.1[k] >= a.0[k]),
+    let contains = |outer: &Bx, inner: &Bx| match (outer, inner) {
+        (Some(o), Some(i)) => (0..3).all(|k| o.0[k] <= i.0[k] && i.1[k] <= o.1[k]),
         _ => true,
     };
-    for i in 0..n {
-        for j in (i + 1)..n {
-            if overlap(&boxes[i], &boxes[j]) {
-                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-                if ri != rj {
-                    parent[ri] = rj;
-                }
-            }
-        }
-    }
+    let box_volume = |b: &Bx| match b {
+        Some(b) => (0..3).map(|k| (b.1[k] - b.0[k]).max(0.0)).product::<f64>(),
+        None => f64::INFINITY,
+    };
+    let overlap_volume = |a: &Bx, b: &Bx| match (a, b) {
+        (Some(a), Some(b)) => (0..3)
+            .map(|k| (a.1[k].min(b.1[k]) - a.0[k].max(b.0[k])).max(0.0))
+            .product::<f64>(),
+        _ => f64::INFINITY,
+    };
 
-    // Group shells by cluster root (BTreeMap → deterministic order).
-    let mut groups: BTreeMap<usize, Vec<ShellId>> = BTreeMap::new();
-    for (i, &sh) in shells.iter().enumerate() {
-        let r = find(&mut parent, i);
-        groups.entry(r).or_default().push(sh);
+    let mut groups: Vec<Vec<ShellId>> = lumps.iter().map(|&i| vec![shells[i]]).collect();
+    for &v in &voids {
+        // The innermost enclosing lump: smallest containing box.
+        let enclosing = lumps
+            .iter()
+            .enumerate()
+            .filter(|(_, &l)| contains(&boxes[l], &boxes[v]))
+            .min_by(|(_, &a), (_, &b)| box_volume(&boxes[a]).total_cmp(&box_volume(&boxes[b])))
+            .map(|(g, _)| g);
+        let host = enclosing.unwrap_or_else(|| {
+            lumps
+                .iter()
+                .enumerate()
+                .map(|(g, &l)| (g, overlap_volume(&boxes[l], &boxes[v])))
+                .filter(|&(_, ov)| ov > 0.0)
+                .max_by(|a, b| a.1.total_cmp(&b.1))
+                .map_or(0, |(g, _)| g)
+        });
+        groups[host].push(shells[v]);
     }
-    Ok(groups.into_values().collect())
+    Ok(groups)
 }
 
-/// Decompose a solid into separate body solids by grouping its shells into
-/// spatially-disjoint clusters. Two shells whose axis-aligned bounding boxes
-/// overlap go in the same cluster — so a void shell (its AABB nested inside the
-/// lump's) stays with its lump, while genuinely disjoint lumps (e.g. a union of
-/// far-apart bosses) separate. Returns the original `solid` first (rewritten to
-/// hold the first cluster's shells), then one fresh solid per additional
-/// cluster.
+/// Decompose a solid into separate body solids: one body per outward shell
+/// (a lump), each void shell filed with the lump that encloses it
+/// (`shell_body_clusters`). Returns the original `solid` first (rewritten to
+/// hold the first body's shells), then one fresh solid per additional body.
 ///
-/// Returns `vec![solid]` unchanged when there is ≤1 shell or every shell
-/// clusters together (one body, possibly with internal voids). AABB-overlap
-/// clustering is deliberately conservative: it never over-splits (two truly
-/// disjoint lumps with overlapping boxes stay one body) — under-splitting is a
-/// benign display artifact, over-splitting would invent bodies.
+/// Returns `vec![solid]` unchanged when there is ≤1 shell or every shell is
+/// one body (one lump, possibly with internal voids). The splitter never
+/// over-splits — a void it cannot place by containment stays with a lump —
+/// because under-splitting is a display artifact while over-splitting
+/// invents bodies, and a void handed to the engine as a body of its own is
+/// the operand of its next boolean inside-out (P0041).
 pub fn split_solid_into_bodies(
     arena: &mut BrepArena,
     solid: SolidId,
@@ -933,7 +954,7 @@ pub fn split_solid_into_bodies(
         return Ok(vec![solid]);
     }
 
-    let groups = shell_aabb_clusters(arena, &shells)?;
+    let groups = shell_body_clusters(arena, &shells)?;
     if groups.len() <= 1 {
         return Ok(vec![solid]);
     }

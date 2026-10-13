@@ -84,6 +84,25 @@ centre box); a shell with no cheap bound (an unbounded-bulge edge curve)
 overlaps everything — the splitter never over-splits. Spec
 `kv2_multishell_boolean_operands.md` Amendment 2; prospector spec §8 lesson 4.
 
+**Follow-up (2026-10-13, CI on the push).** The honest boxes exposed the other
+half of the proxy: box OVERLAP union-find glued two DISJOINT lumps into one
+body once their boxes were real — R0052 (a gear revolve beside an oblique gear
+extrude that never meet) went from two bodies to one, and the wasm-bridge
+`render_view_parity` golden caught it (the corpus did not move: the assay
+checks volume, not body count). The splitter now clusters by ORIENTATION and
+CONTAINMENT: an outward shell (`mass::shell_signed_volume` > 0) is a body; a
+void files with the innermost lump whose conservative box contains its own;
+never over-split (an unplaceable void stays with the lump it overlaps most).
+Spec Amendment 3; pins `disjoint_body_split.rs` (two new, one RED under box
+overlap); parity golden unchanged and green. Corpus re-measured: **340C / 0W /
+19E / 5EE / 0T over 364** (wall 943.6 s), zero category moves, one detail
+drift — P0046's `FaceId(60)` → `FaceId(82)` in the same `ring rejected by CDT`
+text: its convex3 cut severs the boss into two outward pieces, which box
+overlap had kept as one body and orientation now makes two, so the circle
+boss auto-union runs three times (`KV2_SHELL_CONTACT_PROBE=1`: two `Clear`
+disjoint sums and the one `Contact` union that STOPs) and the STOP's arena
+numbering moved with it; same site, same class.
+
 **Measured.** With the void kept with its boss the second subtract sees the
 2-shell operand (`A [Contact, Contact] B [Contact]`), yang's cavity-agnostic
 in/out labelling opens the cavity into the cut, and P0041 reads
