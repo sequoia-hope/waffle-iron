@@ -4205,69 +4205,93 @@ fn repair_fan_cluster(
                     return bail("keep-interior CDT failed");
                 }
             };
-            // Winding: align to the region's pre-repair net orientation.
-            let dir_at = |g: &[u32; 3]| -> [f64; 3] {
-                match surf {
-                    Surface::Plane { normal, .. } => normal.as_array(),
-                    Surface::Cylinder {
-                        axis_point,
-                        axis_dir,
-                        ..
-                    } => {
-                        let ap = axis_point.as_array();
-                        let ax = normalize3(axis_dir.as_array());
-                        let c = [
-                            (mesh.verts[g[0] as usize].x()
-                                + mesh.verts[g[1] as usize].x()
-                                + mesh.verts[g[2] as usize].x())
-                                / 3.0
-                                - ap[0],
-                            (mesh.verts[g[0] as usize].y()
-                                + mesh.verts[g[1] as usize].y()
-                                + mesh.verts[g[2] as usize].y())
-                                / 3.0
-                                - ap[1],
-                            (mesh.verts[g[0] as usize].z()
-                                + mesh.verts[g[1] as usize].z()
-                                + mesh.verts[g[2] as usize].z())
-                                / 3.0
-                                - ap[2],
-                        ];
-                        let z = c[0] * ax[0] + c[1] * ax[1] + c[2] * ax[2];
-                        [c[0] - z * ax[0], c[1] - z * ax[1], c[2] - z * ax[2]]
-                    }
-                    _ => [0.0, 0.0, 0.0],
-                }
+            // Winding: align to the region's pre-repair net orientation,
+            // measured against the SURFACE's own normal field at each
+            // triangle's centroid (`surface_normal_at` — the gradient, every
+            // surface type the chart admits). P0059 (2026-10-13): the previous
+            // per-type reference direction had Plane and Cylinder arms only
+            // and read ZERO on a cone, so both rebuilt cone regions kept the
+            // 2D CDT's chart winding — against the cone — and Stage 6's
+            // boundary walk met two edges head-on at the next ridge vertex.
+            // A reference the surface cannot supply (an undefined gradient, or
+            // a region whose net orientation is exactly zero) is a bail, never
+            // an unoriented emission.
+            let centroid = |g: &[u32; 3]| -> cad_primitives::Point3 {
+                cad_primitives::Point3::new(
+                    (mesh.verts[g[0] as usize].x()
+                        + mesh.verts[g[1] as usize].x()
+                        + mesh.verts[g[2] as usize].x())
+                        / 3.0,
+                    (mesh.verts[g[0] as usize].y()
+                        + mesh.verts[g[1] as usize].y()
+                        + mesh.verts[g[2] as usize].y())
+                        / 3.0,
+                    (mesh.verts[g[0] as usize].z()
+                        + mesh.verts[g[1] as usize].z()
+                        + mesh.verts[g[2] as usize].z())
+                        / 3.0,
+                )
             };
-            let mut ref_sign = 0.0f64;
-            for &ti in rtris {
-                let g = mesh.tris[ti];
+            let oriented_area = |g: &[u32; 3]| -> Option<f64> {
                 let av = tri_area_vector(
                     mesh.verts[g[0] as usize].as_array(),
                     mesh.verts[g[1] as usize].as_array(),
                     mesh.verts[g[2] as usize].as_array(),
                 );
-                let d = dir_at(&g);
-                ref_sign += av[0] * d[0] + av[1] * d[1] + av[2] * d[2];
+                let d = crate::geom::surface_normal_at(surf, centroid(g))?;
+                Some(av[0] * d[0] + av[1] * d[1] + av[2] * d[2])
+            };
+            let mut ref_sign = 0.0f64;
+            let (mut pre_pos, mut pre_neg) = (0usize, 0usize);
+            for &ti in rtris {
+                let Some(s) = oriented_area(&mesh.tris[ti]) else {
+                    return bail("region orientation reference undefined (surface normal)");
+                };
+                ref_sign += s;
+                if s >= 0.0 {
+                    pre_pos += 1;
+                } else {
+                    pre_neg += 1;
+                }
             }
-            let ref_sign = if ref_sign >= 0.0 { 1.0 } else { -1.0 };
+            if ref_sign == 0.0 {
+                return bail("region has no net orientation");
+            }
+            let ref_sign = if ref_sign > 0.0 { 1.0 } else { -1.0 };
             let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(tris_local.len());
+            let mut flipped = 0usize;
             for tl in &tris_local {
                 let mut g = [
                     global_of_local[tl[0] as usize],
                     global_of_local[tl[1] as usize],
                     global_of_local[tl[2] as usize],
                 ];
-                let av = tri_area_vector(
-                    mesh.verts[g[0] as usize].as_array(),
-                    mesh.verts[g[1] as usize].as_array(),
-                    mesh.verts[g[2] as usize].as_array(),
-                );
-                let d = dir_at(&g);
-                if (av[0] * d[0] + av[1] * d[1] + av[2] * d[2]) * ref_sign < 0.0 {
+                let Some(s) = oriented_area(&g) else {
+                    return bail("new triangle orientation undefined (surface normal)");
+                };
+                if s == 0.0 {
+                    return bail("new triangle is tangent-degenerate against its surface");
+                }
+                if s * ref_sign < 0.0 {
                     g.swap(1, 2);
+                    flipped += 1;
                 }
                 new_tris.push(g);
+            }
+            if probe {
+                let kind = match surf {
+                    Surface::Plane { .. } => "plane",
+                    Surface::Cylinder { .. } => "cylinder",
+                    Surface::Cone { .. } => "cone",
+                    Surface::Sphere { .. } => "sphere",
+                    Surface::Torus { .. } => "torus",
+                };
+                eprintln!(
+                    "[p3b-fanfix] region {key:?} {kind}: pre-repair tris vs surface normal \
+                     +{pre_pos}/-{pre_neg} (net sign {ref_sign:+.0}); {} CDT tris emitted, \
+                     {flipped} flipped to match",
+                    new_tris.len()
+                );
             }
             plans.push(RegionPlan {
                 key,
@@ -4335,6 +4359,27 @@ fn repair_fan_cluster(
     for &e in &new_edge_set {
         if post_use.get(&e).copied().unwrap_or(0) != expected(&e) {
             return bail("postcondition: new edge off its expected multiplicity");
+        }
+    }
+    // Orientation (P0059): an undirected count cannot see a region emitted
+    // wound against its neighbours — the stacked edge still totals 2. Every
+    // edge of a new triangle must be traversed at most once in each
+    // direction across the candidate mesh (the manifold-orientation
+    // condition; at a pre-existing mesh boundary the single traversal is
+    // whichever sense the one triangle has).
+    {
+        let mut directed: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for tri in &next_tris {
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (u, w) = (tri[i], tri[j]);
+                let e = if u < w { (u, w) } else { (w, u) };
+                if new_edge_set.contains(&e) {
+                    *directed.entry((u, w)).or_default() += 1;
+                }
+            }
+        }
+        if directed.values().any(|&n| n > 1) {
+            return bail("postcondition: new triangle edge traversed twice in one direction");
         }
     }
     for (&(u, w), ts) in edge_use {

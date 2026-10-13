@@ -2202,7 +2202,13 @@ fn smoke_corpus_boundary_categories() {
         ("P0058", Category::Error),
         // P0059 (3 ops) ⇒ auto-union reassembly non-2-manifold,
         // `s6-boundary-walk-deadend` vertex 6 (the lineage: vertex 69).
-        ("P0059", Category::Error),
+        // CONVERTED 2026-10-13 (P0059): the inc-4c fan rebuild's winding
+        // reference had Plane and Cylinder arms only and read zero on a
+        // cone, so both rebuilt cone regions of the diamond revolve shipped
+        // the chart's CDT winding, against the cone; the reference is now
+        // the surface's own normal field for every surface type (spec
+        // `yang_169_p3b_inc4c_fan_retriangulation.md` §2 item 5).
+        ("P0059", Category::SupportedCorrect),
         // P0060 (3 ops, three prisms) ⇒ auto-union `NonPlanarFace` — a planar
         // face whose loop sits 2.389e-8 off its plane (band 1e-12), the same
         // face on the lineage. ×1e3 CORRECT, ×1e-3 the input feature floor.

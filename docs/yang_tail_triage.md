@@ -43,6 +43,74 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (P0059) — P0059 CONVERTED: the inc-4c fan rebuild's winding reference had Plane and Cylinder arms only and read ZERO on a cone, so both rebuilt cone regions shipped the chart's CDT winding against the cone; the reference is now the surface's own normal field for every surface type, and the repair's postcondition checks DIRECTED edge pairing
+
+**Hypothesis tested (`YANG_P3B_FANFIX_PROBE` orientation census, added to
+`repair_fan_cluster`'s emission).** The anchor below named the inc-4c fan
+rebuild at the welded equator mint as the suspect: a triangle wound against
+its cone. The census confirms it in a stronger form — not one triangle at
+the mint but EVERY rebuilt cone triangle, in BOTH clusters, by construction:
+
+```
+[p3b-fanfix] region (A, 0) cone: dir_at ref_sign raw 0.000e0; pre-repair tris vs surface normal +1/-5; raw CDT tris vs surface normal +4/-0
+[p3b-fanfix] region (A, 1) cone: dir_at ref_sign raw 0.000e0; pre-repair tris vs surface normal +1/-5; raw CDT tris vs surface normal +4/-0
+[p3b-fanfix] region (B, 2) cylinder: dir_at ref_sign raw 2.487e-7; pre-repair tris vs surface normal +6/-0; raw CDT tris vs surface normal +6/-0
+```
+
+The winding step (spec `yang_169_p3b_inc4c_fan_retriangulation.md` §2 item
+5) measured each triangle's area vector against a per-type reference
+direction — the plane's normal, the cylinder's radial at the centroid — and
+`_ => [0, 0, 0]` for everything else. Cones ARE chartable (the I13a cone
+chart has been always-on since 2026-08-25), so the cone regions reached the
+emission with a ZERO reference: the pre-repair net sign read 0 (taken as +),
+every new triangle's test read 0 (never `< 0`, so never swapped), and the
+2D CDT's chart winding shipped as-is. On this revolve the cone faces are
+oriented AGAINST the gradient of `|radial| − |h|·tan α` (5 of the 6
+pre-repair triangles; the sixth is the fold being dissolved) while the chart
+CDT emits WITH it (+4/−0) — so all four new triangles of each cone region
+were wound against their neighbours. The undirected `nm-edge` census cannot
+see this (every stacked edge still totals 2; "0 over-2 edges after
+fan-retriangulation" was true and irrelevant), and the first consumer that
+reads DIRECTION is Stage 6's boundary walk, which met tri 257 = [6, 11, 10]
+(a rebuilt triangle; v11 the welded mint) and tri 2 = [1, 6, 8] (untouched)
+both running INTO v6 — the deadend three triangles from the repair.
+
+**Fix (`stage4_correct.rs`, `repair_fan_cluster`).** The reference is the
+SURFACE's own normal field at the triangle centroid, `geom::surface_normal_at`
+(the gradient, every surface type — the same function the §4.5.3 reversal
+test already uses), for the pre-repair net sign and for every emitted
+triangle alike; Plane and Cylinder are byte-equivalent to the old arms (the
+old vectors were the same directions unnormalized). Fail-closed lines: an
+undefined gradient (a centroid on the apex or axis) bails the cluster, a
+region whose net oriented area is exactly zero bails ("no net orientation"),
+a new triangle tangent-degenerate against its surface bails. And the
+postcondition gains the check that would have caught this at the repair
+itself: every edge of a new triangle is traversed at most once in each
+direction across the candidate mesh (the manifold-orientation condition; an
+undirected count cannot express it). The spec's §2 item 5 is rewritten
+accordingly, with the lesson named: enumerating surface types inside an
+orientation rule is the same defect shape as the Stage-4 `n_maps` gate
+replaced on 2026-10-13 — the rule is "the surface's normal", not a list.
+
+**Pins.** `cone_fan_fold_is_rebuilt_in_the_region_sense` and
+`…_reversed` (`tests_unit/p3b_fan_retriangulation.rs`) lift the existing
+folded-strip fixture onto a 45° cone through the chart's own `lift` (chart
+(θ, z) := (0.3·x, 2 + y), away from the apex) in both windings; the repair
+reads only `faces()[key.face].surface`, so the planar carrier B-Rep is
+re-labelled with the cone (a one-face cone B-Rep with line edges cannot pass
+`BRep::new`'s Stage-1 construction). Against the pre-fix emission the
+reversed sense FAILS exactly as P0059 — `post-repair cone edge (5, 9) has
+profile n=2 fwd=2 rev=0` — and the forward sense passes by the coincidence
+the chart's handedness supplies; both pass with the fix. yang-rs suite
+1137 / 0, clippy `--all-targets -D warnings` and fmt clean.
+
+**Result.** The minimum (`YANG_P3B_FANFIX_PROBE`: `4 CDT tris emitted, 4
+flipped to match` on each cone region, 0 on the cylinder) and the
+un-minimized seed-5 index-115 lineage (one cluster, the same shape) both
+complete with every replay oracle PASS; `single_case` P0059 reads
+SUPPORTED_CORRECT in 0.9 s. Canonical corpus **343C / 0W / 25E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 952.6 s) — versus 342C / 0W / 26E exactly ONE move, P0059 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 25 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062 less P0047, P0057, P0059, P0060. Smoke pin P0059 →
+SupportedCorrect.
+
 ## 2026-10-13 (P0059 anchor) — P0059 ANCHORED, not converted: a Stage-6 boundary-walk deadend on the diamond revolve's bottom RIDGE circle, where two patch-boundary edges meet head-on with opposite windings after the moved×mint weld and the inc-4c fan retriangulation
 
 **Anchor (`replay_waffle_env`, `NONMANIFOLD_SITE_PROBE` + `YANG_NM_EDGE_PROBE`
@@ -368,7 +436,7 @@ its lineage.
 | **P0056** | #59, min 5→4 `convex4:boss convex4:solo convex5:boss circle:cut` (scale 899) | 4 | `boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, −5.999e2, −2.052e1) }` | kernel-v2 `validate.rs` invariant 3 (single radial fan) on the output of a circle cut r 3600; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, −6.089e2, −2.966e1), 13 units away | same / same (vertex 42) |
 | **P0057** | #5, min 7→3 `convex4:boss circle:boss convex7:cut` (scale 1.16e-3) | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 20 × 19, penetrations: 51 }` | two ADJACENT output faces around (−2.6e-3, −5.0e-4, 4.9e-3 … 5.1e-3); the lineage's 156 × 155 at the same coordinates | CORRECT / same |
 | **P0058** | #69, rounding only `star7(0.29):boss circle:sym circle:cut` (scale 7.7e-3) | 3 | `boolean_subtract` `ring rejected by CDT` FaceId 63 | a 75-point outer ring with one 52-point hole (`outer_len=75 holes=1 npts=127`), identical on the lineage — another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text | STOPs earlier (`output ellipse-arc endpoint does not lie on its ellipse`) / same |
-| **P0059** | #115, min 5→3 `convex4:boss convex4:rev circle:boss` (scale 1.16e-3) | 3 | auto-union `reassembled output would be non-2-manifold` | `s6-boundary-walk-deadend` vertex 6; the lineage the same deadend at vertex 69 | same / same |
+| ~~**P0059**~~ CONVERTED 2026-10-13 (P0059) | #115, min 5→3 `convex4:boss convex4:rev circle:boss` (scale 1.16e-3) | 3 | auto-union `reassembled output would be non-2-manifold` | `s6-boundary-walk-deadend` vertex 6; the lineage the same deadend at vertex 69 — the inc-4c fan rebuild's winding reference read zero on a cone (§"2026-10-13 (P0059)") | same / same |
 | **P0060** | #11, min 4→3 `convex4:boss convex4:boss convex6:boss` (scale 1.16e-3) | 3 | auto-union `NonPlanarFace { face 52 }` | kernel-v2's planarity gate: a planar face, normal (0, 0.563, 0.826), whose loop vertices sit **2.389e-8** off its plane against a 1.0e-12 band — the same face, plane and offset on the lineage (face 71 after a convex6 revolve). Three prisms. | input feature floor / CORRECT |
 | **P0061** | #91, min 7→3 `convex4:boss circle:boss convex6:boss` (scale 1.67) | 3 | auto-union `ring rejected by CDT` FaceId 33 | a 49-point hole-free ring along a curve | same / same (FaceId 28) |
 | **P0062** | #91 **UN-MINIMIZED** 7 ops (12.7 s) | 7 | the same text, FaceId 41 | a DIFFERENT ring: 30 points whose first run is COLLINEAR along y = 3.3109 — both halves | — |

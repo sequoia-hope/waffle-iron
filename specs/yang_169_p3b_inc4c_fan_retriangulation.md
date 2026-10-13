@@ -85,8 +85,21 @@ update), `retriangulate_collapsed_fan_regions`:
    output triangles reference existing global vertices — the N54 lesson).
    CDT failure → bail the cluster.
 5. **Winding**: orient each new triangle so its area vector agrees with the
-   region's pre-repair net orientation (plane: net normal sign; cylinder:
-   net radial sign at the triangle centroid — the `replan` precedent).
+   region's pre-repair net orientation, both measured against the SURFACE's
+   own normal field at the triangle centroid (`geom::surface_normal_at` —
+   the gradient, for every surface type the chart admits). A reference the
+   surface cannot supply is a bail: an undefined gradient (apex, axis) or a
+   region whose net oriented area is exactly zero never emits an unoriented
+   triangle. **P0059 (2026-10-13):** the original clause enumerated Plane
+   (normal) and Cylinder (radial) arms and read ZERO for a cone, so both
+   rebuilt cone regions of a diamond revolve shipped the 2D CDT's chart
+   winding — against the cone — and Stage 6's boundary walk met two
+   patch-boundary edges head-on at the next ridge vertex
+   (`s6-boundary-walk-deadend`). Enumerating surface types in an orientation
+   rule is the same defect shape as the Stage-4 `n_maps` gate: the rule is
+   "the surface's normal", not a list. Pins
+   `cone_fan_fold_is_rebuilt_in_the_region_sense{,_reversed}` lift the strip
+   fixture onto a 45° cone in both senses (the reversed sense is P0059's).
 6. **Postcondition (per cluster, all-loud)**: after splicing all of the
    cluster's regions, every formerly-defective edge and every region
    boundary edge has total-use exactly 2; otherwise the pass restores the

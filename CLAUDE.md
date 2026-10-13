@@ -355,7 +355,20 @@ Do NOT skip to lower-priority items because they are easier.
    also solve the unequal-rim merge it exposed on P0047; canonical corpus
    **342C / 0W / 26E / 5EE / 0T + 1U over 374** (wall 1004.7 s) — THREE
    moves, one detail drift (P0053)).
-   **The open P-series ERROR tail is P0042–P0062 less P0047, P0057, P0060**
+   **2026-10-13 (P0059): P0059 CONVERTED** (a diamond revolve — four 45°
+   cones — unioned with a cylinder: the moved×mint weld folds two cones over
+   their equator ridge, inc-4c's fan rebuild dissolves the folds, and its
+   winding step's per-type reference direction had Plane and Cylinder arms
+   only, reading ZERO on a cone, so every rebuilt cone triangle shipped in
+   the chart's CDT winding, against the cone; the undirected edge census
+   cannot see it and Stage 6's boundary walk met two edges head-on at the
+   next ridge vertex. The reference is now the surface's own normal field
+   (`surface_normal_at`, every surface type), an undefined or zero reference
+   bails, and the repair's postcondition checks DIRECTED edge pairing — spec
+   `yang_169_p3b_inc4c_fan_retriangulation.md` §2 item 5; the lesson is the
+   `n_maps` lesson again: never enumerate surface types inside a rule whose
+   statement is "the surface's normal"; canonical corpus **343C / 0W / 25E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 952.6 s) — versus 342C / 0W / 26E exactly ONE move, P0059 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 25 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062 less P0047, P0057, P0059, P0060).
+   **The open P-series ERROR tail is P0042–P0062 less P0047, P0057, P0059, P0060**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

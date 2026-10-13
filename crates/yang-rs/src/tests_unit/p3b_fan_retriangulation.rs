@@ -304,6 +304,89 @@ fn unattributed_cluster_triangle_bails_without_mutation() {
     assert_eq!(mesh.tris, before, "bail must leave the mesh untouched");
 }
 
+/// P0059 (2026-10-13): the folded strip lifted onto a CONE through the
+/// chart's own `lift` (chart (θ, z) := (0.3·x, 2 + y) — away from the apex,
+/// no branch cut), every triangle wound in the given sense. The repair's
+/// winding step must align the rebuilt region with the region's PRE-REPAIR
+/// orientation whichever sense that is — it had Plane and Cylinder
+/// reference arms only, read zero on a cone, and shipped the chart's CDT
+/// winding, so the rebuilt cone region met its neighbours head-on.
+fn cone_strip_fixture(reversed: bool) -> (Mesh, Vec<Option<TriangleAttribution>>, Ids, Surface) {
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
+    };
+    let chart = crate::stage4_project::SurfaceChart::new(cone).expect("cone chart");
+    let (mut mesh, attr, ids) = folded_strip_fixture();
+    let verts: Vec<Point3> = mesh
+        .verts
+        .iter()
+        .map(|p| chart.lift(cad_primitives::Point2::new(0.3 * p.x(), 2.0 + p.y())))
+        .collect();
+    let mut tris = mesh.tris.clone();
+    if reversed {
+        for t in &mut tris {
+            t.swap(1, 2);
+        }
+    }
+    mesh = Mesh::new(verts, tris);
+    (mesh, attr, ids, cone)
+}
+
+fn run_cone_fold(reversed: bool) {
+    let (mut mesh, mut attr, ids, cone) = cone_strip_fixture(reversed);
+    let (v1, v2, m1, m2) = (2u32, 3u32, 7u32, 8u32);
+    collapse_vertex(&mut mesh, &mut attr, v1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, v2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, m1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, m2, ids.gg);
+    let pg = edge_profile(&mesh)
+        .get(&(ids.pp.min(ids.gg), ids.pp.max(ids.gg)))
+        .copied()
+        .unwrap_or((0, 0, 0));
+    assert!(
+        pg.0 > 2,
+        "the cone strip must fold like the planar one, got {pg:?}"
+    );
+    // The repair reads only `faces()[key.face].surface`; a one-face cone
+    // B-Rep cannot pass `BRep::new`'s Stage-1 construction with line edges,
+    // so the planar carrier's face is re-labelled with the cone surface.
+    let mut brep_a = one_face_brep(z_plane());
+    brep_a.faces[0].surface = cone;
+    let mut brep_b = one_face_brep(z_plane());
+    brep_b.faces[0].surface = cone;
+    let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
+    let changed = retriangulate_collapsed_fan_regions(
+        &mut mesh,
+        &mut attr,
+        &brep_a,
+        &brep_b,
+        &HashSet::new(),
+        &minted,
+    );
+    assert!(
+        changed,
+        "the repair must fire on the folded cone cluster (reversed={reversed})"
+    );
+    for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {
+        assert!(
+            n == 1 || (n == 2 && fwd == 1 && rev == 1),
+            "post-repair cone edge {e:?} has profile n={n} fwd={fwd} rev={rev} (reversed={reversed})"
+        );
+    }
+}
+
+#[test]
+fn cone_fan_fold_is_rebuilt_in_the_region_sense() {
+    run_cone_fold(false);
+}
+
+#[test]
+fn cone_fan_fold_is_rebuilt_in_the_region_sense_reversed() {
+    run_cone_fold(true);
+}
+
 /// inc-4c-2 fixtures: the strip fixture extended with a MISORDERED seam
 /// chain between G and s3 — two extra samples x1 < x2 (by curve parameter)
 /// wired stale as G→x2→x1→s3. Operand A lies on the z=0 plane, operand B on
