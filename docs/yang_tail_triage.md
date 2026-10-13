@@ -43,6 +43,41 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (P0059 anchor) — P0059 ANCHORED, not converted: a Stage-6 boundary-walk deadend on the diamond revolve's bottom RIDGE circle, where two patch-boundary edges meet head-on with opposite windings after the moved×mint weld and the inc-4c fan retriangulation
+
+**Anchor (`replay_waffle_env`, `NONMANIFOLD_SITE_PROBE` + `YANG_NM_EDGE_PROBE`
++ `YANG_MOVED_WELD_PROBE` + `YANG_P3B_TRIM_PROBE` + `YANG_BREP_PROBE`).** A is
+a DIAMOND (the square profile rotated 45°) revolved 360° about ẑ — four 45°
+cones meeting at an outer equator ridge (z = −0.0023, r 0.00889), an inner
+equator ridge (r 0.00349) and a top / bottom ridge (z = 0.0004 / −0.005,
+r 0.00619); B is a cylinder r 0.0121 along x̂. Op 3's auto-union STOPs
+`s6-boundary-walk-deadend: vertex 6 has incoming boundary but no outgoing`.
+Vertex 6 = (−0.00627, −0.003805, −0.005) lies ON the bottom ridge circle
+(r 0.00619 about the axis, z = −0.005) and is a Stage-1 ring vertex of that
+B-Rep edge, not a mint; the ridge's cylinder crossings are the mints v1 and
+v10 on either side of it. The two directed boundary edges at v6 are (1→6)
+from tri 2 = [1, 6, 8] and (10→6) from tri 257 = [6, 11, 10] — both INTO v6,
+so the patch boundary along the ridge arc 1 … 6 … 10 is traversed in
+opposite senses by its two triangles: one of them is wound against the
+cone. Tri 257 spans from the bottom ridge (6, 10) up to v11 = the OUTER
+equator mint (−0.00379, −0.00493, −0.0023) — a weld SURVIVOR
+(`[moved-weld] victim=7 survivor=11`, one of seven moved×mint welds). The
+`nm-edge` census reads 0 over-2 edges at s4-entry and after relocation,
+**2 over-2 edges after the moved×mint weld** — (4, 11) and (27, 29), both on
+the outer equator ridge, each shared by FOUR triangles of cones A:0 and A:1
+(the two cones folded over their ridge at the welded mints) — and 0 after
+`retriangulate_collapsed_fan_regions` (inc-4c), which dissolves the fold but
+leaves the pinch at v6 three triangles away. Scale-free (×1e-3 / ×1e3
+identical), the 5-op lineage the same deadend at vertex 69.
+
+**Hypothesis to test first (not yet tested):** the inc-4c fan rebuild at the
+welded equator mint emits a triangle wound against its cone (tri 257's
+radial normal sign against the orient target), so the cone patch's boundary
+reverses sense at the next ridge vertex. A probe printing each rebuilt
+triangle's orientation against `radial_outward_normal` at the inc-4c site
+decides it; if confirmed the remedy belongs in inc-4c's emission (spec
+`yang_169_p3b_inc4c_fan_retriangulation.md`), not in Stage 6.
+
 ## 2026-10-13 (P0057) — P0057 CONVERTED: a prism edge piercing a cylinder twice dips less than the chord sagitta between its piercings, so the chord mesh never carved the lens and the two remaining cylinder faces overlapped; the §4.3.3 guard gains the Case-III piercing-edge DIP arm (local rim samples over the dip's span), and the §4.5.3 sweep ranks a Stage-1 mint as a corner
 
 **Anchor (`replay_waffle_env`, `KV2_SELFX_SITE_PROBE` + `YANG_BREP_PROBE` +
