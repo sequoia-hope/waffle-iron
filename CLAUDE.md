@@ -296,6 +296,17 @@ Do NOT skip to lower-priority items because they are easier.
    byte-identical, **340C / 0W / 19E / 5EE / 0T over 364**, zero moves, zero
    drift (spec `yang_stage4_conic_triple_junction.md` top blockquote). Never
    re-introduce a curve-type gate in front of that block.
+   **2026-10-13 (later): P0040 GENERALIZED** — the divider of a crease seen
+   from the planar face that contains it is the crease's OTHER surface, for
+   every planar conic (not the circle alone); the crease index pairs
+   neighbours sense-free (it had paired NONE on real outputs); corpus
+   byte-identical **340C / 0W / 19E / 5EE / 0T**. **Prospector seed 5 ran:
+   185 C / 10 E / 3 W / 2 T** (fresh-geometry ERROR rate 30 → 10.5 → 16 → 7 →
+   5 % across seeds 1–5) — ten distinct ERROR signatures and one NEW oracle
+   text `wrong[volume_magnitude]`, NOT yet minimized or promoted
+   (`docs/yang_tail_triage.md` §2026-10-13 (later)). A new follow-up family:
+   a skew cylinder boss grazing the big lateral from INSIDE
+   (`s4_conic_crease_in_plane_chain.rs`, `#[ignore]`d reproducer).
    **The open P-series ERROR tail is P0042–P0052** (seed 4; P0001–P0041
    CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-4/

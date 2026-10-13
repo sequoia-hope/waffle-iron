@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (later) — P0040 GENERALIZED to every planar conic (the crease's OTHER surface is the divider); the crease index's neighbour pairing was blind on real outputs; prospector SEED 5: 185 C / 10 E / 3 W / 2 T; canonical 340C / 0W / 19E / 5EE / 0T over 364, byte-identical
+
+**The generalization.** The audit named P0040's two certificates as
+circle-only arms. `crease_divider_for` now takes the crease's other surface
+and applies ONE rule — the divider of a crease seen from the planar face that
+CONTAINS it is the crease's other surface (a circle's own coaxial cylinder; a
+conic's cylinder or cone; declined when a conic has none) — for every planar
+curve; the triple arm's incidence creases gain oblique `{cylinder, cone} ×
+plane` sections from the ssi-rs solver (`crease_curve_from_pair`); the
+neighbour-side certificate matches any planar conic sense-free. Found on the
+way: `CreaseIndex::build` paired neighbours by EXACT curve equality, which
+two half-edge copies with opposite normal sense never satisfy, so on real
+boolean outputs every planar crease had `s_other = None` — now
+`curves_coincide`. Spec `yang_451_corner_transit.md` §3ak,
+`yang_45_boundary_point_domain_certificate.md` §10.
+
+**Anchor sweep (P0040's numbers, cap tilted 0.15 / 0.3):** the mirrored
+corner is CORRECT and silent under the census probes — no engine-level
+customer for the conic arm today; pinned at unit level on real output
+topology (tilted cylinder ∩ box). The sweep's one failing window,
+y ∈ [−167.4, −159.9], is a graze family — the skew small cylinder's far
+generator tangent to the big lateral from inside at y = −160.807 — present
+with a FLAT cap too (`reassembled output would be non-2-manifold`), three
+STOP texts with the oblique cap; follow-up reproducer
+`s4_conic_crease_in_plane_chain.rs::an_internal_skew_cylinder_graze_window_stops_loudly`
+(`#[ignore]`d). Anchor against the Case-III guard's demand before any remedy.
+
+**Measurement (release, 8 jobs, 900 s; wall 947.3 s): 340C / 0W / 19E / 5EE /
+0T over 364** — ZERO category moves, ZERO detail drift versus the committed
+baseline. yang-rs 1571 / 0, kernel-v2 865 / 0, clippy + fmt clean.
+
+**Prospector seed 5 (200 candidates, 930 s at 8 jobs, run on f73635d9 — the
+incidence-count gate, before this generalization): 185 C / 10 E / 3 W / 2 T.**
+The fresh-geometry ERROR rate by seed, same generator v3: 30 % (seed 1,
+n = 40) → 10.5 % → 16 % → 7 % → **5 %**. The 10 ERROR rows are TEN distinct
+signatures (one per text), one of them the known harness hole (`GeomRef …
+Output key Main not found`: a disjoint `∩` annihilates the model); the others
+are kernel STOPs — `face # is degenerate (zero-area)` on a converted input
+(star7(0.14) boss), `geometric face resolution failed for kept triangle`
+(gear17 boss, circle cut, 2 steps), two `reassembled output would be
+non-2-manifold`, `NonManifoldVertex`, `SelfIntersectingBooleanOutput`, two
+`ring rejected by CDT`, `NonPlanarFace`. The 3 WRONG rows: two
+`wrong[exact_volume]` (to adjudicate against the cut-auto-reversal oracle
+hole, the seed-4 mechanism) and one **`wrong[volume_magnitude]`** (index 39,
+5 steps ending in a non-convex `∩` — a NEW oracle text, adjudicate first).
+The 2 TIMEOUTs are BUILD-phase (`steps: 0`). Minimization and promotion are
+the next curated step (`PROSPECT_SEED=5 … prospect_minimize`); nothing from
+seed 5 is in the corpus yet.
+
 ## 2026-10-13 — the Stage-4 triple-corner gate admits by INCIDENCE COUNT; the seven-times-reopened junction-map enumeration is RETIRED; canonical 340C / 0W / 19E / 5EE / 0T over 364, byte-identical
 
 **Not a conversion — a structural replacement, measured.** The audit of

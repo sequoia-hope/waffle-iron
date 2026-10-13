@@ -59,7 +59,8 @@ fn lateral_top_edge_crease() -> FaceCrease {
         end: 1,
         curve: Curve::LineSegment,
     };
-    let (divider, extent) = crease_divider(&e, &verts, boss_lateral_45()).expect("line crease");
+    let (divider, extent) =
+        crease_divider(&e, &verts, boss_lateral_45(), Some(boss_top())).expect("line crease");
     FaceCrease {
         divider,
         s_own: boss_lateral_45(),
@@ -95,7 +96,7 @@ fn cutter_rim_crease() -> FaceCrease {
             radius: 0.049,
         },
     };
-    let (divider, extent) = crease_divider(&e, &[], cutter_torus()).expect("circle crease");
+    let (divider, extent) = crease_divider(&e, &[], cutter_torus(), None).expect("circle crease");
     let cap = Surface::Plane {
         normal,
         d: -(normal.as_array()[1] * center.as_array()[1]

@@ -412,3 +412,19 @@ or torus transversally and remains its divider. The full anchor, the
 companion neighbour-side certificate for the corner transit, and the
 measurements are in `specs/yang_451_corner_transit.md` §3aj; pins
 `tests_unit/s451_crease_domain.rs` (`the_brep_crease_index_gives_a_cap_its_radial_divider`).
+
+## 10. Every planar conic, and the neighbour the index never paired (2026-10-13)
+
+§9's radial divider was built for `Curve::Circle` only. The rule is the
+crease's OTHER surface: `crease_divider(e, verts, s_own, s_other)` now passes
+the neighbour the index found, and `crease_divider_for` gives an ellipse /
+parabola / hyperbola lying IN a planar face that neighbour (its cylinder or
+cone) as the divider, `CreaseExtent::Whole`; with no neighbour the conic
+crease is declined rather than given its own plane (which cannot fire). On a
+curved face every planar curve keeps its plane. The neighbour lookup itself
+was found broken on real outputs — exact curve equality across two half-edge
+copies whose normals differ in sense — and is now sense-free
+(`curves_coincide`). Full account, anchor sweep and pins:
+`specs/yang_451_corner_transit.md` §3ak. Corpus byte-identical (340C / 0W /
+19E / 5EE / 0T over 364).
+

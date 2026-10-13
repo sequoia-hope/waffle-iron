@@ -3177,13 +3177,13 @@ fn a_step_within_a_cap_plane_that_leaves_its_rim_fires_on_the_radial_divider() {
     let q = Point3::new(1.5, 0.0, 1.0);
     // The divider itself: the rim's cylinder for the cap …
     assert!(matches!(
-        crate::stage4_boundary_curve::crease_divider_for(&rim, cap),
+        crate::stage4_boundary_curve::crease_divider_for(&rim, cap, Some(lateral)),
         Some(Surface::Cylinder { radius, .. }) if (radius - 1.0).abs() < 1e-15
     ));
     // … and still the circle's plane for the lateral, whose surface the plane
     // cuts transversally.
     assert_eq!(
-        crate::stage4_boundary_curve::crease_divider_for(&rim, lateral),
+        crate::stage4_boundary_curve::crease_divider_for(&rim, lateral, Some(cap)),
         crease_plane(&rim)
     );
     let fire = crease_crossed_by_step(p, q, &creases).expect("the cap step leaves its disc");
@@ -3291,27 +3291,58 @@ fn the_brep_crease_index_gives_a_cap_its_radial_divider() {
     // the rim's plane (below z = 1, where the lateral's other rim is).
     use crate::stage4_boundary_curve::transit_lands_inside_neighbour;
     let other = crate::BRep::new(vec![], vec![], vec![]).expect("an empty operand");
-    let inside =
-        transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(0.5, 0.0, 1.0))
-            .expect("the cap carries the rim");
+    let inside = transit_lands_inside_neighbour(
+        &brep,
+        &other,
+        cap,
+        &rim,
+        Some(lateral),
+        Point3::new(0.5, 0.0, 1.0),
+    )
+    .expect("the cap carries the rim");
     assert!(inside.0 && inside.1 < 0.0, "{inside:?}");
-    let outside =
-        transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(1.034, 0.0, 1.0))
-            .expect("the cap carries the rim");
+    let outside = transit_lands_inside_neighbour(
+        &brep,
+        &other,
+        cap,
+        &rim,
+        Some(lateral),
+        Point3::new(1.034, 0.0, 1.0),
+    )
+    .expect("the cap carries the rim");
     assert!(
         !outside.0 && (outside.1 - 0.034).abs() < 1e-12,
         "{outside:?}"
     );
-    let on = transit_lands_inside_neighbour(&brep, &other, cap, &rim, Point3::new(1.0, 0.0, 1.0))
-        .expect("the cap carries the rim");
+    let on = transit_lands_inside_neighbour(
+        &brep,
+        &other,
+        cap,
+        &rim,
+        Some(lateral),
+        Point3::new(1.0, 0.0, 1.0),
+    )
+    .expect("the cap carries the rim");
     assert!(on.0, "on the rim counts as inside: {on:?}");
-    let below =
-        transit_lands_inside_neighbour(&other, &brep, lateral, &rim, Point3::new(1.0, 0.0, 0.5))
-            .expect("the lateral carries the rim");
+    let below = transit_lands_inside_neighbour(
+        &other,
+        &brep,
+        lateral,
+        &rim,
+        Some(cap),
+        Point3::new(1.0, 0.0, 0.5),
+    )
+    .expect("the lateral carries the rim");
     assert!(below.0 && below.1 < 0.0, "{below:?}");
-    let above =
-        transit_lands_inside_neighbour(&brep, &other, lateral, &rim, Point3::new(1.0, 0.0, 1.5))
-            .expect("the lateral carries the rim");
+    let above = transit_lands_inside_neighbour(
+        &brep,
+        &other,
+        lateral,
+        &rim,
+        Some(cap),
+        Point3::new(1.0, 0.0, 1.5),
+    )
+    .expect("the lateral carries the rim");
     assert!(!above.0 && above.1 > 0.0, "{above:?}");
     // A surface no face of either operand carries is undetermined, not guessed.
     assert!(transit_lands_inside_neighbour(
@@ -3319,7 +3350,315 @@ fn the_brep_crease_index_gives_a_cap_its_radial_divider() {
         &other,
         bottom,
         &rim,
+        Some(lateral),
         Point3::new(0.0, 0.0, 0.0)
     )
     .is_none());
+}
+
+// ---------------------------------------------------------------------------
+// 2026-10-13 — the P0040 rule for EVERY planar conic, not the circle alone:
+// the divider of a crease seen from the planar face that CONTAINS it is the
+// crease's OTHER surface. An oblique cap's rim is an ellipse; its divider on
+// the cap is the cylinder it is a section of, and its divider on the lateral
+// is still its plane.
+// ---------------------------------------------------------------------------
+
+/// A unit z-cylinder capped by the oblique plane `0.3·x + z = 1`: the cap, the
+/// lateral, and their crease — the ellipse the ssi-rs plane section gives.
+fn oblique_cap_fixture() -> (Curve, Surface, Surface) {
+    let lateral = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let l = (0.3f64 * 0.3 + 1.0).sqrt();
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.3 / l, 0.0, 1.0 / l),
+        d: -1.0 / l,
+    };
+    let ell = crate::stage4_boundary_curve::crease_curve_from_pair(lateral, cap)
+        .expect("an oblique plane section of a cylinder is one ellipse");
+    assert!(
+        matches!(ell, Curve::Ellipse { major_radius, minor_radius, .. }
+            if (minor_radius - 1.0).abs() < 1e-12 && (major_radius - l).abs() < 1e-12),
+        "{ell:?}"
+    );
+    (ell, cap, lateral)
+}
+
+/// A point of the oblique cap plane at `(x, y)`.
+fn on_cap(x: f64, y: f64) -> Point3 {
+    Point3::new(x, y, 1.0 - 0.3 * x)
+}
+
+#[test]
+fn an_ellipse_crease_in_the_oblique_cap_that_contains_it_is_divided_by_its_cylinder() {
+    use crate::stage4_boundary_curve::crease_divider_for;
+    let (ell, cap, lateral) = oblique_cap_fixture();
+    // The divider on the cap is the crease's other surface — the cylinder.
+    assert_eq!(crease_divider_for(&ell, cap, Some(lateral)), Some(lateral));
+    // On the lateral, whose surface the ellipse's plane cuts transversally,
+    // the divider is the ellipse's plane.
+    let plane = crease_divider_for(&ell, lateral, Some(cap)).expect("the ellipse has a plane");
+    assert_eq!(Some(plane), crease_plane(&ell));
+    assert!(
+        matches!(plane, Surface::Plane { .. }) && on_crease(on_cap(1.0, 0.0), plane, lateral),
+        "{plane:?}"
+    );
+    // A conic alone names two cylinders; with no other surface the divider is
+    // DECLINED, never the face's own plane (which cannot fire).
+    assert_eq!(crease_divider_for(&ell, cap, None), None);
+    // The circle keeps its own cylinder without help — a cone or torus rim
+    // shares that radial divider.
+    let (rim, flat_cap, _) = cap_rim_fixture();
+    assert!(matches!(
+        crease_divider_for(&rim, flat_cap, None),
+        Some(Surface::Cylinder { radius, .. }) if (radius - 1.0).abs() < 1e-15
+    ));
+    // The triple arm's certificate: a step WITHIN the cap from inside the
+    // ellipse to outside it fires — P0040's v53 step on an oblique cap.
+    let creases = vec![(ell, cap, lateral)];
+    let fire = crease_crossed_by_step(on_cap(0.5, 0.0), on_cap(1.5, 0.0), &creases)
+        .expect("the cap step leaves its ellipse");
+    assert_eq!(fire.0, 0);
+    assert!(
+        (fire.1 + 0.5).abs() < 1e-12 && (fire.2 - 0.5).abs() < 1e-12,
+        "{fire:?}"
+    );
+    // A step that stays inside does not.
+    assert!(crease_crossed_by_step(on_cap(0.5, 0.0), on_cap(-0.5, 0.3), &creases).is_none());
+    // The lateral's reading: a step along the cylinder past the cap plane
+    // fires on the ellipse's plane.
+    let lat = vec![(ell, lateral, cap)];
+    let fire = crease_crossed_by_step(Point3::new(1.0, 0.0, 0.2), Point3::new(1.0, 0.0, 1.2), &lat)
+        .expect("the lateral step leaves the band");
+    assert!(fire.1 < 0.0 && fire.2 > 0.0, "{fire:?}");
+}
+
+#[test]
+fn crease_curve_from_pair_knows_the_sections_the_circle_constructor_did_not() {
+    use crate::stage4_boundary_curve::{crease_circle_from_pair, crease_curve_from_pair};
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    // A perpendicular plane: the circle, byte-identical to the rim constructor.
+    let flat = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -3.0,
+    };
+    assert_eq!(
+        crease_curve_from_pair(cyl, flat),
+        crease_circle_from_pair(cyl, flat)
+    );
+    assert!(matches!(
+        crease_curve_from_pair(cyl, flat),
+        Some(Curve::Circle { .. })
+    ));
+    // An oblique plane: the ellipse the circle constructor declined.
+    let l = (0.3f64 * 0.3 + 1.0).sqrt();
+    let oblique = Surface::Plane {
+        normal: Vector3::new(0.3 / l, 0.0, 1.0 / l),
+        d: -1.0 / l,
+    };
+    assert_eq!(crease_circle_from_pair(cyl, oblique), None);
+    assert!(matches!(
+        crease_curve_from_pair(cyl, oblique),
+        Some(Curve::Ellipse { .. })
+    ));
+    assert_eq!(
+        crease_curve_from_pair(cyl, oblique),
+        crease_curve_from_pair(oblique, cyl),
+        "pair order is immaterial"
+    );
+    // A plane parallel to the axis meets the cylinder in two LINES: not a
+    // planar conic crease — the B-Rep edge index carries line creases.
+    let axial = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -1.0,
+    };
+    assert_eq!(crease_curve_from_pair(cyl, axial), None);
+    // Two planes, cylinder × cylinder: no planar conic from this constructor.
+    assert_eq!(crease_curve_from_pair(flat, oblique), None);
+    let cyl2 = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    assert_eq!(crease_curve_from_pair(cyl, cyl2), None);
+    // A cone cut obliquely (below its half-angle): an ellipse.
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 5.0),
+        axis_dir: Vector3::new(0.0, 0.0, -1.0),
+        half_angle: 0.5,
+    };
+    assert!(
+        matches!(
+            crease_curve_from_pair(cone, oblique),
+            Some(Curve::Ellipse { .. })
+        ),
+        "{:?}",
+        crease_curve_from_pair(cone, oblique)
+    );
+}
+
+/// The B-Rep crease index reads an oblique cap the same way on a REAL boolean
+/// output: a tilted cylinder intersected with a box leaves the box's top plane
+/// bounded by the ellipse the cylinder cuts out of it. That face's crease
+/// carries the CYLINDER divider, the §4.5 postcondition fires on a step within
+/// the cap that leaves the ellipse, and the neighbour-side certificate reads
+/// inside / outside / the band's side for the ellipse as it did for the circle.
+#[test]
+fn the_brep_crease_index_gives_an_oblique_cap_its_cylinder_divider() {
+    use crate::stage4_boundary_curve::{
+        boundary_crease_crossed, transit_lands_inside_neighbour, CreaseExtent, CreaseIndex,
+    };
+    use crate::tests_unit::n2_junction::{rj_box, rj_cylinder};
+    let nb = crate::native_backend().expect("native backend");
+    // A unit cylinder whose axis is tilted by 0.3 toward +x, running from well
+    // below to well above the box's top at z = 1.
+    let l = (0.3f64 * 0.3 + 1.0).sqrt();
+    let axis = [0.3 / l, 0.0, 1.0 / l];
+    let cyl = rj_cylinder([-0.3 * 3.0 / l, 0.0, -3.0 / l], axis, 1.0, 8.0);
+    let box_ = rj_box([-4.0, -4.0, -2.0], [4.0, 4.0, 1.0]);
+    let out = crate::boolean(&cyl, &box_, cad_primitives::BoolOp::Intersect, &nb)
+        .expect("tilted cylinder ∩ box");
+    let lateral = *cyl
+        .faces()
+        .iter()
+        .map(|f| &f.surface)
+        .find(|s| matches!(s, Surface::Cylinder { .. }))
+        .expect("the cylinder's lateral");
+    // The output's top: the box plane z = 1 bounded by one ellipse.
+    let (ti, top) = out
+        .faces()
+        .iter()
+        .enumerate()
+        .find(|(_, f)| {
+            matches!(f.surface, Surface::Plane { normal, d }
+                if normal.z().abs() > 0.999 && (d.abs() - 1.0).abs() < 1e-9)
+        })
+        .expect("the box top survives as the oblique cap");
+    let edges = out.edges();
+    assert!(
+        top.outer_loop
+            .iter()
+            .all(|&e| matches!(edges[e as usize].curve, Curve::Ellipse { .. })),
+        "the cap is bounded by the ellipse section: {:?}",
+        top.outer_loop
+            .iter()
+            .map(|&e| edges[e as usize].curve)
+            .collect::<Vec<_>>()
+    );
+    let idx = CreaseIndex::build(&out);
+    let cap_creases = &idx.faces[ti];
+    assert!(!cap_creases.is_empty(), "{cap_creases:?}");
+    for c in cap_creases {
+        assert_eq!(
+            c.divider, lateral,
+            "the cap's divider is the cylinder: {c:?}"
+        );
+        assert_eq!(c.extent, CreaseExtent::Whole);
+    }
+    // A step WITHIN the cap plane from inside the ellipse to outside it, along
+    // +x where the ellipse's major axis reaches `l` from the centre.
+    let ell = edges[top.outer_loop[0] as usize].curve;
+    let Curve::Ellipse { center, .. } = ell else {
+        unreachable!()
+    };
+    let at = |dx: f64| Point3::new(center.x() + dx, center.y(), 1.0);
+    let fire = boundary_crease_crossed(at(0.9 * l), at(1.1 * l), cap_creases)
+        .expect("a step within the cap past its ellipse is a crossing");
+    assert!(fire.f_pre < 0.0 && fire.f_post > 0.0, "{fire:?}");
+    assert!(boundary_crease_crossed(at(0.9 * l), at(0.5 * l), cap_creases).is_none());
+    // The cylinder's own face keeps the plane divider for the same ellipse.
+    let lat_creases = idx
+        .faces
+        .iter()
+        .zip(out.faces())
+        .filter(|(_, f)| f.surface == lateral)
+        .flat_map(|(c, _)| c.iter())
+        .filter(|c| matches!(c.extent, CreaseExtent::Whole))
+        .collect::<Vec<_>>();
+    assert!(!lat_creases.is_empty());
+    assert!(lat_creases
+        .iter()
+        .all(|c| matches!(c.divider, Surface::Plane { .. })));
+
+    // The transit certificate on this output: a junction re-solved on the cap
+    // plane must lie INSIDE the ellipse (the cap's OUTER loop).
+    let other = crate::BRep::new(vec![], vec![], vec![]).expect("an empty operand");
+    let inside =
+        transit_lands_inside_neighbour(&out, &other, top.surface, &ell, Some(lateral), at(0.5 * l))
+            .expect("the cap carries the ellipse");
+    assert!(inside.0 && inside.1 < 0.0, "{inside:?}");
+    let outside = transit_lands_inside_neighbour(
+        &out,
+        &other,
+        top.surface,
+        &ell,
+        Some(lateral),
+        at(1.034 * l),
+    )
+    .expect("the cap carries the ellipse");
+    assert!(!outside.0 && outside.1 > 0.0, "{outside:?}");
+    let on = transit_lands_inside_neighbour(&out, &other, top.surface, &ell, Some(lateral), at(l))
+        .expect("the cap carries the ellipse");
+    assert!(on.0, "on the ellipse counts as inside: {on:?}");
+    // With no other surface the planar side is UNDETERMINED, not guessed.
+    assert_eq!(
+        transit_lands_inside_neighbour(&out, &other, top.surface, &ell, None, at(0.5 * l)),
+        None
+    );
+    // On the cylinder: the band lies BELOW the cap plane, where its other
+    // loop vertices are.
+    let below = transit_lands_inside_neighbour(
+        &other,
+        &out,
+        lateral,
+        &ell,
+        Some(top.surface),
+        Point3::new(1.0, 0.0, 0.0),
+    );
+    assert!(matches!(below, Some((true, d)) if d < 0.0), "{below:?}");
+    let above = transit_lands_inside_neighbour(
+        &out,
+        &other,
+        lateral,
+        &ell,
+        Some(top.surface),
+        Point3::new(center.x(), center.y(), 2.0),
+    );
+    assert!(matches!(above, Some((false, d)) if d > 0.0), "{above:?}");
+    // The same ellipse written with the opposite normal and major axis is the
+    // same curve: the match is sense-free.
+    let Curve::Ellipse {
+        center: ec,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = ell
+    else {
+        unreachable!()
+    };
+    let flipped = Curve::Ellipse {
+        center: ec,
+        normal: Vector3::new(-normal.x(), -normal.y(), -normal.z()),
+        major_axis: Vector3::new(-major_axis.x(), -major_axis.y(), -major_axis.z()),
+        major_radius,
+        minor_radius,
+    };
+    let inside2 = transit_lands_inside_neighbour(
+        &out,
+        &other,
+        top.surface,
+        &flipped,
+        Some(lateral),
+        at(0.5 * l),
+    )
+    .expect("the flipped ellipse is the cap's own");
+    assert!(inside2.0, "{inside2:?}");
 }

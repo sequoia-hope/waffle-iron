@@ -4113,3 +4113,77 @@ the phantom corner). Smoke pin `P0040` → `SupportedCorrect`.
   ERROR → `UNSUPPORTED(curved-profile)`; post-flip default byte-identical
   to it; `TRIPLE_DOMAIN=0` byte-identical to canonical. New canonical
   273C/0W/30E/4EE/0T. Next: the Stage-1 partial-patch re-entry (§3ai).
+
+## 3ak. P0040 GENERALIZED — the divider of a crease seen from the planar face that contains it is the crease's OTHER surface, for every planar conic (LANDED 2026-10-13)
+
+**Why.** The 2026-10-13 audit ("hardening or special cases?") named §3aj's two
+certificates as circle-only arms: `crease_divider_for` built the radial
+divider only for `Curve::Circle`, and `transit_lands_inside_neighbour`
+matched only circles. An OBLIQUE cap's rim is an ellipse in the plane that
+contains it, with the identical zero-residual defect — its plane is the cap's
+own — and neither certificate could see it. The rule behind §3aj was never
+about circles: a crease is the intersection of two surfaces, and within either
+one the OTHER surface's residual changes sign exactly across the crease.
+
+**Change (`stage4_boundary_curve.rs`).**
+
+1. `crease_divider_for(curve, s_own, s_other)` — for a planar curve lying IN
+   the planar face `s_own`: a circle's divider is its own coaxial cylinder
+   (unchanged; every surface of revolution carrying that circle shares it, so
+   it needs no `s_other`); an ellipse / parabola / hyperbola's divider is
+   `s_other` itself (the cylinder or cone it is a section of — a conic alone
+   names TWO such surfaces, so with no `s_other` the divider is DECLINED,
+   never the face's own plane that cannot fire). On a face the crease's plane
+   cuts transversally the divider is that plane, now for all four planar
+   curves (`crease_plane` generalized). Both certificates — §3t's
+   `crease_crossed_by_step` and the §4.5 `CreaseIndex` — pass `s_other`.
+2. `crease_curve_from_pair` — the triple arm's incidence creases were built
+   by `crease_circle_from_pair` alone, so an oblique cylinder × plane section
+   was not in its index AT ALL. The constructor now falls back to the ssi-rs
+   plane-section solver (Stage 3's own) for `{cylinder, cone} × plane` and
+   admits exactly one planar conic; two generator lines, spirics and surface
+   pairs stay out (the B-Rep index carries line creases).
+3. `transit_lands_inside_neighbour(…, c_b, s_other, j)` — matches any planar
+   crease curve sense-free (`same_planar_curve`: anchor, radii, every
+   direction parallel either way, within the crease's own certificate band)
+   and reads a planar neighbour's side against `crease_divider_for`'s divider;
+   a conic with no `s_other` is UNDETERMINED, as before for a face no operand
+   carries. The call site passes the crossed crease's other surface.
+4. **A latent found on the way:** `CreaseIndex::build` paired a face's
+   neighbour across a vertex pair by EXACT curve equality — but the m1
+   convention emits one directed copy per half-edge with the curve's normal
+   in its face's sense (measured on a tilted cylinder ∩ box: the cap's
+   ellipse copy `normal (0, 0, 1)`, the lateral's `(−0, −0, −1)`), so on a
+   real boolean output every planar crease had `s_other = None` and the
+   neighbour's band never entered the sign test. Pairing is now
+   `curves_coincide` (exact, else sense-free `same_planar_curve`). A seam of
+   ONE surface split into two faces is now recognised as such and skipped,
+   as the doc comment always claimed.
+
+**Anchor sought, not found.** P0040's own numbers with the big cap tilted by
+0.15 / 0.3 (`crates/kernel-v2/tests/s4_conic_crease_in_plane_chain.rs`, the
+`probe_*` sweeps): the mirrored corner (small start cap meeting the oblique
+cap ~9.6 inside the ellipse rim, y = −150.5) is CORRECT across a 0.5-step
+sweep, and `YANG_451_TRIPLE_DOMAIN=census` + `YANG_S45_BOUNDARY_DOMAIN_LOG`
+record NO triple relocation and NO fire there — the ellipse rim's Stage-1
+chords leave no phantom. The one failing window the sweep found,
+y ∈ [−167.4, −159.9], is the small cylinder GRAZING the big lateral from
+inside (external tangency at y = −160.807), present with a flat cap too — the
+Case-III / Case-V graze family, ledgered as a follow-up with an `#[ignore]`d
+reproducer (`an_internal_skew_cylinder_graze_window_stops_loudly`), not this
+section's defect. So the generalization is pinned at unit level, on the rule.
+
+**Pins.** `tests_unit/s451_crease_domain.rs`:
+`an_ellipse_crease_in_the_oblique_cap_that_contains_it_is_divided_by_its_cylinder`,
+`crease_curve_from_pair_knows_the_sections_the_circle_constructor_did_not`,
+`the_brep_crease_index_gives_an_oblique_cap_its_cylinder_divider` (on a REAL
+output: tilted unit cylinder ∩ box — the cap's crease divider IS the
+cylinder, a step within the cap past the ellipse fires, the neighbour-side
+reads inside / outside / on / undetermined / the band's side / sense-free);
+`s4_conic_crease_in_plane_chain.rs::the_oblique_cap_boss_corner_builds_and_validates`.
+
+**Measured.** Corpus (release, 8 jobs, 900 s; wall 947.3 s): **340C / 0W /
+19E / 5EE / 0T over 364** — versus the committed baseline ZERO category moves
+and ZERO detail drift on any non-CORRECT row. yang-rs 1571 / 0, kernel-v2
+865 / 0, clippy `--all-targets -D warnings` + fmt clean.
+

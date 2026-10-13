@@ -11332,6 +11332,7 @@ fn stage4_relocate_and_correct_inner(
                             brep_b,
                             t.s_nbr,
                             &creases[ci].0,
+                            Some(creases[ci].2),
                             t.j,
                         ) {
                             Some((false, d)) => {

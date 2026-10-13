@@ -862,66 +862,124 @@ pub(crate) fn crease_circle_from_pair(surf0: Surface, surf1: Surface) -> Option<
     }
 }
 
-/// The plane of a crease `Curve::Circle`, as a `Surface::Plane` — the object
-/// the domain certificate takes signed distances against. `None` for a
-/// non-circle or a degenerate normal.
-/// The divider a crease circle presents to the face on `s_own` — the surface a
-/// step must not cross to leave that face's domain through this crease.
+/// Does the planar curve lie IN the plane `s_own` — is `s_own` the face that
+/// CONTAINS the crease rather than one its plane cuts transversally? Parallel
+/// normals (the crease's plane and the face's), either sense.
+fn planar_curve_lies_in(curve: &Curve, s_own: Surface) -> bool {
+    let Surface::Plane { normal: n_face, .. } = s_own else {
+        return false;
+    };
+    let Some(n_curve) = planar_curve_normal(curve) else {
+        return false;
+    };
+    let n = n_curve.as_array();
+    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    let m = n_face.as_array();
+    let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
+    if !(nl.is_finite() && nl > 0.0 && ml.is_finite() && ml > 0.0) {
+        return false;
+    }
+    let cx = [
+        n[1] * m[2] - n[2] * m[1],
+        n[2] * m[0] - n[0] * m[2],
+        n[0] * m[1] - n[1] * m[0],
+    ];
+    (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / (nl * ml) <= 1e-9
+}
+
+/// The normal of a planar crease curve (every `Curve` but a line and a
+/// surface pair lies in one plane), and a point of that plane.
+fn planar_curve_normal(curve: &Curve) -> Option<cad_primitives::Vector3> {
+    match *curve {
+        Curve::Circle { normal, .. }
+        | Curve::Ellipse { normal, .. }
+        | Curve::Hyperbola { normal, .. }
+        | Curve::Parabola { normal, .. } => Some(normal),
+        Curve::LineSegment | Curve::SurfacePair { .. } => None,
+    }
+}
+
+fn planar_curve_anchor(curve: &Curve) -> Option<Point3> {
+    match *curve {
+        Curve::Circle { center, .. }
+        | Curve::Ellipse { center, .. }
+        | Curve::Hyperbola { center, .. } => Some(center),
+        Curve::Parabola { vertex, .. } => Some(vertex),
+        Curve::LineSegment | Curve::SurfacePair { .. } => None,
+    }
+}
+
+/// The divider a crease presents to the face on `s_own` — the surface a step
+/// must not cross to leave that face's domain through this crease.
 ///
-/// For a face whose surface the circle's plane cuts TRANSVERSALLY (a cylinder,
-/// cone or torus rim) the divider is the circle's plane, as [`crease_plane`]
-/// gives it. For a PLANAR face that CONTAINS the circle — a cap disc, a plate
-/// around a hole — that plane is the face's own plane: every point of the face
-/// lies in it, its residual is identically zero, and it divides nothing. The
-/// domain boundary of such a face is radial, and the divider is the cylinder
-/// through the circle about its own axis. Measured on P0040 (2026-10-12): two
-/// triple relocations stepped WITHIN a cylinder's cap plane from inside its
-/// rim to 10 units outside it, and both the triple arm's certificate and the
-/// §4.5 postcondition read a zero residual at both ends.
-pub(crate) fn crease_divider_for(curve: &Curve, s_own: Surface) -> Option<Surface> {
-    if let (
-        Curve::Circle {
-            center,
-            normal,
-            radius,
-        },
-        Surface::Plane { normal: n_face, .. },
-    ) = (*curve, s_own)
-    {
-        let n = normal.as_array();
-        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        let m = n_face.as_array();
-        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
-        if nl.is_finite() && nl > 0.0 && ml.is_finite() && ml > 0.0 {
-            let cx = [
-                n[1] * m[2] - n[2] * m[1],
-                n[2] * m[0] - n[0] * m[2],
-                n[0] * m[1] - n[1] * m[0],
-            ];
-            let sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / (nl * ml);
-            if sin <= 1e-9 && radius.is_finite() && radius > 0.0 {
-                return Some(Surface::Cylinder {
+/// A crease is the intersection of two surfaces, and within either one the
+/// OTHER surface's signed residual changes sign exactly across the crease:
+/// that other surface is the divider. For a face whose surface the crease's
+/// plane cuts TRANSVERSALLY (a cylinder, cone or torus rim; an oblique
+/// section of a cylinder) the crease's plane IS that other surface up to the
+/// crease, and [`crease_plane`] gives it. For a PLANAR face that CONTAINS the
+/// crease — a cap disc, a plate around a hole, an OBLIQUE cap bounded by an
+/// ellipse — that plane is the face's own plane: every point of the face lies
+/// in it, its residual is identically zero, and it divides nothing. The
+/// divider is then the crease's other surface:
+///
+/// * a circle's is the cylinder through it about its own axis — the radial
+///   divider every surface of revolution carrying that circle shares, so it
+///   needs no `s_other` and is exact for a cone or torus rim as well;
+/// * any other planar conic's is `s_other` itself — the cylinder or cone whose
+///   oblique section it is. A conic alone names TWO such surfaces (mirror
+///   images across its plane), so with no `s_other` the divider is declined
+///   (`None`): no certificate, rather than a plane that cannot fire.
+///
+/// Measured on P0040 (2026-10-12, a circle): two triple relocations stepped
+/// WITHIN a cylinder's cap plane from inside its rim to 10 units outside it,
+/// and both the triple arm's certificate and the §4.5 postcondition read a
+/// zero residual at both ends. Generalized to every planar conic 2026-10-13
+/// (the audit's "circle-only arm" finding): the rule is the crease's other
+/// surface, not the curve type the first customer happened to carry.
+pub(crate) fn crease_divider_for(
+    curve: &Curve,
+    s_own: Surface,
+    s_other: Option<Surface>,
+) -> Option<Surface> {
+    if planar_curve_lies_in(curve, s_own) {
+        return match *curve {
+            Curve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                let n = normal.as_array();
+                let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                (radius.is_finite() && radius > 0.0).then(|| Surface::Cylinder {
                     axis_point: center,
                     axis_dir: cad_primitives::Vector3::new(n[0] / nl, n[1] / nl, n[2] / nl),
                     radius,
-                });
+                })
             }
-        }
+            Curve::Ellipse { .. } | Curve::Hyperbola { .. } | Curve::Parabola { .. } => {
+                s_other.filter(|s| !matches!(s, Surface::Plane { .. }))
+            }
+            Curve::LineSegment | Curve::SurfacePair { .. } => None,
+        };
     }
     crease_plane(curve)
 }
 
+/// The plane of a planar crease curve (circle, ellipse, parabola, hyperbola),
+/// as a `Surface::Plane` — the object the domain certificate takes signed
+/// distances against on a face that plane cuts transversally. `None` for a
+/// line, a surface pair or a degenerate normal.
 pub(crate) fn crease_plane(curve: &Curve) -> Option<Surface> {
-    let Curve::Circle { center, normal, .. } = *curve else {
-        return None;
-    };
+    let normal = planar_curve_normal(curve)?;
+    let anchor = planar_curve_anchor(curve)?;
     let n = normal.as_array();
     let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
     if !nl.is_finite() || nl <= 0.0 {
         return None;
     }
     let nu = [n[0] / nl, n[1] / nl, n[2] / nl];
-    let c = center.as_array();
+    let c = anchor.as_array();
     Some(Surface::Plane {
         normal: cad_primitives::Vector3::new(nu[0], nu[1], nu[2]),
         d: -(nu[0] * c[0] + nu[1] * c[1] + nu[2] * c[2]),
@@ -968,7 +1026,7 @@ pub(crate) fn crease_crossed_by_step(
         if on_crease(p, s_own, s_other) {
             continue;
         }
-        let Some(plane) = crease_divider_for(&c, s_own) else {
+        let Some(plane) = crease_divider_for(&c, s_own, Some(s_other)) else {
             continue;
         };
         let (Some(fp), Some(fq)) = (surface_distance(plane, p), surface_distance(plane, q)) else {
@@ -1003,7 +1061,50 @@ pub(crate) fn crease_crossed_by_step(
     None
 }
 
-/// Crease circles indexed BY SURFACE: for each surface, every crease its own
+/// The planar crease two surfaces of ONE operand meet in: a circle when
+/// [`crease_circle_from_pair`] knows one (rims, coaxial cone stations), else
+/// the single conic an OBLIQUE plane cuts out of a cylinder or cone — the
+/// ellipse rim of an oblique cap, a cone's parabolic or hyperbolic section —
+/// from the ssi-rs plane-section solver (Yang §4.3, the same solver Stage 3
+/// uses). A pair whose section is not one planar conic (two generator lines,
+/// a torus spiric, a surface pair) has no planar crease here; the B-Rep edge
+/// index (`CreaseIndex`) still carries its line edges.
+///
+/// 2026-10-13: before this the triple arm's certificate knew only circle
+/// creases, so a corner stepping WITHIN an oblique cap across its ellipse rim
+/// was never in its index at all — the P0040 class one curve type over.
+pub(crate) fn crease_curve_from_pair(s0: Surface, s1: Surface) -> Option<Curve> {
+    if let Some(c) = crease_circle_from_pair(s0, s1) {
+        return Some(c);
+    }
+    let conic_pair = matches!(
+        (s0, s1),
+        (
+            Surface::Cylinder { .. } | Surface::Cone { .. },
+            Surface::Plane { .. }
+        ) | (
+            Surface::Plane { .. },
+            Surface::Cylinder { .. } | Surface::Cone { .. }
+        )
+    );
+    if !conic_pair {
+        return None;
+    }
+    let q0 = crate::stage3_ssi::surface_to_quadric(s0).ok()?;
+    let q1 = crate::stage3_ssi::surface_to_quadric(s1).ok()?;
+    let mut curves = ssi_rs::intersect(&q0, &q1).ok()?;
+    if curves.len() != 1 {
+        return None;
+    }
+    let c = crate::stage3_ssi::ssi_curve_to_curve(curves.pop()?).ok()?;
+    matches!(
+        c,
+        Curve::Ellipse { .. } | Curve::Parabola { .. } | Curve::Hyperbola { .. }
+    )
+    .then_some(c)
+}
+
+/// Planar creases indexed BY SURFACE: for each surface, every crease its own
 /// operand carries on it.
 ///
 /// The domain a relocation must not leave is the FACE's, and a face is bounded
@@ -1039,7 +1140,7 @@ pub(crate) fn creases_by_surface(
         if i0 != i1 || s0 == s1 {
             continue;
         }
-        if let Some(c) = crease_circle_from_pair(s0, s1) {
+        if let Some(c) = crease_curve_from_pair(s0, s1) {
             push(s0, c, s1);
             push(s1, c, s0);
         }
@@ -1206,7 +1307,9 @@ impl CreaseIndex {
                         .flatten()
                         .find(|&&(g, ej)| {
                             g != fi as u32
-                                && edges.get(ej as usize).is_some_and(|x| x.curve == e.curve)
+                                && edges
+                                    .get(ej as usize)
+                                    .is_some_and(|x| curves_coincide(&x.curve, &e.curve))
                         })
                         .and_then(|&(g, _)| faces.get(g as usize))
                         .map(|g| g.surface);
@@ -1214,7 +1317,7 @@ impl CreaseIndex {
                 if s_other == Some(s_own) {
                     continue; // a seam / split of ONE surface bounds no domain
                 }
-                let Some((divider, extent)) = crease_divider(e, verts, s_own) else {
+                let Some((divider, extent)) = crease_divider(e, verts, s_own, s_other) else {
                     continue;
                 };
                 list.push(FaceCrease {
@@ -1231,6 +1334,31 @@ impl CreaseIndex {
     }
 }
 
+/// Do two B-Rep edges carry the SAME curve? Exact equality, or — the m1
+/// convention emits one directed copy per half-edge, and each copy carries
+/// the curve's normal in ITS face's sense — the same planar curve with its
+/// directions flipped. Measured 2026-10-13 on a tilted cylinder ∩ box: the
+/// cap's ellipse copy reads `normal (0, 0, 1)`, the lateral's `(−0, −0, −1)`,
+/// so an exact test paired no neighbour across any planar crease of a real
+/// boolean output and every `s_other` was `None`.
+fn curves_coincide(a: &Curve, b: &Curve) -> bool {
+    if a == b {
+        return true;
+    }
+    let Some(scale) = planar_curve_scale(a) else {
+        return false;
+    };
+    let Some(plane) = crease_plane(a) else {
+        return false;
+    };
+    let Some(anchor) = planar_curve_anchor(a) else {
+        return false;
+    };
+    let tol = crate::stage4_relocate::junction_certificate_band(anchor.as_array(), plane)
+        .max(1e-12 * scale);
+    same_planar_curve(a, b, tol)
+}
+
 /// The divider plane and extent of one B-Rep edge on the face whose surface is
 /// `s_own`. `None` for a degenerate edge, a curve without a plane, or a face
 /// normal the edge direction does not span a plane with.
@@ -1238,6 +1366,7 @@ pub(crate) fn crease_divider(
     e: &crate::BRepEdge,
     verts: &[crate::BRepVertex],
     s_own: Surface,
+    s_other: Option<Surface>,
 ) -> Option<(Surface, CreaseExtent)> {
     let plane = |n: [f64; 3], through: [f64; 3]| -> Option<Surface> {
         let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
@@ -1283,15 +1412,15 @@ pub(crate) fn crease_divider(
             }
             // A planar face containing the circle: the radial divider
             // (`crease_divider_for`); every other face: the circle's plane.
-            let divider = crease_divider_for(&e.curve, s_own)?;
+            let divider = crease_divider_for(&e.curve, s_own, s_other)?;
             Some((divider, CreaseExtent::Circle { center, radius }))
         }
-        Curve::Ellipse { center, normal, .. } | Curve::Hyperbola { center, normal, .. } => Some((
-            plane(normal.as_array(), center.as_array())?,
-            CreaseExtent::Whole,
-        )),
-        Curve::Parabola { vertex, normal, .. } => Some((
-            plane(normal.as_array(), vertex.as_array())?,
+        // A planar face containing the conic: the crease's OTHER surface (the
+        // cylinder or cone it is a section of — the conic's plane is the
+        // face's own and divides nothing); every other face: the conic's
+        // plane. One conic per plane section, so the plane is the extent.
+        Curve::Ellipse { .. } | Curve::Hyperbola { .. } | Curve::Parabola { .. } => Some((
+            crease_divider_for(&e.curve, s_own, s_other)?,
             CreaseExtent::Whole,
         )),
         Curve::SurfacePair { .. } => None,
@@ -1668,55 +1797,24 @@ pub(crate) fn transit_lands_inside_neighbour(
     brep_b: &crate::BRep,
     s_nbr: Surface,
     c_b: &Curve,
+    s_other: Option<Surface>,
     j: Point3,
 ) -> Option<(bool, f64)> {
-    let Curve::Circle {
-        center,
-        normal,
-        radius,
-    } = *c_b
-    else {
-        return None;
-    };
-    let n = normal.as_array();
-    let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    if !(nl.is_finite() && nl > 0.0 && radius.is_finite() && radius > 0.0) {
-        return None;
-    }
-    let nu = [n[0] / nl, n[1] / nl, n[2] / nl];
-    let c0 = center.as_array();
-    // Is this B-Rep edge the crease circle? Same centre and radius to the
-    // circle's own certificate band, normal parallel either way.
-    let same_circle = |e: &crate::BRepEdge| -> bool {
-        let Curve::Circle {
-            center: ec,
-            normal: en,
-            radius: er,
-        } = e.curve
-        else {
-            return false;
-        };
-        let tol =
-            crate::stage4_relocate::junction_certificate_band(c0, c_b_as_cylinder(c0, nu, radius))
-                .max(1e-12 * radius);
-        let eca = ec.as_array();
-        let dc =
-            ((eca[0] - c0[0]).powi(2) + (eca[1] - c0[1]).powi(2) + (eca[2] - c0[2]).powi(2)).sqrt();
-        let m = en.as_array();
-        let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
-        if !(ml.is_finite() && ml > 0.0) {
-            return false;
-        }
-        let cx = [
-            nu[1] * m[2] - nu[2] * m[1],
-            nu[2] * m[0] - nu[0] * m[2],
-            nu[0] * m[1] - nu[1] * m[0],
-        ];
-        let sin = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / ml;
-        dc <= tol && (er - radius).abs() <= tol && sin <= 1e-9
-    };
-    let cyl = c_b_as_cylinder(c0, nu, radius);
     let plane = crease_plane(c_b)?;
+    // The radial divider of a PLANAR neighbour that contains the crease: the
+    // crease's other surface (`crease_divider_for`'s rule — a circle's own
+    // cylinder, a conic's cylinder or cone). `None` when a conic has no
+    // `s_other` to name it: undetermined, never a guess.
+    let radial = crease_divider_for(c_b, s_nbr, s_other);
+    let scale = planar_curve_scale(c_b)?;
+    let anchor = planar_curve_anchor(c_b)?.as_array();
+    // Is this B-Rep edge the crease curve? Same anchor, same radii, every
+    // direction parallel either way — each within the crease's own
+    // certificate band (its radial divider's, when it has one, else its
+    // plane's), never below `1e-12` of its size.
+    let tol = crate::stage4_relocate::junction_certificate_band(anchor, radial.unwrap_or(plane))
+        .max(1e-12 * scale);
+    let same_curve = |e: &crate::BRepEdge| -> bool { same_planar_curve(c_b, &e.curve, tol) };
     for brep in [brep_a, brep_b] {
         let edges = brep.edges();
         let verts = brep.vertices();
@@ -1727,24 +1825,25 @@ pub(crate) fn transit_lands_inside_neighbour(
             let outer_hit = f
                 .outer_loop
                 .iter()
-                .any(|&ei| edges.get(ei as usize).is_some_and(same_circle));
+                .any(|&ei| edges.get(ei as usize).is_some_and(same_curve));
             let inner_hit = !outer_hit
                 && f.inner_loops
                     .iter()
                     .flatten()
-                    .any(|&ei| edges.get(ei as usize).is_some_and(same_circle));
+                    .any(|&ei| edges.get(ei as usize).is_some_and(same_curve));
             if !outer_hit && !inner_hit {
                 continue;
             }
             if matches!(s_nbr, Surface::Plane { .. }) {
-                // Radial: inside the circle for an outer loop, outside for a
+                // Radial: inside the crease for an outer loop, outside for a
                 // hole. On the crease within its band counts as inside.
-                let d = surface_distance(cyl, j)?;
-                let band = crate::stage4_relocate::junction_certificate_band(j.as_array(), cyl);
+                let div = radial?;
+                let d = surface_distance(div, j)?;
+                let band = crate::stage4_relocate::junction_certificate_band(j.as_array(), div);
                 let inside = if outer_hit { d <= band } else { d >= -band };
                 return Some((inside, d));
             }
-            // A curved face: the side of the circle's plane its OTHER loop
+            // A curved face: the side of the crease's plane its OTHER loop
             // vertices occupy (vertices on the crease itself abstain).
             let mut side_sum = 0.0;
             let mut n_side = 0usize;
@@ -1782,13 +1881,115 @@ pub(crate) fn transit_lands_inside_neighbour(
     None
 }
 
-/// The cylinder through a crease circle about its own axis — the radial
-/// divider of a planar face bounded by that circle.
-fn c_b_as_cylinder(center: [f64; 3], axis_unit: [f64; 3], radius: f64) -> Surface {
-    Surface::Cylinder {
-        axis_point: Point3::new(center[0], center[1], center[2]),
-        axis_dir: cad_primitives::Vector3::new(axis_unit[0], axis_unit[1], axis_unit[2]),
-        radius,
+/// The size of a planar crease curve — the radius a `1e-12` relative floor
+/// is read against.
+fn planar_curve_scale(c: &Curve) -> Option<f64> {
+    let r = match *c {
+        Curve::Circle { radius, .. } => radius,
+        Curve::Ellipse { major_radius, .. } => major_radius,
+        Curve::Hyperbola {
+            semi_transverse, ..
+        } => semi_transverse,
+        Curve::Parabola { focal_length, .. } => focal_length,
+        Curve::LineSegment | Curve::SurfacePair { .. } => return None,
+    };
+    (r.is_finite() && r > 0.0).then_some(r)
+}
+
+/// Are two planar crease curves the SAME curve, to `tol`? Same variant, same
+/// anchor and radii within `tol`, every direction parallel either way (a
+/// curve's normal and axis carry no sense of their own).
+fn same_planar_curve(a: &Curve, b: &Curve, tol: f64) -> bool {
+    let parallel = |u: cad_primitives::Vector3, v: cad_primitives::Vector3| -> bool {
+        let (u, v) = (u.as_array(), v.as_array());
+        let ul = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+        let vl = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if !(ul.is_finite() && ul > 0.0 && vl.is_finite() && vl > 0.0) {
+            return false;
+        }
+        let cx = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt() / (ul * vl) <= 1e-9
+    };
+    let close = |p: Point3, q: Point3| -> bool {
+        let (p, q) = (p.as_array(), q.as_array());
+        ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt() <= tol
+    };
+    match (*a, *b) {
+        (
+            Curve::Circle {
+                center: ca,
+                normal: na,
+                radius: ra,
+            },
+            Curve::Circle {
+                center: cb,
+                normal: nb,
+                radius: rb,
+            },
+        ) => close(ca, cb) && (ra - rb).abs() <= tol && parallel(na, nb),
+        (
+            Curve::Ellipse {
+                center: ca,
+                normal: na,
+                major_axis: ma,
+                major_radius: ra,
+                minor_radius: sa,
+            },
+            Curve::Ellipse {
+                center: cb,
+                normal: nb,
+                major_axis: mb,
+                major_radius: rb,
+                minor_radius: sb,
+            },
+        ) => {
+            close(ca, cb)
+                && (ra - rb).abs() <= tol
+                && (sa - sb).abs() <= tol
+                && parallel(na, nb)
+                && parallel(ma, mb)
+        }
+        (
+            Curve::Hyperbola {
+                center: ca,
+                normal: na,
+                major_axis: ma,
+                semi_transverse: ra,
+                semi_conjugate: sa,
+            },
+            Curve::Hyperbola {
+                center: cb,
+                normal: nb,
+                major_axis: mb,
+                semi_transverse: rb,
+                semi_conjugate: sb,
+            },
+        ) => {
+            close(ca, cb)
+                && (ra - rb).abs() <= tol
+                && (sa - sb).abs() <= tol
+                && parallel(na, nb)
+                && parallel(ma, mb)
+        }
+        (
+            Curve::Parabola {
+                vertex: va,
+                normal: na,
+                axis_dir: da,
+                focal_length: fa,
+            },
+            Curve::Parabola {
+                vertex: vb,
+                normal: nb,
+                axis_dir: db,
+                focal_length: fb,
+            },
+        ) => close(va, vb) && (fa - fb).abs() <= tol && parallel(na, nb) && parallel(da, db),
+        _ => false,
     }
 }
 
