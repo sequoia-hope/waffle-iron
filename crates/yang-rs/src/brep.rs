@@ -1132,9 +1132,51 @@ pub(crate) fn merge_rim_points(
     let mut out = base.clone();
     for (&e, pts) in extra {
         let slot = out.entry(e).or_default();
+        // ULP-twins compose to one point (spec
+        // `stage1_azimuth_merge_unequal_rings.md` §3b, P0047 2026-10-13): an
+        // incoming point within `TAU_WORK` — the provenance spec's ULP-twin
+        // discriminator (1e-18 … 1e-15 apart; anything the kernel treats as
+        // distinct sits at ≥ 1e-10) — of a STANDING point takes that point's
+        // slot: two arms spelling one azimuth 1 ULP apart, or a Stage-0
+        // crossing / junction mint landing on a standing free sample (the
+        // exact arrival's bits win; a standing sample never outranks the
+        // point an overlay or a partner chain shares). NOT the model band:
+        // R0072 carries real rim points 6e-8 apart (its ~1e-7 micro-scale
+        // edge), and merging those made its union non-manifold (measured
+        // 2026-10-13). Each standing point is replaced at most once and
+        // incoming points never absorb each other here, so a band-close
+        // pair arriving together (E-C1's population) still both enter — the
+        // ring builder's bit-exact policy for them is unchanged.
+        let n_base = slot.len();
+        let mut replaced = vec![false; n_base];
         for &p in pts {
-            if !slot.contains(&p) {
-                slot.push(p);
+            if slot.contains(&p) {
+                continue;
+            }
+            let pa = p.as_array();
+            let band2 = cad_primitives::TAU_WORK * cad_primitives::TAU_WORK;
+            let twin = (0..n_base).find(|&i| {
+                if replaced[i] {
+                    return false;
+                }
+                let q = slot[i].as_array();
+                let d = [pa[0] - q[0], pa[1] - q[1], pa[2] - q[2]];
+                d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= band2
+            });
+            match twin {
+                Some(i) => {
+                    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                        eprintln!(
+                            "[merge-rim] edge={e} incoming {:?} takes standing ULP-twin {:?} (band {:.3e})",
+                            pa,
+                            slot[i].as_array(),
+                            band2.sqrt()
+                        );
+                    }
+                    slot[i] = p;
+                    replaced[i] = true;
+                }
+                None => slot.push(p),
             }
         }
     }

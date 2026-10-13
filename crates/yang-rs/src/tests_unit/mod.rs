@@ -49,6 +49,7 @@ mod s0_pair_chain_mixed_admission;
 mod s188_envelope;
 mod s194_edge_collapse;
 mod s195_rim_plane_graze;
+mod s1_azimuth_merge_unequal_rings;
 mod s1_chart_chord_seed;
 mod s1_chart_crossing;
 mod s1_cover_unroll;

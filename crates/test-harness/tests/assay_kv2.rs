@@ -2107,7 +2107,10 @@ fn smoke_corpus_boundary_categories() {
         // `segment_risk_intervals`, left out of that landing because the same
         // change moved P0047 onto an unequal-rim Stage-1 STOP) — the named
         // follow-up's first customer, ledger §"2026-10-13 (P0057)".
-        ("P0044", Category::Error),
+        // CONVERTED 2026-10-13 (wedge): `segment_risk_intervals` cuts at the
+        // surface's own roots, Stage 1 zips unequal rims, and one rim sample
+        // per model-scale point (spec `stage1_azimuth_merge_unequal_rings.md`).
+        ("P0044", Category::SupportedCorrect),
         // P0045 (3 ops) ⇒ auto-union `torus patch UV-CDT failed` — P0003's
         // text on P0030's recipe shape, with a prism that TOUCHES the torus.
         // Same class at ×1e-3 and ×1e3.
@@ -2174,7 +2177,10 @@ fn smoke_corpus_boundary_categories() {
         // (the P0042/P0043 rule: a different first complaint, both halves).
         // 2026-10-13 (P0057): P0054 converts under the wedge-arm span
         // follow-up (see P0044); P0055 (the lineage) still STOPs.
-        ("P0054", Category::Error),
+        // CONVERTED 2026-10-13 (wedge): `segment_risk_intervals` cuts at the
+        // surface's own roots, Stage 1 zips unequal rims, and one rim sample
+        // per model-scale point (spec `stage1_azimuth_merge_unequal_rings.md`).
+        ("P0054", Category::SupportedCorrect),
         ("P0055", Category::Error),
         // P0056 (4 ops, scale 899) ⇒ `boolean_subtract NonManifoldVertex`
         // at (3.533e2, −5.999e2, −2.052e1); the lineage's vertex sits 13
@@ -2199,7 +2205,10 @@ fn smoke_corpus_boundary_categories() {
         // P0002 text. ×1e3 keeps the class, ×1e-3 stops earlier.
         // 2026-10-13 (P0057): converts under the wedge-arm span follow-up
         // (see P0044); no dip-arm site fires on this document.
-        ("P0058", Category::Error),
+        // CONVERTED 2026-10-13 (wedge): `segment_risk_intervals` cuts at the
+        // surface's own roots, Stage 1 zips unequal rims, and one rim sample
+        // per model-scale point (spec `stage1_azimuth_merge_unequal_rings.md`).
+        ("P0058", Category::SupportedCorrect),
         // P0059 (3 ops) ⇒ auto-union reassembly non-2-manifold,
         // `s6-boundary-walk-deadend` vertex 6 (the lineage: vertex 69).
         // CONVERTED 2026-10-13 (P0059): the inc-4c fan rebuild's winding

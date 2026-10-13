@@ -575,12 +575,27 @@ pub(crate) fn tessellate_cone_frustum_band(
         YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
     })?;
     let nseg = top_ring.len();
-    if nseg < 3 || bottom_ring.len() != nseg {
+    if nseg < 3 || bottom_ring.len() < 3 {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: cone frustum rims have mismatched / too-few samples ({} vs {})",
+            "face {f_idx}: cone frustum rims have too-few samples ({} vs {})",
             bottom_ring.len(),
             top_ring.len()
         )));
+    }
+    if bottom_ring.len() != nseg {
+        // Unequal rings carry no index pairing; the azimuth zipper is the
+        // general band (spec `stage1_azimuth_merge_unequal_rings.md`).
+        let reversed = f.reversed;
+        let orient = move |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
+            let mut n = cone_outward_normal(verts, tri, apex, axis_dir, half_angle);
+            if reversed {
+                n = [-n[0], -n[1], -n[2]];
+            }
+            n
+        };
+        return tessellate_band_azimuth_merge(
+            f_idx, rim_rings, bottom_e, top_e, out_verts, apex, axis_dir, &orient, out_tris,
+        );
     }
     let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
     let b_index = |k: usize| -> usize {

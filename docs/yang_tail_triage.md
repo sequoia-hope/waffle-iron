@@ -43,6 +43,80 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (wedge) — P0044, P0054, P0058 CONVERTED (the wedge-arm follow-up): `segment_risk_intervals` cuts at the surface's own roots; Stage 1's azimuth-merge band is a ZIPPER of two sorted rings (unequal rims accepted); one rim sample per model-scale point (`RimAngleOverrides::finish`, `merge_rim_points`); P0047 holds
+
+**The follow-up named at the P0057 landing, in three parts (spec
+`stage1_azimuth_merge_unequal_rings.md`).**
+
+1. **`segment_risk_intervals` cuts at SURFACE roots (§3).** The wedge arm's
+   localization cut a segment only at the roots of ρ = r − thresh and
+   classified each window once at its midpoint; a segment that also pierces
+   the surface's infinite extension changes the predicate's value at the
+   piercing, so the window straddling it was classified on the wrong side
+   and the span came out too wide or absent. The surface's own roots
+   (cylinder `l0 = radius`, cone `l0 = 0`, the same affine `l1`) join the
+   breakpoints; the classification is unchanged. Pin
+   `risk_span_of_a_piercing_segment_is_the_shallow_run_inside` (ρ 0.5 → 1.5
+   through a unit cylinder at thresh 0.1: the at-risk run is exactly
+   t ∈ (0.4, 0.5); before, the one window (0.4, 1.0) read "outside" at its
+   midpoint and nothing was at risk).
+2. **The azimuth-merge band is a zipper (§2).** With the corrected spans
+   P0047 moved onto `azimuth-merge rims have mismatched / too-few samples
+   (23 vs 24)`: `tessellate_band_azimuth_merge` paired the two sorted rings
+   POSITIONALLY and refused unequal counts or any pairwise disagreement
+   past `tol`. It now walks both rings in azimuth order from the aligned
+   start pair, closing a quad (split along b0→t1, the old strip's own
+   split) when the next samples agree within `tol` and a triangle against
+   the other ring's current sample otherwise — `m + n` triangles, every rim
+   edge once, every diagonal twice, a closed annulus for ANY two rings;
+   equal azimuth-matched rings produce the byte-identical triangle list.
+   The uniform cylinder tube and cone frustum paths route unequal rings to
+   it instead of refusing. Pins in `s1_azimuth_merge_unequal_rings.rs`
+   (byte-identity, one extra sample, arbitrary unequal sets, phase offset,
+   start partner across the wrap, uniform-tube routing).
+3. **One rim sample per model-scale point (§3b).** Parts 1 + 2 alone moved
+   P0047 (and P0044's seed-4 lineage) onto the inc-4e junction splice's
+   `interior junction … within the weld band of 2 (3) distinct grid edges`.
+   Probed (`YANG_SPLICE_PROBE`, new, lists the near edges, the grid
+   vertices at the junction's azimuth and the earlier faces referencing
+   them; `YANG_SPLIT_PROBE` now lists each ring's override points): the
+   junction sat EXACTLY on a ruling, and the rim carried two samples at
+   that azimuth — two §4.3.3 arms spelling one point 1 ULP apart
+   (`0.000121` vs `0.00012099999999999999`; the span endpoint of a piercing
+   segment IS the piercing's azimuth, where the exact junction sits), and
+   at the next site two sites' span endpoints 7.5e-4 rad apart on a 9e-5
+   radius (6.8e-8 of arc, below `TAU_MODEL`) — so the plain cap fan held a
+   1-ULP sliver and the lateral two coincident rulings, both within the
+   splice's band. Two A14.2 rules: `RimAngleOverrides::finish` emits one
+   sample per `TAU_MODEL·(1 + scale)` of arc and drops a request within the
+   band of a point the rim already carries; `merge_rim_points` (standing ∘
+   incoming) lets an incoming point within `TAU_WORK` of a standing one
+   take its slot, each standing point at most once and incoming points
+   never absorbing each other — `TAU_WORK`, not the model band: the first
+   corpus run (345C / 23E, wall 998.3 s) converted the three customers but
+   regressed **R0072** CORRECT → ERROR (`an undirected output edge is not
+   used by exactly two directed edges`): `[merge-rim]` showed four standing
+   rim points replaced by incoming points ≈ 6e-8 away — R0072's ~1e-7
+   micro-scale edge is REAL geometry below `TAU_MODEL`, exactly the class
+   the P3c row always named; at `TAU_WORK` R0072 holds. A first cut put a `TAU_WORK` twin rule in the ring
+   builder itself; the E-C1 pins refuted it (a Stage-0 crossing twin pair
+   is carried by the cap overlay and must stay a pair) — reverted, the
+   composition is the right layer. Pins
+   `finish_merges_sample_requests_within_the_model_band`,
+   `finish_drops_a_free_sample_the_rim_already_carries`,
+   `merge_rim_points_replaces_a_standing_twin_once`.
+
+**Result.** `single_case`: P0044 (2.8 s), P0054 (0.5 s), P0058 (2.4 s),
+P0047 (1.0 s) SUPPORTED_CORRECT; guards P0031, P0057, P0013, P0029
+SUPPORTED_CORRECT; P0048 ERROR at its committed text (its junction lands
+at a grid CORNER, a different site). Lineages: P0047's (seed-4 #159) and
+P0058's (seed-5 #69) complete; P0044's (seed-4 #37) STOPped at the same
+weld-band text before part 3 and completes after it; P0054's (seed-5 #55)
+is the P0055 row, its own first complaint. yang-rs 1586 / 0, clippy
+`--all-targets -D warnings` (yang-rs, test-harness) and fmt clean.
+Canonical corpus **346C / 0W / 22E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 977.7 s) — versus 343C / 0W / 25E exactly THREE moves, P0044 / P0054 / P0058 ERROR → SUPPORTED_CORRECT, zero regressions (R0072 holds at `TAU_WORK`), one detail drift (P0052's face id under the same `surface-pair Newton projection did not converge` text); the 22 ERROR rows are the seven C-series walls, P0026 and the open tail P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062. Smoke pins P0044 / P0054 / P0058 →
+SupportedCorrect.
+
 ## 2026-10-13 (P0059) — P0059 CONVERTED: the inc-4c fan rebuild's winding reference had Plane and Cylinder arms only and read ZERO on a cone, so both rebuilt cone regions shipped the chart's CDT winding against the cone; the reference is now the surface's own normal field for every surface type, and the repair's postcondition checks DIRECTED edge pairing
 
 **Hypothesis tested (`YANG_P3B_FANFIX_PROBE` orientation census, added to
@@ -431,11 +505,11 @@ its lineage.
 | case | source | ops | error text | SITE | ×1e-3 / ×1e3 |
 |---|---|---|---|---|---|
 | **P0053** | #77, already minimal `gear17:boss circle:cut` (scale 122.8) | 2 | `boolean_subtract` `yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces …)` | `boolean.rs` face resolution after the subtract's labeling (`YANG_KEEP_PROBE`: 5 patches, 3612 of 5722 kept, then a second pass 3882 of 6388); the minimum IS the lineage | same / same (tri 1726) |
-| **P0054** | #55, min 8→4 `convex4:sym convex5:cut circle:cut circle:thru` | 4 | `boolean_subtract` `reassembled output would be non-2-manifold` | Stage-6 wedge orbit: `s6-boundary-walk-deadend: vertex 47 has incoming boundary but no outgoing` → legacy fallback `NonManifoldOutput` | same / same |
+| ~~**P0054**~~ CONVERTED 2026-10-13 (wedge) | #55, min 8→4 `convex4:sym convex5:cut circle:cut circle:thru` | 4 | `boolean_subtract` `reassembled output would be non-2-manifold` | Stage-6 wedge orbit: `s6-boundary-walk-deadend: vertex 47 has incoming boundary but no outgoing` → legacy fallback `NonManifoldOutput` — the wedge arm's span classification (§"2026-10-13 (wedge)") | same / same |
 | **P0055** | #55 **UN-MINIMIZED** 8 ops (23 s) | 8 | the same text | the same orbit but a DIFFERENT first complaint: `s6-wedge-succ-collision: edge (79, 105) claimed by 2 strands`, then a deadend at vertex 79 — the P0042/P0043 rule, both halves | — |
 | **P0056** | #59, min 5→4 `convex4:boss convex4:solo convex5:boss circle:cut` (scale 899) | 4 | `boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, −5.999e2, −2.052e1) }` | kernel-v2 `validate.rs` invariant 3 (single radial fan) on the output of a circle cut r 3600; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, −6.089e2, −2.966e1), 13 units away | same / same (vertex 42) |
 | **P0057** | #5, min 7→3 `convex4:boss circle:boss convex7:cut` (scale 1.16e-3) | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 20 × 19, penetrations: 51 }` | two ADJACENT output faces around (−2.6e-3, −5.0e-4, 4.9e-3 … 5.1e-3); the lineage's 156 × 155 at the same coordinates | CORRECT / same |
-| **P0058** | #69, rounding only `star7(0.29):boss circle:sym circle:cut` (scale 7.7e-3) | 3 | `boolean_subtract` `ring rejected by CDT` FaceId 63 | a 75-point outer ring with one 52-point hole (`outer_len=75 holes=1 npts=127`), identical on the lineage — another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text | STOPs earlier (`output ellipse-arc endpoint does not lie on its ellipse`) / same |
+| ~~**P0058**~~ CONVERTED 2026-10-13 (wedge) | #69, rounding only `star7(0.29):boss circle:sym circle:cut` (scale 7.7e-3) | 3 | `boolean_subtract` `ring rejected by CDT` FaceId 63 | a 75-point outer ring with one 52-point hole (`outer_len=75 holes=1 npts=127`), identical on the lineage — another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text — the wedge arm's span classification (§"2026-10-13 (wedge)") | STOPs earlier (`output ellipse-arc endpoint does not lie on its ellipse`) / same |
 | ~~**P0059**~~ CONVERTED 2026-10-13 (P0059) | #115, min 5→3 `convex4:boss convex4:rev circle:boss` (scale 1.16e-3) | 3 | auto-union `reassembled output would be non-2-manifold` | `s6-boundary-walk-deadend` vertex 6; the lineage the same deadend at vertex 69 — the inc-4c fan rebuild's winding reference read zero on a cone (§"2026-10-13 (P0059)") | same / same |
 | **P0060** | #11, min 4→3 `convex4:boss convex4:boss convex6:boss` (scale 1.16e-3) | 3 | auto-union `NonPlanarFace { face 52 }` | kernel-v2's planarity gate: a planar face, normal (0, 0.563, 0.826), whose loop vertices sit **2.389e-8** off its plane against a 1.0e-12 band — the same face, plane and offset on the lineage (face 71 after a convex6 revolve). Three prisms. | input feature floor / CORRECT |
 | **P0061** | #91, min 7→3 `convex4:boss circle:boss convex6:boss` (scale 1.67) | 3 | auto-union `ring rejected by CDT` FaceId 33 | a 49-point hole-free ring along a curve | same / same (FaceId 28) |
@@ -736,7 +810,7 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 | ~~**P0041**~~ | #42, min 8→3 `circle:boss convex4:cut convex4:cut` | 3 | `boolean_subtract` the same text | Seg edges of a planar cap loop (yang face 0 at x = 100) used once; the lineage: the same on its plane x = 124.88 | same / same — ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, P0041)** → SUPPORTED_CORRECT 0.9 s (the body splitter's vertex-hull box; see the section above) |
 | **P0042** | #11, min 5→3 `convex4:boss convex5:rev circle:boss` | 3 | auto-union Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned None (v29). **Not the lineage's site** | CORRECT / same |
 | **P0043** | #11 **UN-MINIMIZED** `circle:boss circle:cut circle:∪ convex5:rev circle:∪` | 5 | the same text | `stage4_correct.rs:13236` — `surface_pair_endpoint_mix` (P0026's site, there a minted tangency; here generic): v38 on a cylinder (r 487.5, axis x) × cone (half-angle 0.019) pair edge whose endpoint also lies on the cylinder's cap plane, `n_inc_surfs=3 {A cone, B plane, B cylinder}`, `cone_ell=true`, no junction map claims it | — (unminimized) |
-| **P0044** | #37, min 6→4 `convex4:boss convex4:boss star6(0.45):sym circle:cut` | 4 | `boolean_subtract CurvedGeometryMismatch "bounded cylinder patch must have exactly one material-CCW loop"` | kernel-v2 `validate/faces.rs`: the cut cylinder's lateral (r 0.133, axis y) keeps ONE loop, wrap 0, mean_h 8e-4, NEGATIVE area2 (LineSegment + Arc + EllipseArc …) — zero material-CCW loops; identical face on the lineage | same / CORRECT |
+| ~~**P0044**~~ CONVERTED 2026-10-13 (wedge) | #37, min 6→4 `convex4:boss convex4:boss star6(0.45):sym circle:cut` | 4 | `boolean_subtract CurvedGeometryMismatch "bounded cylinder patch must have exactly one material-CCW loop"` | kernel-v2 `validate/faces.rs`: the cut cylinder's lateral (r 0.133, axis y) keeps ONE loop, wrap 0, mean_h 8e-4, NEGATIVE area2 (LineSegment + Arc + EllipseArc …) — zero material-CCW loops; identical face on the lineage — the wedge arm's span classification (§"2026-10-13 (wedge)") | same / CORRECT |
 | **P0045** | #88, min 7→3 `convex4:boss circle:rev convex3:boss` | 3 | auto-union `TessellationFailed "torus patch UV-CDT failed …"` | P0003's text on P0030's recipe shape, with a prism that TOUCHES the torus (so the whole-shell passthrough does not apply); same text on the lineage (FaceId 21) | same / same |
 | **P0046** | #108, min 6→4 `convex4:boss convex7:rev convex3:cut circle:boss` | 4 | auto-union `ring rejected by CDT` | a FOURTH locus of the P0002 / P0013 / P0036 text (lineage FaceId 1394) | same / same |
 | **P0047** | #159, min 8→4 `star7(0.66):boss circle:cut convex4:rev-cut circle:cut` | 4 | `boolean_subtract` `ring rejected by CDT` | a 32-point hole-free planar ring at scale 1.7e-4 (`cdt_err=TriangulationFailed outer_len=32`), the same ring on the lineage (FaceId 210) | same / same |

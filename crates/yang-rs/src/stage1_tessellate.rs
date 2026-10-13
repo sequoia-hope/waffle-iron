@@ -1001,6 +1001,14 @@ pub(crate) fn stage1_tessellate_once(
                             inserted_keys.len(),
                             slots.len()
                         );
+                        for (off, slot) in &slots {
+                            if let RimSlot::Override(pt) = slot {
+                                eprintln!(
+                                    "[ring-build]   override off={off:.12} p={:?}",
+                                    pt.as_array()
+                                );
+                            }
+                        }
                     }
                 }
                 // Sort by seam-relative angle (the seam, offset 0, leads).
@@ -4218,6 +4226,60 @@ fn splice_lateral_interior_points(
         // may sit exactly ON a ruling (strict containment fails on both
         // sides) or a hair inside one incident triangle — both route here.
         if !near_edges.is_empty() {
+            if std::env::var_os("YANG_SPLICE_PROBE").is_some() {
+                eprintln!(
+                    "[splice-probe] face {f_idx}: J=({:.9e},{:.9e},{:.9e}) theta_j={theta_j:.9} \
+                     v_j={v_j:.9e} r={radius:.6e} band={band:.3e} corner_min={:.3e} \
+                     near_edges={}",
+                    jp[0],
+                    jp[1],
+                    jp[2],
+                    corner_min.sqrt(),
+                    near_edges.len()
+                );
+                for (k, &[a, b, c]) in out_tris.iter().enumerate().skip(range_start) {
+                    for g in [a, b, c] {
+                        let (th, v) = theta_v(g);
+                        let mut dt = th - theta_j;
+                        if dt > std::f64::consts::PI {
+                            dt -= 2.0 * std::f64::consts::PI;
+                        } else if dt <= -std::f64::consts::PI {
+                            dt += 2.0 * std::f64::consts::PI;
+                        }
+                        if dt.abs() < 1e-6 {
+                            eprintln!(
+                                "[splice-probe]   grid vertex {g} in tri {k} dtheta={dt:.3e} \
+                                 v={v:.9e} p={:?}",
+                                out_verts[g as usize].as_array()
+                            );
+                        }
+                    }
+                }
+                // Which OTHER faces (already tessellated) reference the near
+                // edges' endpoints — does the cap carry the twin too?
+                let mut ends: std::collections::BTreeSet<u32> = Default::default();
+                for &(ga, gb) in near_edges.keys() {
+                    ends.insert(ga);
+                    ends.insert(gb);
+                }
+                for (k, tri) in out_tris.iter().enumerate().take(range_start) {
+                    if tri.iter().any(|g| ends.contains(g)) {
+                        eprintln!("[splice-probe]   earlier tri {k} = {tri:?} references a near-edge endpoint");
+                    }
+                }
+                for (&(ga, gb), &dd) in &near_edges {
+                    let (ca, cb) = (chart(ga), chart(gb));
+                    eprintln!(
+                        "[splice-probe]   edge ({ga},{gb}) dist={:.3e} a=({:?}) b=({:?}) \
+                         pa={:?} pb={:?}",
+                        dd.sqrt(),
+                        ca.map(|c| (c[0], c[1])),
+                        cb.map(|c| (c[0], c[1])),
+                        out_verts[ga as usize].as_array(),
+                        out_verts[gb as usize].as_array()
+                    );
+                }
+            }
             if near_edges.len() > 1 {
                 return Err(YangError::MalformedTopology(format!(
                     "face {f_idx}: interior junction ({},{},{}) is within the weld band of \
@@ -4417,10 +4479,18 @@ pub(crate) fn tessellate_lateral_face(
             YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
         })?;
         let nseg = top_ring.len();
-        if nseg < 3 || bottom_ring.len() != nseg {
+        if nseg < 3 || bottom_ring.len() < 3 {
             return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: cylinder rims have mismatched / too-few samples"
+                "face {f_idx}: cylinder rims have too-few samples ({} vs {nseg})",
+                bottom_ring.len()
             )));
+        }
+        if bottom_ring.len() != nseg {
+            // Unequal rings carry no index pairing; the azimuth zipper is the
+            // general band (spec `stage1_azimuth_merge_unequal_rings.md`).
+            return tessellate_lateral_azimuth_merge(
+                f_idx, f, rim_rings, bottom_e, top_e, out_verts, axis_point, axis_dir, out_tris,
+            );
         }
 
         // Connect by geometric azimuth. The classic shape stores bottom
@@ -4635,12 +4705,10 @@ pub(crate) fn tessellate_band_azimuth_merge(
             "face {f_idx}: top rim ring {top_e} not built (azimuth merge)"
         ))
     })?;
-    let n = top_ring.len();
-    if n < 3 || bottom_ring.len() != n {
+    let (m, n) = (bottom_ring.len(), top_ring.len());
+    if m < 3 || n < 3 {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: azimuth-merge rims have mismatched / too-few samples ({} vs {})",
-            bottom_ring.len(),
-            top_ring.len()
+            "face {f_idx}: azimuth-merge rims have too-few samples ({m} vs {n})"
         )));
     }
 
@@ -4702,42 +4770,98 @@ pub(crate) fn tessellate_band_azimuth_merge(
         shift = 0; // dev-only neuter, gated out of release (F12)
     }
 
-    // Verify the SAME azimuth multiset (no silent fudge): pairwise within tol.
-    let tol = (two_pi / n as f64) * 0.25;
-    for k in 0..n {
-        let d = circ(bot[k].0, top[(k + shift) % n].0);
-        if d > tol {
-            // Diagnostic probe (env-gated): dump both sorted rings so a
-            // multiset mismatch self-localizes (phase shift vs count skew vs
-            // stray point).
-            if std::env::var_os("YANG_AZMERGE_PROBE").is_some() {
-                eprintln!(
-                    "[azmerge-probe] face {f_idx}: n={n} tol={tol} shift={shift}\n  \
-                     bottom: {:?}\n  top:    {:?}",
-                    bot.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
-                    top.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
-                );
-            }
-            return Err(YangError::MalformedTopology(format!(
-                "face {f_idx}: azimuth-merge rims disagree at index {k} (bottom {} vs top {}, \
-                 shift {shift}, tol {tol})",
-                bot[k].0,
-                top[(k + shift) % n].0
-            )));
-        }
+    // The band between two coaxial rims is the ZIPPER of two sorted circular
+    // polylines (spec `stage1_azimuth_merge_unequal_rings.md`): walk both
+    // rings in azimuth order from the start pair (bot[0], top[shift]); when
+    // the two next samples agree within `tol` they close a quad (split along
+    // b0→t1, the pre-existing strip's own split, so an equal, azimuth-matched
+    // pair of rings produces the byte-identical triangle list); otherwise the
+    // ring whose next sample comes first advances alone and closes a
+    // triangle against the other ring's current sample. Every ring edge is
+    // used exactly once and the strip is a closed annulus by construction —
+    // for two rings of ANY sample counts. The previous form paired the two
+    // sorted rings POSITIONALLY and refused unequal counts (P0047's wedge-arm
+    // follow-up: 23 vs 24 samples, a per-rim mint beside the shared LOCAL
+    // graze samples) or any pairwise disagreement past `tol`; neither is a
+    // malformed input — a band with distinct sample sets on its two rims is
+    // ordinary geometry with one honest triangulation.
+    //
+    // Unwrapped azimuths from bot[0]: `ub[i]` for bot[i] (ub[m] = 2π, the
+    // wrap back to bot[0]); `ut[j]` for top[(shift + j) % n], with ut[0] the
+    // SIGNED circular offset of the start partner (it may sit just before
+    // bot[0]) and ut[n] = ut[0] + 2π.
+    let tol = (two_pi / m.max(n) as f64) * 0.25;
+    let mut ub: Vec<f64> = Vec::with_capacity(m + 1);
+    ub.push(0.0);
+    for i in 1..m {
+        let step = (bot[i].0 - bot[i - 1].0).rem_euclid(two_pi);
+        ub.push(ub[i - 1] + step);
+    }
+    ub.push(two_pi);
+    let mut ut: Vec<f64> = Vec::with_capacity(n + 1);
+    let mut d0 = (top[shift].0 - bot[0].0).rem_euclid(two_pi);
+    if d0 > std::f64::consts::PI {
+        d0 -= two_pi;
+    }
+    ut.push(d0);
+    for j in 1..n {
+        let (cur, prev) = (top[(shift + j) % n].0, top[(shift + j - 1) % n].0);
+        let step = (cur - prev).rem_euclid(two_pi);
+        ut.push(ut[j - 1] + step);
+    }
+    ut.push(d0 + two_pi);
+    if std::env::var_os("YANG_AZMERGE_PROBE").is_some() {
+        eprintln!(
+            "[azmerge-probe] face {f_idx}: m={m} n={n} tol={tol} shift={shift}\n  \
+             bottom: {:?}\n  top:    {:?}",
+            bot.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
+            top.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
+        );
     }
 
-    for k in 0..n {
-        let kn = (k + 1) % n;
-        let t0 = top[(k + shift) % n].1;
-        let t1 = top[(kn + shift) % n].1;
-        let b0 = bot[k].1;
-        let b1 = bot[kn].1;
-        for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
-            let nrm = orient_target(out_verts, &tri);
-            orient_tri(out_verts, &mut tri, nrm);
-            out_tris.push(tri);
+    let bv = |i: usize| bot[i % m].1;
+    let tv = |j: usize| top[(shift + j) % n].1;
+    let before = out_tris.len();
+    let mut emit = |mut tri: [u32; 3]| {
+        let nrm = orient_target(out_verts, &tri);
+        orient_tri(out_verts, &mut tri, nrm);
+        out_tris.push(tri);
+    };
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < m || j < n {
+        let (b0, t0) = (bv(i), tv(j));
+        if i < m && j < n {
+            let (da, db) = (ub[i + 1], ut[j + 1]);
+            if (da - db).abs() <= tol {
+                let (b1, t1) = (bv(i + 1), tv(j + 1));
+                emit([b0, b1, t1]);
+                emit([b0, t1, t0]);
+                i += 1;
+                j += 1;
+            } else if da < db {
+                emit([b0, bv(i + 1), t0]);
+                i += 1;
+            } else {
+                emit([b0, tv(j + 1), t0]);
+                j += 1;
+            }
+        } else if i < m {
+            // Top exhausted: t0 is the wrapped start partner.
+            emit([b0, bv(i + 1), t0]);
+            i += 1;
+        } else {
+            // Bottom exhausted: b0 is the wrapped bot[0].
+            emit([b0, tv(j + 1), t0]);
+            j += 1;
         }
+    }
+    // Closed-annulus postcondition (loud): a zipper of m + n ring edges emits
+    // exactly m + n triangles.
+    if out_tris.len() - before != m + n {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: azimuth-merge zipper emitted {} triangles for {m} + {n} rim edges",
+            out_tris.len() - before
+        )));
     }
     Ok(())
 }

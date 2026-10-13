@@ -1712,10 +1712,14 @@ pub(crate) fn arc_samples(start: f64, sweep: f64, step: f64) -> Option<Vec<f64>>
 /// shared tail of every LOCAL rim-refinement arm (§4.3.3 Case-IV corner
 /// phantoms, #195 rim×plane grazes).
 ///
-/// The closure, not the face, is the unit: inserting a rim sample changes
-/// that rim's ring length and `tessellate_band_azimuth_merge` REFUSES
-/// unequal rings, so two sites on one closure must end up with the
-/// IDENTICAL azimuth set and every rim in it an equal ring length.
+/// The closure, not the face, is the unit: two sites on one closure end up
+/// with the IDENTICAL azimuth set, so every rim in it carries the same
+/// samples and the §4.5.2 domain lens (P0031) can rely on each rim's own
+/// inside-sweep subset of one shared set. (Since 2026-10-13 the band strip
+/// is an azimuth ZIPPER that accepts unequal rings — spec
+/// `stage1_azimuth_merge_unequal_rings.md` — so a leftover per-rim
+/// difference is no longer a STOP; the shared set per closure is kept as
+/// the sampling-consistency choice, not as a tessellator requirement.)
 #[derive(Default)]
 pub(crate) struct RimAngleOverrides {
     per_closure: std::collections::BTreeMap<(bool, Vec<u32>), RimAngleAcc>,
@@ -1839,6 +1843,29 @@ impl RimAngleOverrides {
                 } else {
                     None
                 };
+                // Two sample REQUESTS closer than the model's own coincidence
+                // band `TAU_MODEL·(1 + scale)` (A14.2: nothing below it is a
+                // representable feature) are one request (P0047, 2026-10-13,
+                // spec `stage1_azimuth_merge_unequal_rings.md` §3b): two
+                // sites' span endpoints 7.5e-4 rad apart on a 9e-5 radius
+                // (6.8e-8 of arc) had minted two rulings a junction then sat
+                // within the weld band of both. Likewise a free sample within
+                // the band of a point this rim ALREADY carries — an earlier
+                // arm's sample, a Stage-1 junction mint, a Stage-0 crossing
+                // standing on the operand — is that point and is dropped (the
+                // standing point keeps its bits; a junction's are shared with
+                // the partner's edge chain). The ring builder holds the
+                // ULP-twin rule for the opposite arrival order.
+                let standing = y.standing_rim().get(&ei);
+                let scale = c.iter().fold(0.0f64, |m, &v| m.max(v.abs())) + radius.abs();
+                let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                let band2 = band * band;
+                let near = |p: &Point3, q: &Point3| {
+                    let (pa, qa) = (p.as_array(), q.as_array());
+                    let d = [pa[0] - qa[0], pa[1] - qa[1], pa[2] - qa[2]];
+                    d[0] * d[0] + d[1] * d[1] + d[2] * d[2] <= band2
+                };
+                let mut kept: Vec<Point3> = Vec::new();
                 let pts: Vec<Point3> = acc
                     .angles
                     .iter()
@@ -1850,6 +1877,14 @@ impl RimAngleOverrides {
                             c[1] + radius * (co * e1[1] + s * e2[1]),
                             c[2] + radius * (co * e1[2] + s * e2[2]),
                         )
+                    })
+                    .filter(|p| {
+                        let dup = standing.is_some_and(|sv| sv.iter().any(|q| near(p, q)))
+                            || kept.iter().any(|q| near(p, q));
+                        if !dup {
+                            kept.push(*p);
+                        }
+                        !dup
                     })
                     .collect();
                 out.entry(ei).or_default().extend(pts);
@@ -2361,28 +2396,44 @@ pub(crate) fn segment_risk_intervals(
     let aa = dot(dw, dw) - dh * dh;
     let bb = 2.0 * (dot(w0, dw) - h0 * dh);
     let cc = dot(w0, w0) - h0 * h0;
-    // L(t) = la + lb t.
-    let (la, lb) = (l0 + h0 * l1, dh * l1);
-    // Q(t) = ρ²(t) − L²(t).
-    let (qa, qb, qc) = (aa - lb * lb, bb - 2.0 * la * lb, cc - la * la);
     let mut cuts: Vec<f64> = vec![0.0, 1.0];
     let push = |t: f64, cuts: &mut Vec<f64>| {
         if t.is_finite() && t > 0.0 && t < 1.0 {
             cuts.push(t);
         }
     };
-    if qa.abs() > 0.0 {
-        let disc = qb * qb - 4.0 * qa * qc;
-        if disc >= 0.0 {
-            let s = disc.sqrt();
-            push((-qb - s) / (2.0 * qa), &mut cuts);
-            push((-qb + s) / (2.0 * qa), &mut cuts);
+    // Breakpoints of ρ(t) = L(t) for the thresh-offset surface (L = l0 +
+    // l1·h) AND for the surface itself. The predicate below ("inside AND
+    // nearer than thresh") changes value at BOTH families of roots, and a
+    // window is classified once at its midpoint — so a segment that pierces
+    // the surface's infinite extension anywhere (inside or outside the band
+    // the caller cares about) must be cut at its piercings too, or the
+    // window straddling a piercing is classified on the wrong side and the
+    // span comes out too wide or absent (P0044 / P0054 / P0058, the wedge
+    // arm's localization latent; 2026-10-13). The surface's own L has the
+    // same affine form with l0 = radius (cylinder) or 0 (cone).
+    let surface_l0 = match surface {
+        Surface::Cylinder { radius, .. } => radius,
+        _ => 0.0,
+    };
+    for l0k in [l0, surface_l0] {
+        // L(t) = la + lb t.
+        let (la, lb) = (l0k + h0 * l1, dh * l1);
+        // Q(t) = ρ²(t) − L²(t).
+        let (qa, qb, qc) = (aa - lb * lb, bb - 2.0 * la * lb, cc - la * la);
+        if qa.abs() > 0.0 {
+            let disc = qb * qb - 4.0 * qa * qc;
+            if disc >= 0.0 {
+                let s = disc.sqrt();
+                push((-qb - s) / (2.0 * qa), &mut cuts);
+                push((-qb + s) / (2.0 * qa), &mut cuts);
+            }
+        } else if qb.abs() > 0.0 {
+            push(-qc / qb, &mut cuts);
         }
-    } else if qb.abs() > 0.0 {
-        push(-qc / qb, &mut cuts);
-    }
-    if lb.abs() > 0.0 {
-        push(-la / lb, &mut cuts);
+        if lb.abs() > 0.0 {
+            push(-la / lb, &mut cuts);
+        }
     }
     cuts.sort_by(f64::total_cmp);
     cuts.dedup();
@@ -2468,12 +2519,14 @@ pub(crate) fn segment_azimuth_interval(
 /// §4.5.2 LOCALIZATION, part 3 — the rims a local refinement of one face
 /// must move TOGETHER.
 ///
-/// Inserting a rim sample changes that rim's ring length, and every band
-/// face incident to the rim pairs its two rings POSITIONALLY
-/// (`tessellate_band_azimuth_merge` REFUSES unequal rings). So the unit of
-/// refinement is not one face: it is the transitive closure of "faces
-/// sharing a full-circle rim", starting from the demanding face. Returns
-/// that closure's rim edge ids, ascending.
+/// Inserting a rim sample changes that rim's sample set, and every band
+/// face incident to the rim shares it with its other rim (the uniform paths
+/// pair rings by index; since 2026-10-13 unequal rings take the azimuth
+/// zipper, spec `stage1_azimuth_merge_unequal_rings.md`, but one shared set
+/// per closure keeps the §4.5.2 lens's per-rim subsets coherent). So the
+/// unit of refinement is not one face: it is the transitive closure of
+/// "faces sharing a full-circle rim", starting from the demanding face.
+/// Returns that closure's rim edge ids, ascending.
 ///
 /// `None` — fail closed, derive nothing — when any rim in the closure is not
 /// COAXIAL with the demanding face's axis (same axis line, parallel
@@ -3569,6 +3622,43 @@ mod edge_graze_tests {
             lo > 0.5 && lo < 1.0,
             "the at-risk run must be a tip fraction, got t ∈ [{lo}, {hi}]"
         );
+    }
+
+    /// 2026-10-13 (wedge-arm follow-up, P0044 / P0054 / P0058): a segment
+    /// that PIERCES the cylinder must be cut at its piercing too. Unit
+    /// cylinder about ẑ, thresh 0.1, the segment from ρ = 0.5 (inside, 0.5
+    /// deep — safe) to ρ = 1.5 (outside): the at-risk run is exactly the
+    /// shallow inside stretch ρ ∈ (0.9, 1.0), i.e. t ∈ (0.4, 0.5). Without
+    /// the surface root the one window (0.4, 1.0) was classified at its
+    /// midpoint ρ = 1.2 — outside — and NOTHING was at risk.
+    #[test]
+    fn risk_span_of_a_piercing_segment_is_the_shallow_run_inside() {
+        let cyl = Surface::Cylinder {
+            axis_point: cad_primitives::Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let ivs = segment_risk_intervals([0.5, 0.0, 0.0], [1.5, 0.0, 0.0], cyl, 0.1)
+            .expect("cylinder arm");
+        assert_eq!(
+            ivs.len(),
+            1,
+            "one shallow run just inside the wall: {ivs:?}"
+        );
+        let (lo, hi) = ivs[0];
+        assert!(
+            (lo - 0.4).abs() < 1e-12,
+            "run starts at ρ = r − thresh, got {lo}"
+        );
+        assert!(
+            (hi - 0.5).abs() < 1e-12,
+            "run ends at the piercing, got {hi}"
+        );
+        // Reversed, the same run mirrored.
+        let ivs = segment_risk_intervals([1.5, 0.0, 0.0], [0.5, 0.0, 0.0], cyl, 0.1)
+            .expect("cylinder arm");
+        assert_eq!(ivs.len(), 1);
+        assert!((ivs[0].0 - 0.5).abs() < 1e-12 && (ivs[0].1 - 0.6).abs() < 1e-12);
     }
 
     #[test]

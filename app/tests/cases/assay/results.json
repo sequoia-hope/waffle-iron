@@ -1,8 +1,8 @@
 {
-  "errored": 25,
+  "errored": 22,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 343,
+  "passed": 346,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2135,10 +2135,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): ddd37e9e-6fc1-4db8-9c23-01dc91523866: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(81), reason: \"bounded cylinder patch must have exactly one material-CCW loop\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0044",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -2184,7 +2184,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): abe6f0fb-14a4-40e8-8f85-fa7696041819: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(992), reason: \"surface-pair Newton projection did not converge\" }",
+      "detail": "1 engine error(s): abe6f0fb-14a4-40e8-8f85-fa7696041819: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(993), reason: \"surface-pair Newton projection did not converge\" }",
       "id": "P0052",
       "status": "error"
     },
@@ -2195,10 +2195,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 86c25a66-0f36-40e0-8043-b018b5d72805: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0054",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -2219,10 +2219,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): dc397142-1c82-4e25-a1cc-24917ce9a124: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(63), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0058",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

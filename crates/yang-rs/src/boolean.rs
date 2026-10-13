@@ -10,7 +10,7 @@ mod coplanar_scan;
 mod junction;
 mod predicates;
 mod provenance;
-mod rim_junction;
+pub(crate) mod rim_junction;
 mod tangency;
 pub(crate) use coplanar_scan::*;
 pub(crate) use junction::*;

@@ -368,7 +368,22 @@ Do NOT skip to lower-priority items because they are easier.
    `yang_169_p3b_inc4c_fan_retriangulation.md` §2 item 5; the lesson is the
    `n_maps` lesson again: never enumerate surface types inside a rule whose
    statement is "the surface's normal"; canonical corpus **343C / 0W / 25E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 952.6 s) — versus 342C / 0W / 26E exactly ONE move, P0059 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 25 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062 less P0047, P0057, P0059, P0060).
-   **The open P-series ERROR tail is P0042–P0062 less P0047, P0057, P0059, P0060**
+   **2026-10-13 (wedge): P0044, P0054, P0058 CONVERTED** (the wedge-arm
+   follow-up: `segment_risk_intervals` cuts at the surface's own roots, not
+   only the thresh-offset's, so a span straddling a piercing is classified
+   on the right side; Stage 1's azimuth-merge band is a ZIPPER of two sorted
+   rings — unequal rims are ordinary geometry, m + n triangles, byte-identical
+   for equal matched rings — and the uniform tube / cone frustum route
+   unequal rings to it; and one rim sample per model-scale point —
+   `RimAngleOverrides::finish` applies the A14.2 band `TAU_MODEL·(1 + scale)`
+   to sample REQUESTS and `merge_rim_points` composes `TAU_WORK` ULP-twins
+   to one slot (the model band there regressed R0072, whose micro-scale rim
+   points 6e-8 apart are real), because two arms spelling one piercing
+   azimuth 1 ULP apart had minted two coincident rulings through the exact
+   junction; the ring builder's bit-exact E-C1 policy for Stage-0
+   crossing twins is unchanged — spec `stage1_azimuth_merge_unequal_rings.md`;
+   canonical corpus **346C / 0W / 22E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 977.7 s) — versus 343C / 0W / 25E exactly THREE moves, P0044 / P0054 / P0058 ERROR → SUPPORTED_CORRECT, zero regressions (R0072 holds at `TAU_WORK`), one detail drift (P0052's face id under the same `surface-pair Newton projection did not converge` text); the 22 ERROR rows are the seven C-series walls, P0026 and the open tail P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062).
+   **The open P-series ERROR tail is P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;
