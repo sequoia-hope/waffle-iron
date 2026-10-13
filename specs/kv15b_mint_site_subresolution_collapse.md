@@ -130,6 +130,37 @@ tolerance is introduced).
   pairs 2–2 (tie, unchanged); op 2 now emits every conic endpoint on its
   curve (`YANG_OUT_INCIDENCE_PROBE` zero hits) and the case advances to
   op 3's to_yang re-entry wall (`UNSUPPORTED(curved-profile)`).
+- **I1c (P0060, 2026-10-13): CONTAINMENT, not count.** I1b's richness
+  test is read as §4-I8 of `yang_441_trim_cdt_construction.md`: a
+  collapse may IDENTIFY two positions only when one endpoint's
+  carried-surface set CONTAINS the other's — the poorer endpoint is then
+  a sample of the richer one's junction (Fig-11's p and q), the survivor
+  adopts the richer position (strict containment) or keeps its own
+  (equal sets). A pair whose sets neither contain the other is two
+  DISTINCT exact junctions, which no single position can join, and the
+  segment is KEPT — exact — however short. Anchor: P0060 (seed 5 index
+  11, three prisms at 1 mm scale): the hexagon prism's corner
+  c = {f1, f5, f6} pokes 1.47e-8 through the second prism's cap plane
+  (Stage 0's edge-in-plane census: "gap 1.469e-8 in the STOP window —
+  not identified"); the exact arrangement mints three triple points
+  {f1, f6, cap}, {f5, f6, cap}, {f1, f5, cap} 1.9e-8 … 3.4e-8 apart;
+  I1b merged {f1, f6, cap} with {f5, f6, cap} on a 3–3 count tie,
+  keeping the first's coordinates, and the emitted vertex sat 2.389e-8
+  off f5 — kernel-v2's `NonPlanarFace`, on the minimum and the lineage
+  alike. With containment the {f1, f5, cap}-free 2-surface sample still
+  collapses onto {f1, f6, cap} (⊂), the {f5, f6, cap} junction stays,
+  the output carries a 3.37e-8 exact edge, kernel-v2 accepts it, and the
+  case reads SUPPORTED_CORRECT (lineage too). Yang §4.3's "remove a
+  point too close to another on the same loop" is a rule for samples of
+  ONE curve; two corners of three different curves are not its subject.
+  The sub-resolution edge is the geometry the model actually has (the
+  configuration is above `TAU_WORK` and resolves exactly); whether a
+  downstream op can consume it is that op's loud question (I5 is
+  narrowed accordingly: no sub-`TAU_MODEL` intersection edge joining
+  positions one of which is a sample of the other). Pin:
+  `kv15b_i1c_keeps_a_segment_joining_two_distinct_junctions`. Probe:
+  `YANG_KV15B_PROBE=1` prints each pair's sets and the containment
+  verdict.
 - I2: no vertex pair whose resolved distance is ≥ TAU_MODEL is ever
   collapsed by this pass.
 - I3: only vertex pairs that appear (after resolution) as CONSECUTIVE

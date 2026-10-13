@@ -2699,6 +2699,206 @@ pub(crate) fn kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates() {
     assert!(on(cone1, mesh.verts[0]) && on(cone2, mesh.verts[0]));
 }
 
+/// Spec `kv15b_mint_site_subresolution_collapse` I1c (P0060, 2026-10-13):
+/// a sub-resolution intersection pair whose endpoints carry surface sets
+/// NEITHER of which contains the other is two DISTINCT exact junctions, and
+/// the segment is KEPT. P0060's shape: a prism corner c = {x=0, y=0, z=0}
+/// pokes 1.47e-8 through the partner's cap plane; the exact arrangement
+/// mints J1 = {cap, x=0, z=0} and J2 = {cap, y=0, z=0} 3.6e-8 apart. No
+/// position lies on all four planes, so the count-only rule's "3–3 tie"
+/// (survivor keeps its coordinates) evicted the y=0 face's loop off its
+/// plane by 2.4e-8 — kernel-v2's `NonPlanarFace`. The companion assertion
+/// keeps I1b: a 2-surface sample ON the survivor's junction line
+/// (`{cap, z=0}` ⊂ `{cap, x=0, z=0}`) still collapses onto it.
+#[test]
+pub(crate) fn kv15b_i1c_keeps_a_segment_joining_two_distinct_junctions() {
+    use std::collections::BTreeMap;
+    let h = 1.47e-8f64; // the cap plane's clearance from the prism corner
+    let s3 = 3f64.sqrt();
+    let nhat = Vector3::new(1.0 / s3, 1.0 / s3, 1.0 / s3);
+    let cap = Surface::Plane {
+        normal: nhat,
+        d: -h,
+    };
+    // A: one planar face on the cap plane, a triangle around the corner.
+    let a = {
+        let c = p(h / s3, h / s3, h / s3);
+        let (s6, s2) = (6f64.sqrt(), 2f64.sqrt());
+        let u = Vector3::new(2.0 / s6, -1.0 / s6, -1.0 / s6);
+        let v = Vector3::new(0.0, 1.0 / s2, -1.0 / s2);
+        let at = |s: f64, t: f64| {
+            p(
+                c.x() + s * u.x() + t * v.x(),
+                c.y() + s * u.y() + t * v.y(),
+                c.z() + s * u.z() + t * v.z(),
+            )
+        };
+        let verts = vec![
+            BRepVertex {
+                point: at(2.0, 0.0),
+            },
+            BRepVertex {
+                point: at(-1.0, 1.5),
+            },
+            BRepVertex {
+                point: at(-1.0, -1.5),
+            },
+        ];
+        let seg = |s: u32, e: u32| BRepEdge {
+            start: s,
+            end: e,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![seg(0, 1), seg(1, 2), seg(2, 0)];
+        let faces = vec![BRepFace {
+            surface: cap,
+            outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("cap A")
+    };
+    // B: the three coordinate planes through the corner, each a triangle
+    // (faces 0 = x=0, 1 = y=0, 2 = z=0).
+    let b = {
+        let verts = vec![
+            BRepVertex {
+                point: p(0.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: p(0.0, 1.0, 0.0),
+            },
+            BRepVertex {
+                point: p(0.0, 0.0, 1.0),
+            },
+            BRepVertex {
+                point: p(1.0, 0.0, 0.0),
+            },
+        ];
+        let seg = |s: u32, e: u32| BRepEdge {
+            start: s,
+            end: e,
+            curve: Curve::LineSegment,
+        };
+        // Loops are walked by each edge's `start` (the Stage-1 planar fan),
+        // so every edge is oriented along its face's loop: e0 0→1, e1 1→2,
+        // e2 2→0, e3 0→3, e4 3→2, e5 3→1, e6 1→0.
+        let edges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 0),
+            seg(0, 3),
+            seg(3, 2),
+            seg(3, 1),
+            seg(1, 0),
+        ];
+        let plane = |n: [f64; 3]| Surface::Plane {
+            normal: Vector3::new(n[0], n[1], n[2]),
+            d: 0.0,
+        };
+        let faces = vec![
+            BRepFace {
+                surface: plane([1.0, 0.0, 0.0]),
+                outer_loop: vec![0, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: plane([0.0, -1.0, 0.0]),
+                outer_loop: vec![3, 4, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: plane([0.0, 0.0, 1.0]),
+                outer_loop: vec![3, 5, 6],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("corner B")
+    };
+    let on = |surf: Surface, q: Point3| {
+        surface_distance_and_normal(surf, q.as_array())
+            .is_some_and(|(f, _)| f.abs() <= junction_certificate_band(q.as_array(), surf))
+    };
+    // J1 = cap ∩ {x=0} ∩ {z=0} = (0, h√3, 0); J2 = cap ∩ {y=0} ∩ {z=0}.
+    let j1 = p(0.0, h * s3, 0.0);
+    let j2 = p(h * s3, 0.0, 0.0);
+    assert!(on(cap, j1) && on(cap, j2));
+    let dist = {
+        let (x, y) = (j1.as_array(), j2.as_array());
+        ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+    };
+    assert!(
+        dist > 1e-9 && dist < cad_primitives::TAU_MODEL,
+        "dist {dist:e}"
+    );
+
+    let att = |input: InputId, face: u32| Some(TriangleAttribution { input, face });
+    let far = [
+        p(1.0, 1.0, 0.5),
+        p(0.0, 2.0, 0.0),
+        p(0.0, 0.0, 2.0),
+        p(2.0, 0.0, 0.0),
+        p(2.0, 0.0, 1.0),
+    ];
+    // Mesh: 0 = J1 (survivor), 1 = J2. Triangles carry: (0,1,·) the cap;
+    // (1,0,·) B's z=0; J1 alone B's x=0; J2 alone B's y=0.
+    let mut mesh = Mesh::new(
+        vec![j1, j2, far[0], far[1], far[2], far[3], far[4]],
+        vec![[0, 1, 2], [1, 0, 3], [0, 3, 4], [1, 5, 6]],
+    );
+    let mut attr = vec![
+        att(InputId::A, 0),
+        att(InputId::B, 2),
+        att(InputId::B, 0),
+        att(InputId::B, 1),
+    ];
+    let s1 = carried_surfaces(&mesh, &attr, &a, &b, 0, j1.as_array());
+    let s2 = carried_surfaces(&mesh, &attr, &a, &b, 1, j2.as_array());
+    assert_eq!(
+        (s1.len(), s2.len()),
+        (3, 3),
+        "both endpoints are certified triple junctions"
+    );
+    assert!(s1.iter().any(|s| !s2.contains(s)) && s2.iter().any(|s| !s1.contains(s)));
+    let map: BTreeMap<(u32, u32), Curve> = kv15b_map(&[(0, 1)]);
+    let before = (mesh.verts.clone(), mesh.tris.clone());
+    assert!(
+        !collapse_subresolution_intersection_segments(&mut mesh, &mut attr, &map, &a, &b),
+        "two distinct junctions 3.6e-8 apart are not a redundant curve sample: no collapse"
+    );
+    assert_eq!(
+        (mesh.verts, mesh.tris),
+        before,
+        "the mesh is byte-identical"
+    );
+
+    // I1b companion: a 2-surface sample on the survivor's own junction line
+    // ({cap, z=0} ⊂ {cap, x=0, z=0}) still collapses, the survivor keeping
+    // its coordinates.
+    let s = p(0.3 * h * s3, 0.7 * h * s3, 0.0);
+    assert!(on(cap, s));
+    let mut mesh = Mesh::new(
+        vec![j1, s, far[0], far[1], far[2], far[3], far[4]],
+        vec![[0, 1, 2], [1, 0, 3], [0, 3, 4], [1, 2, 3]],
+    );
+    let mut attr = vec![
+        att(InputId::A, 0),
+        att(InputId::B, 2),
+        att(InputId::B, 0),
+        att(InputId::B, 2),
+    ];
+    assert!(collapse_subresolution_intersection_segments(
+        &mut mesh, &mut attr, &map, &a, &b
+    ));
+    assert_eq!(
+        mesh.verts[0], j1,
+        "the richer survivor keeps its own coordinates"
+    );
+}
+
 // ── M5 torus arm (YT1–YT3, YT6; spec "Torus arm") ────────────────────
 
 pub(crate) fn ytorus(c: [f64; 3], a: [f64; 3], rr: f64, r: f64) -> Surface {

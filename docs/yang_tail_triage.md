@@ -43,6 +43,70 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (P0060) — P0060 CONVERTED: the KV15b sub-resolution collapse merged two DISTINCT exact junctions on a count-only "tie" — a prism corner 1.47e-8 through the partner's cap plane mints three triple points no single position can join; the collapse now applies §4-I8 CONTAINMENT and keeps the exact 3.4e-8 edge
+
+**Anchor (`replay_waffle_env`, `KV2_PLANARITY_PROBE` + `YANG_BREP_PROBE` +
+`YANG_KV15B_PROBE` + `YANG_EDGE_IN_PLANE_PROBE`, minimum AND the un-minimized
+seed-5 index-11 lineage).** The failing op is the third: a hexagon prism B
+(axis x, from x = 2.858e-4 to 3.110e-3) auto-unioned onto A = two square prisms.
+kernel-v2's gate names output face 52 (B's lateral f5, normal (0, 0.563,
+0.826)): FOUR loop vertices, ONE on the plane and THREE off it by the SAME
+2.389e-8 — the plane is anchored at the one, so the one is what moved. It is
+B's own corner v9 = {f1 start cap, f5, f6} (sketch point (7.7e-5, 1.031e-3)),
+and in the output it sits 2.76e-8 away ALONG B's cap edge v9→v8, exactly where
+that edge crosses A's second-prism end cap f8 (`n·p + d` = 0.0 to the last
+digit). v9 itself is **1.469e-8** on f8's inner side — Stage 0's §4.5.5
+edge-in-plane census reads it: `B v9 vs partner face 8: gap 1.469e-8 in the
+STOP window (band 1.000e-7) — not identified`, so the exact arrangement kept
+the true geometry: the corner pokes through the cap and f8 cuts B's three
+corner edges at three triple points — {f1, f6, f8} (mesh v29), {f5, f6, f8}
+(v31, 1.94e-8 along the generator), {f1, f5, f8} (v32) — 1.9e-8 … 3.4e-8
+apart. v9 is inside A and is correctly gone from a union.
+
+**Mechanism.** The KV15b emission-hygiene pass (spec
+`kv15b_mint_site_subresolution_collapse`) collapses intersection segments
+shorter than `TAU_MODEL·(1+scale)`; its I1b rule ranks the two endpoints by
+the COUNT of carried surfaces and, on a tie, keeps the min-index survivor's
+coordinates. `YANG_KV15B_PROBE`: `(29,32) len 2.682e-8 … cs=3 cv=2` — v32 is
+a 2-surface sample ON v29's junction line and merges rightly; then `(31,29)
+len 3.372e-8 … cs=3 cv=3` — a 3–3 TIE between {f1, f6, f8} and {f5, f6, f8},
+two DISTINCT exact junctions whose union is FOUR planes through no common
+point. The tie kept v29's coordinates, the merged vertex closed f5's loop
+2.389e-8 off f5, and kernel-v2 rejected the emission — correctly, since the
+emitted B-Rep WAS inconsistent, but blaming the wrong stage.
+
+**Fix (yang-rs `collapse_subresolution_intersection_segments`, spec I1c).**
+The richness test is now the containment rule §4-I8 of
+`yang_441_trim_cdt_construction.md` already states for Fig-11 merges and
+`carried_surfaces`'s own doc names ("two sets of equal size that differ are
+two DISTINCT model points, which no merge can join"): collapse only when one
+endpoint's carried-surface set contains the other's (strict ⇒ the survivor
+adopts the richer position; equal ⇒ keeps its own); otherwise the segment is
+KEPT, exact. Yang §4.3's "remove a point too close to another on the same
+loop" governs samples of ONE curve; the corners of three different curves are
+not its subject. The output now carries a 3.37e-8 exact edge between two
+exact triple points; kernel-v2 accepts it (every vertex on every incident
+plane), and the model's sub-resolution geometry is what it is — a downstream
+op that cannot consume it will say so loudly (I5 narrowed accordingly). On
+P0060: `(31,29) … two DISTINCT junctions (§4-I8) — segment kept`, the union
+succeeds (volume 1.380e-8), **SUPPORTED_CORRECT 0.5 s**; the lineage (4 ops,
+a convex6 revolve) completes by the identical trace. Pin
+`kv15b_i1c_keeps_a_segment_joining_two_distinct_junctions` (RED under the
+count rule); the I1b adoption pin stays green.
+
+**Measurement (release, 8 jobs, 900 s; wall 987.8 s): 341C / 0W / 28E / 5EE /
+0T over 374** — versus the committed 340C / 0W / 29E exactly ONE move, P0060
+ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift on any ERROR /
+EXPECTED_ERROR row: on every other case the containment rule collapses exactly
+the pairs the count rule collapsed. yang-rs suite + the new pin green, clippy
+`--all-targets -D warnings` (yang-rs, test-harness) and fmt clean. The 28
+ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062
+less P0060. P0057 and P0059 (same 1.16e-3 scale bucket) are NOT this
+mechanism — re-probed after the change, both STOP unchanged (P0057 is a §4.5.3
+reversal-sweep collapse of an EXACT Stage-1-minted corner whose f5 triangles
+the labeling did not keep, so the §3d incidence rank read 2; P0059 a Stage-6
+boundary-walk deadend) — next in the queue.
+
 ## 2026-10-13 (seed 5) — prospector seed 5 adjudicated: the 10 ERROR rows are nine kernel STOPs at ten sites plus one harness hole; both WRONG rows are the kernel RIGHT (one the cut-auto-reversal disagreement, one a sliver the magnitude band cannot judge); one TIMEOUT is a NEW text unbudgeted; promoted **P0053–P0062**; corpus re-measured: **340C / 0W / 29E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall 1046.9 s) — versus 340C / 0W / 19E over 364 exactly the TEN new ERROR rows and nothing else moved; the one detail drift is C0046's `NonManifoldVertex` now naming its vertex (0, 0, 1), the 0-D contact wall; the 29 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062
 
 `PROSPECT_SEED=5 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`

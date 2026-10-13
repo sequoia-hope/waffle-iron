@@ -4625,11 +4625,6 @@ pub(crate) fn collapse_subresolution_intersection_segments(
     // NOT on their surface at certificate precision, so they contribute
     // nothing — the count is strictly richer only for positions Stage 4
     // actually placed on the surface.
-    let plane_count = |mesh: &Mesh,
-                       attribution: &[Option<TriangleAttribution>],
-                       vi: u32,
-                       pos: [f64; 3]|
-     -> usize { surface_incidence_count(mesh, attribution, a, b, vi, pos) };
     let mut any = false;
     for &(u, v) in intersection_curves.keys() {
         let (ru, rv) = (resolve(&redirect, u), resolve(&redirect, v));
@@ -4671,18 +4666,49 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         }
         let survivor = ru.min(rv);
         let victim = ru.max(rv);
-        // I1b: adopt the plane-incidence-richer position onto the surviving
-        // index (strictly richer only).
+        // I1b, read as §4-I8 CONTAINMENT (P0060, 2026-10-13): a collapse may
+        // IDENTIFY two positions only when one endpoint's carried-surface set
+        // contains the other's — the poorer endpoint is then a sample of the
+        // richer one's junction, and the survivor adopts the richer position.
+        // Two sets neither of which contains the other are two DISTINCT exact
+        // junctions (P0060: a prism corner {f1, f5, f6} poking 1.47e-8 through
+        // the partner's cap plane mints three triple points {f1, f6, cap},
+        // {f5, f6, cap}, {f1, f5, cap} 1.9e-8 … 3.4e-8 apart); no single
+        // position lies on their union of four planes, and the count-only
+        // "tie" rule kept one of them, evicting the face loop of the fourth
+        // plane off its surface by 2.4e-8 — kernel-v2's NonPlanarFace. Such a
+        // pair is NOT a redundant curve sample (Yang §4.3's rule is for points
+        // on ONE loop): the segment stays, exact, and the output carries the
+        // sub-resolution feature the model actually has.
         {
             let sp = mesh.verts[survivor as usize].as_array();
             let vp = mesh.verts[victim as usize].as_array();
-            let cs = plane_count(mesh, attribution, survivor, sp);
-            let cv = plane_count(mesh, attribution, victim, vp);
-            if cv > cs {
-                mesh.verts[survivor as usize] = mesh.verts[victim as usize];
+            let ss = carried_surfaces(mesh, attribution, a, b, survivor, sp);
+            let vs = carried_surfaces(mesh, attribution, a, b, victim, vp);
+            let (cs, cv) = (ss.len(), vs.len());
+            let victim_in_survivor = vs.iter().all(|s| ss.contains(s));
+            let survivor_in_victim = ss.iter().all(|s| vs.contains(s));
+            if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some()
+                || std::env::var_os("YANG_KV15B_PROBE").is_some()
+            {
+                eprintln!(
+                    "[collapse-site] kv15b carried survivor={survivor} cs={cs} victim={victim} \
+                     cv={cv} victim⊆survivor={victim_in_survivor} \
+                     survivor⊆victim={survivor_in_victim}"
+                );
             }
-            if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
-                eprintln!("[collapse-site] kv15b plane_count survivor={survivor} cs={cs} victim={victim} cv={cv}");
+            if !victim_in_survivor && !survivor_in_victim {
+                if std::env::var_os("YANG_KV15B_PROBE").is_some() {
+                    eprintln!(
+                        "[kv15b] key ({u},{v}) resolved ({ru},{rv}) len={:.3e}: two DISTINCT \
+                         junctions (§4-I8) — segment kept",
+                        d2.sqrt()
+                    );
+                }
+                continue;
+            }
+            if survivor_in_victim && !victim_in_survivor {
+                mesh.verts[survivor as usize] = mesh.verts[victim as usize];
             }
         }
         if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {

@@ -2183,7 +2183,15 @@ fn smoke_corpus_boundary_categories() {
         // P0060 (3 ops, three prisms) ⇒ auto-union `NonPlanarFace` — a planar
         // face whose loop sits 2.389e-8 off its plane (band 1e-12), the same
         // face on the lineage. ×1e3 CORRECT, ×1e-3 the input feature floor.
-        ("P0060", Category::Error),
+        // CONVERTED 2026-10-13 (P0060): the hexagon prism's corner pokes
+        // 1.47e-8 through the second prism's cap plane, the exact arrangement
+        // mints three triple points 1.9e-8 … 3.4e-8 apart, and the KV15b
+        // sub-resolution collapse merged two DISTINCT junctions on a count-only
+        // "tie" (3 vs 3), evicting the fourth plane's loop off its surface.
+        // The collapse now applies §4-I8 containment (spec
+        // `kv15b_mint_site_subresolution_collapse` I1c): a pair neither of
+        // whose carried-surface sets contains the other is kept, exact.
+        ("P0060", Category::SupportedCorrect),
         // P0061 (3 ops) ⇒ auto-union `ring rejected by CDT` on a 49-point
         // curved ring; P0062 is its UN-MINIMIZED 7-op lineage, which rejects a
         // DIFFERENT ring (30 points with a collinear run) — both halves.

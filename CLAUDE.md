@@ -318,8 +318,20 @@ Do NOT skip to lower-priority items because they are easier.
    unbudgeted (`patch triangle below render resolution`, 366 s wall —
    re-minimize before promoting). kernel-v2's `NonManifoldVertex` now names
    the vertex's position. Corpus after the promotions: **340C / 0W / 29E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall 1046.9 s) — versus 340C / 0W / 19E over 364 exactly the TEN new ERROR rows and nothing else moved; the one detail drift is C0046's `NonManifoldVertex` now naming its vertex (0, 0, 1), the 0-D contact wall; the 29 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062.
-   **The open P-series ERROR tail is P0042–P0062** (seeds 4–5; P0001–P0041
-   CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
+   **2026-10-13 (P0060): P0060 CONVERTED** (three prisms at 1 mm scale: the
+   hexagon prism's corner pokes 1.47e-8 through the second prism's cap plane
+   — Stage 0's edge-in-plane census sees the gap in its STOP window and
+   leaves the exact geometry — so the exact arrangement mints three triple
+   points 1.9e-8 … 3.4e-8 apart; the KV15b sub-resolution collapse merged
+   two of them on a count-only 3–3 "tie", and the merged vertex closed the
+   fourth plane's loop 2.4e-8 off its surface — kernel-v2's `NonPlanarFace`;
+   the collapse now applies §4-I8 CONTAINMENT, spec
+   `kv15b_mint_site_subresolution_collapse` I1c: a pair neither of whose
+   carried-surface sets contains the other is two DISTINCT junctions and the
+   segment is kept, exact; canonical corpus **341C / 0W / 28E / 5EE / 0T over
+   374** (wall 987.8 s) — exactly ONE move, zero drift).
+   **The open P-series ERROR tail is P0042–P0062 less P0060** (seeds 4–5;
+   P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;
    re-creatable with `PROSPECT_SEED=<4|5> PROSPECT_COUNT=200 prospect_run` and
