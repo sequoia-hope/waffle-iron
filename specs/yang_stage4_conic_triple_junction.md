@@ -1,5 +1,28 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
+> **The junction-map gate is RETIRED — admission by INCIDENCE COUNT
+> (2026-10-13).** Every blockquote below titled "Junction-map candidates"
+> records the same defect with a different noun: the triple block counted how
+> many single-curve maps held a vertex (`n_maps`) and a corner one map
+> "counted zero" for fell to a single-curve arm or STOPped — seven times (KV16
+> same-type, R0044 pair, C0067 circle pair, R0070 / P0004 plane-pair conic,
+> R0050 torus mix, P0025 coplanar ellipse pair, P0027 line pair). The paper's
+> predicate is the incidence count — a vertex incident to exactly three
+> distinct surfaces is a triple point whatever curves carry it (§4.5.1, the
+> corner is the solution of three surface equations) — and the block already
+> computed it (`vert_surfs[v].len() == 3`) one statement AFTER the enumerated
+> gate. The gate and its six case-discovered predicates are deleted; the
+> candidate set is unchanged (every vertex of every curve map and the torus
+> edge set); the 3-surface check, the Newton, the displacement gate, the
+> domain certificate and the bookkeeping are untouched. `YANG_ELL_PAIR_CORNER`
+> is gone; `YANG_LINE_PAIR_CORNER` now governs only the line arm's routing of
+> a second record into `vert_line_junction`. **Corpus (release, 8 jobs, 900 s;
+> wall 935.4 s): 340C / 0W / 19E / 5EE / 0T over 364 — byte-identical to the
+> committed baseline: zero category moves, zero detail drift on any non-CORRECT
+> row.** yang-rs 1568 / kernel-v2 864 release tests green, clippy
+> `--all-targets -D warnings` + fmt clean. The amendments below stay as the
+> record of how the corners were found; none of them is a gate any more.
+>
 > **Junction-map candidates — the line pair (2026-10-08, P0027).** The
 > Stage-4 line arm (`Curve::LineSegment` recomputed as an exact ssi `Line`:
 > a cylinder∩plane generator, a Steinmetz line, a cone-apex generator) keeps

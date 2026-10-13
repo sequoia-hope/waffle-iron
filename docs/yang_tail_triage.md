@@ -43,6 +43,43 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 — the Stage-4 triple-corner gate admits by INCIDENCE COUNT; the seven-times-reopened junction-map enumeration is RETIRED; canonical 340C / 0W / 19E / 5EE / 0T over 364, byte-identical
+
+**Not a conversion — a structural replacement, measured.** The audit of
+2026-10-13 asked whether the campaign was hardening the kernel or carving
+special cases, and the triple block's admission gate was the clearest
+special-casing archetype in the stack: `n_maps` counted the vertex's
+membership in seven single-curve maps and admitted it at ≥ 2, OR when one of
+six predicates held — `same_type_junction` (KV16), `circle_pair_corner`
+(C0067), `pp_conic_corner` (R0070, P0004), `torus_conic_mix` (R0050),
+`ell_pair_corner` (P0025), `line_pair_corner` (P0027) — each predicate a
+session spent on a corner one map "counted zero" for. One statement after the
+gate the block fetched `vert_surfs[v]` and required exactly three distinct
+surfaces: Yang §4.5.1's own predicate, already computed.
+
+**Change:** the enumerated gate and its six predicates are deleted; admission
+is `surfs.len() == 3` alone. The candidate set (`cand`: every vertex of every
+curve map plus the torus edge set), the Newton, the displacement gate, the
+§4.5.1 domain certificate and the bookkeeping that pulls a resolved vertex out
+of every single-curve map are unchanged. `YANG_ELL_PAIR_CORNER` is deleted
+(`stage4_relocate::ellipse_pair_coplanar` survives `#[cfg(test)]` for its unit
+pins); `YANG_LINE_PAIR_CORNER` governs only the line arm's routing of a second
+record. The P0025 / P0027 kernel-v2 chain pins and P0004 / C0067 / R0050 /
+R0070 corpus rows now guard the general gate.
+
+**Measurement (release, 8 jobs, 900 s; wall 935.4 s): 340C / 0W / 19E / 5EE /
+0T over 364** — versus the committed Amendment-3 baseline, per-case diff over
+all 364: ZERO category moves, ZERO detail drift on any ERROR / EXPECTED_ERROR
+row. yang-rs 1568 passed / 0 failed (8 ignored), kernel-v2 864 / 0 (7
+ignored), clippy `--all-targets -D warnings` and fmt clean.
+
+**Reading:** on every case the corpus holds, the incidence count admits
+exactly the vertices the thirteen-predicate gate admitted, or admits more and
+resolves them identically. Whether it converts anything NEW (a corner carried
+by a curve-type combination no case has yet exhibited — the eighth map) is
+what the next prospector seed measures; by construction there is no eighth
+map left to count zero.
+
 ## 2026-10-12 (seed 4, P0041) — P0041 CONVERTED: not a yang STOP — kernel-v2's body splitter clustered shells by their B-Rep VERTEX hull, a cylinder boss's hull is its seam, and a cavity sunk into the boss became a "body" of its own
 
 **Anchor.** P0041 is seed 4's index-42 lineage minimized 8 → 3 ops

@@ -9890,7 +9890,9 @@ fn stage4_relocate_and_correct_inner(
     // the SAME loud STOP as before (the residue audit below the block).
     let mut vert_line_junction: BTreeMap<u32, LineReloc> = BTreeMap::new();
     // Household knob (dev A/B only): `YANG_LINE_PAIR_CORNER=0|off` restores
-    // the pre-flip line arm (STOP on the second record) byte-identically.
+    // the pre-flip line ARM (STOP on the second record). Since 2026-10-13 it
+    // governs only this routing — the triple block itself admits by incidence
+    // count and consults no junction map.
     let line_pair_corner_on = !matches!(
         std::env::var("YANG_LINE_PAIR_CORNER").as_deref(),
         Ok("0") | Ok("off")
@@ -11138,125 +11140,17 @@ fn stage4_relocate_and_correct_inner(
             crate::stage4_boundary_curve::creases_by_surface(&inc0)
         };
         for v in cand {
-            let n_maps = [
-                vert_circle.contains_key(&v),
-                vert_ellipse.contains_key(&v),
-                vert_cone_ellipse.contains_key(&v),
-                vert_parabola.contains_key(&v),
-                vert_cone_hyperbola.contains_key(&v),
-                vert_line.contains_key(&v),
-                vert_surface_pair.contains_key(&v),
-            ]
-            .iter()
-            .filter(|b| **b)
-            .count();
-            // KV16: a same-type conic junction (two hyperbolas in the ONE
-            // `vert_cone_hyperbola` slot) counts as multi-curve even though
-            // only one map sees the vertex.
-            //
-            // C0067 (spec `yang_stage4_conic_triple_junction`, "Junction-map
-            // candidates"): a circle∩circle junction whose two circles are
-            // NOT coplanar is two curves by construction — two section
-            // circles of one quadric meeting where their planes' line
-            // pierces it, the {sphere, wall, wall} notch corner — and the
-            // M8 disc∩disc closed form (coplanar lens corners only) can
-            // never serve it. It is the fourth junction map found counting
-            // ZERO toward `n_maps` (after the KV16 same-type, R0044 pair and
-            // M5 K11 line×circle exclusions, `specs/m5_surface_pair_curve.md`
-            // "The triple block never saw it either"). The COPLANAR pair
-            // keeps its exact closed form below, byte-identically.
-            let circle_pair_corner = vert_circle_junction.get(&v).is_some_and(|(ca, cb)| {
-                !crate::stage4_relocate::circles_coplanar(ca.0, ca.1, cb.0, cb.1)
-            });
-            // R0050: a torus edge meeting a CONIC endpoint (any map that
-            // feeds `endpoints` — the procedural pair map does not, and a
-            // torus + pair-only vertex keeps the torus block's own arms
-            // byte-identically). Such a mix STOPped unconditionally at the
-            // torus block's `endpoint_set` guard, so admitting it here is
-            // monotone: only a STOP can change.
-            let torus_conic_mix = torus_edge_verts.contains(&v)
-                && (n_maps - usize::from(vert_surface_pair.contains_key(&v)) >= 1
-                    || circle_pair_corner
-                    || same_type_junction.contains(&v));
-            // R0070 (2026-09-17, spec `yang_stage4_conic_triple_junction`,
-            // "Junction-map candidates — the line × plane-pair corner"): a
-            // LINE endpoint that also terminates an exact plane∩plane
-            // segment is the corner where a ruling of one operand's plane
-            // crosses the OTHER operand's crease into a neighbouring planar
-            // face — {cylinder, plane, plane}, exactly three surfaces, the
-            // R0077 two-plane line metric's own shape. `vert_pp_planes` is
-            // the fifth map found counting ZERO toward `n_maps` (after the
-            // KV16 same-type, R0044 pair, M5 K11 line×circle and C0067
-            // circle-pair exclusions): the vertex fell through to the Line
-            // arm's perpendicular FOOT, which lands on the line's two
-            // carriers and OFF the third plane by the foot's along-line
-            // error (R0070 op 3: 8.5e-7 at 1.7e-2 scale, `s6-planar-loop-
-            // nonplanar`). Monotone: a vertex this admits was relocated
-            // wrong before, never STOPped.
-            //
-            // P0004 (2026-09-28, spec "Junction-map candidates — the conic ×
-            // plane-pair corner"): the same corner with ANY single conic in
-            // place of the line. A cone × plane ELLIPSE endpoint terminating
-            // an exact plane∩plane segment is {cone, plane, plane} — the
-            // crease of a previous boolean (A's cone against its own planar
-            // face) crossed by B's face. The PR-KV11 pass above serves only
-            // the cylinder-ellipse map, so the cone-ellipse (and parabola /
-            // hyperbola / surface-pair) endpoint scored `n_maps == 1`, fell
-            // to its single-curve arm and slid along the ellipse OFF A's
-            // plane by the chord error (P0004: 1.2e-1 at scale 3.5,
-            // `s6-planar-loop-nonplanar`). The pp segment is a curve through
-            // the vertex exactly as the line map is; it is held out of
-            // `n_maps` only because the segment itself needs no relocation.
-            // Monotone: every vertex this admits was relocated WRONG before
-            // (single-curve arm), never STOPped.
-            let pp_conic_corner = vert_pp_planes.contains_key(&v) && n_maps >= 1;
-            // P0025 (2026-10-08, spec `yang_stage4_conic_triple_junction`,
-            // "Junction-map candidates — the coplanar ellipse pair"): the
-            // ellipse analog of the C0067 circle-pair corner, with the
-            // eligibility inverted. `insert_ellipse_or_junction` demotes a
-            // vertex carrying two DIFFERENT ellipses into `vert_ell_junction`,
-            // whose PR-KV9 closed form is `(plane₁ ∩ plane₂) ∩ cylinder` —
-            // two planes, ONE cylinder. A pair in the SAME plane on two
-            // DIFFERENT cylinders (the cylinder×cylinder crease of a previous
-            // boolean — two bosses — pierced by the other operand's planar
-            // face) has no plane-pair line: the junction arm STOPped
-            // `LocalRefinementRequired` at `|n₁ × n₂| < MIN_FEATURE_SIZE`
-            // (P0025 v3, 14 of 32 seed-3 ERROR rows), although with exactly
-            // three incident surfaces it is the plain {plane, cyl_A, cyl_B}
-            // corner this block already solves (R0035 v194/195's shape). The
-            // sixth junction map found counting ZERO toward `n_maps`. The
-            // NON-coplanar pair keeps its closed form byte-identically.
-            // Monotone: the coplanar pair STOPped unconditionally, so only a
-            // STOP can change.
-            // Household knob (dev A/B only): `YANG_ELL_PAIR_CORNER=0|off`
-            // restores the pre-flip path byte-identically.
-            let ell_pair_corner = !matches!(
-                std::env::var("YANG_ELL_PAIR_CORNER").as_deref(),
-                Ok("0") | Ok("off")
-            ) && vert_ell_junction
-                .get(&v)
-                .is_some_and(|(ea, eb)| crate::stage4_relocate::ellipse_pair_coplanar(ea, eb));
-            // P0027 (2026-10-08, spec "Junction-map candidates — the line
-            // pair"): a vertex on two DIFFERENT exact lines — two generators
-            // crossing where a cylinder×cylinder crease pierces a plane
-            // parallel to both axes ({plane, cyl_A, cyl_B}), or one
-            // cylinder's generators in two planes ({plane, plane, cyl}). The
-            // line arm used to STOP on the second record before this block
-            // ran: the seventh junction map counting ZERO toward `n_maps`.
-            // Monotone: the pair STOPped unconditionally, so only a STOP can
-            // change; a pair this block bails on STOPs at the residue audit
-            // below, at the same site text.
-            let line_pair_corner = vert_line_junction.contains_key(&v);
-            if n_maps < 2
-                && !same_type_junction.contains(&v)
-                && !circle_pair_corner
-                && !ell_pair_corner
-                && !line_pair_corner
-                && !torus_conic_mix
-                && !pp_conic_corner
-            {
-                continue;
-            }
+            // Admission is by INCIDENCE, not by curve-type bookkeeping
+            // (2026-10-13). A vertex incident to exactly three distinct
+            // surfaces is a triple point whatever curves carry it (Yang
+            // §4.5.1: the corner is the solution of three surface equations);
+            // the former gate counted how many single-curve maps held the
+            // vertex and had to be re-opened seven times — KV16 same-type,
+            // R0044 pair, C0067 circle pair, R0070 / P0004 plane-pair conic,
+            // R0050 torus mix, P0025 coplanar ellipse pair, P0027 line pair —
+            // each a corner one map "counted zero" for. The surface count
+            // below is the paper's predicate and the only one; 2 and ≥ 4
+            // surfaces keep the loud audits (I2).
             let probe_v = std::env::var_os("YANG_SAMETYPE_PROBE").is_some();
             let Some(surfs) = vert_surfs.get(&v) else {
                 if probe_v {

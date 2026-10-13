@@ -713,6 +713,11 @@ pub(crate) fn circles_coplanar(c_a: Point3, n_a: Vector3, c_b: Point3, n_b: Vect
 /// as [`circles_coplanar`]. (Same plane AND same cylinder is the same ellipse,
 /// which `insert_ellipse_or_junction` never demotes, so a coplanar pair in
 /// the junction map always carries two different cylinders.)
+///
+/// 2026-10-13: no longer a production gate — the triple block admits by
+/// incidence count (three distinct surfaces) and needs no curve-type
+/// predicate. Kept as the tested identity it is, for the unit pins.
+#[cfg(test)]
 pub(crate) fn ellipse_pair_coplanar(a: &EllipseReloc, b: &EllipseReloc) -> bool {
     let na = normalize3(a.plane_n.as_array());
     let nb = normalize3(b.plane_n.as_array());

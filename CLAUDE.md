@@ -289,6 +289,13 @@ Do NOT skip to lower-priority items because they are easier.
    2026-10-13 after Amendment 3: the same score, wall 943.6 s, one detail
    drift — P0046's face id, its severed boss now two bodies); canonical corpus
    **340C / 0W / 19E / 5EE / 0T over 364** (wall 973.2 s) — versus 339C / 0W / 20E exactly ONE move, P0041 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift; the 19 ERROR rows are the seven C-series walls, P0026 and the open seed-4 tail P0042–P0052).
+   **2026-10-13: the Stage-4 triple-corner gate admits by INCIDENCE COUNT**
+   (three distinct incident surfaces, Yang §4.5.1) — the `n_maps` junction-map
+   enumeration and its six case-discovered predicates are DELETED (the "Nth
+   junction map counting zero" defect had recurred seven times); corpus
+   byte-identical, **340C / 0W / 19E / 5EE / 0T over 364**, zero moves, zero
+   drift (spec `yang_stage4_conic_triple_junction.md` top blockquote). Never
+   re-introduce a curve-type gate in front of that block.
    **The open P-series ERROR tail is P0042–P0052** (seed 4; P0001–P0041
    CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-4/

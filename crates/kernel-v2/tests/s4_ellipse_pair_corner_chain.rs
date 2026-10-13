@@ -15,10 +15,12 @@
 //! closed form is `(plane₁ ∩ plane₂) ∩ cylinder` — and with ONE plane the
 //! plane-pair line does not exist: `LocalRefinementRequired` at
 //! `|n₁ × n₂| < MIN_FEATURE_SIZE` (P0025 v3; 14 of 32 seed-3 ERROR rows).
-//! The triple block never scanned that map. RED without the
-//! `ell_pair_corner` admission (`YANG_ELL_PAIR_CORNER=0`, mutation-checked
-//! 2026-10-08), GREEN with it: every corner is an exact output vertex on
-//! all three surfaces.
+//! The triple block never scanned that map. RED before the 2026-10-08
+//! `ell_pair_corner` admission (mutation-checked with the then-knob
+//! `YANG_ELL_PAIR_CORNER=0`), GREEN with it: every corner is an exact output
+//! vertex on all three surfaces. Since 2026-10-13 the block admits by
+//! INCIDENCE COUNT (three distinct surfaces) and the curve-type predicate and
+//! its knob are gone; this pin now guards the general gate.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{

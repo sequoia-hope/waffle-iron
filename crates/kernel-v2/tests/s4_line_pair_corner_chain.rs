@@ -12,9 +12,12 @@
 //! Before the fix that vertex carried two DIFFERENT exact-line records and
 //! the Stage-4 line arm STOPped on the second one (`line_line_junction`,
 //! "out of scope — loud STOP rather than silently overwriting") before the
-//! triple block ever ran. RED without the `line_pair_corner` admission
-//! (`YANG_LINE_PAIR_CORNER=0`, mutation-checked 2026-10-08), GREEN with it:
-//! every corner is an exact output vertex on all three surfaces.
+//! triple block ever ran. RED before the 2026-10-08 `line_pair_corner`
+//! admission (mutation-checked with `YANG_LINE_PAIR_CORNER=0`, which today
+//! governs only the line arm's routing), GREEN with it: every corner is an
+//! exact output vertex on all three surfaces. Since 2026-10-13 the block
+//! admits by INCIDENCE COUNT (three distinct surfaces) and consults no
+//! junction map; this pin now guards the general gate.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
