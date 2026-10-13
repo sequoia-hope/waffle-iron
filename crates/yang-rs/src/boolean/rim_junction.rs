@@ -1402,6 +1402,60 @@ pub(crate) fn edge_graze_sites(a: &BRep, b: &BRep) -> Vec<GrazeSite> {
             if r_max <= 0.0 || r_max.is_nan() {
                 continue; // nothing the rim-N vocabulary can boost
             }
+            // Case-III piercing-edge DIP arm (spec §10, P0057): every
+            // straight edge of the partner that pierces this face twice and
+            // dips less than the face's natural sagitta between the
+            // piercings is its own site — the chord mesh may miss the
+            // piercing entirely. Fail closed without a rim vocabulary.
+            if n_nat != usize::MAX {
+                let thresh_nat = r_max * (1.0 - (std::f64::consts::PI / n_nat as f64).cos());
+                for e in x.edges() {
+                    if e.curve != Curve::LineSegment || e.start == e.end {
+                        continue;
+                    }
+                    let p0 = x.vertices()[e.start as usize].point.as_array();
+                    let p1 = x.vertices()[e.end as usize].point.as_array();
+                    let Some((n, depth, t1, t2)) =
+                        segment_face_pierce_dip_demand(p0, p1, f.surface, r_max, band, thresh_nat)
+                    else {
+                        continue;
+                    };
+                    // The site's segment is the DIP CHORD between the two
+                    // piercings, not the whole edge.
+                    let at = |t: f64| {
+                        [
+                            p0[0] + t * (p1[0] - p0[0]),
+                            p0[1] + t * (p1[1] - p0[1]),
+                            p0[2] + t * (p1[2] - p0[2]),
+                        ]
+                    };
+                    let (q0, q1) = (at(t1), at(t2));
+                    let (origin, u, _, _) = band;
+                    if std::env::var_os("YANG_433_GRAZE_PROBE").is_some() {
+                        eprintln!(
+                            "[s433-dip] side={} face={f_idx} r_max={r_max:e} depth={depth:e} \
+                             thresh={thresh_nat:e} n={n} n_nat={n_nat} edge=({:e},{:e},{:e})→({:e},{:e},{:e})",
+                            if std::ptr::eq(x, a) { "a" } else { "b" },
+                            p0[0],
+                            p0[1],
+                            p0[2],
+                            p1[0],
+                            p1[1],
+                            p1[2],
+                        );
+                    }
+                    sites.push(GrazeSite {
+                        face_side_is_a,
+                        face: f_idx,
+                        surface: f.surface,
+                        n,
+                        origin,
+                        axis: u,
+                        thresh: thresh_nat,
+                        edges: vec![(q0, q1)],
+                    });
+                }
+            }
             for (&v, edges) in &incident {
                 if edges.len() < 2 {
                     continue;
@@ -2101,6 +2155,132 @@ pub(crate) fn segment_face_graze_demand(
         }
     }
     Some((n, g))
+}
+
+/// The Case-III sibling of [`segment_face_graze_demand`] (spec
+/// `yang_433_case_iv_corner_phantom.md` §10, P0057, 2026-10-13): a straight
+/// operand edge that PIERCES the curved face twice and, between its two
+/// piercings, dips less than `thresh` — the face's natural chord sagitta —
+/// inside the surface. The face's inscribed mesh lies up to `thresh` inside
+/// the true surface, so such an edge can pass OUTSIDE the chord mesh
+/// altogether: the arrangement then sees no piercing, the two exact triple
+/// points the edge mints at Stage 1 bound no mesh region, and once Stage 4
+/// relocates the two trace polylines onto their exact curves the curves
+/// cross where the mesh topology says they do not (P0057: a heptagon prism's
+/// edge dips 4.8e-5 into a 1.1 mm cylinder whose natural sagitta is 8.4e-5;
+/// the two remaining cylinder faces overlapped in the 2.8e-4-wide lens
+/// between the piercings and kernel-v2 reported their render triangles
+/// penetrating). Returns `(n, depth, t1, t2)`: the rim density `n` at which
+/// `sag(r_max, n) ≤ depth/2` — the mesh at the dip then sits between the
+/// edge and the surface, so the edge pierces the chord mesh as it pierces
+/// the surface — the depth it was derived from, and the two piercing
+/// parameters, which bound the DIP CHORD. That chord is the site's own
+/// segment: the local form's span is then exactly the dip's azimuths, and
+/// the shared `segment_risk_intervals` (built for non-piercing wedge
+/// segments) sees a segment that is inside and shallow from end to end.
+///
+/// Fail closed: `None` unless EXACTLY two in-band roots lie inside the
+/// segment with the segment inside the surface between them; a dip at or
+/// above `thresh` already pierces the natural mesh (self-limiting); a depth
+/// within the model-coincidence band `TAU_MODEL·(1 + scale)` is touching /
+/// authoring noise; a demand past 4096 is a true near-tangency. The depth is
+/// exact for a cylinder (the radial distance is convex along the segment,
+/// minimized in closed form) and a certified sampled lower bound for every
+/// other surface kind.
+pub(crate) fn segment_face_pierce_dip_demand(
+    p0: [f64; 3],
+    p1: [f64; 3],
+    surface: Surface,
+    r_max: f64,
+    band: ([f64; 3], [f64; 3], f64, f64),
+    thresh: f64,
+) -> Option<(usize, f64, f64, f64)> {
+    if !thresh.is_finite() || thresh <= 0.0 {
+        return None;
+    }
+    let (origin, u, v_lo, v_hi) = band;
+    let station = |p: [f64; 3]| {
+        (p[0] - origin[0]) * u[0] + (p[1] - origin[1]) * u[1] + (p[2] - origin[2]) * u[2]
+    };
+    let seg = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let at = |t: f64| [p0[0] + t * seg[0], p0[1] + t * seg[1], p0[2] + t * seg[2]];
+    let mut roots: Vec<f64> = crate::stage4_phantom::segment_surface_roots(p0, p1, surface)?
+        .into_iter()
+        .filter(|&t| (0.0..=1.0).contains(&t) && (v_lo..=v_hi).contains(&station(at(t))))
+        .collect();
+    roots.sort_by(f64::total_cmp);
+    roots.dedup();
+    let [t1, t2] = roots[..] else {
+        return None; // not a double piercing of THIS face
+    };
+    if t2 <= t1 {
+        return None;
+    }
+    // The segment must be INSIDE the surface between its piercings.
+    if point_surface_signed(at(0.5 * (t1 + t2)), surface)? >= 0.0 {
+        return None;
+    }
+    let depth = match surface {
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            // ρ²(t) is a convex quadratic in t: its minimizer on [t1, t2] is
+            // the unconstrained vertex clamped to the interval.
+            let ua = normalize3(axis_dir.as_array());
+            let c = axis_point.as_array();
+            let w0 = [p0[0] - c[0], p0[1] - c[1], p0[2] - c[2]];
+            let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+            let (h0, dh) = (dot(w0, ua), dot(seg, ua));
+            let aa = dot(seg, seg) - dh * dh;
+            let bb = 2.0 * (dot(w0, seg) - h0 * dh);
+            let cc = dot(w0, w0) - h0 * h0;
+            let t_star = if aa > 0.0 {
+                (-bb / (2.0 * aa)).clamp(t1, t2)
+            } else {
+                0.5 * (t1 + t2)
+            };
+            let rho2 = aa * t_star * t_star + bb * t_star + cc;
+            radius - rho2.max(0.0).sqrt()
+        }
+        _ => {
+            const S: usize = 65;
+            let mut best = f64::NEG_INFINITY;
+            for i in 0..S {
+                let t = t1 + (t2 - t1) * i as f64 / (S - 1) as f64;
+                let signed = point_surface_signed(at(t), surface)?;
+                best = best.max(-signed);
+            }
+            best
+        }
+    };
+    // A dip within the model-coincidence resolution is touching, not a
+    // feature (A8.1/A14: two points closer than `TAU_MODEL` ARE one model
+    // point; the same scale-relative band KV15b and the coincident census
+    // use): fail closed — the mesh-level verdict or the loud downstream STOP
+    // stands. Measured: the `n2_rim_mint_adversary` ×1e-2 fixture, a 2 µm
+    // cylinder grazed 1.6e-8 deep, reached Stage 4 as a resolved lens whose
+    // relocated vertices sat 1.6e-8 off their surfaces on an Ok output.
+    let scale = p0
+        .iter()
+        .chain(p1.iter())
+        .fold(0.0f64, |m, &c| m.max(c.abs()));
+    if depth.is_nan() || depth <= cad_primitives::TAU_MODEL * (1.0 + scale) {
+        return None; // touching / authoring noise — fail closed, stay loud
+    }
+    if depth >= thresh {
+        return None; // the natural mesh is already pierced here
+    }
+    let bound = depth / 2.0;
+    let mut n = 3usize;
+    while r_max * (1.0 - (std::f64::consts::PI / n as f64).cos()) > bound {
+        n += 1;
+        if n > 4096 {
+            return None; // near-tangency: no practical demand, stay loud
+        }
+    }
+    Some((n, depth, t1, t2))
 }
 
 /// §4.5.2 LOCALIZATION, part 1 — the AT-RISK sub-intervals of a grazing

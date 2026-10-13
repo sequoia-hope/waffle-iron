@@ -53,9 +53,14 @@ and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
 They are ROADMAP ITEMS, not bugs:
 
 - **Coplanar boolean inputs** the §4.5.5 Stage-0 overlay cannot resolve —
-  the typed `coplanar input face pair` wall stays LOUD (deviation N17), but
-  as of 2026-09-22 **no corpus case hits it** (F0064 and F0072 both
-  converted); the UNSUPPORTED bucket is empty
+  the typed `coplanar input face pair` wall stays LOUD (deviation N17). From
+  2026-09-22 (F0064 and F0072 converted) no corpus case hit it; since
+  2026-10-13 (P0057) **R0023 is its one honest customer**: the §4.3.3
+  piercing-edge dip arm now keeps the 0.131-deep sliver a cutter edge
+  leaves on a 150 mm cylinder (the N = 11 chord mesh had silently consumed
+  the whole body), and the next op's coplanar cap union declines at the
+  n-ary `mixed-arc-lateral-unpaired` residue (an arc-bounded coplanar
+  lateral) — the named M8 follow-up
 - **Holed revolve profiles** and **arc/spline profiles without a chord
   polygon** — typed `NotSupported` at profile staging (no corpus case)
 - **Fillet / chamfer / shell** — deferred indefinitely (see below)
@@ -330,8 +335,26 @@ Do NOT skip to lower-priority items because they are easier.
    carried-surface sets contains the other is two DISTINCT junctions and the
    segment is kept, exact; canonical corpus **341C / 0W / 28E / 5EE / 0T over
    374** (wall 987.8 s) — exactly ONE move, zero drift).
-   **The open P-series ERROR tail is P0042–P0062 less P0060** (seeds 4–5;
-   P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
+   **2026-10-13 (P0057): P0057 and P0047 CONVERTED** (a heptagon prism's
+   edge pierces a 1.1 mm cylinder twice and dips 4.8e-5 inside between the
+   piercings, below the Stage-1 natural sagitta 8.4e-5, so the chord mesh
+   never carved the lens and the two remaining cylinder faces overlapped
+   once relocation made the exact ellipses cross; the §4.3.3 guard gains the
+   Case-III piercing-edge DIP arm — local rim samples over the dip chord's
+   span, spec `yang_433_case_iv_corner_phantom.md` §10 — and the §4.5.3
+   sweep ranks a Stage-1 junction mint as a corner, spec
+   `yang_453_junction_protected_collapse.md` §3e; **R0023 moved CORRECT →
+   UNSUPPORTED honestly**: the arm keeps a real 0.131-deep sliver the N = 11
+   mesh had silently consumed, and the next op's coplanar cap union declines
+   at the n-ary `mixed-arc-lateral-unpaired` residue — an M8 follow-up;
+   named follow-up 2: the WEDGE arm's `segment_risk_intervals` window
+   classification is wrong for segments piercing the surface's extension
+   outside the band — fixing it converts P0044 / P0054 / P0058 but must
+   also solve the unequal-rim merge it exposed on P0047; canonical corpus
+   **342C / 0W / 26E / 5EE / 0T + 1U over 374** (wall 1004.7 s) — THREE
+   moves, one detail drift (P0053)).
+   **The open P-series ERROR tail is P0042–P0062 less P0047, P0057, P0060**
+   (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;
    re-creatable with `PROSPECT_SEED=<4|5> PROSPECT_COUNT=200 prospect_run` and

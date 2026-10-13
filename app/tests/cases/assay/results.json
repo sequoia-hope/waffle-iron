@@ -1,8 +1,8 @@
 {
-  "errored": 28,
+  "errored": 26,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 341,
+  "passed": 342,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -137,10 +137,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0023",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2153,10 +2153,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 578065d2-fbe1-46e3-8cc8-35fe3fd3899e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(79), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0047",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -2190,7 +2190,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): e3031155-42e8-42b9-9a3a-7181a5c9b379: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\")",
+      "detail": "1 engine error(s): e3031155-42e8-42b9-9a3a-7181a5c9b379: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "P0053",
       "status": "error"
     },
@@ -2213,10 +2213,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): a71eb1ca-a1a3-4609-861c-44d874630bcd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(20), face_b: FaceId(19), penetrations: 51 }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0057",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

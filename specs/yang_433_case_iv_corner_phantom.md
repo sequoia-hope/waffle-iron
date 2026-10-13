@@ -412,3 +412,83 @@ Release, 8 jobs, 900 s budget, wall 926.8 s: **303C / 0W / 8E / 4EE / 0T +
 and ZERO detail moves. The stricter verdict refutes no other corpus vertex
 (R0100's own loop certifies as before), and every other row is
 byte-identical.
+
+## 10. The Case-III piercing-edge DIP arm (2026-10-13, P0057, ALWAYS-ON with the guard)
+
+**Anchor.** P0057 (prospector seed 5 index 5, minimized `convex4:boss
+circle:boss convex7:cut`, scale 1.16e-3): a heptagon prism cut from a 1.1 mm
+cylinder boss. The prism's edge f5∩f6 pierces the cylinder TWICE (θ −8.7°
+and 25.4° in cylinder coordinates) and, between the piercings, dips only
+**4.84e-5** inside the true surface — below the cylinder's natural Stage-1
+sagitta (**8.37e-5**, N = 8). The inscribed chord mesh can therefore pass
+entirely outside the edge: the exact arrangement sees no piercing, the two
+exact triple points Stage 1 mints (P3a) bound no mesh region, and the
+labeling resolves the configuration as ONE removed band. Stage 4 then
+relocates the f5∩cylinder and f6∩cylinder polylines onto their exact
+ellipses, which CROSS at the two mints, and the two remaining cylinder faces
+— each following its own ellipse straight through the corners — overlap in
+the 2.8e-4-wide lens between them: kernel-v2 `SelfIntersectingBooleanOutput`
+(51 penetrations) on two faces of the same cylinder. The un-minimized 7-op
+lineage carries the identical configuration (depth 4.53e-5 against a
+natural sagitta 6.72e-5).
+
+This is Yang §4.3.3's Case III ("the meshes miss intersections") on a
+straight operand EDGE — the configuration `segment_face_graze_demand`
+declines by design ("a real pierce of THIS face — the Case-III direction, out
+of scope") and `cyl_pair_graze_demand` does not see (cylinder × cylinder).
+Hypothesis test: a debug build with the dev knob `YANG_NSEG_FLOOR=16`
+completes the op with every oracle green.
+
+**Rule — `segment_face_pierce_dip_demand(p0, p1, surface, r_max, band,
+thresh)`.** For every `LineSegment` edge of the partner and every
+cylinder/cone face with a station band: the segment's roots on the surface
+that lie inside `[0, 1]` and inside the band; exactly TWO, with the segment
+INSIDE the surface between them (exact predicate at the midpoint). The dip
+`depth` is the maximum inside distance over `[t1, t2]` — exact for a
+cylinder (ρ²(t) is a convex quadratic, minimized in closed form and clamped
+to the interval), a certified 65-sample lower bound for every other kind.
+The site fires only when `0 < depth < thresh` (`thresh` = the face's natural
+sagitta `r_max·(1 − cos(π/n_nat))`): a deeper dip already pierces the natural
+mesh (self-limiting), a non-positive one is touching / authoring noise (fail
+closed — the loud downstream STOP stays). The demand is the smallest `n` with
+`sag(r_max, n) ≤ depth/2` (so the mesh at the dip sits between the edge and
+the surface and the edge pierces the chord mesh as it pierces the surface),
+capped at 4096. Each firing edge is its own `GrazeSite` (`edges = [the
+segment]`, `thresh = the natural sagitta`), and the existing LOCAL form
+(`edge_graze_local_rim_overrides`) pays it exactly as it pays a wedge: rim
+samples at `2π/n` over the at-risk azimuth span on the face's coaxial rim
+closure, both span endpoints included. The site's segment is the DIP CHORD
+between the two piercings, not the whole edge — the shared
+`segment_risk_intervals` (built for non-piercing wedge segments, which
+classify each window at its midpoint) then sees a segment inside and shallow
+end to end, and its span is exactly the dip's azimuths. (A first cut that
+instead taught the shared function to split at SURFACE roots changed the
+wedge arm's spans on P0047 — a segment piercing the surface's infinite
+extension outside the band — and the rebuilt rims disagreed by one sample
+with another override source: the wedge arm is byte-identical again.) Two
+more fail-closed lines, both measured: a dip within the model-coincidence
+band `TAU_MODEL·(1 + scale)` is touching, not a feature (the
+`n2_rim_mint_adversary` ×1e-2 fixture, a 2 µm cylinder grazed 1.6e-8 deep,
+otherwise reached Stage 4 as a resolved lens with vertices 1.6e-8 off their
+surfaces on an Ok output). A third line was tried and REVERTED: making
+`RimAngleOverrides::finish` keep only the azimuths every arc rim of a
+closure admits regressed P0031 (the §4.5.2 domain lens commits arc rims and
+relies on each rim's own inside-sweep subset); the per-rim subsets stand.
+
+| # | condition | Action |
+|---|---|---|
+| D1 | two in-band roots in `(0, 1)`, inside between, `depth < thresh` | site: `n` from `sag ≤ depth/2`, span = the dip's azimuths |
+| D2 | `depth ≥ thresh` | nothing (the natural mesh is pierced) |
+| D3 | 0, 1 or ≥ 3 roots; outside between; `depth ≤ TAU_MODEL·(1 + scale)`; `n > 4096`; no rim vocabulary (`n_nat = ∞`) | nothing (fail closed; wedge arm / downstream STOP own it) |
+
+**Measured on P0057 (and P0047, R0023).** `[s433-dip] depth=4.836e-5 thresh=8.373e-5 n=15` →
+three samples on each of the cylinder's two rims (`rims_a=2 pts_a=6`,
+`ring_len=11`); the op completes (volume 1.2617e-8, the debug `N = 16`
+reading to 1e-5), SUPPORTED_CORRECT in 0.8 s; the lineage fires the same arm
+(`n=16`) and completes. Pin
+`pierce_dip_arm_derives_a_local_site_on_the_pierced_face`: a unit chord
+dipping 5e-3 across a unit cylinder derives one single-edge site with
+`n = 45`, both rims sampled strictly inside the dip's span, the edge's owner
+untouched; a dip of 0.1 (above the sagitta) and a miss derive nothing.
+Corpus: see the ledger §"2026-10-13 (P0057)". Kill switch: the guard's own
+`YANG_433_GUARD=0|off`. Probe: `YANG_433_GRAZE_PROBE=1` prints `[s433-dip]`.

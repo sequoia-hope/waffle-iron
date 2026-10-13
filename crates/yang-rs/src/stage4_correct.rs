@@ -13909,8 +13909,16 @@ fn stage4_relocate_and_correct_inner(
         nonmanifold_edge_census_attrs("after-fan-retriangulation", mesh, &attr_vec);
     }
     fold_probe("post", mesh, &attr_vec, &probe_minted_verts);
-    let sweep_result =
-        sweep_reversed_intersections(mesh, &mut attr_vec, a, b, d_eps, &moved, &s4_entry_pos);
+    let sweep_result = sweep_reversed_intersections(
+        mesh,
+        &mut attr_vec,
+        a,
+        b,
+        d_eps,
+        &moved,
+        &s4_entry_pos,
+        minted_junction_keys,
+    );
     attribution.attributions = attr_vec;
     let any_collapse = sweep_result?;
     collapsed_any |= any_collapse;

@@ -219,6 +219,93 @@ pub(crate) fn graze_cyl(base: [f64; 3], axis: [f64; 3], r: f64, h: f64) -> BRep 
     BRep::new(verts, edges, faces).expect("graze guard cylinder")
 }
 
+/// A planar triangle whose edge (0→1) is the chord `y = yc` at `z = 1`
+/// across the unit-radius cylinder about ẑ — the P0057 shape in one edge.
+fn chord_triangle(yc: f64) -> BRep {
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(-2.0, yc, 1.0),
+        },
+        BRepVertex {
+            point: Point3::new(2.0, yc, 1.0),
+        },
+        BRepVertex {
+            point: Point3::new(0.0, 3.0, 1.0),
+        },
+    ];
+    let seg = |s: u32, e: u32| BRepEdge {
+        start: s,
+        end: e,
+        curve: Curve::LineSegment,
+    };
+    let edges = vec![seg(0, 1), seg(1, 2), seg(2, 0)];
+    let faces = vec![BRepFace {
+        surface: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -1.0,
+        },
+        outer_loop: vec![0, 1, 2],
+        inner_loops: Vec::new(),
+        reversed: false,
+    }];
+    BRep::new(verts, edges, faces).expect("chord triangle")
+}
+
+/// Spec `yang_433_case_iv_corner_phantom` §10 (P0057): the Case-III
+/// piercing-edge DIP arm. A straight edge crossing the cylinder as the chord
+/// y = 0.995 pierces it twice (x = ±0.0999) and dips 5e-3 inside between —
+/// below the natural sagitta — so the inscribed mesh can miss the piercing.
+/// The arm derives `sag(1, n) ≤ depth/2` (n = 45), as ONE single-edge site
+/// on the cylinder face, and the local form pays it on BOTH rims of the
+/// cylinder's closure over the dip's azimuth span only.
+#[test]
+pub(crate) fn pierce_dip_arm_derives_a_local_site_on_the_pierced_face() {
+    let cyl = graze_cyl([0.0, 0.0, 0.0], Z, 1.0, 2.0);
+    let chord = chord_triangle(0.995);
+    let sites: Vec<_> = edge_graze_sites(&chord, &cyl)
+        .into_iter()
+        .filter(|s| s.edges.len() == 1)
+        .collect();
+    assert_eq!(sites.len(), 1, "exactly one dip site, on the cylinder face");
+    let site = &sites[0];
+    assert!(
+        !site.face_side_is_a,
+        "the face owner (b = the cylinder) pays"
+    );
+    assert_eq!(site.face, 0);
+    assert_eq!(site.n, 45, "sag(1, n) ≤ 0.005 / 2 first holds at n = 45");
+    assert!(sag(1.0, site.n) <= 0.0025 && sag(1.0, site.n - 1) > 0.0025);
+    assert!(site.thresh > 0.005, "the dip is below the natural sagitta");
+    // The local form: samples on the cylinder's two rims, none on the chord's
+    // operand, spanning the dip's azimuth (about ±5.7° around +ŷ) only.
+    let (ma, mb) = edge_graze_local_rim_overrides(&chord, &cyl);
+    assert!(ma.is_empty(), "the edge's owner is rebuilt for nothing");
+    assert_eq!(mb.len(), 2, "both rims of the coaxial closure take samples");
+    for pts in mb.values() {
+        assert!(!pts.is_empty());
+        for q in pts {
+            assert!(
+                q.y() > 0.99 && q.x().abs() < 0.11,
+                "sample {q:?} lies outside the dip's azimuth span"
+            );
+        }
+    }
+    // A chord dipping DEEPER than the natural sagitta already pierces the
+    // natural mesh: no site (self-limiting).
+    let deep = chord_triangle(0.9);
+    assert!(
+        edge_graze_sites(&deep, &cyl)
+            .into_iter()
+            .all(|s| s.edges.len() != 1),
+        "a dip above the natural sagitta derives nothing"
+    );
+    // A chord that misses the cylinder is not a piercing: no dip site.
+    let miss = chord_triangle(1.005);
+    assert!(edge_graze_sites(&miss, &cyl)
+        .into_iter()
+        .all(|s| s.edges.len() != 1));
+}
+
 /// Scan level, C0116 geometry: the cross pair demands a boost above both
 /// solids' natural N.
 #[test]

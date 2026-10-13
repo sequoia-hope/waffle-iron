@@ -43,6 +43,158 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (P0057) — P0057 CONVERTED: a prism edge piercing a cylinder twice dips less than the chord sagitta between its piercings, so the chord mesh never carved the lens and the two remaining cylinder faces overlapped; the §4.3.3 guard gains the Case-III piercing-edge DIP arm (local rim samples over the dip's span), and the §4.5.3 sweep ranks a Stage-1 mint as a corner
+
+**Anchor (`replay_waffle_env`, `KV2_SELFX_SITE_PROBE` + `YANG_BREP_PROBE` +
+`YANG_V_PROBE` + `YANG_T145_SWEEP_PROBE` + `YANG_P3B_TRIM_PROBE` +
+`YANG_433_GRAZE_PROBE`, minimum AND the un-minimized seed-5 index-5 lineage).**
+The failing op is the third, a heptagon prism B (r ≈ 3.5 mm, depth 11.9 mm)
+cut from a cylinder boss A (r 1.1 mm, length 5.7 mm, oblique axis; the square
+boss of op 1 is a separate body). kernel-v2 reports 51 render penetrations
+between output faces 20 × 19 — BOTH on the same cylinder: 19 the piece
+between the start rim and the f6∩cylinder ellipse, 20 the band from the
+f5/f4 ellipses to the end rim. Mapping every output vertex into cylinder
+coordinates (θ, h) and intersecting the prism's edge lines with the cylinder
+in closed form: the edge **f5∩f6 pierces the cylinder TWICE**, T1 at θ = −8.7°
+(present as output vertex v43) and T2 at θ = 25.4° (**absent**); between them
+the f5 and f6 ellipses swap order (a lens up to 2.8e-4 wide, OUTSIDE the
+prism — the generator θ = 5.7° is nowhere inside it), so the two removed
+lobes pinch to zero width at T1 and T2 and the kept lateral is ONE connected
+face through the bridge. The output instead had face 19 following the f6
+ellipse straight through T1 and face 20 following the f5 ellipse straight
+through both corners — the topology of a single removed band — and their
+loops overlap in the lens. In the mesh, T2 is vertex 20, a Stage-1 junction
+mint EXACT on the cylinder, f5 and f6 to 1e-18 (`[p3b-minted] v20`), with
+only f6 and cylinder triangles touching it; the f5∩cylinder trace never
+reaches it.
+
+**Two mechanisms, one necessary and one sufficient.**
+
+1. **§4.5.3 (necessary — the corner was being DELETED).** `YANG_V_PROBE`:
+   `reversal collapse: p_b=27 p_r=20 p_n=23 victim=20 survivor=23` — the
+   task-#145 shared-conic arm found the genuine parameter reversal
+   (`d1=3.42e-1 d2=−3.67e-2`) at the mint and applied its rule "victim = p_r,
+   the vertex whose relocation overshot"; p_r was the mint (never moved) and
+   p_n the RELOCATED chord vertex v23 (in `moved`, 4e-5 off f5) that had
+   overshot the corner. §3d's incidence rank could not object: it counts the
+   loop EDGES' carried surfaces and no f5 triangle touches v20, so the exact
+   corner read 2 — a tie. Fix: `incidence_rank` reads Stage-1 mint PROVENANCE
+   (`minted_junction_keys`, by position bits; mints never move): a mint ranks
+   as a corner (≥ 3) on both the direction rule and the #145 arm, so the
+   parameter-nearer neighbour (the one out of order) collapses onto it. Spec
+   `yang_453_junction_protected_collapse.md` §3e; pin
+   `s453e_minted_junction_outranks_an_edge_carried_tie`. Measured: the sweep
+   now reads `victim=23 survivor=20` and the case STOPs on the SAME triangle
+   pairs — the lens was never in the mesh.
+2. **§4.3.3 Case III (sufficient — the lens was never in the mesh).** The
+   Stage-1 cylinder mesh is N = 8 (d_ε 8.43e-5, natural for r 1.1 mm); the
+   prism edge dips **4.84e-5** inside the true cylinder between T1 and T2,
+   less than the natural sagitta **8.37e-5**, so the inscribed chord mesh can
+   pass entirely outside the edge: the arrangement sees no piercing, Stage 1's
+   exact mints T1/T2 bound no mesh region, and relocation onto the exact
+   ellipses makes them cross where the topology says they do not. The §4.3.3
+   wedge guard declines this configuration by design ("a real pierce of THIS
+   face — the Case-III direction, out of scope"), and `cyl_pair_graze_demand`
+   is cylinder × cylinder. Hypothesis test: a debug build with
+   `YANG_NSEG_FLOOR=16` (the dev knob is compiled out of release) completes
+   the op with every oracle green (volume 1.2618e-8). Fix: the guard gains a
+   **piercing-edge DIP arm** (`segment_face_pierce_dip_demand`): a straight
+   edge with exactly two in-band roots inside the segment, inside the surface
+   between them, whose maximum depth (exact for a cylinder — the radial
+   distance is a convex quadratic along the segment — a certified sampled
+   bound otherwise) is below the face's natural sagitta, is a `GrazeSite` of
+   its own with `sag(r_max, n) ≤ depth/2`; the existing LOCAL form pays it as
+   rim samples on the face's coaxial closure over the dip's azimuth span
+   (`segment_risk_intervals` now also cuts at the SURFACE roots, which a
+   piercing segment needs and a non-piercing wedge never had). On P0057:
+   `[s433-dip] depth=4.836e-5 thresh=8.373e-5 n=15` → **3 samples on each
+   rim** (`rims_a=2 pts_a=6`), the union of the natural ring and the span
+   (`ring_len=11`); the op completes, volume 1.2617e-8, **SUPPORTED_CORRECT
+   0.8 s**; the 7-op lineage fires the same arm (`depth=4.53e-5 thresh=6.72e-5
+   n=16`) and completes. Spec `yang_433_case_iv_corner_phantom.md` §10; pin
+   `pierce_dip_arm_derives_a_local_site_on_the_pierced_face` (site, n = 45 on
+   a unit chord dipping 5e-3, both rims sampled inside the span only;
+   self-limiting above the sagitta; silent on a miss).
+
+**What the first corpus run taught (release, 8 jobs, 900 s; wall 946.5 s):
+344C / 0W / 24E / 5EE / 1U — FIVE moves and four detail drifts, three of them
+mine to fix before landing.**
+
+- **P0044, P0054, P0058 ERROR → SUPPORTED_CORRECT with NO dip site firing**
+  (`YANG_433_GRAZE_PROBE` on each) — and NOT from §3e either: the third run,
+  with the shared `segment_risk_intervals` change reverted (next bullet),
+  read all three ERROR again at their committed texts. The first cut's
+  SURFACE-root cuts had changed the pre-existing WEDGE sites' spans on these
+  documents (a wedge segment that pierces the surface's infinite extension
+  OUTSIDE the band has its one window classified at a midpoint on the wrong
+  side, so the span is wrong — too wide or absent), and the corrected spans
+  convert them. That is a real latent in the wedge arm's localization, left
+  OUT of this landing because the same change moved P0047 onto an
+  unequal-rim Stage-1 STOP (below); it is the named follow-up, with these
+  three rows as its customers.
+- **R0023 SUPPORTED_CORRECT → UNSUPPORTED(coplanar-boolean).** Not a
+  regression of the kernel's ANSWER: with the guard off, op 2 reads `cut
+  consumed the entire target body (no material remains)`; with the dip arm
+  (`depth=1.3125e-1 thresh=6.09 n=107`, r 150.4, N = 11) the cutter box's
+  edge is seen to dip 0.131 into the cylinder and op 2 keeps the REAL sliver
+  it cuts — a 4-face body (two caps, the lateral, the box plane, ≈ 0.131 deep
+  × 12.5 wide × 213.7 long, ≈ 2.3e2 m³ of material the N = 11 chord mesh had
+  silently discarded; the authored `volume_monotonicity` oracle cannot see
+  a 1e-5 relative loss). Op 3 then unions a box onto that sliver with a
+  COPLANAR cap pair and Stage 0 declines: `disc-crossing-same-normal` →
+  `mixed-arc-lateral-unpaired`, the M8 n-ary residue whose comment reads
+  "declines loudly (…; zero corpus customers)" — R0023 is its first. A silent
+  sliver drop became a loud capability wall one op later; the UNSUPPORTED
+  bucket, empty since 2026-09-22, has one honest customer again, and the
+  arc-bounded coplanar lateral is the named follow-up.
+- **P0047 ERROR → ERROR with a NEW Stage-1 text** `azimuth-merge rims have
+  mismatched / too-few samples (23 vs 24)`: my first cut taught the shared
+  `segment_risk_intervals` to split at SURFACE roots, which changed the
+  pre-existing WEDGE sites' spans on P0047 (a segment piercing the surface's
+  infinite extension outside the band) and the rebuilt rims disagreed by one
+  sample with another override source. Reverted; the dip site now carries
+  the DIP CHORD as its own segment, so the shared function is byte-identical
+  for wedges. Re-probed: the dip arm then fires on P0047 itself (a star-tip
+  edge, `depth=7.60e-7 thresh=3.08e-6 n=38`) and **P0047 converts**
+  (SUPPORTED_CORRECT 0.5 s).
+- **`n2_rim_mint_adversary`:** `near_tangency_sweep_valid_or_loud` read
+  χ = 2 where the pin allowed only χ = 4 at δ = 1e-4·r — the dip arm now
+  resolves the sub-sagitta penetration and the ONE-shell union is the exact
+  answer; the pin accepts both readings for the sub-sagitta rows (the arm
+  fails closed below the coincidence band and above its cap).
+  `extreme_magnitudes_valid_or_loud` ×1e-2 (a 2 µm cylinder grazed 1.6e-8
+  deep) reached Stage 4 as a resolved lens with three vertices 1.6e-8 off
+  their surfaces on an Ok output — SILENT-WRONG — so the arm fails closed at
+  `depth ≤ TAU_MODEL·(1 + scale)`: a dip within the model-coincidence band is
+  touching, not a feature.
+- **Drifts (all ERROR → ERROR), re-probed on the landed form:** P0048's
+  junction "within the weld band of 4 grid edges (was 2)" and P0052's face id
+  992 → 993 were artifacts of the first cut (no dip site, no local sample and
+  no sweep collapse on P0048; P0052 fires the dip arm but its closure takes
+  no sample) — both read their committed text again. P0053's first complaint
+  moved from `geometric face resolution failed for kept triangle 1724` to
+  `reassembled output would be non-2-manifold` and stays moved: the §3e
+  survivor choice at its three reversal sites changes the mesh the labeling
+  resolves, and the same op fails one site later. The same loud wall.
+
+- **The closure filter was tried and REVERTED.** Keeping only the azimuths
+  every arc rim of a closure admits (so a dip span straddling an arc rim's
+  endpoint cannot leave rings unequal) regressed **P0031** — its §4.5.2
+  domain lens commits ARC rims and relies on each rim's own inside-sweep
+  subset — and was not needed once the dip site carries the chord. P0031
+  reads SUPPORTED_CORRECT again on the landed form.
+
+**Measurement (landed form: dip chord as the site segment, noise floor, §3e;
+the shared span function and `finish` byte-identical; release, 8 jobs, 900 s;
+wall 1004.7 s): 342C / 0W / 26E / 5EE / 0T + 1 UNSUPPORTED over 374** —
+versus the committed 341C / 0W / 28E exactly THREE moves: **P0047 and P0057
+ERROR → SUPPORTED_CORRECT**, **R0023 SUPPORTED_CORRECT → UNSUPPORTED(coplanar-boolean)**
+(the honest move above), and ONE detail drift, P0053 (above). P0031 reads
+SUPPORTED_CORRECT as committed. yang-rs 1574 / 0 (the §3e pin, the dip-arm pin
+and the re-pinned adversary sweep included), clippy `--all-targets -D warnings`
+(yang-rs, test-harness) and fmt clean. The 26 ERROR rows are the seven
+C-series walls, P0026 and the open tail P0042–P0062 less P0047, P0057, P0060.
+
 ## 2026-10-13 (P0060) — P0060 CONVERTED: the KV15b sub-resolution collapse merged two DISTINCT exact junctions on a count-only "tie" — a prism corner 1.47e-8 through the partner's cap plane mints three triple points no single position can join; the collapse now applies §4-I8 CONTAINMENT and keeps the exact 3.4e-8 edge
 
 **Anchor (`replay_waffle_env`, `KV2_PLANARITY_PROBE` + `YANG_BREP_PROBE` +

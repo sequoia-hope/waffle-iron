@@ -1833,6 +1833,72 @@ pub(crate) fn s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop() {
     );
 }
 
+// Spec §3e (P0057, 2026-10-13): a junction by PROVENANCE. The loop edges at
+// the corner carry only two surfaces — the labeling kept no triangle of the
+// corner's third face there (P0057: the prism's f5 piece ended at the
+// chord-level pierce while the exact corner T2 = f5∩f6∩cylinder was minted
+// at Stage 1) — so the edge-carried rank reads 2 and ties with the chord
+// vertex. The mint record is the authority: a Stage-1 junction mint ranks as
+// a corner and is never the victim, on either side of the site.
+#[test]
+pub(crate) fn s453e_minted_junction_outranks_an_edge_carried_tie() {
+    use std::collections::{BTreeMap, HashSet};
+    let ellipse = Curve::Ellipse {
+        center: p(0.0, 0.0, 1.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(1.0, 0.0, 0.0),
+        major_radius: 2.0,
+        minor_radius: 1.0,
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1.0,
+    };
+    let cyl = Surface::Cylinder {
+        axis_point: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    // A 3-cycle (0, 2, 3) on one ellipse; every edge carries {cap, cyl}
+    // only — no third surface is visible from the loop at any vertex.
+    let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    curves.insert((0, 2), ellipse);
+    curves.insert((2, 3), ellipse);
+    curves.insert((0, 3), ellipse);
+    let mut inc: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+    inc.insert((0, 2), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    inc.insert((2, 3), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    inc.insert((0, 3), vec![(InputId::A, cap), (InputId::B, cyl)]);
+    assert_eq!(distinct_surfaces_at(&inc, 0), 2);
+    assert_eq!(distinct_surfaces_at(&inc, 2), 2);
+    let none: HashSet<u32> = HashSet::new();
+    let minted: HashSet<u32> = [2u32].into_iter().collect();
+    assert_eq!(incidence_rank(&inc, &none, 2), 2);
+    assert_eq!(
+        incidence_rank(&inc, &minted, 2),
+        3,
+        "a mint ranks as a corner"
+    );
+    // Without provenance the tie falls to the paper default (p_n removed).
+    assert_eq!(
+        reversal_collapse_direction_ranked(&curves, &inc, &none, 0, 2, 3),
+        (2, 0)
+    );
+    // With vertex 2 minted it survives as p_n …
+    assert_eq!(
+        reversal_collapse_direction_ranked(&curves, &inc, &minted, 0, 2, 3),
+        (0, 2),
+        "the minted corner at p_n survives; the chord vertex is the victim"
+    );
+    // … and as p_r (P0057's site: the corner between two chord vertices of
+    // one ellipse, the moved one having overshot it).
+    assert_eq!(
+        reversal_collapse_direction_ranked(&curves, &inc, &minted, 2, 0, 3),
+        (0, 2),
+        "the minted corner at p_r is never the victim"
+    );
+}
+
 // Spec §3c: straight-run reversal — branch table 4–7 on synthetic
 // curve + incidence maps. The seam runs along +x; vertex 1 (p_r) doubles
 // back to vertex 2 (p_n) at 0.5 (a U-turn on the run).

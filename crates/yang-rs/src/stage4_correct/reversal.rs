@@ -10,6 +10,7 @@ use crate::*;
 /// PR-YR10 (§4.5.3): walk every ordered intersection loop and correct reversed
 /// points by edge-collapsing the offending next-point. Returns `true` iff any
 /// collapse occurred. LOUD STOP on an unresolvable reversal.
+#[allow(clippy::too_many_arguments)] // the Stage-4 driver's own state, handed through once (§3e added the mint map)
 pub(crate) fn sweep_reversed_intersections(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -18,6 +19,7 @@ pub(crate) fn sweep_reversed_intersections(
     d_eps: f64,
     moved: &std::collections::HashSet<u32>,
     entry_pos: &[[f64; 3]],
+    minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
 ) -> Result<bool, YangError> {
     use std::collections::HashSet;
     // Spec `yang_453_line_overtake` (2026-09-11, R0059): the straight-run
@@ -75,6 +77,26 @@ pub(crate) fn sweep_reversed_intersections(
         let phase_a = compute_phase_a(mesh, &map, a, b, &crate::stage3_ssi::NO_EDGE_PROVENANCE);
         *attribution = map.attributions;
         let (infos, incidence, curves) = phase_a?;
+        // Spec §3e (P0057): the Stage-1 junction MINTS present in this pass,
+        // resolved by position bits (mint coordinates are never mutated). A
+        // mint is an exact corner by construction — an operand edge through
+        // the partner's surface — whatever the labeling kept around it.
+        let minted: HashSet<u32> = if minted_junction_keys.is_empty() {
+            HashSet::new()
+        } else {
+            mesh.verts
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| {
+                    minted_junction_keys.contains_key(&[
+                        p.x().to_bits(),
+                        p.y().to_bits(),
+                        p.z().to_bits(),
+                    ])
+                })
+                .map(|(v, _)| v as u32)
+                .collect()
+        };
 
         // Collect the ordered intersection loops. Dedup by sorted vertex set so
         // the cylinder-side and cap-side copies of the same ring are swept once.
@@ -296,8 +318,28 @@ pub(crate) fn sweep_reversed_intersections(
                         // NEARER bracketing neighbor, so the collapse length
                         // equals the actual overshoot and the 2·d_ε gate
                         // bounds it honestly (spec branches 9a/9b).
-                        let survivor = if d1.abs() <= d2.abs() { p_b } else { p_n };
-                        conic_backtrack = Some((p_r, survivor));
+                        let neighbour = if d1.abs() <= d2.abs() { p_b } else { p_n };
+                        // Spec `yang_453_junction_protected_collapse` §3e
+                        // (P0057, 2026-10-13): the arm's premise — p_r is the
+                        // vertex that overshot — fails when p_r is an exact
+                        // corner, which never moved: a Stage-1 junction mint
+                        // (the heptagon prism's edge f5∩f6 through the
+                        // cylinder, T2) sat as p_r between two chord vertices
+                        // of the f6 ellipse, the relocated one of which had
+                        // overshot the corner by 3.7e-2 in parameter; the
+                        // arm collapsed the corner into it and the two
+                        // remaining cylinder faces overlapped between the
+                        // prism edge's two piercings. §3d's rule applies to
+                        // this arm too: a corner outranks a chord vertex and
+                        // is never the victim — the parameter-nearer
+                        // neighbour, the one out of order, collapses onto it.
+                        let rank_r = incidence_rank(&incidence, &minted, p_r);
+                        let rank_nb = incidence_rank(&incidence, &minted, neighbour);
+                        conic_backtrack = Some(if rank_r >= 3 && rank_r > rank_nb {
+                            (neighbour, p_r)
+                        } else {
+                            (p_r, neighbour)
+                        });
                     }
                 }
                 // Spec `yang_453_line_overtake`: a relocated vertex that moved
@@ -330,7 +372,9 @@ pub(crate) fn sweep_reversed_intersections(
                     // `yang_453_mixed_cycle_conic_backtrack` branches 9a/9b).
                     let p_after = verts[(i + 2) % m];
                     let (victim, survivor) = conic_backtrack.unwrap_or_else(|| {
-                        reversal_collapse_direction(&curves, &incidence, p_r, p_n, p_after)
+                        reversal_collapse_direction_ranked(
+                            &curves, &incidence, &minted, p_r, p_n, p_after,
+                        )
                     });
                     // Spec §3c resolution gate: §4.5.3 corrects RESOLUTION
                     // artifacts ("the mesh resolution is not sufficient to
@@ -1193,10 +1237,53 @@ pub(crate) fn distinct_surfaces_at(
     seen.len()
 }
 
+/// The §3d incidence rank of `v`, read with Stage-1 mint PROVENANCE (spec
+/// `yang_453_junction_protected_collapse` §3e, P0057): the distinct surfaces
+/// the loop edges at `v` carry, or three when `v` is a Stage-1 junction mint
+/// — an operand edge's exact crossing of the partner's surface, a corner by
+/// construction. The edge-carried count can read a mint as a plain curve
+/// point when the labeling kept no triangle of one of its three faces at it
+/// (P0057: the prism's f5 piece ended at the chord-level pierce, so only f6
+/// and the cylinder touched the exact corner); the mint record is the
+/// authority the surviving triangles cannot withdraw.
+pub(crate) fn incidence_rank(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    minted: &std::collections::HashSet<u32>,
+    v: u32,
+) -> usize {
+    let by_edges = distinct_surfaces_at(incidence, v);
+    if minted.contains(&v) {
+        by_edges.max(3)
+    } else {
+        by_edges
+    }
+}
+
+/// [`reversal_collapse_direction_ranked`] with no mint provenance — the
+/// pre-§3e rule, kept for the §3/§3c/§3d unit pins.
+#[cfg(test)]
+pub(crate) fn reversal_collapse_direction(
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    p_r: u32,
+    p_n: u32,
+    p_after: u32,
+) -> (u32, u32) {
+    reversal_collapse_direction_ranked(
+        curves,
+        incidence,
+        &std::collections::HashSet::new(),
+        p_r,
+        p_n,
+        p_after,
+    )
+}
+
 /// §4.5.3 collapse direction (spec `yang_453_junction_protected_collapse` §3):
 /// which loop vertex is REMOVED for a reversal detected at `p_r` with next
 /// point `p_n` (whose own next point is `p_after`)? Returns
-/// `(victim, survivor)` for [`collapse_vertex`].
+/// `(victim, survivor)` for [`collapse_vertex`]. `minted` are the Stage-1
+/// junction mints of the current pass (§3e: a mint ranks as a corner).
 ///
 /// Yang §4.5.3 (Fig. 15, `refs/text/yang2025_hybrid_boolean.txt:709-745`)
 /// removes `p_n` — but its setting is consecutive points progressing along ONE
@@ -1207,9 +1294,10 @@ pub(crate) fn distinct_surfaces_at(
 /// the junction. `is_reversed` returning true implies both edges at `p_r`
 /// carry the SAME curve (PR-KV11 guard), so `p_r` is never itself a junction
 /// here, and the victim always lies on the survivor's curve (spec I3).
-pub(crate) fn reversal_collapse_direction(
+pub(crate) fn reversal_collapse_direction_ranked(
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    minted: &std::collections::HashSet<u32>,
     p_r: u32,
     p_n: u32,
     p_after: u32,
@@ -1249,12 +1337,12 @@ pub(crate) fn reversal_collapse_direction(
         Ok("0") | Ok("off")
     );
     let rank_r = if rank_on {
-        distinct_surfaces_at(incidence, p_r)
+        incidence_rank(incidence, minted, p_r)
     } else {
         0
     };
     let rank_n = if rank_on {
-        distinct_surfaces_at(incidence, p_n)
+        incidence_rank(incidence, minted, p_n)
     } else {
         0
     };

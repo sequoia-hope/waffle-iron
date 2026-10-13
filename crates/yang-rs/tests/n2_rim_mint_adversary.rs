@@ -700,7 +700,19 @@ fn calibrated_rim_sample() -> [f64; 3] {
 /// sub-tessellation penetration is the pipeline's documented d_ε regime.
 #[test]
 fn near_tangency_sweep_valid_or_loud() {
-    for (delta_rel, chi_ok) in [(1e-2, &[2i64][..]), (1e-4, &[4][..]), (1e-6, &[4][..])] {
+    // χ = 2 is the exact union (the box penetrates the cylinder by δ > 0 at
+    // every row); χ = 4 was tolerated for the sub-sagitta rows while the
+    // chord mesh could not see the penetration. Since 2026-10-13 the §4.3.3
+    // piercing-edge DIP arm (spec `yang_433_case_iv_corner_phantom` §10)
+    // refines the pierced face locally when a straight edge dips less than
+    // the natural sagitta, so δ=1e-4·r now resolves to the exact one-shell
+    // union; both readings stay legal here because the arm fails closed
+    // below the model-coincidence band and above its 4096-sample cap.
+    for (delta_rel, chi_ok) in [
+        (1e-2, &[2i64][..]),
+        (1e-4, &[2, 4][..]),
+        (1e-6, &[2, 4][..]),
+    ] {
         let delta = delta_rel * R;
         let label = format!("near-tangency δ={delta_rel:.0e}·r");
         let r = try_union(cyl_a(1.0), box_b_coplanar(1.0, delta));

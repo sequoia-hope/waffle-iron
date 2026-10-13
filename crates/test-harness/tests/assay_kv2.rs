@@ -2102,6 +2102,11 @@ fn smoke_corpus_boundary_categories() {
         // P0044 (4 ops) ⇒ `CurvedGeometryMismatch "bounded cylinder patch must
         // have exactly one material-CCW loop"` — one loop, wrap 0, negative
         // area. ×1e-3 keeps the class, ×1e3 reads CORRECT.
+        // 2026-10-13 (P0057): converts when the §4.3.3 WEDGE arm's span
+        // function cuts a segment at its surface roots (a latent in
+        // `segment_risk_intervals`, left out of that landing because the same
+        // change moved P0047 onto an unequal-rim Stage-1 STOP) — the named
+        // follow-up's first customer, ledger §"2026-10-13 (P0057)".
         ("P0044", Category::Error),
         // P0045 (3 ops) ⇒ auto-union `torus patch UV-CDT failed` — P0003's
         // text on P0030's recipe shape, with a prism that TOUCHES the torus.
@@ -2113,7 +2118,11 @@ fn smoke_corpus_boundary_categories() {
         // P0047 (4 ops) ⇒ `boolean_subtract` `ring rejected by CDT` — a
         // 32-point hole-free planar ring at scale 1.7e-4 (smallest segment
         // 87 × MIN_FEATURE_SIZE). Same class at ×1e-3 and ×1e3.
-        ("P0047", Category::Error),
+        // CONVERTED 2026-10-13 (P0057): the §4.3.3 piercing-edge DIP arm
+        // (spec `yang_433_case_iv_corner_phantom` §10) fires here too — a
+        // star-tip edge dips 7.6e-7 into the 1.06e-4 cut cylinder, below its
+        // natural sagitta 3.1e-6 — and the op completes.
+        ("P0047", Category::SupportedCorrect),
         // P0048 (3 ops) ⇒ auto-union Stage-1 `interior junction … is within
         // the weld band of 2 distinct grid edges — ambiguous edge-split`: a
         // junction mint at a cylinder-grid CORNER (smallest segment 117 ×
@@ -2163,6 +2172,8 @@ fn smoke_corpus_boundary_categories() {
         // `s6-boundary-walk-deadend` vertex 47; P0055 is its UN-MINIMIZED
         // 8-op lineage, which first complains `s6-wedge-succ-collision`
         // (the P0042/P0043 rule: a different first complaint, both halves).
+        // 2026-10-13 (P0057): P0054 converts under the wedge-arm span
+        // follow-up (see P0044); P0055 (the lineage) still STOPs.
         ("P0054", Category::Error),
         ("P0055", Category::Error),
         // P0056 (4 ops, scale 899) ⇒ `boolean_subtract NonManifoldVertex`
@@ -2172,10 +2183,22 @@ fn smoke_corpus_boundary_categories() {
         // P0057 (3 ops) ⇒ `boolean_subtract SelfIntersectingBooleanOutput`
         // faces 20 × 19, 51 penetrations, two ADJACENT faces; the lineage's
         // 156 × 155 at the same coordinates. ×1e3 keeps the class, ×1e-3 CORRECT.
-        ("P0057", Category::Error),
+        // CONVERTED 2026-10-13 (P0057): the heptagon prism's edge pierces the
+        // cylinder twice and dips 4.8e-5 inside between the piercings — below
+        // the Stage-1 natural sagitta 8.4e-5 — so the chord mesh never saw the
+        // edge enter, the two cylinder faces overlapped in the lens, and the
+        // §4.5.3 sweep had also deleted the exact second corner (a Stage-1
+        // mint read as a plain curve point). The §4.3.3 guard gained the
+        // Case-III piercing-edge DIP arm (local rim samples over the dip's
+        // azimuth span, spec `yang_433_case_iv_corner_phantom` §10) and the
+        // sweep ranks a mint as a corner (`yang_453_junction_protected_collapse`
+        // §3e).
+        ("P0057", Category::SupportedCorrect),
         // P0058 (3 ops, star7 boss) ⇒ `boolean_subtract` `ring rejected by
         // CDT` on a 75-point ring with one hole — another locus of the
         // P0002 text. ×1e3 keeps the class, ×1e-3 stops earlier.
+        // 2026-10-13 (P0057): converts under the wedge-arm span follow-up
+        // (see P0044); no dip-arm site fires on this document.
         ("P0058", Category::Error),
         // P0059 (3 ops) ⇒ auto-union reassembly non-2-manifold,
         // `s6-boundary-walk-deadend` vertex 6 (the lineage: vertex 69).

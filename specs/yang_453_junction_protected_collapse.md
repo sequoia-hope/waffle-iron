@@ -309,6 +309,52 @@ Knob (dev A/B only): `YANG_453_RANK=0|off` restores the curve-only rule.
 - Corpus: P0028 `Error → SupportedCorrect` (smoke pin); the seed-3 index-98
   duplicate (its minimum lands on the same site) builds to completion.
 
+## 3e. Fifth mechanism (P0057, 2026-10-13): a junction by PROVENANCE — a Stage-1 mint ranks as a corner, on both arms — WIRED
+
+Measured on P0057 (`YANG_V_PROBE` + `YANG_T145_SWEEP_PROBE` +
+`YANG_P3B_TRIM_PROBE`): a cylinder boss (r 1.1 mm) cut by a heptagon prism
+whose edge f5∩f6 pierces the cylinder twice. Both piercings are Stage-1
+junction mints, exact on all three surfaces to 1e-18; the second, T2, sat as
+`p_r` on the f6∩cylinder loop between two chord vertices of that ellipse, the
+RELOCATED one of which (v23, in `moved`) had overshot the corner by 3.67e-2 in
+ellipse parameter. The task-#145 shared-conic arm detected the genuine
+parameter reversal and applied its own rule — "victim = `p_r`, the vertex
+whose relocation overshot" — a premise that is false for a mint, which never
+moved. §3d's rank could not object: `distinct_surfaces_at` reads the loop
+EDGES' incidence, and no triangle of f5 touched T2 (the f5 face's kept piece
+ends at the chord-level pierce), so the exact corner read 2 — a tie with the
+chord vertex — and was collapsed into it.
+
+**Rule.** `incidence_rank(v)` = `distinct_surfaces_at(v)`, or at least 3 when
+`v` is a Stage-1 junction mint (`minted_junction_keys`, resolved by position
+bits each pass — mint coordinates are never mutated). A mint is an operand
+edge's exact crossing of the partner's surface — a corner by construction,
+whatever the labeling kept around it. The rank is read on BOTH arms:
+
+| # | arm | condition | Action |
+|---|---|---|---|
+| 11 | §3d direction rule | `rank` now provenance-aware | branches 8–10 unchanged in form |
+| 12 | #145 shared-conic backtrack | `rank(p_r) ≥ 3` and `rank(p_r) > rank(nearer neighbour)` | the parameter-nearer neighbour (the one out of order) collapses onto `p_r` |
+| 13 | #145 shared-conic backtrack | otherwise | branches 9a/9b unchanged (`p_r` onto the nearer neighbour) |
+
+**Measured on P0057: necessary, not sufficient — and sufficient for THREE
+other open rows.** With §3e the sweep reads `victim=23 survivor=20` and T2
+survives, but P0057 still STOPs on the same `SelfIntersectingBooleanOutput`
+triangle pairs: the two output cylinder faces overlap in the LENS between the
+two piercings (θ −8.7° … 25.4°, up to 2.8e-4 wide), because the prism edge
+dips only 4.8e-5 inside the true cylinder there — below the Stage-1 natural
+sagitta (N = 8, d_ε 8.4e-5) — so the chord mesh never saw the edge enter and
+resolved the configuration as ONE removed band; relocation onto the exact
+ellipses then makes them cross. That is a Case-III piercing-edge DIP the
+§4.3.3 wedge guard explicitly excludes ("a real pierce of THIS face … out of
+scope"), landed the same day as that spec's §10. The corpus run with §3e and
+§10 together moved **P0044, P0054 and P0058** ERROR → SUPPORTED_CORRECT with
+NO dip-arm site firing on any of the three (`YANG_433_GRAZE_PROBE`): the
+sweep had been deleting an exact Stage-1 corner on each, and the deletion
+surfaced one crate later as a one-loop cylinder-patch mismatch (P0044), a
+Stage-6 boundary-walk deadend (P0054) and a CDT ring reject (P0058). Pin:
+`s453e_minted_junction_outranks_an_edge_carried_tie`.
+
 ## 6. Failure modes
 
 - Branch 2 with `collapse_vertex` dropping zero triangles → existing loud
