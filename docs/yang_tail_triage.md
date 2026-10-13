@@ -131,7 +131,19 @@ mine to fix before landing.**
   convert them. That is a real latent in the wedge arm's localization, left
   OUT of this landing because the same change moved P0047 onto an
   unequal-rim Stage-1 STOP (below); it is the named follow-up, with these
-  three rows as its customers.
+  three rows as its customers. Re-tested after the landing with the cuts
+  alone on top of the landed form: P0044 / P0054 / P0058 complete, P0031 and
+  P0057 hold, and P0047 STOPs in a DIFFERENT op (engine id c8c804cf, not its
+  committed 578065d2) with `azimuth-merge rims have mismatched / too-few
+  samples (23 vs 24)` — that op's rims carry 14 and 15 override points in
+  both forms (the LOCAL graze samples, equal per closure, plus a per-rim
+  mint source), which the uniform band path tolerates; the cuts move a
+  Stage-0 disc-rim crossing onto a rim, `inserted_rims` selects
+  `tessellate_lateral_azimuth_merge`, and that path still pairs the two rings
+  POSITIONALLY after sorting, so unequal rings are refused. The remedy is a
+  true azimuth MERGE of two rings of unequal sample sets in
+  `tessellate_band_azimuth_merge` (a monotone strip between two sorted
+  polylines) — then the cuts land and the three rows convert.
 - **R0023 SUPPORTED_CORRECT → UNSUPPORTED(coplanar-boolean).** Not a
   regression of the kernel's ANSWER: with the guard off, op 2 reads `cut
   consumed the entire target body (no material remains)`; with the dip arm
