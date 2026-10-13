@@ -320,8 +320,10 @@ Do NOT skip to lower-priority items because they are easier.
    2 µm sliver — ledgered oracle limitation); one STOP is the A14.2
    feature-floor wall one op late (a cut carves a star tip into a 1.8 µm
    sliver body the next cut rejects); one TIMEOUT reads a NEW text
-   unbudgeted (`patch triangle below render resolution`, 366 s wall —
-   re-minimize before promoting). kernel-v2's `NonManifoldVertex` now names
+   unbudgeted (`patch triangle below render resolution`, 366 s wall;
+   re-minimized 2026-10-13 to 3 ops `convex4:boss gear24:rev
+   nonconvex6:boss`, which still costs ≈ 900 s CPU — NOT promoted, the
+   gear-revolve cost is the obstacle, ledger §seed 5). kernel-v2's `NonManifoldVertex` now names
    the vertex's position. Corpus after the promotions: **340C / 0W / 29E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall 1046.9 s) — versus 340C / 0W / 19E over 364 exactly the TEN new ERROR rows and nothing else moved; the one detail drift is C0046's `NonManifoldVertex` now naming its vertex (0, 0, 1), the 0-D contact wall; the 29 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062.
    **2026-10-13 (P0060): P0060 CONVERTED** (three prisms at 1 mm scale: the
    hexagon prism's corner pokes 1.47e-8 through the second prism's cap plane
