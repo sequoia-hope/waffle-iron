@@ -302,16 +302,27 @@ Do NOT skip to lower-priority items because they are easier.
    neighbours sense-free (it had paired NONE on real outputs); corpus
    byte-identical **340C / 0W / 19E / 5EE / 0T**. **Prospector seed 5 ran:
    185 C / 10 E / 3 W / 2 T** (fresh-geometry ERROR rate 30 → 10.5 → 16 → 7 →
-   5 % across seeds 1–5) — ten distinct ERROR signatures and one NEW oracle
-   text `wrong[volume_magnitude]`, NOT yet minimized or promoted
-   (`docs/yang_tail_triage.md` §2026-10-13 (later)). A new follow-up family:
+   5 % across seeds 1–5). A new follow-up family:
    a skew cylinder boss grazing the big lateral from INSIDE
    (`s4_conic_crease_in_plane_chain.rs`, `#[ignore]`d reproducer).
-   **The open P-series ERROR tail is P0042–P0052** (seed 4; P0001–P0041
+   **2026-10-13 (seed 5): seed 5 ADJUDICATED and PROMOTED P0053–P0062**
+   (`docs/yang_tail_triage.md` §"2026-10-13 (seed 5)"): both WRONG rows are
+   the kernel RIGHT — the cut-auto-reversal disagreement again, and a NEW
+   oracle text `wrong[volume_magnitude]` on a 1.12e-17 intersect sliver the
+   kernel gets right to 0.1 % against an independent local lattice (the
+   exact chain now composes Subtract/Intersect combines and an exact AGREE
+   withdraws a magnitude failure; a whole-model lattice cannot converge on a
+   2 µm sliver — ledgered oracle limitation); one STOP is the A14.2
+   feature-floor wall one op late (a cut carves a star tip into a 1.8 µm
+   sliver body the next cut rejects); one TIMEOUT reads a NEW text
+   unbudgeted (`patch triangle below render resolution`, 366 s wall —
+   re-minimize before promoting). kernel-v2's `NonManifoldVertex` now names
+   the vertex's position. Corpus after the promotions: **340C / 0W / 29E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall 1046.9 s) — versus 340C / 0W / 19E over 364 exactly the TEN new ERROR rows and nothing else moved; the one detail drift is C0046's `NonManifoldVertex` now naming its vertex (0, 0, 1), the 0-D contact wall; the 29 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062.
+   **The open P-series ERROR tail is P0042–P0062** (seeds 4–5; P0001–P0041
    CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
-   and anchor each against its lineage first (`target/prospect/seed-4/
-   candidates/`, the minima under `target/prospect/seed-4/findings/`;
-   re-creatable with `PROSPECT_SEED=4 PROSPECT_COUNT=200 prospect_run` and
+   and anchor each against its lineage first (`target/prospect/seed-{4,5}/
+   candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;
+   re-creatable with `PROSPECT_SEED=<4|5> PROSPECT_COUNT=200 prospect_run` and
    per-signature `prospect_minimize` with `PROSPECT_SIGNATURE=…`). When the
    tail empties again: run `prospect_run` / `prospect_minimize` for a fifth
    seed (`docs/TESTING.md` §"Running the assay prospector"); anchor every

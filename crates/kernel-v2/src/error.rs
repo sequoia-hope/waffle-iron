@@ -454,8 +454,11 @@ pub enum KernelV2Error {
     LoopNotClosed { loop_id: LoopId },
 
     /// The half-edges leaving a vertex do not form a single radial fan
-    /// (2-manifold vertex condition).
-    NonManifoldVertex { vertex: VertexId },
+    /// (2-manifold vertex condition). `point` is the vertex's position as
+    /// formatted text (this enum is `Eq`), so the STOP names WHERE — a
+    /// vertex id alone cannot be compared across a minimized document and
+    /// its lineage (prospector seed 5, 2026-10-13).
+    NonManifoldVertex { vertex: VertexId, point: String },
 
     /// Euler–Poincaré bookkeeping failed: `V − E + F − R != 2(S − G)`
     /// (Stroud 2006 §4, rule 4; written there as v − e + f − h = 2(b − g)).

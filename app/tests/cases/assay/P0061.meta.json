@@ -1,0 +1,52 @@
+{
+  "id": "P0061",
+  "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67: auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 33 — a 49-point hole-free ring along a curve (KV2_RING_REJECT_PROBE outer_len=49 holes=0); x1e-3 and x1e3 identical (FaceId 28). The 7-op lineage rejects a DIFFERENT ring (30 points with a collinear run), promoted beside it. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 4.25,
+  "log_scale": 0.6283889300503115,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 3.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 4.25,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 4.05,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 425.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

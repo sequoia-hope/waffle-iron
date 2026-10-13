@@ -673,7 +673,10 @@ fn validate_detects_non_manifold_vertex() {
         }
     }
     let err = validate_solid(&arena, cube.solid).unwrap_err();
-    assert_eq!(err, KernelV2Error::NonManifoldVertex { vertex: v1 });
+    assert!(
+        matches!(err, KernelV2Error::NonManifoldVertex { vertex, .. } if vertex == v1),
+        "{err:?}"
+    );
 }
 
 #[cfg(debug_assertions)]

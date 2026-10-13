@@ -43,6 +43,87 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-13 (seed 5) — prospector seed 5 adjudicated: the 10 ERROR rows are nine kernel STOPs at ten sites plus one harness hole; both WRONG rows are the kernel RIGHT (one the cut-auto-reversal disagreement, one a sliver the magnitude band cannot judge); one TIMEOUT is a NEW text unbudgeted; promoted **P0053–P0062**; corpus re-measured: **340C / 0W / 29E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall 1046.9 s) — versus 340C / 0W / 19E over 364 exactly the TEN new ERROR rows and nothing else moved; the one detail drift is C0046's `NonManifoldVertex` now naming its vertex (0, 0, 1), the 0-D contact wall; the 29 ERROR rows are the seven C-series walls, P0026 and the open tail P0042–P0062
+
+`PROSPECT_SEED=5 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`
+on `f73635d9` returned **185 SUPPORTED_CORRECT, 10 ERROR, 3 SUPPORTED_WRONG,
+2 TIMEOUT** in 930 s (the section below). `prospect_minimize` over the
+whole report (one invocation, 4 h 52 min — seed 4's parallel-per-signature
+form is the faster way) reduced 11 of 13 signatures to 2–4 ops. Every
+minimum was anchored against its un-rounded lineage by SITE
+(`replay_waffle_env` under the probe its text names), judged at ×1e-3 and
+×1e3 through a rescaled `.recipe.json`, and the WRONG rows were read
+independently.
+
+### The two SUPPORTED_WRONG rows: the kernel is right in both
+
+**Index 95, `wrong[exact_volume]`** (min 5→4 `circle:boss gear16:sym
+convex4:boss convex4:cut`; kernel 2.396e-2 vs exact 2.684e-2): the ledgered
+cut-auto-reversal disagreement, by the seed-4 mechanism — `FE_CUT_TRACE=1`
+shows the engine sweeping +n from a vertex projection `[−0.208, 0.265]`
+against a sketch projection 0.0263 (`reverse=false`) while
+`EXACT_CUT_TRACE=1` shows the chain reversing on the box `[−0.356, 0.389]`.
+Authoring the engine's traced `direction` leaves the kernel volume
+**byte-identical** (2.3959069478e-2) and the document reads SUPPORTED_CORRECT;
+the opposite sign reads CORRECT at 2.6815e-2, the chain's own number to
+0.1 %. Not promoted — the engine + harness follow-up stands (seed 4).
+
+**Index 39, `wrong[volume_magnitude]`** (min 5→3 `circle:boss convex8:boss
+nonconvex5:∩`, scale 2.8e-4; volume 1.12e-17 against a band floor of
+8e-17): a NEW oracle text. The pentagon tool's sharpest vertex clips the
+octagon boss's upper corner: the exact intersection is a sliver ~6.7 × 3 ×
+3.7 µm. An independent lattice over the overlap box alone (pure-Python
+membership, 120/200/300 cells: 1.129e-17 / 1.121e-17 / **1.125e-17**) agrees
+with the kernel's **1.124e-17** to 0.1 %. The kernel is right; the magnitude
+band (`[1e-8, 1e8]·scale³`) assumes a result of the operands' order, and an
+Intersect between operands that barely touch legitimately breaks it. Two
+harness changes landed with this seed: the exact chain now COMPOSES
+`BooleanCombine` Subtract and Intersect (`a − b`, `a ∩ b` in anchor order;
+it had typed them out — "only Union composes"), and a `volume_magnitude`
+failure is WITHDRAWN when the exact chain covers the document and AGREES.
+This document still reads WRONG: the whole-model lattice cannot converge on
+a 2 µm sliver (64 / 128 / 256 cells read 1.19e-17 / 8.5e-18 / 1.11e-17 —
+4, 23, 238 cells), so the verdict is NotCovered and the heuristic stands.
+Not promoted; ledgered as an oracle limitation (a sub-lattice sliver needs
+a LOCAL integration over the expression's box — `expr_bbox` of an `Inter` is
+that box).
+
+### Ten promotions, at ten sites
+
+All ERROR-class pins with `derived_meta: true`. Site probes:
+`NONMANIFOLD_SITE_PROBE`, `KV2_SELFX_SITE_PROBE`, `KV2_RING_REJECT_PROBE`,
+`KV2_PLANARITY_PROBE`, `YANG_KEEP_PROBE`, `YANG_BREP_PROBE`; kernel-v2's
+`NonManifoldVertex` now carries the vertex's POSITION (as text — the error
+enum is `Eq`), because an id alone cannot be compared between a minimum and
+its lineage.
+
+| case | source | ops | error text | SITE | ×1e-3 / ×1e3 |
+|---|---|---|---|---|---|
+| **P0053** | #77, already minimal `gear17:boss circle:cut` (scale 122.8) | 2 | `boolean_subtract` `yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces …)` | `boolean.rs` face resolution after the subtract's labeling (`YANG_KEEP_PROBE`: 5 patches, 3612 of 5722 kept, then a second pass 3882 of 6388); the minimum IS the lineage | same / same (tri 1726) |
+| **P0054** | #55, min 8→4 `convex4:sym convex5:cut circle:cut circle:thru` | 4 | `boolean_subtract` `reassembled output would be non-2-manifold` | Stage-6 wedge orbit: `s6-boundary-walk-deadend: vertex 47 has incoming boundary but no outgoing` → legacy fallback `NonManifoldOutput` | same / same |
+| **P0055** | #55 **UN-MINIMIZED** 8 ops (23 s) | 8 | the same text | the same orbit but a DIFFERENT first complaint: `s6-wedge-succ-collision: edge (79, 105) claimed by 2 strands`, then a deadend at vertex 79 — the P0042/P0043 rule, both halves | — |
+| **P0056** | #59, min 5→4 `convex4:boss convex4:solo convex5:boss circle:cut` (scale 899) | 4 | `boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, −5.999e2, −2.052e1) }` | kernel-v2 `validate.rs` invariant 3 (single radial fan) on the output of a circle cut r 3600; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, −6.089e2, −2.966e1), 13 units away | same / same (vertex 42) |
+| **P0057** | #5, min 7→3 `convex4:boss circle:boss convex7:cut` (scale 1.16e-3) | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 20 × 19, penetrations: 51 }` | two ADJACENT output faces around (−2.6e-3, −5.0e-4, 4.9e-3 … 5.1e-3); the lineage's 156 × 155 at the same coordinates | CORRECT / same |
+| **P0058** | #69, rounding only `star7(0.29):boss circle:sym circle:cut` (scale 7.7e-3) | 3 | `boolean_subtract` `ring rejected by CDT` FaceId 63 | a 75-point outer ring with one 52-point hole (`outer_len=75 holes=1 npts=127`), identical on the lineage — another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text | STOPs earlier (`output ellipse-arc endpoint does not lie on its ellipse`) / same |
+| **P0059** | #115, min 5→3 `convex4:boss convex4:rev circle:boss` (scale 1.16e-3) | 3 | auto-union `reassembled output would be non-2-manifold` | `s6-boundary-walk-deadend` vertex 6; the lineage the same deadend at vertex 69 | same / same |
+| **P0060** | #11, min 4→3 `convex4:boss convex4:boss convex6:boss` (scale 1.16e-3) | 3 | auto-union `NonPlanarFace { face 52 }` | kernel-v2's planarity gate: a planar face, normal (0, 0.563, 0.826), whose loop vertices sit **2.389e-8** off its plane against a 1.0e-12 band — the same face, plane and offset on the lineage (face 71 after a convex6 revolve). Three prisms. | input feature floor / CORRECT |
+| **P0061** | #91, min 7→3 `convex4:boss circle:boss convex6:boss` (scale 1.67) | 3 | auto-union `ring rejected by CDT` FaceId 33 | a 49-point hole-free ring along a curve | same / same (FaceId 28) |
+| **P0062** | #91 **UN-MINIMIZED** 7 ops (12.7 s) | 7 | the same text, FaceId 41 | a DIFFERENT ring: 30 points whose first run is COLLINEAR along y = 3.3109 — both halves | — |
+
+### Not promoted, with reasons
+
+| rows | why |
+|---|---|
+| index 32 `GeomRef resolution failed: Output key Main not found` (`convex4:boss circle:cut convex4:∩ convex4:−`) | the known harness hole: a disjoint Intersect annihilates the body silently and the next op references it (seeds 1–4) |
+| index 166 `yang-rs rejected the converted input B-Rep: face 0 is degenerate (zero-area / collinear)` (min `star7(0.14):boss convex7:cut convex4:cut`, scale 4.7e-3) | the **A14.2 INPUT feature-floor wall**, one op late: the first cut's plane passes 1.77e-6 from a star needle's tip and the exact result includes that tip as a sliver body (`YANG_BREP_PROBE`: op-2 output face f7 = three vertices 1.87e-6 / 2.7e-7 / 1.9e-6 apart, area ≈ 2.5e-13 m² < `MIN_FEATURE_SIZE²`); the body splitter makes it a body and the NEXT cut rejects it as input (Stage 1's absolute floor, `stage1_tessellate.rs`). Identical on the lineage; ×1e3 CORRECT, ×1e-3 `NonPlanarFace` — a floor shape. Whether a boolean should EMIT a sub-floor body is a design call (the paper has no floor); today's loud STOP is the contract. |
+| index 37 TIMEOUT (`convex5:boss nonconvex6:boss convex6:boss gear24:rev nonconvex6:∪`, 5 ops, 2 examples) | unbudgeted it completes in **366 s wall** as an ERROR with a NEW text: `boolean_union TessellationFailed { face 1378, "patch triangle below render resolution (area < 1e-12, height < 4 f32 ulps)" }` (cherchi-rs runs rayon, so CPU exceeds wall and the 900 s budget). The minimizer kept nothing because the report's signature was `timeout`; every rounding that finished read the same NEW text or CORRECT. Re-minimize against that signature (a report row rewritten to it, `PROSPECT_REDO=1 PROSPECT_SIGNATURE=…`) before promoting — a 366 s case would read TIMEOUT in the corpus. |
+| index 44 TIMEOUT (build phase, `steps: 0`, no document materialized) | regenerated unbudgeted (`PROSPECT_INDEX=44 prospect_judge`): see the addendum below when it completes |
+| index 95 `wrong[exact_volume]`, index 39 `wrong[volume_magnitude]` | above — the kernel is right in both |
+
+The fresh-geometry ERROR rate by seed (same generator): **30 → 10.5 → 16 → 7 →
+5 %**, the honest seed-5 histogram being 185 C / 11 E / 3 W / 1 T once index
+37 is read unbudgeted.
+
 ## 2026-10-13 (later) — P0040 GENERALIZED to every planar conic (the crease's OTHER surface is the divider); the crease index's neighbour pairing was blind on real outputs; prospector SEED 5: 185 C / 10 E / 3 W / 2 T; canonical 340C / 0W / 19E / 5EE / 0T over 364, byte-identical
 
 **The generalization.** The audit named P0040's two certificates as

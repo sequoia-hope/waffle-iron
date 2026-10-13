@@ -2137,6 +2137,58 @@ fn smoke_corpus_boundary_categories() {
         // through a 12-tooth gear boss (the lineage cost 686 s under the
         // prospector; the minimum is cheap).
         ("P0052", Category::Error),
+        // P0053–P0062 PROMOTED 2026-10-13 — prospector seed 5 × 200 candidates
+        // (185 CORRECT / 10 ERROR / 3 WRONG / 2 TIMEOUT), 930 s at 8 jobs,
+        // adjudicated per `specs/assay_prospector.md` §8 by SITE
+        // (`docs/yang_tail_triage.md` §"2026-10-13 (seed 5)"). All ERROR-class
+        // pins with `derived_meta` — the pin IS the expectation. Not
+        // promoted: the `GeomRef … Main not found` harness hole (index 32),
+        // the star-tip sliver the first cut carves 1.8e-6 tall with a
+        // 2.5e-13 m² face — the A14.2 INPUT feature-floor wall at the next
+        // cut (index 166), the `wrong[exact_volume]` row (index 95 — the
+        // cut-auto-reversal disagreement; the engine's traced sweep made
+        // explicit leaves the kernel volume byte-identical and CORRECT), the
+        // `wrong[volume_magnitude]` row (index 39 — a pentagon tool clipping
+        // an octagon boss corner leaves a 1.12e-17 sliver the kernel gets
+        // right to 0.1 % against an independent lattice; the magnitude band
+        // is the hole), and the two build-phase TIMEOUTs (index 37 reads a
+        // NEW text unbudgeted, `patch triangle below render resolution`, at
+        // 366 s wall — to be re-minimized against that signature).
+        //
+        // P0053 (2 ops, gear17:boss circle:cut) ⇒ `boolean_subtract` `yang-rs:
+        // geometric face resolution failed for kept triangle 1724`. ×1e-3 and
+        // ×1e3 keep the class.
+        ("P0053", Category::Error),
+        // P0054 (4 ops) ⇒ `boolean_subtract` reassembly non-2-manifold,
+        // `s6-boundary-walk-deadend` vertex 47; P0055 is its UN-MINIMIZED
+        // 8-op lineage, which first complains `s6-wedge-succ-collision`
+        // (the P0042/P0043 rule: a different first complaint, both halves).
+        ("P0054", Category::Error),
+        ("P0055", Category::Error),
+        // P0056 (4 ops, scale 899) ⇒ `boolean_subtract NonManifoldVertex`
+        // at (3.533e2, −5.999e2, −2.052e1); the lineage's vertex sits 13
+        // units away. Scale-invariant.
+        ("P0056", Category::Error),
+        // P0057 (3 ops) ⇒ `boolean_subtract SelfIntersectingBooleanOutput`
+        // faces 20 × 19, 51 penetrations, two ADJACENT faces; the lineage's
+        // 156 × 155 at the same coordinates. ×1e3 keeps the class, ×1e-3 CORRECT.
+        ("P0057", Category::Error),
+        // P0058 (3 ops, star7 boss) ⇒ `boolean_subtract` `ring rejected by
+        // CDT` on a 75-point ring with one hole — another locus of the
+        // P0002 text. ×1e3 keeps the class, ×1e-3 stops earlier.
+        ("P0058", Category::Error),
+        // P0059 (3 ops) ⇒ auto-union reassembly non-2-manifold,
+        // `s6-boundary-walk-deadend` vertex 6 (the lineage: vertex 69).
+        ("P0059", Category::Error),
+        // P0060 (3 ops, three prisms) ⇒ auto-union `NonPlanarFace` — a planar
+        // face whose loop sits 2.389e-8 off its plane (band 1e-12), the same
+        // face on the lineage. ×1e3 CORRECT, ×1e-3 the input feature floor.
+        ("P0060", Category::Error),
+        // P0061 (3 ops) ⇒ auto-union `ring rejected by CDT` on a 49-point
+        // curved ring; P0062 is its UN-MINIMIZED 7-op lineage, which rejects a
+        // DIFFERENT ring (30 points with a collinear run) — both halves.
+        ("P0061", Category::Error),
+        ("P0062", Category::Error),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and
@@ -2242,8 +2294,8 @@ fn full_corpus_categorized() {
     let cases = discover_cases(&dir);
     assert_eq!(
         cases.len(),
-        364,
-        "expected the 364-case assay corpus (194 legacy + 118 C-series + 52 P-series)"
+        374,
+        "expected the 374-case assay corpus (194 legacy + 118 C-series + 62 P-series)"
     );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can

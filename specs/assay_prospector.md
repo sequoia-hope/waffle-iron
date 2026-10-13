@@ -222,6 +222,17 @@ with each other or with arithmetic:
 | inclusion–exclusion | V(A)+V(B) = V(A∪B)+V(A∩B), built as four documents from the same two operands | volumes within band |
 | de Morgan | (A−B)−C = A−(B∪C) | volumes, χ |
 
+Two in-line oracles overlap on volume. The magnitude band
+(`check_volume_magnitude`, volume ∈ [1e-8, 1e8]·scale³) is a heuristic for a
+document with no exact reading: it assumes the result is of the operands'
+order, which an Intersect between barely-touching operands legitimately
+breaks (seed 5 index 39, a 1.12e-17 sliver, kernel right). Since 2026-10-13
+the exact chain composes `BooleanCombine` Subtract / Intersect as well as
+Union, and when it covers the document and AGREES its reading supersedes the
+band — the magnitude failure is withdrawn. An unconverged lattice (a sliver
+far smaller than the model) is NotCovered, and the heuristic then stands,
+honestly WRONG until the lattice is laid locally over the expression's box.
+
 A disagreement where the two KERNEL runs agree on volume, χ and body
 count but an in-line oracle flagged one of them is classed `ORACLE`, not
 `METAMORPHIC`: the oracle invalidates in both directions (memory
@@ -532,6 +543,47 @@ budget (1341 s wall unbudgeted), so the honest histogram is 183 C / 14 E /
    `KV2_SHELL_CONTACT_PROBE=1` census printing TWO subtracts for one engine
    cut, each with a one-shell A, names it in two lines. Any place that reads
    "the body's extent" off B-Rep vertices is suspect for curved bodies.
+
+**Seed 5 (`prospect_run`, 200 candidates, 930 s at 8 jobs, 2026-10-13):** 185
+SUPPORTED_CORRECT, 10 ERROR, 3 SUPPORTED_WRONG, 2 TIMEOUT over 13 signatures
+(fresh-geometry ERROR rate by seed: 30 → 10.5 → 16 → 7 → 5 %). Adjudicated
+and promoted the same day as **P0053–P0062** (ten sites, two lineages
+promoted beside minima that STOP at a different first complaint / ring);
+narrative and per-case evidence in `docs/yang_tail_triage.md`
+§"2026-10-13 (seed 5)". Lessons for this spec:
+
+1. **A `timeout` signature hides the finding.** Index 37 exceeded the 900 s
+   CPU budget (cherchi-rs runs rayon, so CPU time outruns wall time) and
+   the minimizer, matching signatures byte-for-byte against `timeout`, kept
+   NOTHING although every rounding that finished read one NEW error text.
+   Unbudgeted the lineage completes in 366 s wall as that ERROR. Before
+   minimizing, re-judge every TIMEOUT row with no budget and rewrite its
+   report row to the signature it actually raises; a case that needs more
+   than the corpus budget cannot be promoted as it stands (it would read
+   TIMEOUT in the corpus).
+2. **The magnitude band is not an oracle for an Intersect.** Index 39's
+   `wrong[volume_magnitude]` was a 1.12e-17 sliver the kernel got right to
+   0.1 % against an independent lattice laid over the OVERLAP box alone.
+   The exact chain now composes `BooleanCombine` Subtract and Intersect
+   (`a − b`, `a ∩ b` in anchor order), and a magnitude failure is withdrawn
+   when the exact chain covers the document and AGREES — but a lattice over
+   the MODEL's box cannot converge on a sliver three orders smaller than the
+   model (64 / 128 / 256 cells: 4, 23, 238 occupied cells), so the row still
+   reads WRONG and the limitation is ledgered. The remedy is a LOCAL lattice
+   over the final expression's box (`expr_bbox` of an `Inter` is exactly
+   that box), not a wider band.
+3. **A vertex id is not a site.** kernel-v2's `NonManifoldVertex` carried
+   only a `VertexId`, which a minimum and its lineage never share; it now
+   carries the position (as text — the error enum is `Eq`, the precedent of
+   its sibling variants), and index 59's minimum anchored 13 units from its
+   lineage's vertex at scale 899.
+4. **The feature-floor wall can fire one op LATE.** Index 166's first cut
+   passes 1.77e-6 from a star needle's tip; the exact result includes the
+   tip as a sliver BODY (a face of 2.5e-13 m²), the body splitter makes it a
+   body, and the NEXT cut rejects it as a sub-floor INPUT. `YANG_BREP_PROBE=1`
+   dumps every boolean's A, B and OUT B-Reps and shows the sliver in the
+   previous op's output. Whether a boolean should emit a sub-floor body is a
+   design call the paper does not make; the loud STOP is today's contract.
 
 The FIRST promotion candidate exists already: the needle star (4 points,
 r_in = 2, r_out = 22) on the X plane unioned with an octagon prism on the Y

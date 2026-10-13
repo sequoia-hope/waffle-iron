@@ -68,9 +68,10 @@
 //!   their components separately — the kernel's own output semantics.
 //!
 //! Not covered (typed [`NotCovered`]): region extrudes (`params.regions`),
-//! `BooleanCombine`, share-a-face auto-targeting (`combine` set with no
-//! `targets`), `UpTo` / through-all SECOND directions, internal gears,
-//! sketches without plane data or a resolvable profile.
+//! a `BooleanCombine` whose verb is not Union / Subtract / Intersect,
+//! share-a-face auto-targeting (`combine` set with no `targets`), `UpTo` /
+//! through-all SECOND directions, internal gears, sketches without plane
+//! data or a resolvable profile.
 
 use std::collections::HashMap;
 use std::f64::consts::TAU;
@@ -470,19 +471,32 @@ impl ExactSolid {
     }
 }
 
-/// An explicit UNION combine of live bodies (`BooleanCombine` with
-/// `operation: Union`; P0007, 2026-09-29): the bodies anchored by `body_a`
-/// / `body_b` fold into ONE set-union body whose expression is the union
-/// of theirs. It adds no operand — the lattice reads the same points —
-/// but it changes the BODY LIST (the per-body readout no longer counts an
-/// overlap twice, and later targets can anchor to the combine feature).
+/// The verb of an explicit `BooleanCombine` feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeKind {
+    Union,
+    Subtract,
+    Intersect,
+}
+
+/// An explicit combine of live bodies (`BooleanCombine`): the bodies
+/// anchored by `body_a` / `body_b` fold into ONE body whose expression is
+/// theirs composed by the verb — a set UNION (P0007, 2026-09-29), or, since
+/// 2026-10-13 (prospector seed 5 index 39, an Intersect whose exact result
+/// is a sliver the magnitude oracle alone could not judge), `body_a −
+/// body_b` / `body_a ∩ body_b`. It adds no operand — the lattice reads the
+/// same operands — but it changes the BODY LIST (the per-body readout no
+/// longer counts an overlap twice, later targets can anchor to the combine
+/// feature, and a Subtract / Intersect re-authors the surviving set).
 #[derive(Debug, Clone)]
 pub struct BodyMerge {
     /// Applies once the first `after_op` operands have been replayed.
     pub after_op: usize,
     pub feature_id: String,
-    /// Feature ids the merged bodies are outputs of (`Anchor::FeatureOutput`).
+    /// Feature ids the merged bodies are outputs of (`Anchor::FeatureOutput`),
+    /// `body_a` first — the order matters for Subtract and Intersect.
     pub anchors: Vec<String>,
+    pub kind: MergeKind,
 }
 
 /// A parsed document: operands in feature order with their combine sense.
@@ -624,10 +638,12 @@ impl ExactChain {
     /// engine's combine dispatch (see the module docs).
     pub fn bodies_after(&self, k: usize) -> Vec<Body> {
         let mut bodies: Vec<Body> = Vec::new();
-        // Union combines (`BodyMerge`) scheduled after operand `i`: fold the
-        // anchored bodies into one set-union body. A single (or missing)
-        // anchored body just takes the combine's id — the engine's union of
-        // a body with nothing is that body.
+        // Combines (`BodyMerge`) scheduled after operand `i`: fold the
+        // anchored bodies into one body — a set union, or `a − b` / `a ∩ b`
+        // in anchor order. A single (or missing) anchored body just takes
+        // the combine's id — the engine's union of a body with nothing is
+        // that body, and its subtract / intersect with nothing is reported
+        // by the engine, not modelled here.
         let apply_merges = |bodies: &mut Vec<Body>, after_op: usize| {
             for m in self.merges.iter().filter(|m| m.after_op == after_op) {
                 let mut hit: Vec<usize> = bodies
@@ -640,6 +656,38 @@ impl ExactChain {
                     if let Some(&j) = hit.first() {
                         bodies[j].ids.push(m.feature_id.clone());
                     }
+                    continue;
+                }
+                if m.kind != MergeKind::Union {
+                    // `body_a` and `body_b` by anchor, in that order.
+                    let find = |anchor: &String| {
+                        bodies
+                            .iter()
+                            .position(|b| b.ids.iter().any(|id| id == anchor))
+                    };
+                    let (Some(ja), Some(jb)) = (find(&m.anchors[0]), find(&m.anchors[1])) else {
+                        continue;
+                    };
+                    if ja == jb {
+                        continue;
+                    }
+                    let (first, second) = (ja.max(jb), ja.min(jb));
+                    let hi = bodies.remove(first);
+                    let lo = bodies.remove(second);
+                    let (a, b) = if ja > jb { (hi, lo) } else { (lo, hi) };
+                    let mut ids = a.ids;
+                    ids.extend(b.ids);
+                    ids.push(m.feature_id.clone());
+                    let expr = match m.kind {
+                        MergeKind::Subtract => Expr::Sub(Box::new(a.expr), Box::new(b.expr)),
+                        MergeKind::Intersect => Expr::Inter(Box::new(a.expr), Box::new(b.expr)),
+                        MergeKind::Union => unreachable!(),
+                    };
+                    bodies.push(Body {
+                        ids,
+                        expr,
+                        last_touched: a.last_touched.max(b.last_touched),
+                    });
                     continue;
                 }
                 hit.sort_unstable();
@@ -1170,25 +1218,31 @@ impl ExactChain {
                         targets,
                     });
                 }
-                // An explicit UNION of two bodies (P0007, 2026-09-29: the
-                // prospector's `convex4:∪` step unions a NewBody boss into
-                // the main body) adds nothing to the exact chain: every
-                // boss — NewBody or merged — is already a member of the set
-                // union the lattice composes, so the combine is the identity
-                // here. Subtract / Intersect combines re-author the set and
-                // stay typed out.
+                // An explicit combine of two bodies adds no operand to the
+                // exact chain — every boss, NewBody or merged, is already an
+                // operand — but it re-authors the BODY LIST: a Union (P0007,
+                // 2026-09-29: the prospector's `convex4:∪` step unions a
+                // NewBody boss into the main body) folds two bodies into one
+                // set union; a Subtract / Intersect (2026-10-13, seed 5
+                // index 39: `nonconvex5:∩`) composes `a − b` / `a ∩ b` of the
+                // two anchored bodies' expressions.
                 "BooleanCombine" => {
-                    let kind = op
+                    let kind = match op
                         .pointer("/params/operation/type")
                         .and_then(Value::as_str)
-                        .unwrap_or("");
-                    if kind != "Union" {
-                        return Err(nc(
-                            index,
-                            &name,
-                            &format!("operation BooleanCombine ({kind:?} — only Union composes)"),
-                        ));
-                    }
+                        .unwrap_or("")
+                    {
+                        "Union" => MergeKind::Union,
+                        "Subtract" => MergeKind::Subtract,
+                        "Intersect" => MergeKind::Intersect,
+                        other => {
+                            return Err(nc(
+                                index,
+                                &name,
+                                &format!("operation BooleanCombine ({other:?})"),
+                            ))
+                        }
+                    };
                     let anchor_of = |key: &str| -> Result<String, NotCovered> {
                         let gr = op
                             .pointer(&format!("/params/{key}"))
@@ -1216,6 +1270,7 @@ impl ExactChain {
                         after_op: chain.ops.len(),
                         feature_id,
                         anchors,
+                        kind,
                     });
                 }
                 other => return Err(nc(index, &name, &format!("operation {other}"))),
@@ -2088,19 +2143,65 @@ mod tests {
             "{}",
             r.volume
         );
-        // A Subtract combine re-authors the set: typed out by name.
-        let mut sub = combine("u2", "e1", "e2");
-        sub["operation"]["params"]["operation"] = serde_json::json!({"type": "Subtract"});
-        let err = ExactChain::from_waffle(&doc(vec![
+        // A Subtract / Intersect combine re-authors the set (2026-10-13):
+        // the same two boxes compose to `e1 − e2` = 1 − 0.252 and
+        // `e1 ∩ e2` = 0.252, one body each, in anchor order.
+        for (verb, expect) in [("Subtract", 1.0 - 0.252), ("Intersect", 0.252)] {
+            let mut c = combine("c1", "e1", "e2");
+            c["operation"]["params"]["operation"] = serde_json::json!({"type": verb});
+            let chain = ExactChain::from_waffle(&doc(vec![
+                square_sketch("s1", [0.0; 3], &[(0.0, 0.0, 0.5, 0.5, true)]),
+                extrude("e1", "s1", 1.0, false, serde_json::json!({})),
+                square_sketch("s2", [0.3, 0.2, 0.4], &[(0.0, 0.0, 0.4, 0.4, true)]),
+                extrude(
+                    "e2",
+                    "s2",
+                    1.0,
+                    false,
+                    serde_json::json!({"combine": {"type": "NewBody"}}),
+                ),
+                c,
+            ]))
+            .unwrap();
+            assert_eq!(chain.ops.len(), 2, "{verb}: the combine adds no operand");
+            let bodies = chain.bodies_after(2);
+            assert_eq!(bodies.len(), 1, "{verb}: {bodies:?}");
+            assert!(
+                bodies[0].ids.iter().any(|id| id == "c1"),
+                "{verb}: {bodies:?}"
+            );
+            let expected_expr = if verb == "Subtract" {
+                Expr::Sub(Box::new(Expr::Leaf(0)), Box::new(Expr::Leaf(1)))
+            } else {
+                Expr::Inter(Box::new(Expr::Leaf(0)), Box::new(Expr::Leaf(1)))
+            };
+            assert_eq!(
+                bodies[0].expr, expected_expr,
+                "{verb}: anchor order is a then b"
+            );
+            let r = readout_exact(&chain, 2, 128, 0.5).unwrap();
+            assert_eq!(r.bodies, 1, "{verb}: {r:?}");
+            assert!((r.volume - expect).abs() < 0.03, "{verb}: {}", r.volume);
+        }
+        // Anchor order: `e2 − e1` is the second box less the overlap.
+        let mut c = combine("c2", "e2", "e1");
+        c["operation"]["params"]["operation"] = serde_json::json!({"type": "Subtract"});
+        let chain = ExactChain::from_waffle(&doc(vec![
             square_sketch("s1", [0.0; 3], &[(0.0, 0.0, 0.5, 0.5, true)]),
             extrude("e1", "s1", 1.0, false, serde_json::json!({})),
-            sub,
+            square_sketch("s2", [0.3, 0.2, 0.4], &[(0.0, 0.0, 0.4, 0.4, true)]),
+            extrude(
+                "e2",
+                "s2",
+                1.0,
+                false,
+                serde_json::json!({"combine": {"type": "NewBody"}}),
+            ),
+            c,
         ]))
-        .unwrap_err();
-        assert!(
-            matches!(err, NotCovered::Feature { ref why, .. } if why.contains("Subtract")),
-            "{err}"
-        );
+        .unwrap();
+        let r = readout_exact(&chain, 2, 128, 0.5).unwrap();
+        assert!((r.volume - (0.64 - 0.252)).abs() < 0.03, "{}", r.volume);
         // A new-style combine with no explicit targets is share-a-face
         // auto-targeting: typed out.
         let mut doc = unit_box_doc(None, false);

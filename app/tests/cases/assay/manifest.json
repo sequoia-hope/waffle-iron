@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 364,
+  "count": 374,
   "generator_version": 4,
   "cases": [
     {
@@ -2549,6 +2549,76 @@
       "filename": "P0052.waffle",
       "meta_filename": "P0052.meta.json",
       "description": "prospector seed 4 index 84, minimized 8->3 ops (gear12:boss circle:cut convex7:rev-cut): boolean_subtract TessellationFailed 'surface-pair Newton projection did not converge' (kernel-v2 tessellate/sampling.rs) on a revolve cut through a 12-tooth gear boss already holding a circle cut — the lineage (8 ops, 686 s under the prospector) raises the same text on FaceId 1370; the minimum on FaceId 992. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0053",
+      "filename": "P0053.waffle",
+      "meta_filename": "P0053.meta.json",
+      "description": "prospector seed 5 index 77, 2 ops (gear17:boss circle:cut), already minimal, scale 122.8: boolean_subtract BooleanFailed 'yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)' — a circle cut through a 17-tooth gear boss; the minimum IS the lineage; x1e-3 and x1e3 keep the class (triangle 1726). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0054",
+      "filename": "P0054.waffle",
+      "meta_filename": "P0054.meta.json",
+      "description": "prospector seed 5 index 55, minimized 8->4 ops (convex4:sym convex5:cut circle:cut circle:thru), scale 0.95: boolean_subtract BooleanFailed 'yang-rs: reassembled output would be non-2-manifold' — NONMANIFOLD_SITE_PROBE s6-boundary-walk-deadend: vertex 47 has incoming boundary but no outgoing (the Stage-6 wedge orbit falls back to NonManifoldOutput); x1e-3 and x1e3 keep the class. The 8-op lineage STOPs in the same wedge orbit at a DIFFERENT first complaint (s6-wedge-succ-collision), promoted beside it. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0055",
+      "filename": "P0055.waffle",
+      "meta_filename": "P0055.meta.json",
+      "description": "prospector seed 5 index 55, UN-MINIMIZED 8 ops (circle:sym convex5:cut circle:cut circle:thru circle:boss nonconvex9:boss nonconvex10:boss circle:boss), 23 s under the prospector: boolean_subtract BooleanFailed 'yang-rs: reassembled output would be non-2-manifold' — NONMANIFOLD_SITE_PROBE s6-wedge-succ-collision: edge (79, 105) claimed by 2 strands, then s6-boundary-walk-deadend vertex 79; the 4-op minimum's first complaint is the deadend alone, so both halves are promoted (the P0042/P0043 rule). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0056",
+      "filename": "P0056.waffle",
+      "meta_filename": "P0056.meta.json",
+      "description": "prospector seed 5 index 59, minimized 5->4 ops (convex4:boss convex4:solo convex5:boss circle:cut), scale 899: boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, -5.999e2, -2.052e1) } — kernel-v2's output validation (invariant 3, a single radial fan) on a circle cut r 3600 through a diamond boss carrying an oblique pentagon boss; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, -6.089e2, -2.966e1), 13 units away at scale 899; x1e-3 and x1e3 identical (vertex 42). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0057",
+      "filename": "P0057.waffle",
+      "meta_filename": "P0057.meta.json",
+      "description": "prospector seed 5 index 5, minimized 7->3 ops (convex4:boss circle:boss convex7:cut), scale 1.16e-3: boolean_subtract SelfIntersectingBooleanOutput { faces 20 x 19, penetrations 51 } — kernel-v2's output self-intersection gate on two ADJACENT output faces around (-2.6e-3, -5.0e-4, 4.9e-3..5.1e-3); the 7-op lineage's faces 156 x 155 penetrate at the same coordinates (KV2_SELFX_SITE_PROBE); x1e3 identical, x1e-3 CORRECT. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0058",
+      "filename": "P0058.waffle",
+      "meta_filename": "P0058.meta.json",
+      "description": "prospector seed 5 index 69, 3 ops (star7(0.29):boss circle:sym circle:cut), rounded only, scale 7.7e-3: boolean_subtract TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 63 — a 75-point outer ring with one 52-point hole (KV2_RING_REJECT_PROBE cdt_err=TriangulationFailed outer_len=75 holes=1 npts=127), another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text; the identical ring on the lineage; x1e3 identical, x1e-3 STOPs earlier (auto-union 'output ellipse-arc endpoint does not lie on its ellipse'). derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0059",
+      "filename": "P0059.waffle",
+      "meta_filename": "P0059.meta.json",
+      "description": "prospector seed 5 index 115, minimized 5->3 ops (convex4:boss convex4:rev circle:boss), scale 1.16e-3: auto-union BooleanFailed 'yang-rs: reassembled output would be non-2-manifold' — NONMANIFOLD_SITE_PROBE s6-boundary-walk-deadend: vertex 6 has incoming boundary but no outgoing; the 5-op lineage (circle:sym convex8:boss convex3:rev circle:sym circle:rev) the same deadend at vertex 69; x1e-3 and x1e3 identical. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0060",
+      "filename": "P0060.waffle",
+      "meta_filename": "P0060.meta.json",
+      "description": "prospector seed 5 index 11, minimized 4->3 ops (convex4:boss convex4:boss convex6:boss), scale 1.16e-3: auto-union NonPlanarFace { face 52 } — kernel-v2's planarity gate: a planar output face with normal (0, 0.563, 0.826) whose loop vertices sit 2.389e-8 off its plane against a 1.0e-12 band (KV2_PLANARITY_PROBE), the SAME face, plane and offset on the lineage (face 71, after a convex6 revolve); x1e3 CORRECT, x1e-3 STOPs at the input feature floor. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0061",
+      "filename": "P0061.waffle",
+      "meta_filename": "P0061.meta.json",
+      "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67: auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 33 — a 49-point hole-free ring along a curve (KV2_RING_REJECT_PROBE outer_len=49 holes=0); x1e-3 and x1e3 identical (FaceId 28). The 7-op lineage rejects a DIFFERENT ring (30 points with a collinear run), promoted beside it. derived_meta; the pin IS the expectation.",
+      "featured": true
+    },
+    {
+      "id": "P0062",
+      "filename": "P0062.waffle",
+      "meta_filename": "P0062.meta.json",
+      "description": "prospector seed 5 index 91, UN-MINIMIZED 7 ops (convex6:boss circle:boss convex6:boss convex6:boss convex5:solo nonconvex5:∪ convex3:∪), 12.7 s under the prospector: auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 41 — a 30-point hole-free ring whose first points run COLLINEAR along y = 3.3109 (KV2_RING_REJECT_PROBE outer_len=30 holes=0), a different locus from the 3-op minimum's curved 49-point ring; both halves promoted. derived_meta; the pin IS the expectation.",
       "featured": true
     }
   ]

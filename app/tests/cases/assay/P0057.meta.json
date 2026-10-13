@@ -1,0 +1,52 @@
+{
+  "id": "P0057",
+  "description": "prospector seed 5 index 5, minimized 7->3 ops (convex4:boss circle:boss convex7:cut), scale 1.16e-3: boolean_subtract SelfIntersectingBooleanOutput { faces 20 x 19, penetrations 51 } — kernel-v2's output self-intersection gate on two ADJACENT output faces around (-2.6e-3, -5.0e-4, 4.9e-3..5.1e-3); the 7-op lineage's faces 156 x 155 penetrate at the same coordinates (KV2_SELFX_SITE_PROBE); x1e3 identical, x1e-3 CORRECT. derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 0.0119,
+  "log_scale": -1.9244530386074692,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.002,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0057,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 0.0119,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 1.1900000000000002,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

@@ -482,11 +482,17 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
             }
             seen += 1;
             if seen > hes.len() {
-                return Err(KernelV2Error::NonManifoldVertex { vertex: v });
+                return Err(KernelV2Error::NonManifoldVertex {
+                    vertex: v,
+                    point: vertex_point_text(arena, v)?,
+                });
             }
         }
         if seen != hes.len() {
-            return Err(KernelV2Error::NonManifoldVertex { vertex: v });
+            return Err(KernelV2Error::NonManifoldVertex {
+                vertex: v,
+                point: vertex_point_text(arena, v)?,
+            });
         }
     }
 
@@ -914,6 +920,13 @@ pub(crate) fn debug_check_arena(arena: &BrepArena) -> Result<(), KernelV2Error> 
         }
     }
     Ok(())
+}
+
+/// A vertex's position as the text the `Eq` error enum carries
+/// (`KernelV2Error::NonManifoldVertex::point`).
+fn vertex_point_text(arena: &BrepArena, v: VertexId) -> Result<String, KernelV2Error> {
+    let p = arena.vertex(v)?.point.as_array();
+    Ok(format!("({:.9e}, {:.9e}, {:.9e})", p[0], p[1], p[2]))
 }
 
 #[cfg(test)]

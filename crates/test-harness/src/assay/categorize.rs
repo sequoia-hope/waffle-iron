@@ -479,7 +479,22 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
                     } => failures.push(format!(
                         "exact_volume: kernel {kernel:.6e} vs exact {exact:.6e} (rel {rel:+.3e} outside band {band:.3e})"
                     )),
-                    ExactVolumeVerdict::Agree { .. } | ExactVolumeVerdict::NotCovered(_) => {}
+                    // The magnitude band (`check_volume_magnitude`, volume ∈
+                    // [1e-8, 1e8]·scale³) is a heuristic for a document with
+                    // NO exact reading: it assumes the result is of the order
+                    // of the operands. An Intersect whose operands barely
+                    // touch legitimately leaves a sliver orders below that
+                    // band (prospector seed 5 index 39, 2026-10-13: a
+                    // pentagon tool clipping an octagon boss's corner,
+                    // 1.12e-17 against a band floor of 8e-17 — the kernel
+                    // agreed with an independent lattice to 0.1 %). When the
+                    // exact chain covers the document and AGREES, its reading
+                    // supersedes the heuristic: the magnitude failure is
+                    // withdrawn. A Flag or an uncovered document keeps it.
+                    ExactVolumeVerdict::Agree { .. } => {
+                        failures.retain(|f| !f.starts_with("volume_magnitude:"));
+                    }
+                    ExactVolumeVerdict::NotCovered(_) => {}
                 }
             }
         }

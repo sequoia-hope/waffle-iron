@@ -1,0 +1,59 @@
+{
+  "id": "P0056",
+  "description": "prospector seed 5 index 59, minimized 5->4 ops (convex4:boss convex4:solo convex5:boss circle:cut), scale 899: boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, -5.999e2, -2.052e1) } — kernel-v2's output validation (invariant 3, a single radial fan) on a circle cut r 3600 through a diamond boss carrying an oblique pentagon boss; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, -6.089e2, -2.966e1), 13 units away at scale 899; x1e-3 and x1e3 identical (vertex 42). derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 3880.0,
+  "log_scale": 3.5888317255942073,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 400.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 1000.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 3880.0,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 2850.0,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 388000.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}

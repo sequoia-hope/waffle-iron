@@ -1,5 +1,5 @@
 {
-  "errored": 19,
+  "errored": 29,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
   "passed": 340,
@@ -1440,7 +1440,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonManifoldVertex { vertex: VertexId(17) }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonManifoldVertex { vertex: VertexId(17), point: \"(0.000000000e0, 0.000000000e0, 1.000000000e0)\" }. Body created as standalone.",
       "id": "C0046",
       "status": "error"
     },
@@ -2187,7 +2187,67 @@
       "detail": "1 engine error(s): abe6f0fb-14a4-40e8-8f85-fa7696041819: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(992), reason: \"surface-pair Newton projection did not converge\" }",
       "id": "P0052",
       "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): e3031155-42e8-42b9-9a3a-7181a5c9b379: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\")",
+      "id": "P0053",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): 86c25a66-0f36-40e0-8043-b018b5d72805: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "id": "P0054",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): bfbf0291-0c88-4553-a54a-41fa2c47ec52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "id": "P0055",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonManifoldVertex { vertex: VertexId(42), point: \"(3.532880600e2, -5.999111773e2, -2.052352261e1)\" }",
+      "id": "P0056",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): a71eb1ca-a1a3-4609-861c-44d874630bcd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: SelfIntersectingBooleanOutput { face_a: FaceId(20), face_b: FaceId(19), penetrations: 51 }",
+      "id": "P0057",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 engine error(s): dc397142-1c82-4e25-a1cc-24917ce9a124: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: TessellationFailed { face: FaceId(63), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "id": "P0058",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "id": "P0059",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: NonPlanarFace { face: FaceId(52) }. Body created as standalone.",
+      "id": "P0060",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(33), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
+      "id": "P0061",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(41), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
+      "id": "P0062",
+      "status": "error"
     }
   ],
-  "total": 364
+  "total": 374
 }

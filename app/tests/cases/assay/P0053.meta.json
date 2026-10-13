@@ -1,0 +1,45 @@
+{
+  "id": "P0053",
+  "description": "prospector seed 5 index 77, 2 ops (gear17:boss circle:cut), already minimal, scale 122.8: boolean_subtract BooleanFailed 'yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)' — a circle cut through a 17-tooth gear boss; the minimum IS the lineage; x1e-3 and x1e3 keep the class (triangle 1726). derived_meta; the pin IS the expectation.",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 201.92267549071877,
+  "log_scale": 2.3051850920368886,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    1.0,
+    0.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 201.92267549071877,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 84.09006295144646,
+      "is_cut": true
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 20192.267549071876,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [],
+    "expect_rebuild_error": false,
+    "derived_meta": true
+  },
+  "generator_version": 100,
+  "featured": true
+}
