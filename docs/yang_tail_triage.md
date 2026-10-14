@@ -43,6 +43,41 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (arm measurement) — the §4.3.3 edge-graze cluster off with the loop on protects exactly TWO cases (P0044, P0047); R0023's apparent conversion is the pre-P0057 false green; the class the arms predict is a mesh that MISSES an intersection, for which yang has no trigger — the paper's §4.3 near-miss check (T6) is the next increment
+
+**Measurement, not a change** (`specs/yang_452_refinement_loop.md` §3 "T6",
+§7). Corpus (release, 8 jobs, 900 s; wall 972.7 s) with `YANG_433_GUARD=0`
+— the wedge, pierce-dip, segment-face-graze and edge-graze arms off — and
+the loop on, against the Phase 1c baseline 350C / 0W / 18E:
+
+| case | with the cluster | without it | reading |
+|---|---|---|---|
+| P0044 | CORRECT | ERROR `CurvedGeometryMismatch … exactly one material-CCW loop` (kernel-v2) | the wedge class: yang emitted a wrong solid with an empty failure set |
+| P0047 | CORRECT | ERROR `TessellationFailed … ring rejected by CDT` (kernel-v2) | same |
+| R0023 | UNSUPPORTED (honest, P0057) | "CORRECT, all checks passed" | FALSE GREEN: its oracles are watertightness, Euler 2, positive volume and monotonicity — no exact volume; the N = 11 mesh swallows the 0.131-deep sliver again |
+| P0013, P0031, P0054, P0057, P0058, … | CORRECT | CORRECT | recovered by the loop (T1 / T2 fire) |
+
+`YANG_452_PROBE` on the three movers prints NOTHING: the loop never ran,
+because the natural run's failure set was empty. The defect of this class is
+a mesh that misses an intersection the exact surfaces have — nothing fails
+in Stages 2–6, the output is a valid B-Rep of the wrong solid, and only
+kernel-v2's render-resolution gate (or no gate at all, R0023) notices. Every
+Stage-1 arm in cleanup §2a is a PREDICTION of this class made before the
+arrangement. The paper's own mechanism is a DETECTION after it: §4.3,
+*"If the two meshes do not intersect but are within the distance tolerance
+d_ε, there is a tangent point, or a small loop, or no intersection between
+the surfaces. We use Newton's method to solve such cases"* (`:525-530`).
+That is **T6**: for every cross-operand triangle pair within d_ε that the
+arrangement left disjoint, the two faces' exact surfaces (closed form —
+N7's substitution for the Newton) say whether their intersection passes
+within d_ε of the pair inside both faces' domains; if so the mesh missed a
+real intersection there, and the site names both faces for the loop. The
+project already has the pieces: `shell_contact::triangle_distance` (the
+§4.3.1 2d_ε shell census of P0030), `ssi_rs::intersect`, the boundary
+domain certificate's face-side test. **Phase 1f builds T6; the nine arms
+retire after it, one per corpus run (§7).** No arm was removed today; the
+canonical corpus stays 350C / 0W / 18E / 5EE / 0T + 1U over 374.
+
 ## 2026-10-14 (Phase 1c) — the ONE §4.5.2 refinement loop lands and replaces both whole-op ladders and the lens; P0046, P0050, P0052, P0062 CONVERTED through it; N62 RESOLVED; corpus **350C / 0W / 18E / 5EE / 0T + 1U over 374** (wall 967.6 s, below the baseline's 971.5 s)
 
 **The paper's mechanism replaces three substitutes.** Phase 1c of

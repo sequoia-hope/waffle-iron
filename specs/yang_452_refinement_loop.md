@@ -100,6 +100,34 @@ cherchi-rs already has one for the arrangement), not a gate; it is the one
 piece of new non-paper engineering this spec needs, and it is Phase 1
 step 2.
 
+**T6 — the trigger the arms approximate (found 2026-10-14 by the first
+arm measurement, §7).** With the whole §4.3.3 edge-graze cluster off
+(`YANG_433_GUARD=0`: wedge, pierce dip, segment-face graze, edge graze) and
+the loop on, the corpus moved exactly THREE rows: P0044 and P0047
+CORRECT → ERROR (kernel-v2 refusals one crate later — `bounded cylinder
+patch must have exactly one material-CCW loop`, `ring rejected by CDT`),
+and R0023 UNSUPPORTED → "CORRECT" — the pre-P0057 FALSE GREEN (its oracles
+are watertightness, Euler and volume monotonicity, no exact volume; the
+N = 11 mesh swallows the 0.131-deep sliver the dip arm keeps). Every other
+case the cluster protected (P0013, P0054, P0057, P0058, P0031 …) is
+recovered by the loop. On all three movers the loop never ran: yang
+emitted a body with an EMPTY failure set, because the defect of this class
+is a mesh that MISSES an intersection — nothing fails in Stages 2–6, the
+output is a valid B-Rep of the wrong solid, and only kernel-v2's render
+gate (or no one) notices. The paper's mechanism for this is §4.3: *"If the
+two meshes do not intersect but are within the distance tolerance d_ε,
+there is a tangent point, or a small loop, or no intersection between the
+surfaces. We use Newton's method to solve such cases"* (`:525-530`) — a
+NEAR-MISS check after the arrangement, not a prediction before it. T6:
+for every cross-operand triangle pair within d_ε that the arrangement left
+`Disjoint`, ask the two faces' exact surfaces (closed form, N7's
+substitution for the paper's Newton — `ssi_rs::intersect`) whether their
+intersection curve passes within d_ε of the pair inside both faces'
+domains; if it does, the mesh missed a real intersection there — a site
+naming both faces, which the loop refines. T6 is Phase 1f; it is the ONE
+mechanism the nine Stage-1 arms stand in for, and their retirement (§7)
+waits on it.
+
 ### 4. The region `region(F)`
 
 For each failure site, the faces it names on each operand, plus every face
