@@ -953,6 +953,68 @@ pub fn boolean(
     // Detect-then-refine. Pass 1 at natural resolution.
     crate::stage4_correct::reset_boundary_domain_fires();
     let natural = boolean_once(a, b, op, backend, false);
+    // Cost probe (print-only, env-gated; `specs/yang_452_refinement_loop.md`
+    // §10 step 4): time the §4.5.4 illegal-intersection census on the natural
+    // output — the quantity that decides whether T3 can run on every result.
+    if std::env::var_os("YANG_SELFX_COST_PROBE").is_some() {
+        if let Ok(brep) = &natural {
+            let t0 = std::time::Instant::now();
+            let report = cherchi_rs::detect_improper_contacts(&brep.mesh.verts, &brep.mesh.tris);
+            eprintln!(
+                "[selfx-cost] op={op:?} tris={} verts={} census={:.3}s improper={} unresolved={}",
+                brep.mesh.tris.len(),
+                brep.mesh.verts.len(),
+                t0.elapsed().as_secs_f64(),
+                report.improper_pairs.len(),
+                report.unresolved_pairs.len()
+            );
+            // The first few pairs, with their contact kind and the two
+            // triangles' input faces (what a §4.5.4 trigger would see).
+            let face_of = |t: u32| -> String {
+                match brep.triangle_attribution.attributions.get(t as usize) {
+                    Some(Some(at)) => {
+                        let br = if matches!(at.input, InputId::A) { a } else { b };
+                        let surf = br
+                            .faces()
+                            .get(at.face as usize)
+                            .map(|f| match f.surface {
+                                Surface::Plane { .. } => "Plane",
+                                Surface::Cylinder { .. } => "Cylinder",
+                                Surface::Cone { .. } => "Cone",
+                                Surface::Sphere { .. } => "Sphere",
+                                Surface::Torus { .. } => "Torus",
+                            })
+                            .unwrap_or("?");
+                        format!("{:?}:{}({surf})", at.input, at.face)
+                    }
+                    _ => "unattributed".to_string(),
+                }
+            };
+            let mut kinds: std::collections::BTreeMap<String, usize> = Default::default();
+            for (k, &(s, t)) in report.improper_pairs.iter().enumerate() {
+                let kind = report
+                    .kinds
+                    .get(k)
+                    .map(|k| format!("{k:?}"))
+                    .unwrap_or_default();
+                let fs = face_of(s);
+                let ft = face_of(t);
+                let same_face = fs == ft;
+                *kinds
+                    .entry(format!("{kind} same_face={same_face}"))
+                    .or_default() += 1;
+                if k < 8 {
+                    eprintln!(
+                        "[selfx-cost]   pair {s}x{t} {kind} {fs} vs {ft} tri{s}={:?} tri{t}={:?}",
+                        brep.mesh.tris[s as usize], brep.mesh.tris[t as usize]
+                    );
+                }
+            }
+            for (k, n) in kinds {
+                eprintln!("[selfx-cost]   kinds: {k} x{n}");
+            }
+        }
+    }
     // Yang §4.5 boundary-point domain fires of the NATURAL op (read before
     // any retry re-runs Stage 4 and overwrites the count).
     let natural_domain_fires = match &natural {

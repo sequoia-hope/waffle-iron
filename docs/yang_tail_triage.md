@@ -43,6 +43,52 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 1e) — the §4.5.4 census is affordable on every result and is NOT a loop trigger yet: a shared AABB octree is its broad phase, and the real measurement shows every improper pair on CORRECT outputs is a transversal chord crossing the paper's §4.4.1 would have retriangulated away; corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
+
+**Faithful, no deviation; byte-identical by construction.** Phase 1e of
+`specs/yang_faithful_cleanup.md`, spec `specs/yang_452_refinement_loop.md`
+§3 (T3 row) and §10 step 4.
+
+- **Landed.** `cherchi_rs::aabb_tree::AabbTree` — the labeling octree's
+  deterministic rules (depth 8, leaf split 16, duplication budget 2, fixed
+  octant order, inclusive overlap, sorted deduped queries) as ONE shared
+  implementation; `labeling::TriOctree` is now a wrapper over it.
+  `detect_improper_contacts` takes `AabbTree::overlapping_pairs()` as its
+  broad phase; the pre-1e sweep on min-x is kept under `#[cfg(test)]` as the
+  oracle (`tree_and_sweep_broad_phases_agree`: identical improper and
+  unresolved pair sets on three seeded soups), plus the `#[ignore]`d
+  `broad_phase_cost_census`. The report gains `kinds` (`ImproperKind::
+  {Transversal, Coplanar}` per pair). cherchi-rs 687 / 0 over 18 binaries;
+  the reference-parity suites unchanged.
+- **Measured (release).** Synthetic soups: tree ≈ sweep (0.067 s vs 0.092 s
+  at 60 000 triangles) — the sweep was NOT the cost. Real outputs
+  (`YANG_SELFX_COST_PROBE=1`, a print-only probe): F0090's 30 subtracts grow
+  82 → 11 642 triangles and the census 0.001 → 1.50 s per op (≈ 18 s on a
+  184.6 s case); R0019 14 674 triangles 0.043 s; R0081 105 752 triangles
+  0.537 s. **An always-on §4.5.4 scan is affordable.**
+- **The finding that re-sequences T3.** Those SUPPORTED_CORRECT outputs carry
+  improper pairs — R0019 217, F0090 1–2 per op — and EVERY one is a
+  TRANSVERSAL crossing: cross-face pairs (plane cap × cylinder / cone chord,
+  R0019 ×197, all of F0090's) are the Stage-4 mesh's own chords crossing
+  beside a relocated intersection curve; same-face pairs (R0019 ×20, one
+  relocated vertex pulled a triangle across its own fan) are folds the mesh
+  takes because §4.4.1 never retriangulates after relocation. The B-Rep is
+  correct because its emission does not rest on the mesh's local validity.
+  The project measured this once before — `yang_173_selfx_detector.md` §6
+  (2026-07-17): 53 cases, 33 CORRECT — and built kernel-v2's
+  render-resolution gate as the output-level layer. Consequence, now written
+  into the loop's rule: the mesh census stays a RECORD until Phase 2 (§4.4.1)
+  makes the mesh valid; the class the Stage-1 arms protect (two faces'
+  exact boundary curves crossing on one surface — P0057's lens, the wedge
+  trio) gets an OUTPUT-level check **T3b** in 1c: planar section × planar
+  section on one quadric is a line × quadric root pair, illegal iff strictly
+  inside both edges' parameter spans.
+
+**Corpus (release, 8 jobs, 900 s; wall 971.5 s): 346C / 0W / 22E / 5EE / 0T
++ 1U over 374** — versus the Phase 1b baseline ZERO category moves and ZERO
+detail drift. yang-rs 1528 / 0. Next: 1c, the loop on T1 / T2 / T4 / T5 +
+T3b, replacing the three remedies in `boolean()`.
+
 ## 2026-10-14 (Phase 1b) — the §4.5 failure SET with faces: `boolean::failures` records every trigger where it is detected, with the input faces at its site; corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
 
 **Faithful, no deviation; record-only.** Phase 1b of

@@ -224,12 +224,26 @@ impl NativeInputCheck {
 
 /// Result of the standalone improper-contact sweep
 /// ([`detect_improper_contacts`]).
+/// How an improper pair makes contact (parallel to
+/// [`ImproperContacts::improper_pairs`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ImproperKind {
+    /// The exact classification found intersection vertices between two
+    /// non-coplanar triangles (a crossing or a touch through the plane).
+    Transversal,
+    /// Two coplanar triangles with intersection vertices or segments (an
+    /// overlap, or a touch along an edge / at a point).
+    Coplanar,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ImproperContacts {
     /// Non-index-sharing triangle pairs the exact classification reports
     /// as intersecting/touching (transversal or coplanar contact).
     /// Sorted ascending, original triangle ids.
     pub improper_pairs: Vec<(u32, u32)>,
+    /// The contact kind of each `improper_pairs[k]` (same order, same length).
+    pub kinds: Vec<ImproperKind>,
     /// Pairs `classify_pair` deferred (degenerate configuration) — loud,
     /// never silently dropped. `(u32::MAX, u32::MAX)` if the soup itself
     /// could not be constructed (out-of-range index).
@@ -243,7 +257,7 @@ impl ImproperContacts {
     }
 }
 
-/// Exact improper-contact sweep over an indexed triangle soup — the census
+/// Exact improper-contact census over an indexed triangle soup — the census
 /// Intersection tier as a standalone primitive (census delegates here).
 ///
 /// Reports every pair of triangles that share **no vertex index** yet
@@ -254,11 +268,59 @@ impl ImproperContacts {
 /// excluded (out of `classify_pair`'s contract; census reports them
 /// separately).
 ///
-/// **Pruning:** per-triangle AABBs, sorted by min-x with a sweep window
-/// (only strictly-separated boxes are pruned — touching boxes stay
-/// candidates because exact contact matters). Deterministic output order
-/// (sorted pairs).
+/// **Broad phase:** a deterministic AABB octree ([`crate::aabb_tree::AabbTree`],
+/// Yang cleanup Phase 1e, 2026-10-14) returns every box-overlapping pair
+/// (inclusive — touching boxes stay candidates because exact contact
+/// matters); the exact predicate decides. It replaced a sweep on min-x that
+/// degenerated on large outputs (every box whose x-extent reached the
+/// current one was a candidate regardless of y and z — the cost that kept
+/// yang-rs's §4.5.4 scan behind a predictor gate). The candidate SET is
+/// identical to the sweep's by construction (both are exactly the inclusive
+/// box-overlap relation), pinned by `tree_and_sweep_broad_phases_agree`.
+/// Deterministic output order (sorted pairs).
 pub fn detect_improper_contacts(verts: &[Point3], tris: &[[u32; 3]]) -> ImproperContacts {
+    improper_contacts_with(verts, tris, |boxes| {
+        crate::aabb_tree::AabbTree::build(boxes.to_vec()).overlapping_pairs()
+    })
+}
+
+/// The pre-1e broad phase, kept as the oracle of the tree's candidate set:
+/// per-triangle AABBs sorted by min-x with a sweep window.
+#[cfg(test)]
+fn detect_improper_contacts_sweep(verts: &[Point3], tris: &[[u32; 3]]) -> ImproperContacts {
+    improper_contacts_with(verts, tris, |boxes| {
+        let mut order: Vec<u32> = (0..boxes.len() as u32).collect();
+        order.sort_by(|&a, &b| {
+            boxes[a as usize].lo[0]
+                .total_cmp(&boxes[b as usize].lo[0])
+                .then(a.cmp(&b))
+        });
+        let mut pairs = Vec::new();
+        for (si, &i) in order.iter().enumerate() {
+            let ba = &boxes[i as usize];
+            for &j in &order[si + 1..] {
+                let bb = &boxes[j as usize];
+                if bb.lo[0] > ba.hi[0] {
+                    break;
+                }
+                if ba.intersects(bb) {
+                    pairs.push((i.min(j), i.max(j)));
+                }
+            }
+        }
+        pairs.sort_unstable();
+        pairs
+    })
+}
+
+/// Shared body of the census: eligibility, the broad phase over eligible
+/// triangle boxes (`broad` returns box-overlapping `(i, j)` pairs in
+/// eligible-index space), the shared-index skip, the exact classification.
+fn improper_contacts_with(
+    verts: &[Point3],
+    tris: &[[u32; 3]],
+    broad: impl Fn(&[crate::aabb_tree::Aabb]) -> Vec<(u32, u32)>,
+) -> ImproperContacts {
     let mut r = ImproperContacts::default();
 
     // Eligibility: distinct-index, non-collinear triangles.
@@ -295,76 +357,52 @@ pub fn detect_improper_contacts(verts: &[Point3], tris: &[[u32; 3]]) -> Improper
         }
     };
 
-    // Per-triangle AABBs.
-    let boxes: Vec<[f64; 6]> = el_tris
+    // Per-triangle AABBs (inclusive).
+    let boxes: Vec<crate::aabb_tree::Aabb> = el_tris
         .iter()
         .map(|tri| {
-            let mut bb = [
-                f64::INFINITY,
-                f64::INFINITY,
-                f64::INFINITY,
-                f64::NEG_INFINITY,
-                f64::NEG_INFINITY,
-                f64::NEG_INFINITY,
-            ];
-            for &v in tri {
-                let p = verts[v as usize];
-                for (k, c) in [p.x(), p.y(), p.z()].into_iter().enumerate() {
-                    bb[k] = bb[k].min(c);
-                    bb[k + 3] = bb[k + 3].max(c);
-                }
-            }
-            bb
+            let pts: Vec<[f64; 3]> = tri
+                .iter()
+                .map(|&v| {
+                    let p = verts[v as usize];
+                    [p.x(), p.y(), p.z()]
+                })
+                .collect();
+            crate::aabb_tree::Aabb::of_points(pts.iter()).expect("three points")
         })
         .collect();
 
-    // Sweep on min-x: after sorting, j's box can only overlap i's if
-    // min_x[j] <= max_x[i]. Strictly-separated boxes never reach the
-    // exact predicate; touching boxes do.
-    let mut order: Vec<u32> = (0..el_tris.len() as u32).collect();
-    order.sort_by(|&a, &b| {
-        boxes[a as usize][0]
-            .total_cmp(&boxes[b as usize][0])
-            .then(a.cmp(&b))
-    });
-
-    for (si, &i) in order.iter().enumerate() {
-        let ba = &boxes[i as usize];
-        'pair: for &j in &order[si + 1..] {
-            let bb = &boxes[j as usize];
-            if bb[0] > ba[3] {
-                break; // sorted by min-x: no later j can overlap i
-            }
-            if ba[4] < bb[1] || bb[4] < ba[1] || ba[5] < bb[2] || bb[5] < ba[2] {
-                continue;
-            }
-            // Proper adjacency: any shared vertex INDEX.
-            for &va in &el_tris[i as usize] {
-                if el_tris[j as usize].contains(&va) {
-                    continue 'pair;
+    let mut found: Vec<((u32, u32), ImproperKind)> = Vec::new();
+    for (i, j) in broad(&boxes) {
+        // Proper adjacency: any shared vertex INDEX.
+        if el_tris[i as usize]
+            .iter()
+            .any(|va| el_tris[j as usize].contains(va))
+        {
+            continue;
+        }
+        let orig = (
+            eligible[i as usize].min(eligible[j as usize]),
+            eligible[i as usize].max(eligible[j as usize]),
+        );
+        match classify_pair(&soup, i.min(j), i.max(j)) {
+            PairClassification::Disjoint => {}
+            PairClassification::Transversal { vertices } => {
+                if !vertices.is_empty() {
+                    found.push((orig, ImproperKind::Transversal));
                 }
             }
-            let orig = (
-                eligible[i as usize].min(eligible[j as usize]),
-                eligible[i as usize].max(eligible[j as usize]),
-            );
-            match classify_pair(&soup, i.min(j), i.max(j)) {
-                PairClassification::Disjoint => {}
-                PairClassification::Transversal { vertices } => {
-                    if !vertices.is_empty() {
-                        r.improper_pairs.push(orig);
-                    }
+            PairClassification::Coplanar { vertices, segments } => {
+                if !vertices.is_empty() || !segments.is_empty() {
+                    found.push((orig, ImproperKind::Coplanar));
                 }
-                PairClassification::Coplanar { vertices, segments } => {
-                    if !vertices.is_empty() || !segments.is_empty() {
-                        r.improper_pairs.push(orig);
-                    }
-                }
-                PairClassification::Deferred(_) => r.unresolved_pairs.push(orig),
             }
+            PairClassification::Deferred(_) => r.unresolved_pairs.push(orig),
         }
     }
-    r.improper_pairs.sort_unstable();
+    found.sort_unstable();
+    r.improper_pairs = found.iter().map(|&(p, _)| p).collect();
+    r.kinds = found.iter().map(|&(_, k)| k).collect();
     r.unresolved_pairs.sort_unstable();
     r
 }
@@ -730,6 +768,80 @@ mod tests {
         let t = vec![[0, 1, 2], [0, 3, 4]];
         let c = census(&v, &t);
         assert_eq!(c.nonmanifold_verts, vec![0]);
+    }
+
+    // ── Phase 1e broad phase oracle ──────────────────────────────────────
+    /// Deterministic LCG soup: `n` random triangles of edge ~`size` in the
+    /// unit cube, dense enough that many pairs cross, touch or share nothing.
+    fn lcg_soup(n: usize, seed: u64, size: f64) -> (Vec<Point3>, Vec<[u32; 3]>) {
+        let mut s = seed;
+        let mut next = || {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((s >> 11) as f64) / ((1u64 << 53) as f64)
+        };
+        let mut v = Vec::with_capacity(3 * n);
+        let mut t = Vec::with_capacity(n);
+        for k in 0..n {
+            let c = [next(), next(), next()];
+            for _ in 0..3 {
+                v.push(Point3::new(
+                    c[0] + (next() - 0.5) * size,
+                    c[1] + (next() - 0.5) * size,
+                    c[2] + (next() - 0.5) * size,
+                ));
+            }
+            t.push([3 * k as u32, 3 * k as u32 + 1, 3 * k as u32 + 2]);
+        }
+        (v, t)
+    }
+
+    #[test]
+    fn tree_and_sweep_broad_phases_agree() {
+        for (n, size, seed) in [(400usize, 0.15f64, 11u64), (1200, 0.06, 12), (200, 0.5, 13)] {
+            let (v, t) = lcg_soup(n, seed, size);
+            let tree = detect_improper_contacts(&v, &t);
+            let sweep = detect_improper_contacts_sweep(&v, &t);
+            assert_eq!(
+                tree.improper_pairs, sweep.improper_pairs,
+                "n={n} size={size}"
+            );
+            assert_eq!(
+                tree.unresolved_pairs, sweep.unresolved_pairs,
+                "n={n} size={size}"
+            );
+            assert!(
+                !tree.improper_pairs.is_empty(),
+                "the fixture must exercise contacts"
+            );
+        }
+    }
+
+    /// Cost census of the two broad phases on a large soup (Phase 1e
+    /// measurement; `cargo test -p cherchi-rs --release --lib
+    /// broad_phase_cost_census -- --ignored --nocapture`). Not an assertion
+    /// of speed — the assertion is the identical result; the timings are
+    /// printed for the ledger.
+    #[test]
+    #[ignore = "measurement, not a gate"]
+    fn broad_phase_cost_census() {
+        for (n, size) in [(20_000usize, 0.02f64), (60_000, 0.012)] {
+            let (v, t) = lcg_soup(n, 77, size);
+            let t0 = std::time::Instant::now();
+            let tree = detect_improper_contacts(&v, &t);
+            let dt_tree = t0.elapsed();
+            let t1 = std::time::Instant::now();
+            let sweep = detect_improper_contacts_sweep(&v, &t);
+            let dt_sweep = t1.elapsed();
+            assert_eq!(tree.improper_pairs, sweep.improper_pairs);
+            eprintln!(
+                "[broad-phase] n={n} size={size}: tree {:.3}s, sweep {:.3}s, improper pairs {}",
+                dt_tree.as_secs_f64(),
+                dt_sweep.as_secs_f64(),
+                tree.improper_pairs.len()
+            );
+        }
     }
 
     // ── detect_improper_contacts (standalone primitive, #173) ───────────

@@ -48,210 +48,36 @@ use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::soup::ArrangementSoup;
 use cad_primitives::Point3;
 
-/// Construction parameters (deterministic; correctness-neutral per the
-/// module-level design invariant).
-const MAX_DEPTH: u32 = 8;
-const LEAF_SPLIT_THRESHOLD: usize = 16;
-/// Most a single split may inflate the stored item count (summed over the
-/// eight children, relative to the parent). Bounds total stored ids by
-/// `MAX_SPLIT_DUPLICATION^MAX_DEPTH · n` rather than `8^MAX_DEPTH · n`. See
-/// the duplication-budget comment in [`TriOctree::split`].
-const MAX_SPLIT_DUPLICATION: usize = 2;
-
-/// Inclusive axis-aligned bounding box.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Aabb {
-    lo: [f64; 3],
-    hi: [f64; 3],
-}
-
-impl Aabb {
-    /// Inclusive overlap on all three axes (same semantics as the prune's
-    /// exact `in_ray_aabb` filter).
-    fn intersects(&self, other: &Aabb) -> bool {
-        (0..3).all(|k| self.lo[k] <= other.hi[k] && self.hi[k] >= other.lo[k])
-    }
-}
-
-#[derive(Debug)]
-struct OctreeNode {
-    bbox: Aabb,
-    /// `Some` for inner nodes (eight children in fixed octant order:
-    /// bit 0 = +x half, bit 1 = +y half, bit 2 = +z half).
-    children: Option<[u32; 8]>,
-    /// Leaf payload: item ids, ascending.
-    item_ids: Vec<u32>,
-}
+use crate::aabb_tree::{Aabb, AabbTree};
 
 /// Octree over the AABBs of the soup's prepped input triangles
-/// (`soup.in_tris`, explicit soup-scaled coordinates).
+/// (`soup.in_tris`, explicit soup-scaled coordinates). Since the Yang
+/// cleanup's Phase 1e (2026-10-14) a thin wrapper over the shared
+/// [`AabbTree`] — same deterministic construction (`MAX_DEPTH = 8`, leaf
+/// split threshold 16, duplication budget 2, fixed octant order, ascending
+/// ids), same inclusive query, one implementation.
 #[derive(Debug)]
 pub struct TriOctree {
-    /// `nodes[0]` is the root when non-empty.
-    nodes: Vec<OctreeNode>,
-    /// Per-`in_tris` AABB, indexed by triangle id.
-    items: Vec<Aabb>,
+    tree: AabbTree,
 }
 
 impl TriOctree {
     /// Build the octree over `soup.in_tris`. Empty `in_tris` yields an
-    /// empty octree whose queries return nothing. Deterministic: fixed
-    /// `MAX_DEPTH` / `LEAF_SPLIT_THRESHOLD`, children created in fixed
-    /// octant order, item ids stored ascending.
+    /// empty octree whose queries return nothing.
     pub fn build(soup: &ArrangementSoup) -> TriOctree {
         let items: Vec<Aabb> = (0..soup.in_tris.len() as u32)
             .map(|t| tri_aabb(soup, t))
             .collect();
-        if items.is_empty() {
-            return TriOctree {
-                nodes: Vec::new(),
-                items,
-            };
-        }
-
-        // Root box = global AABB of all items.
-        let mut root_box = items[0];
-        for it in &items[1..] {
-            for k in 0..3 {
-                root_box.lo[k] = root_box.lo[k].min(it.lo[k]);
-                root_box.hi[k] = root_box.hi[k].max(it.hi[k]);
-            }
-        }
-
-        let mut tree = TriOctree {
-            nodes: vec![OctreeNode {
-                bbox: root_box,
-                children: None,
-                item_ids: (0..items.len() as u32).collect(), // ascending
-            }],
-            items,
-        };
-        tree.split(0, 0);
-        tree
-    }
-
-    /// Recursively split node `node_idx` (depth `depth`) into eight
-    /// octants. A node stays a leaf when it is small enough, deep enough,
-    /// or splitting makes no progress (every child would inherit every
-    /// item — coincident AABBs; deviation documented in the module docs).
-    fn split(&mut self, node_idx: usize, depth: u32) {
-        let n_items = self.nodes[node_idx].item_ids.len();
-        if depth >= MAX_DEPTH || n_items <= LEAF_SPLIT_THRESHOLD {
-            return;
-        }
-        let bbox = self.nodes[node_idx].bbox;
-        let mid = [
-            (bbox.lo[0] + bbox.hi[0]) / 2.0,
-            (bbox.lo[1] + bbox.hi[1]) / 2.0,
-            (bbox.lo[2] + bbox.hi[2]) / 2.0,
-        ];
-
-        // Fixed octant order: bit 0 = +x half, bit 1 = +y half, bit 2 = +z.
-        let mut child_boxes = [bbox; 8];
-        let mut child_items: [Vec<u32>; 8] = Default::default();
-        for (oct, cb) in child_boxes.iter_mut().enumerate() {
-            for (k, &m) in mid.iter().enumerate() {
-                if oct >> k & 1 == 0 {
-                    cb.hi[k] = m;
-                } else {
-                    cb.lo[k] = m;
-                }
-            }
-        }
-        for &id in &self.nodes[node_idx].item_ids {
-            let item = &self.items[id as usize];
-            for (oct, cb) in child_boxes.iter().enumerate() {
-                if cb.intersects(item) {
-                    child_items[oct].push(id); // ascending (source order)
-                }
-            }
-        }
-        // No-progress guard: all items land in all eight children.
-        if child_items.iter().all(|c| c.len() == n_items) {
-            return;
-        }
-        // DUPLICATION BUDGET. The guard above only fires on the perfect
-        // worst case — every item in every one of the eight children. That
-        // is far too narrow: an item straddling the midplanes lands in
-        // SEVERAL children without landing in all of them, so a node full of
-        // large triangles duplicates ~6x per level while sailing past the
-        // all-eight test. Compounded over `MAX_DEPTH` that is 6^8 ~ 1.7e6.
-        //
-        // Measured before this guard, on assay R0088's second extrude (a
-        // 7,506-triangle input — small!): 7,824,857 nodes holding
-        // 1,123,248,042 item ids, a **x149,647 duplication**, ~4.2 GiB of ids
-        // plus ~0.8 GiB of node overhead. That was the whole of the ~6 GiB
-        // `compute_inside_out` peak and, via the wasm32 4 GiB ceiling, the
-        // whole of the deployed "engine crashed" report.
-        //
-        // A split is only worth making if it divides more than it copies, so
-        // cap the copying: a node may hand its children at most
-        // `MAX_SPLIT_DUPLICATION x` its own item count in total. Stored items
-        // are then bounded by `MAX_SPLIT_DUPLICATION^MAX_DEPTH x n` instead of
-        // `8^MAX_DEPTH x n`.
-        //
-        // CORRECTNESS-NEUTRAL BY CONSTRUCTION, like every other parameter
-        // here: bailing early only makes a node a leaf, and a leaf returns
-        // its whole item list, so the query result stays a superset. The
-        // exact ray-AABB filter downstream is applied to every candidate
-        // unconditionally (see the module docs' DESIGN INVARIANT), and
-        // `compute_inside_out_brute` pins octree-vs-brute label equality.
-        let total_child_items: usize = child_items.iter().map(Vec::len).sum();
-        if total_child_items > MAX_SPLIT_DUPLICATION * n_items {
-            return;
-        }
-
-        let mut children = [0u32; 8];
-        for (oct, ids) in child_items.into_iter().enumerate() {
-            children[oct] = self.nodes.len() as u32;
-            self.nodes.push(OctreeNode {
-                bbox: child_boxes[oct],
-                children: None,
-                item_ids: ids,
-            });
-        }
-        self.nodes[node_idx].children = Some(children);
-        self.nodes[node_idx].item_ids = Vec::new();
-        for &c in &children {
-            self.split(c as usize, depth + 1);
+        TriOctree {
+            tree: AabbTree::build(items),
         }
     }
 
-    /// Port of `intersects_box` (booleans.cpp:580): stack walk collecting
-    /// every stored item whose AABB intersects the query box (inclusive).
-    /// Returns ids SORTED ascending and deduped (determinism, and the
-    /// prune's candidate-visit-order contract; an item straddling octant
-    /// planes is stored in several leaves, hence the dedup — matching the
-    /// C++ `flat_hash_set` accumulator).
+    /// Port of `intersects_box` (booleans.cpp:580): every stored item whose
+    /// AABB intersects the query box (inclusive), ids SORTED ascending and
+    /// deduped.
     pub fn query_aabb(&self, lo: [f64; 3], hi: [f64; 3]) -> Vec<u32> {
-        let q = Aabb { lo, hi };
-        let mut out: Vec<u32> = Vec::new();
-        if self.nodes.is_empty() || !self.nodes[0].bbox.intersects(&q) {
-            return out;
-        }
-        let mut stack: Vec<u32> = vec![0];
-        while let Some(ni) = stack.pop() {
-            let node = &self.nodes[ni as usize];
-            match &node.children {
-                Some(children) => {
-                    for &c in children {
-                        if self.nodes[c as usize].bbox.intersects(&q) {
-                            stack.push(c);
-                        }
-                    }
-                }
-                None => {
-                    for &id in &node.item_ids {
-                        if self.items[id as usize].intersects(&q) {
-                            out.push(id);
-                        }
-                    }
-                }
-            }
-        }
-        out.sort_unstable();
-        out.dedup();
-        out
+        self.tree.query(&Aabb { lo, hi })
     }
 }
 

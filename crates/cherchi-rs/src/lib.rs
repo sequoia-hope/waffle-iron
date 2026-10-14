@@ -29,6 +29,7 @@
 //! reference, the Rust port is wrong (until proven otherwise on a case-by-
 //! case basis with paper-cited justification).
 
+pub mod aabb_tree;
 pub mod arrangements;
 pub mod boolean;
 /// Native five-axiom input census (the `mesh_booleans_inputcheck` analog,
@@ -45,7 +46,9 @@ pub mod triangulation;
 
 pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
-pub use inputcheck::{census, detect_improper_contacts, ImproperContacts, NativeInputCheck};
+pub use inputcheck::{
+    census, detect_improper_contacts, ImproperContacts, ImproperKind, NativeInputCheck,
+};
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use labeling::{
     arrangement_mesh, native_labeled_arrangement, NativeBoolean, NativeBooleanError,
