@@ -7076,6 +7076,9 @@ fn boundary_domain_postcondition(
             }
         }
     }
+    // §4.5 trigger T2 (`boolean::failures`): every fire is a failure site
+    // with the faces it already names. Record-only.
+    crate::boolean::failures::record_domain_fires(&records);
     BOUNDARY_DOMAIN_FIRES.with(|c| c.set(fires.len()));
     BOUNDARY_DOMAIN_FIRE_RECORDS.with(|c| *c.borrow_mut() = records);
     if fires.is_empty() {
@@ -8810,6 +8813,17 @@ pub(crate) fn stage4_relocate_and_correct(
         minted_junction_keys,
         edge_provenance,
     );
+    // §4.5 trigger T1 (`boolean::failures`, spec `yang_452_refinement_loop.md`
+    // §3): a relocation that did not converge in its domain names the faces
+    // at its vertex, on the mesh as the inner pass left it. Record-only.
+    if let Err(YangError::Stage4RegionInvalid { vertex, reason, .. }) = out.as_ref() {
+        crate::boolean::failures::record_relocation_divergence(
+            mesh,
+            attribution,
+            *vertex,
+            &format!("{reason:?}"),
+        );
+    }
     if let (Some(entry), Err(e)) = (entry.as_ref(), out.as_ref()) {
         eprintln!("YANG_S45_POP stop_reason={e}");
         // No §4-I9 site list here: that STOP is disabled in census mode, so a run
@@ -14029,6 +14043,10 @@ fn stage4_relocate_and_correct_inner(
 
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
     if let Err(gate_err) = check_watertight_2manifold(mesh) {
+        // §4.5 trigger T4 (`boolean::failures`, spec
+        // `yang_452_refinement_loop.md` §3): every non-manifold seam region
+        // names the faces at its unpaired edges. Record-only.
+        crate::boolean::failures::record_nonmanifold_mesh(mesh, attribution);
         // #195 probe-only forensics: attribute every double-cover-edge triangle
         // to its input B-Rep face (operand + face id + surface) so the
         // self-overlap self-localizes to the producing emission. Byte-identical

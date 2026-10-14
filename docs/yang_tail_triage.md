@@ -43,6 +43,44 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 1b) — the §4.5 failure SET with faces: `boolean::failures` records every trigger where it is detected, with the input faces at its site; corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
+
+**Faithful, no deviation; record-only.** Phase 1b of
+`specs/yang_faithful_cleanup.md`, spec `specs/yang_452_refinement_loop.md`
+§3–§4 and §10 step 2. The paper refines "the parametric surfaces associated
+with the erroneous regions … those traversed by C_p and the neighbors of a
+ring of them" (`:659-668`), so every failure must name FACES — and today's
+STOPs name a vertex (`Stage4RegionInvalid`), a triangle
+(`FaceResolutionFailed`) or nothing (`NonManifoldOutput`), on a mesh that is
+gone by the time `boolean` sees the error. The remedy is the channel the
+boundary-domain certificate already uses for its `DomainFire`s: a
+thread-local record, reset at every `boolean_once`, pushed to at the point of
+DETECTION with mesh and attribution in hand.
+
+- **T1** (§4.5 `:646-648`): the Stage-4 wrapper records the STOP'd vertex's
+  incident faces (`faces_at_vertex`) on the mesh as the inner pass left it; a
+  sentinel vertex records no face.
+- **T2**: every `DomainFire` is a site with its `incident` faces.
+- **T4** (§4.4.3): the watertightness gate records each non-manifold seam
+  region's attribution keys (`detect_nonmanifold_seams`).
+- **T3** (§4.5.4 `:752-758`): computed on an EMITTED body —
+  `illegal_intersection_sites` maps every improper triangle pair of
+  `detect_improper_contacts` to the two triangles' input faces.
+- `failures(result)` = recorded ∪ T3, or one faceless `ReassemblyStop` for
+  an error nobody recorded — a STOP is never silently an empty set.
+- `region(sites, a, b)` = the named faces plus every face sharing a B-Rep
+  VERTEX with one (yang's `LineSegment` edges are one copy per loop, so edge
+  adjacency would miss straight-edge neighbours).
+
+Pins `tests_unit/s452_failure_sites.rs` (seven). yang-rs release suite
+1528 / 0; clippy and fmt clean. The 1e design (a tree broad phase so T3 can
+run on every result; the sweep-on-x census degenerates on F0090 / R0019 /
+R0081) is recorded in the spec.
+
+**Corpus (release, 8 jobs, 900 s; wall 971.8 s): 346C / 0W / 22E / 5EE / 0T
++ 1U over 374** — versus the Phase 1a baseline ZERO category moves and ZERO
+detail drift. Next: 1e (the census broad phase), then 1c (the loop).
+
 ## 2026-10-14 (Phase 1a) — the §4.5.2 refinement UNIT lands as a standing per-face map: `BRep::face_refine` / `refined_at` (density ×2 per face, the paper's own iteration step); corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
 
 **Faithful, no deviation; no production reader yet.** Phase 1a of

@@ -7,6 +7,7 @@
 use crate::*;
 
 mod coplanar_scan;
+pub(crate) mod failures;
 mod junction;
 mod predicates;
 mod provenance;
@@ -1286,6 +1287,9 @@ fn boolean_once(
     backend: &dyn MeshBoolean,
     refine_rim_plane: bool,
 ) -> Result<BRep, YangError> {
+    // §4.5 failure sites of THIS run (`boolean::failures`, spec
+    // `yang_452_refinement_loop.md` §3): forget the previous run's.
+    failures::reset();
     // Run separator for env-gated probe streams: which boolean call a probe
     // line belongs to (multi-op corpus cases interleave several runs).
     if std::env::var_os("YANG_RUN_PROBE").is_some() {
