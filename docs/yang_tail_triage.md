@@ -43,6 +43,25 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (measurement) — the cylinder-pair graze / pinch arm (`graze_min_rim_segments`) OFF: 352C / 0W / 17E — it protects ONE case (P0034) and BLOCKS two (C0118, P0051); not retirable until yang sees P0034's class
+
+**Measurement, not a change** (a temporary uncommitted switch dropping
+`graze_min_rim_segments` — Case III graze, Case V pinch, the N75 extent
+ladder — from `boolean_once`'s rim-density boost; release, 8 jobs, 900 s,
+wall 1028.3 s), against the canonical 351C / 0W / 18E:
+
+| case | arm on | arm off | reading |
+|---|---|---|---|
+| P0034 | CORRECT | ERROR — kernel-v2 `TessellationFailed { FaceId(27), "surface-pair projection left the chord neighborhood" }` | the pinch verdict's own conversion (two loops of one cylinder × cylinder curve 5.3e-6 apart; the natural chord mesh bridges them). With the arm off yang emits a `SurfacePair` edge whose chord bridges the two branches and its failure set is EMPTY: T3c skips `SurfacePair` edges (named gap). |
+| C0118 | ERROR (a "loud-by-design" C wall: perpendicular cylinders grazing 1e-8 deep, "must reject loudly") | CORRECT, all checks passed | the arm's boost was what produced the loud wall; without it the sub-resolution graze passes. Needs adjudication: is the emitted body the right answer to a 1e-8 graze (below TAU_MODEL)? |
+| P0051 | ERROR (open tail) | CORRECT | converts with the boost gone |
+| P0026 | ERROR | ERROR, new text (`LocalRefinementRequired` at vertex 9) | the minted tangency, still loud |
+
+Next increment: T3c's `SurfacePair` gap — read a pair edge as kernel-v2
+does (samples Newton-projected onto both surfaces) and fire when they leave
+the chord neighbourhood or the edge's two ends lie on different branches.
+Then this arm's retirement converts P0051 and (after adjudication) C0118.
+
 ## 2026-10-14 (retirement) — the §4.3.3 arm cluster (wedge, pierce dip, segment-face graze, edge graze) is DELETED; corpus **351C / 0W / 18E / 5EE / 0T over 374**, identical to the arms-off measurement
 
 Cleanup step 2, the first retirement (`specs/yang_faithful_cleanup.md`
