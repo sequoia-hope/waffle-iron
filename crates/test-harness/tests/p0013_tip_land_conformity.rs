@@ -43,8 +43,11 @@ fn assay_dir() -> PathBuf {
         .join("app/tests/cases/assay")
 }
 
-/// Replays P0013 with the §4.3.3 Case-IV density guard on its dev gate, and
-/// pins that neither the boolean nor the render tessellation walls.
+/// Replays P0013 and pins that neither the boolean nor the render
+/// tessellation walls. Through 2026-10-14 the boolean half was the §4.3.3
+/// Case-IV density guard's (a Stage-1 arm, set on below); the guard is
+/// RETIRED (spec `yang_faithful_cleanup.md` step 2) and the §4.5.2 loop's
+/// triggers — T6 and the output-level T3c — now carry it.
 ///
 /// RED before this increment on BOTH halves, each on its own:
 /// * without P1 the guard derives nothing (it read the land as "touching")
@@ -54,14 +57,6 @@ fn assay_dir() -> PathBuf {
 ///   (measured: it survives even a d_ε/256 operand mesh).
 #[test]
 fn p0013_tip_land_survives_both_chord_bands() {
-    // Dev gate for the §4.3.3 Case-IV derived-density guard (spec
-    // `yang_433_case_iv_corner_phantom.md` inc-1). Set for this binary only;
-    // this file holds exactly one test so no other test observes it.
-    //
-    // SAFETY: single-threaded point in this test binary's lifetime — one
-    // test, set before any engine call, never cleared.
-    unsafe { std::env::set_var("YANG_433_GUARD", "1") };
-
     let waffle_json = fs::read_to_string(assay_dir().join("P0013.waffle"))
         .expect("P0013.waffle must be readable");
     let mut builder = ModelBuilder::kernel_v2();

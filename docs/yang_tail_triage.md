@@ -43,6 +43,26 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (retirement) — the §4.3.3 arm cluster (wedge, pierce dip, segment-face graze, edge graze) is DELETED; corpus **351C / 0W / 18E / 5EE / 0T over 374**, identical to the arms-off measurement
+
+Cleanup step 2, the first retirement (`specs/yang_faithful_cleanup.md`
+§2a). The T3c measurement showed the corpus at 351C with the cluster off;
+this commit removes it: the `boolean_once` call, the entry
+`edge_graze_local_rim_overrides`, its sites, the pierce-dip demand, the
+wedge risk intervals and azimuth spans, the test-only segment-face demand
+and cylinder clearance, the kill switch `YANG_433_GUARD`, and the unit tests
+of those functions (net −1,376 lines). The outcome pins stay and now pass
+through the loop: kernel-v2's P0021 pins, test-harness's P0013 pin (its
+switch-setting removed), the smoke categories.
+
+Corpus (release, 8 jobs, 900 s; wall 1092.4 s, with the yang-rs and
+kernel-v2 suites running beside it): 351C / 0W / 18E / 5EE / 0T — against
+the arms-off run zero moves and zero detail drift; against the arms-on T3c
+run one detail drift (P0048, open tail, as measured). Summed case CPU
+7,419 s, inflated by the concurrent suites (median per-case ratio against
+the quiet arms-off run 1.028; the arms-off run, the same production path,
+read 6,957 s and wall 1034.1 s).
+
 ## 2026-10-14 (T3c) — the output-level §4.5.4 check WITHIN one face; the rim × plane retry may no longer adopt an invalid body; with the §4.3.3 arm cluster OFF the corpus now holds at **351C / 0W / 18E / 5EE / 0T over 374** — the cluster protects nothing
 
 **What the arms-off measurement asked for.** P0044 and P0047 failed with

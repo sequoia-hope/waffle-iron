@@ -1581,10 +1581,9 @@ fn smoke_corpus_boundary_categories() {
         // 71-gon (sagitta 2.1169e-5) cuts inside the output cap's hole. The
         // render half is fixed (`loop_conformity_segment_count`, N = 108
         // here) and the Stage-1 guard now derives the right N = 152
-        // (`segment_cylinder_clearance`) — but that guard is still gated
-        // (`YANG_433_GUARD=1`, where this case IS SUPPORTED_CORRECT) pending
-        // the full-corpus proof its 2026-08-27 flip was refused on. The
-        // end-to-end pin for the landed halves is
+        // (`segment_cylinder_clearance`); that guard went always-on
+        // 2026-10-03 and was RETIRED 2026-10-14 (cleanup step 2) — the §4.5.2
+        // loop's T6 / T3c triggers now carry the case. The end-to-end pin is
         // `tests/p0013_tip_land_conformity.rs`.
         ("P0013", Category::SupportedCorrect), // CONVERTED 2026-10-03: the §4.3.3 LOCAL-form guard is always-on (318C/13E corpus proof)
         // P0014 (2 ops: pentagon boss, 10-tooth gear REVOLVE-CUT) ⇒ Stage-4

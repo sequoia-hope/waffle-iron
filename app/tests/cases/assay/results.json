@@ -2160,7 +2160,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: interior junction (-0.00005878622337366421,0.0000634429843029614,0.0001140798078880682) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "P0048",
       "status": "error"
     },
@@ -2208,7 +2208,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonManifoldVertex { vertex: VertexId(42), point: \"(3.532880600e2, -5.999111773e2, -2.052352261e1)\" }",
+      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonManifoldVertex { vertex: VertexId(40), point: \"(3.532880600e2, -5.999111773e2, -2.052352261e1)\" }",
       "id": "P0056",
       "status": "error"
     },
@@ -2238,7 +2238,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output component's Euler characteristic is not genus-representable\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(34), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
       "id": "P0061",
       "status": "error"
     },

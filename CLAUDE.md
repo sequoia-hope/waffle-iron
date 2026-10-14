@@ -431,8 +431,11 @@ Do NOT skip to lower-priority items because they are easier.
    meshes met; the output region is invalid and only kernel-v2 rejects it).
    **T3c landed the same day** (the output-level §4.5.4 check WITHIN one
    face — spec §3 "T3c"): with it the corpus holds at 351C with the
-   §4.3.3 arm cluster OFF, P0044 / P0047 converting through the loop; the
-   cluster retires next.
+   §4.3.3 arm cluster OFF, P0044 / P0047 converting through the loop —
+   and the cluster is DELETED (wedge, pierce dip, segment-face graze, edge
+   graze; `YANG_433_GUARD` gone; −1,376 lines; corpus 351C, unchanged).
+   Next arms to retire: cylinder graze / pinch (`YANG_172_EXTENT`), rim ×
+   plane graze (`YANG_195_LOCAL`).
    **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0051, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/

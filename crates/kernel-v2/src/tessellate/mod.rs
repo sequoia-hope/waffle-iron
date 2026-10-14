@@ -176,7 +176,7 @@ pub fn circle_segment_count(rel_chord_tolerance: f64) -> u32 {
 /// near-tangency: no practical density separates the loops, so the
 /// derivation DECLINES and the loud CDT reject remains the tripwire (the
 /// same fail-closed cap, and the same reason, as yang-rs's
-/// `segment_face_graze_n`).
+/// `LOCAL_REFINE_MAX_SAMPLES`).
 pub const LOOP_CONFORMITY_MAX_SEGMENTS: u32 = 4096;
 
 /// The chord density a solid's CIRCULAR planar-face boundaries need so that
