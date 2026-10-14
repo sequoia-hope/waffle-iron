@@ -45,19 +45,17 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
     [a[0] / n, a[1] / n, a[2] / n]
 }
 
-/// Plane carrier of a planar conic: `n·x + d = 0` through the conic's
-/// center/vertex with the conic's plane normal. `SurfacePair` (non-planar)
-/// and `LineSegment` (no carrier) yield `None`.
+/// Plane carrier of a planar conic with its kind label (the shared
+/// `geom::curve_plane` plus the probe's text).
 fn curve_plane(c: &Curve) -> Option<([f64; 3], f64, &'static str)> {
-    let (p, n, kind) = match c {
-        Curve::Circle { center, normal, .. } => (center, normal, "Circle"),
-        Curve::Ellipse { center, normal, .. } => (center, normal, "Ellipse"),
-        Curve::Parabola { vertex, normal, .. } => (vertex, normal, "Parabola"),
-        Curve::Hyperbola { center, normal, .. } => (center, normal, "Hyperbola"),
+    let kind = match c {
+        Curve::Circle { .. } => "Circle",
+        Curve::Ellipse { .. } => "Ellipse",
+        Curve::Parabola { .. } => "Parabola",
+        Curve::Hyperbola { .. } => "Hyperbola",
         Curve::LineSegment | Curve::SurfacePair { .. } => return None,
     };
-    let n = n.as_array();
-    Some((n, -dot(n, p.as_array()), kind))
+    crate::geom::curve_plane(c).map(|(n, d)| (n, d, kind))
 }
 
 /// Sign-normalized approximate plane equality (either orientation).

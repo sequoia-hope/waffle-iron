@@ -43,6 +43,77 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 1c) — the ONE §4.5.2 refinement loop lands and replaces both whole-op ladders and the lens; P0046, P0050, P0052, P0062 CONVERTED through it; N62 RESOLVED; corpus **350C / 0W / 18E / 5EE / 0T + 1U over 374** (wall 967.6 s, below the baseline's 971.5 s)
+
+**The paper's mechanism replaces three substitutes.** Phase 1c of
+`specs/yang_faithful_cleanup.md`; spec `specs/yang_452_refinement_loop.md`
+§6 (the rule), §6.0.1 (the convergence monitor), §6.3 (T3b). *"The failed
+areas will undergo local intersection handling or local mesh refinement
+until all the failures are resolved"* (`:309-312`); *"we increase the mesh
+resolution of the parametric surfaces associated with the erroneous
+regions … and the neighbors of a ring of them … repeated if optimization
+failure persists"* (`:646-668`).
+
+- **`boolean::refine_loop`.** The natural run's failure set (T1 Stage-4
+  non-convergence, T2 boundary-domain fires, T4 non-manifold mesh — at the
+  gate and on the emitted body — T5 reassembly STOPs, T3b two faces' exact
+  boundary curves crossing on one quadric) names input faces; those faces
+  plus one ring are refined — density ×2 per face (`BRep::refined_by`), the
+  under-resolution certificate naming the first rung (`density_for_demand`,
+  k = next power of two ≥ √f) — and the op re-runs until the set is empty.
+  Convergence monitor: a failure set that RETURNS to any earlier one is
+  non-convergence (first return tolerated — P0031 clears at ×4 — second
+  ends the loop); the ceiling is density 8, the old d_ε/64 expressed as a
+  density. A natural body that emitted stands when the loop cannot better
+  it; a natural STOP is replaced by the first watertight refined body.
+- **Deleted:** `refine_452` (the whole-op STOP ladder), `refine_452_domain`
+  (the domain ladder), the apex-centred lens (`domain_fire_local_rim_overrides`,
+  `coaxial_circle_closure_with_arcs`, `LOCAL_452_STEP_DIVISORS`,
+  `LOCAL_452_MAX_SAMPLES_PER_N`, `RimAngleOverrides::retain_closures`), the
+  rung tables (`refine_452_rounds*`, `REFINE_452_ROUNDS`,
+  `REFINE_452_MAX_FACTOR`), the op-wide rung (`with_refined_chord`,
+  `BRep::retessellated_at_current_d_eps`), the unread half of the
+  domain-fire channel, the knobs `YANG_452_REFINE` / `YANG_452_LOCAL` /
+  `YANG_452_ROUNDS`, and the pins of those mechanisms (`s452_chord_refine.rs`,
+  `s452_domain_lens.rs`). The rim×plane retry pass stays before the loop
+  until its own arm step. **N62 → RESOLVED.**
+- **Converted, each attributed with `YANG_452_PROBE`:** P0046 (2 fires,
+  adopted at the second iteration), P0050 (2 fires, third), P0052 (1 fire,
+  first), P0062 (3 fires, second) — three of them the "CDT ring reject" rows,
+  P0052 the `surface-pair Newton projection did not converge` row; all four
+  are boundary-domain fires the old domain ladder's fixed `[2, 4]` and the
+  lens's one closure could not clear and the loop's per-face doublings do.
+  P0061's first op converts the same way (adopted at the third iteration);
+  a later op of its chain still STOPs (`InvalidBooleanOutput`, Euler
+  characteristic) — the detail drift.
+- **Three corpus runs to land it, each a rule learned.** Run 1 (wall
+  1154.9 s): the same four moves, but P0026's minted tangency climbed to
+  the then-ceiling for 483 s (was 3.3 s) and P0042 / P0043 for 38 s each —
+  a STOP whose failure set never changes is the paper's non-convergence as
+  much as an emitted body's: the monitor now applies to both paths and
+  compares the SET (triggers + faces), so P0039's site moving from tooth
+  corner to tooth corner still counts as progress. Run 2 (wall 985.2 s):
+  P0005's second op oscillated between two sets of gear-tooth fires for
+  81.9 s — the monitor compares against EVERY earlier signature. And the
+  ceiling I had written in Phase 1a, `FACE_REFINE_MAX = 64`, read the old
+  d_ε/64 divisor as a density; d_ε/64 is density √64 = 8 — corrected, no
+  new constant. Run 3 is the landing. Two pins did their job on the way:
+  `n2_rim_mint_adversary`'s ×1e-2 fixture caught the loop adopting a body
+  that passed the Stage-4 gate and emitted 18 unpaired half-edges (T4 is
+  now read on the emitted body too), and kernel-v2's P0031 geometry pin
+  caught the first monitor stopping one plateau too early.
+
+**Corpus (release, 8 jobs, 900 s; wall 967.6 s): 350C / 0W / 18E / 5EE / 0T
++ 1U over 374** — versus 346C / 0W / 22E exactly FOUR moves, P0046 / P0050 /
+P0052 / P0062 ERROR → SUPPORTED_CORRECT, zero regressions, one detail drift
+(P0061). Per-case wall sum 6429 → 6468 s (+0.6 %); the largest costs R0085
++37.6 s and R0070 +19.0 s (gear fires refined to the ceiling, then the
+natural body stands). yang-rs 1518 / 0, kernel-v2 865 / 0, cherchi-rs
+687 / 0. The 18 ERROR rows are the seven C-series walls, P0026 and the open
+tail P0042, P0043, P0045, P0048, P0049, P0051, P0053, P0055, P0056, P0061.
+Next: the Stage-1 arms retire one per corpus run, wedge first
+(`specs/yang_452_refinement_loop.md` §7).
+
 ## 2026-10-14 (Phase 1e) — the §4.5.4 census is affordable on every result and is NOT a loop trigger yet: a shared AABB octree is its broad phase, and the real measurement shows every improper pair on CORRECT outputs is a transversal chord crossing the paper's §4.4.1 would have retriangulated away; corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
 
 **Faithful, no deviation; byte-identical by construction.** Phase 1e of

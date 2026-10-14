@@ -147,14 +147,15 @@ pub(crate) fn stage1_tessellate_with_standing_overrides(
 /// map is the Stage-1 byte-identical identity.
 pub(crate) type FaceRefine = std::collections::BTreeMap<u32, u32>;
 
-/// The largest per-face density factor the §4.5.2 loop may reach (the
-/// REFINE_452_MAX_FACTOR ceiling of the op-level ladder, in density terms:
-/// 64× the natural rim count; R0085 / P0015 / P0039 all converge at or
-/// before it).
-// Phase 1a primitive (spec §10): read by `BRep::refined_at`, whose production
-// caller is the Phase 1c loop; pinned by `tests_unit/s452_face_refine.rs`.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const FACE_REFINE_MAX: u32 = 64;
+/// The largest per-face density factor the §4.5.2 loop may reach: 8, the
+/// old whole-op ladder's measured ceiling `d_ε/64` expressed as a DENSITY
+/// (chord sagitta ∝ 1/N², so d_ε/64 is √64 = 8× the natural rim count;
+/// R0085, P0015 and P0039 all converge at or before it, and the gear cases
+/// that never converge — R0070, P0005's second op — stop paying there).
+/// Three doublings from the natural mesh. (Phase 1a first wrote 64 here,
+/// reading the d_ε divisor as a density; corrected 2026-10-14 in Phase 1c
+/// when P0005's gear climbed to ×64 for 82 s on a CORRECT body.)
+pub(crate) const FACE_REFINE_MAX: u32 = 8;
 
 /// The density factor of face `f` under `face_refine` (1 when absent).
 pub(crate) fn face_refine_factor(face_refine: &FaceRefine, f: usize) -> u32 {

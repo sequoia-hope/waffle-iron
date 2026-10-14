@@ -3064,7 +3064,13 @@ conversions of 2026-10-08 → 10-14). **The cleanup's plan of record is
 local refinement as THE response to mesh inadequacy; §4.4.1 mesh updating)
 each compensated by a family of substitutes (nine Stage-1 sample arms;
 eight Stage-4 repair passes), retired in phases with the corpus held —
-the acceptance metric is REMOVAL, not score:
+the acceptance metric is REMOVAL, not score. **Phase 0 and Phase 1 (1a, 1b,
+1e, 1c) landed 2026-10-14**: 7.2k lines of gated-off machinery gone, the
+P2 ledger check mechanical, and the ONE §4.5.2 loop `boolean::refine_loop`
+(spec `specs/yang_452_refinement_loop.md`) replacing both whole-op ladders
+and the lens — N62 RESOLVED, P0046 / P0050 / P0052 / P0062 converted,
+corpus 350C / 0W / 18E / 5EE / 0T + 1U over 374 at the baseline's wall.
+Next: the nine arms retire one per corpus run (spec §7), then Phase 2:
 
 1. **Stage 0 §4.5.5 coplanarity is NOT general** (the keystone; see §4 M8 below).
    Today a lattice of shape/normal-specific handlers ships and everything else

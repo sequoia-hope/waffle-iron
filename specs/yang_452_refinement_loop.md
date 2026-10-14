@@ -151,7 +151,7 @@ preserved). The body-wide `with_refined_chord` becomes the degenerate case
 **Phase 1a LANDED 2026-10-14 (byte-identical).** The unit of refinement is
 the paper's: *"Each iteration of our method increases the mesh density by
 2×"* (`:365-366`) — `face_refine: BTreeMap<u32, u32>` holds a DENSITY
-multiplier `k` (a power of two, ceiling `FACE_REFINE_MAX = 64`), and a face
+multiplier `k` (a power of two, ceiling `FACE_REFINE_MAX` — 8, the old d_ε/64 as a DENSITY, corrected from 64 in Phase 1c), and a face
 at factor `k` has chord bound `d_ε / k²`. Where it lands in Stage 1
 (`stage1_tessellate_once`): every circle rim's ring is `n_seg · k_e` with
 `k_e` the max over the edge's incident faces (`edge_refine_factors`) — arcs
@@ -183,10 +183,125 @@ at rung 2 or 3 instead of lens rung 1, at a cost of one more op).
 
 ### 6. The ladder and adoption
 
+**Phase 1c design (2026-10-14), the rule the code implements:**
+
+```
+boolean(a, b, op):
+    natural = run(a, b)                           # arms still inside `run` until each retires
+    F = failures(natural) ∪ T3b(natural)
+    if F.is_empty(): return natural
+    (ra, rb) = (a, b); best_watertight = None; k = 0
+    loop (k < ITER_CAP = 8):
+        (Ra, Rb) = region(F, ra, rb)              # faces + one ring, per operand
+        if Ra, Rb both empty:  break              # a faceless STOP: nothing to refine
+        if every face of Ra ∪ Rb is at FACE_REFINE_MAX: break
+        (ra, rb) = (ra.refined_at(Ra), rb.refined_at(Rb))   # density ×2 (first rung: the certificate's k, §6.1)
+        out = run(ra, rb)
+        F = failures(out) ∪ T3b(out)
+        if F.is_empty(): return out               # ADOPTED
+        if out is Ok and no T1/T4/T5 in F and best_watertight is None: best_watertight = out
+        k += 1
+    # ceiling / cap / faceless: the paper's loop is exhausted
+    if natural is Ok: return natural              # fires are inventoried, never a wall (yang_45 §7)
+    if let Some(b) = best_watertight: return b    # today's STOP-ladder clause (unpaired == 0)
+    return natural (the STOP, with F attached to the error's detail)
+```
+
+6.0.1 **Convergence monitor, both paths.** The paper's loop terminates
+because "the mesh intersections converge to the spline surface
+intersections under refinement" (`:650-652`); a failure SET that comes back
+IDENTICAL — the same triggers on the same input faces — after a doubling is
+the observable negation of that argument, on a STOP as much as on an
+emitted body. The set is compared, never the count: a STOP whose site moves
+to the next corner (P0039's tooth corners, one T1 site per rung on changing
+faces, converging at d_ε/64) is progress and keeps refining; a minted
+tangency (P0026) or a gear's inventoried fires (R0003 ×42, R0070 ×90, spec
+`yang_45_boundary_point_domain_certificate` §7) return the same set every
+rung. First corpus run of the loop without this rule on STOPs (2026-10-14):
+P0026 climbed to the ceiling for 483.4 s (was 3.3 s), P0042 / P0043 for
+≈ 38 s each (were 1.8 s), P0061 21 s (was 4.8 s) — all still honest ERRORs,
+all paying for nothing. The budget the old domain ladder bounded with `[2,
+4]` and the lens with `4·N` samples, and the old STOP ladder with its Q3
+strict-decrease clause, is now this one convergence test. **The comparison
+is against EVERY earlier signature, not only the previous one** (second loop
+corpus, 2026-10-14: P0005's second op carries 13 fires on a gear's teeth
+whose set OSCILLATES between two signatures — faces 8 / 308 / 310 appear
+and vanish alternately — so a previous-only test never fired and the loop
+climbed to the ceiling, density ×64 on ~30 faces, 81.9 s on a CORRECT body
+that was 13.3 s). A set that RETURNS is a cycle, the same non-convergence;
+the first return is tolerated, the second ends the loop. A set that keeps
+CHANGING without emptying (P0005's gear fires wander between teeth) is
+bounded by the ceiling: three doublings, density 8, the old d_ε/64. **One plateau is tolerated** (measured
+2026-10-14 on kernel-v2's P0031 pin: density ×2 leaves both fires exactly
+where they were — the fire's post position is the exact corner, independent
+of density — and ×4 clears them, the old d_ε/16); the second consecutive
+non-improvement ends the loop. That one tolerated plateau is the old `[2,
+4]` floor re-expressed, and the one constant this rule keeps.
+
+**T4 is read on the EMITTED body as well as at the Stage-4 gate** (measured
+the same day: the `n2_rim_mint_adversary` ×1e-2 fixture's refined body
+passed the gate and emitted 18 unpaired half-edges; the old STOP ladder's
+`refine_452_unpaired` read the output mesh, and `failures` now does too).
+
+6.1 **Certificate → density.** A T1 site with `under_resolution = f` (a d_ε
+divisor) asks for density `k = next power of two ≥ √f` (sagitta ∝ 1/N²), so
+R0085's 18.2 → k = 8 at the first rung (d_ε/64 in the old vocabulary),
+P0015's 159 → k = 16. Faces named by a site without a certificate double.
+A face already carrying a factor doubles from where it stands.
+
+6.2 **What `run` still contains.** Every Stage-1 arm (cleanup §2a) and the
+rim×plane retry pass (`refine_rim_plane`) stay inside `boolean_once` /
+before the loop in this increment; they retire one per corpus run in step
+§7. The loop REPLACES: `refine_452` (the whole-op STOP ladder),
+`refine_452_domain` (the domain ladder) and its local lens
+(`domain_fire_local_rim_overrides`, `LOCAL_452_STEP_DIVISORS`,
+`LOCAL_452_MAX_SAMPLES_PER_N`, `coaxial_circle_closure_with_arcs` if it has
+no other reader), `refine_452_rounds*`, `REFINE_452_ROUNDS`,
+`REFINE_452_MAX_FACTOR`, `refine_452_unpaired`, and the knobs
+`YANG_452_REFINE`, `YANG_452_LOCAL`, `YANG_452_ROUNDS`
+(`YANG_452_PROBE` stays as the loop's probe; `with_refined_chord` stays for
+the census ladder of the `YANG_CHORD_REFINE` debug knob).
+
+6.3 **T3b, the output-level §4.5.4 check** (`failures::output_curve_crossings`):
+group the output's faces by surface (exact `Surface` equality); for every
+pair of DISTINCT faces on one quadric and every pair of their planar
+boundary curves (`geom::curve_plane`), the two planes' common line meets
+the quadric at ≤ 2 roots (`segment_surface_roots` along the line); a root
+is an illegal intersection iff `conic_param` places it strictly inside both
+edges' parameter spans (circles / ellipses: angular span from the edge's
+start to its end CCW; a full circle: everywhere; hyperbola: the open
+parameter between the endpoints; lines and `SurfacePair` curves: skipped,
+named gap). Each hit is a `FailureSite { IllegalIntersection, faces = the
+two faces' INPUT lineage (`BRep::face_attribution`) }`. Coincident curves
+(`curves_coincide`) are a shared edge, not a crossing.
+
+6.4 **Pins.** `tests_unit/s452_refinement_loop.rs`: `density_for_demand`
+(1.87 → 2, 18.2 → 8, 159 → 16, NaN → 2); the loop adopts the first F-empty
+body and stops at the ceiling; a faceless STOP stands; T3b finds the
+crossing of two ellipses of two faces on one cylinder and ignores two
+disjoint arcs and a coincident pair. The old `s452_under_resolution_ladder.rs`
+(pins of `refine_452_rounds_for`) is rewritten onto `density_for_demand`;
+`s452_domain_lens.rs` goes with the lens; kernel-v2's
+`s452_domain_lens_corner.rs` keeps its geometry pin (P0031 converts through
+the loop) and loses its knob note.
+
+6.5 **Corpus expectation.** Monotone: every case the three remedies
+convert today (R0044, C0065, R0050, R0085, P0003, P0015, P0031, P0039,
+R0072, R0095 …) converts through the loop; zero WRONG; wall-time recorded.
+A case that does not is a gap in the loop to fix, never a reason to keep a
+ladder. **Measured 2026-10-14 (run 3, release, 8 jobs, 900 s): 350C / 0W /
+18E / 5EE / 0T + 1U over 374, wall 967.6 s (baseline 971.5 s), per-case sum
++0.6 %; every old customer holds and P0046 / P0050 / P0052 / P0062 convert
+(all boundary-domain-fire cases the fixed `[2, 4]` and the one-closure lens
+could not clear); zero regressions.** Triage §"2026-10-14 (Phase 1c)".
+
+#### 6.0 The ladder and adoption (original design text)
+
 - Rungs: factor 2 per iteration on the CURRENT region (regions accumulate
   across iterations: a face refined at rung 1 and named again at rung 2 is
-  at factor 4). Ceiling: `REFINE_452_MAX_FACTOR = 64` per face (R0085 /
-  P0015 / P0039 all converge at or before 64). The under-resolution
+  at factor 4). Ceiling: density 8 per face = the old `REFINE_452_MAX_FACTOR
+  = 64` d_ε divisor expressed as a density (√64; R0085 / P0015 / P0039 all
+  converge at or before it) — three doublings. The under-resolution
   certificate, when present, sets the FIRST factor for the faces it names
   (the existing economy, `refine_452_rounds_for`).
 - Adoption: `failures(out)` is EMPTY. There is no separate "unpaired == 0"
@@ -249,7 +364,7 @@ graze, edge graze (`edge_graze_sites` …), rim×plane graze (both forms,
 
 1. ~~`face_factor` + `refined_at` (Phase 1a, gated: nothing reads the map until 1c) — byte-identical.~~ **LANDED 2026-10-14** (`face_refine`, see §5).
 2. ~~`failures(out)` with T1–T5 and face attribution; `Stage4RegionInvalid` gains `incident` (1b) — byte-identical (read-only).~~ **LANDED 2026-10-14** as `boolean::failures` — a thread-local failure-site RECORD (the `DomainFire` channel's pattern), not a widened error type: `reset()` at every `boolean_once`; producers push where each failure is detected with mesh and attribution in hand — T1 in the Stage-4 wrapper (`faces_at_vertex` of the STOP'd vertex; a sentinel records no face), T2 in `boundary_domain_postcondition` (the fires' `incident`), T4 at the watertightness gate (`detect_nonmanifold_seams` region keys); T3 is computed on an emitted body by `illegal_intersection_sites` (`detect_improper_contacts` pairs → the two triangles' attributions); `failures(result)` = recorded ∪ T3, or one faceless `ReassemblyStop` for an error nobody recorded (a STOP is never silently an empty set); `region(sites, a, b)` = named faces + one ring per operand, by shared B-Rep VERTEX (yang's `LineSegment` edges are one copy per loop, so edge adjacency would miss straight-edge neighbours). Pins `tests_unit/s452_failure_sites.rs` (7). Record-only until 1c reads it.
-3. The loop replaces the three remedies, lens kept as a first rung for one run (1c) — corpus monotone; then lens deleted (1d) — corpus holds P0031.
+3. ~~The loop replaces the three remedies, lens kept as a first rung for one run (1c) — corpus monotone; then lens deleted (1d) — corpus holds P0031.~~ **1c IMPLEMENTED 2026-10-14** as `boolean::refine_loop` (§6 design verbatim): the two §4.5.2 ladders (`refine_452`, `refine_452_domain`), the apex-centred lens (`domain_fire_local_rim_overrides`, `coaxial_circle_closure_with_arcs`, `LOCAL_452_*`, `RimAngleOverrides::retain_closures`), the rung tables (`refine_452_rounds*`, `REFINE_452_ROUNDS`, `REFINE_452_MAX_FACTOR`), the op-wide rung (`with_refined_chord`, `BRep::retessellated_at_current_d_eps`), the unread half of the domain-fire channel (`BOUNDARY_DOMAIN_FIRES` / `_RECORDS` and their getters) and the knobs `YANG_452_REFINE` / `YANG_452_LOCAL` / `YANG_452_ROUNDS` are DELETED in one step (the lens was not kept for a run: its faces are the region's faces, refined uniformly). The rim×plane retry pass stays before the loop (its own arm step). Pins: `s452_refinement_loop.rs` (T3b ×4), `s452_under_resolution_ladder.rs` rewritten onto `density_for_demand` (×3), `s452_face_refine.rs` on `refined_by`; `s452_chord_refine.rs` and `s452_domain_lens.rs` deleted with their mechanisms. Corpus: see the triage ledger §"2026-10-14 (Phase 1c)".
 4. BVH-accelerated `detect_improper_contacts` so T3 can be always-on (1e) — corpus wall-time measured. **LANDED 2026-10-14:** `cherchi_rs::aabb_tree::AabbTree` (the labeling octree's deterministic rules — depth 8, leaf split 16, duplication budget 2, fixed octant order, inclusive overlap — as one shared implementation; `TriOctree` is now a wrapper over it), `overlapping_pairs()` as the census's broad phase, the pre-1e sweep kept under `#[cfg(test)]` as the oracle (`tree_and_sweep_broad_phases_agree`: identical improper and unresolved pair sets on three seeded soups), plus the `#[ignore]`d `broad_phase_cost_census` measurement. **Measured, synthetic (seeded LCG soups, release):** n = 20 000 → tree 0.020 s vs sweep 0.022 s; n = 60 000 → tree 0.067 s vs sweep 0.092 s. The broad phase was NOT what made the scan expensive: on a uniformly random soup both are fast, so on a real output the cost sits in the exact `classify_pair` calls on the box-overlapping second-ring neighbours every closed mesh has (adjacent triangles share an index and are skipped for free; their neighbours' neighbours overlap in box without sharing one). **Measured, real outputs (`YANG_SELFX_COST_PROBE=1`, release, tree broad phase):** F0090's 30 subtracts grow 82 → 11 642 triangles and the census grows 0.001 → 1.50 s per op (≈ 18 s over a 184.6 s case); R0019's 14 674-triangle output costs 0.043 s; R0081's 105 752-triangle union costs 0.537 s. **Cost is no longer the obstacle to an always-on §4.5.4 scan.** The obstacle it uncovered is SEMANTIC: these SUPPORTED_CORRECT outputs carry non-zero improper counts — R0019 reports 217 pairs, R0081's first op 7, several F0090 ops 1–2 — so the raw census cannot be T3's predicate; the pairs' kinds (transversal vs coplanar) and faces (same face vs two faces) are being classified next, and T3 will be defined on the paper's "illegal intersection" (a crossing), not on "any exact contact". The real-output measurement (`YANG_SELFX_COST_PROBE=1` on F0090 / R0019 / R0081) decides; if the exact predicate dominates, the remedy is the paper's own scope — §4.5.4 names "the self-intersections that may occur during surface discretization and the NEW intersections that may arise during MESH UPDATING" (`:752-754`): the first class is each operand's own, already the Stage-1 self-contact guard's; the second arises only where Stage 4 moved vertices, so T3 scans the triangles of faces that carry a RELOCATED vertex (plus one ring) against the whole mesh — a tree query per touched triangle, not a scan of every pair. That is a scoping the paper states, not a predictor gate. **Design (2026-10-14):** the census's broad phase (`cherchi-rs/src/inputcheck.rs`) is a sweep on min-x over per-triangle AABBs, then the exact `classify_pair` on every box-overlapping candidate; on a large output (F0090 / R0019 / R0081, the three cases an always-on scan pushed past the budget) the sweep degenerates — every box whose x-extent reaches the current one is a candidate regardless of y and z. The remedy is a tree broad phase: an AABB tree over the output triangles (the `labeling::octree::TriOctree` shape — deterministic build, fixed octant order, sorted deduped query results), each triangle querying its own box, candidate pairs `(s < t)` collected once, the exact predicate unchanged. Acceptance is twofold: the improper-pair SET is identical to the sweep's on every corpus output (an in-crate oracle runs both on the same meshes), and the three large cases stay inside the budget with the scan always on. The arrangement's own candidate search (`arrangements/intersection_detection.rs::detect_intersecting_pairs`, an O(n²) AABB loop parallelized by rayon under the `parallel` feature) is the same problem one stage earlier and is the reason rayon's CPU exceeds wall on the gear-revolve cases (ledger seed 5, index 37); it is a cost follow-up of its own, outside this spec, bound by reference parity (identical sorted pair list).
 5. Arm retirements §7, one per run (1f…).
 6. N62 → RESOLVED; N5's "local arms" paragraph struck; the nine arms' specs marked SUPERSEDED by this one.

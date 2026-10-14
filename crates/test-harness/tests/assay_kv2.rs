@@ -1621,7 +1621,7 @@ fn smoke_corpus_boundary_categories() {
         // certificate still read 9.96: the certificate is sufficient, never
         // necessary, so a demand outside the budget narrows nothing and the
         // ladder now runs the whole budget it can afford
-        // (`boolean::refine_452_full_budget`; pins
+        // (since the faithful cleanup Phase 1c the one `boolean::refine_loop`, first rung from `density_for_demand`; pins
         // `yang-rs/src/tests_unit/s452_under_resolution_ladder.rs`). Oracles
         // adjudicated by the exact-membership lattice at the conversion (one
         // body, boundary_chi 2, volume 9.935958e-1 ± 3e-3) and `derived_meta`
@@ -2117,7 +2117,7 @@ fn smoke_corpus_boundary_categories() {
         ("P0045", Category::Error),
         // P0046 (4 ops) ⇒ auto-union `ring rejected by CDT` — a fourth locus
         // of the P0002 / P0013 / P0036 text. Same class at ×1e-3 and ×1e3.
-        ("P0046", Category::Error),
+        ("P0046", Category::SupportedCorrect),
         // P0047 (4 ops) ⇒ `boolean_subtract` `ring rejected by CDT` — a
         // 32-point hole-free planar ring at scale 1.7e-4 (smallest segment
         // 87 × MIN_FEATURE_SIZE). Same class at ×1e-3 and ×1e3.
@@ -2138,7 +2138,7 @@ fn smoke_corpus_boundary_categories() {
         ("P0049", Category::Error),
         // P0050 (4 ops) ⇒ explicit-Union `ring rejected by CDT` with a
         // 22-tooth gear — a fifth locus. ×1e3 keeps the class, ×1e-3 CORRECT.
-        ("P0050", Category::Error),
+        ("P0050", Category::SupportedCorrect),
         // P0051 (4 ops) ⇒ auto-union `Stage-1 chart triangulation of face 14
         // cannot meet the face's chord budget after 4 domain-grid round(s)
         // (worst interior edge 1.765× the budget)` — a NEW text. ×1e3 keeps
@@ -2148,7 +2148,7 @@ fn smoke_corpus_boundary_categories() {
         // "surface-pair Newton projection did not converge"` — a revolve cut
         // through a 12-tooth gear boss (the lineage cost 686 s under the
         // prospector; the minimum is cheap).
-        ("P0052", Category::Error),
+        ("P0052", Category::SupportedCorrect),
         // P0053–P0062 PROMOTED 2026-10-13 — prospector seed 5 × 200 candidates
         // (185 CORRECT / 10 ERROR / 3 WRONG / 2 TIMEOUT), 930 s at 8 jobs,
         // adjudicated per `specs/assay_prospector.md` §8 by SITE
@@ -2234,7 +2234,7 @@ fn smoke_corpus_boundary_categories() {
         // curved ring; P0062 is its UN-MINIMIZED 7-op lineage, which rejects a
         // DIFFERENT ring (30 points with a collinear run) — both halves.
         ("P0061", Category::Error),
-        ("P0062", Category::Error),
+        ("P0062", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled
     // for debug. `scripts/test.sh` runs test-harness WITHOUT `--release`, and

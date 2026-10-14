@@ -123,24 +123,15 @@ pub(crate) fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3])
 /// multiplies its own scale by this).
 const CHORD_BASE: f64 = 1e-2;
 
-thread_local! {
-    /// The §4.5.2 refinement divisor in force on THIS thread (1.0 = the
-    /// paper's natural `d_ε`). Set only for the dynamic extent of
-    /// [`with_refined_chord`]; yang-rs runs one Boolean op on one thread
-    /// (the only pool in the stack is cherchi-rs's, which sits BELOW this
-    /// crate and cannot call in), so a thread-local is the whole op's scope
-    /// and parallel test threads cannot see each other's rung.
-    static CHORD_REFINE: std::cell::Cell<f64> = const { std::cell::Cell::new(1.0) };
-}
-
-/// The §4.5.2 refinement divisor currently in force (≥ 1.0).
-///
-/// Composed of the [`with_refined_chord`] thread-local rung and, in DEBUG
-/// builds only, the `YANG_CHORD_REFINE=<f>` census knob (the manual density
-/// ladder of `specs/yang_452_local_refinement.md` §3). Release builds read
-/// the thread-local alone — production density is not env-configurable.
+/// The §4.5.2 census divisor (≥ 1.0): in DEBUG builds the
+/// `YANG_CHORD_REFINE=<f>` knob (the manual uniform density ladder of
+/// `specs/yang_452_local_refinement.md` §3, a measurement instrument);
+/// release builds always read 1.0 — production density is the per-FACE
+/// `BRep::face_refine` of the one refinement loop
+/// (`specs/yang_452_refinement_loop.md`), never an env knob. (The
+/// op-wide `with_refined_chord` rung the old whole-op ladders set here was
+/// deleted with them in the cleanup's Phase 1c.)
 pub(crate) fn chord_refine_scale() -> f64 {
-    let local = CHORD_REFINE.get();
     #[cfg(debug_assertions)]
     {
         if let Some(f) = std::env::var("YANG_CHORD_REFINE")
@@ -148,42 +139,10 @@ pub(crate) fn chord_refine_scale() -> f64 {
             .and_then(|s| s.parse::<f64>().ok())
             .filter(|f| f.is_finite() && *f >= 1.0)
         {
-            return local * f;
+            return f;
         }
     }
-    local
-}
-
-/// Run `body` with every Stage-1 chord bound divided by `factor` — Yang
-/// §4.5.2's "increase the mesh resolution of the parametric surfaces"
-/// (`refs/text/yang2025_hybrid_boolean.txt:659-670`).
-///
-/// Dividing `d_ε` refines ALL curved tessellation densities uniformly (≈ √f
-/// more segments per full turn) AND tightens every derived Stage-3/4/6
-/// membership band in lockstep, because they all read the same
-/// `*_chord_bound` functions (`fix_all_gates_sharing_a_metric`). Refining the
-/// mesh without tightening the bands would be tolerance widening through the
-/// back door (P9); refining both is what the paper's single `d_ε` means.
-///
-/// `factor` is clamped to ≥ 1.0 (refinement only — never coarsening) and
-/// MULTIPLIES any rung already in force, so nesting composes. The previous
-/// rung is restored on the way out, including on unwind.
-pub(crate) fn with_refined_chord<T>(factor: f64, body: impl FnOnce() -> T) -> T {
-    struct Restore(f64);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            CHORD_REFINE.set(self.0);
-        }
-    }
-    let factor = if factor.is_finite() && factor > 1.0 {
-        factor
-    } else {
-        1.0
-    };
-    let prev = CHORD_REFINE.get();
-    let _restore = Restore(prev);
-    CHORD_REFINE.set(prev * factor);
-    body()
+    1.0
 }
 
 /// The relative chord-bound base in force: the paper's `d_ε` base divided by

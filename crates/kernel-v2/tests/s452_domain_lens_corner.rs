@@ -27,7 +27,7 @@
 //! The local ladder clears it at its first rung: the fires name A's
 //! cylinder, and three extra samples per arc of its strip — apex-centred on
 //! the fire's azimuth — put a chord vertex at the corner. RED with
-//! `YANG_452_LOCAL=off` (mutation-checked 2026-10-10: this fixture's wrong
+//! RED without the local §4.5.2 refinement (mutation-checked 2026-10-10 with the pre-1c `YANG_452_LOCAL=off`: this fixture's wrong
 //! topology is caught one gate earlier than P0031's, `TessellationFailed
 //! "ring rejected by CDT (degenerate/self-intersecting)"` on the output's
 //! cap face), GREEN with it.

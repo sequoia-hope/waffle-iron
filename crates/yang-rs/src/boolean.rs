@@ -614,316 +614,238 @@ pub(crate) fn weld_lpi_pencils(
     welded
 }
 
-/// §4.5.2 LOCAL REFINEMENT gate (spec `specs/yang_452_local_refinement.md`
-/// §6 increment 2, §7 flip). ALWAYS-ON since 2026-09-17: the adopt arm is the
-/// production default (C0065, the first monotone customer — spec §7).
-/// `YANG_452_REFINE=0|off` restores the pre-flip behaviour (the standing
-/// Stage-4 STOP is the answer); `census` runs every rung and reports without
-/// adopting anything. The flip proof is the full-corpus two-run measurement
-/// recorded in the spec.
-fn refine_452_mode() -> Option<bool> {
-    match std::env::var("YANG_452_REFINE").as_deref() {
-        Ok("0") | Ok("off") => None,
-        Ok("census") => Some(false),
-        _ => Some(true),
-    }
-}
+/// Iteration cap of the §4.5.2 loop: six doublings reach `FACE_REFINE_MAX`
+/// from the natural density; the cap bounds a loop whose region keeps
+/// naming NEW faces (the paper's loop terminates by convergence under
+/// refinement; the cap is the budget that makes that finite in practice).
+const REFINE_LOOP_ITER_CAP: usize = 8;
 
-/// The §4.5.2 refinement rungs the budget allows: `d_ε / 2` then `d_ε / 4`
-/// (≈ 1.4× and 2× segments per full turn).
-///
-/// The paper's loop is "repeated if optimization failure persists"
-/// (`refs/text/yang2025_hybrid_boolean.txt:665-670`) and terminates because
-/// the mesh intersections converge to the surface intersections under
-/// refinement — but convergence is asymptotic, so the BUDGET is what makes
-/// the loop finite (Q3 guard-shell clause 3,
-/// `docs/yang_junction_research_findings.md`). The budget is load-bearing
-/// rather than arbitrary: measured on R0050, `d_ε/4` resolves the failure
-/// while `d_ε/8` opens a NEW wall on the much denser torus chart, so refining
-/// past the rung that resolves the failure buys nothing and costs
-/// correctness.
-pub(crate) const REFINE_452_ROUNDS: &[f64] = &[2.0, 4.0];
+/// A failure set up to vertex ids and detail text: the triggers and the
+/// input faces they name, sorted — what the convergence monitor compares.
+type FailureSignature = Vec<(failures::FailureTrigger, Vec<(crate::brep::InputId, u32)>)>;
 
-/// The ladder's ceiling when the STOP carries a §4.5.2 under-resolution
-/// certificate (spec `specs/yang_452_local_refinement.md` §8). The
-/// certificate names the FIRST rung (the smallest power of two that brings
-/// the far surface's chord band under every crossed corner's clearance);
-/// the ladder then keeps doubling under the same guard shell until this
-/// ceiling. Measured: R0085 demands 18.2 → d_ε/32 converges (b 312 → 9028
-/// tris, 95 s release for the whole case) and d_ε/64 converges too; the cost
-/// is geometric in the factor, so the last rung dominates and one doubling
-/// of headroom over the largest measured demand is the budget.
+/// Yang §4.5 — the ONE refinement loop (spec `specs/yang_452_refinement_loop.md`
+/// §2 / §6; Phase 1c of `specs/yang_faithful_cleanup.md`). *"The failed
+/// areas will undergo local intersection handling or local mesh refinement
+/// until all the failures are resolved"* (`refs/text/yang2025_hybrid_boolean.txt:309-312`);
+/// *"we increase the mesh resolution of the parametric surfaces associated
+/// with the erroneous regions … the surfaces traversed by C_p and the
+/// neighbors of a ring of them … repeated if optimization failure
+/// persists"* (`:646-668`).
 ///
-/// A demand ABOVE this ceiling does NOT certify futility (P0015, 2026-10-03;
-/// unit pins `tests_unit/s452_under_resolution_ladder.rs`). Until then the
-/// rule read such a demand as a proof that no affordable rung resolves the
-/// corner and ran the empty ladder — a guaranteed ERROR. P0015's demand is
-/// 159.37 and the op CONVERGES at `d_ε/32`, watertight with 0 unpaired and 0
-/// improper, while the certificate still read 9.96. The certificate is
-/// SUFFICIENT ("this rung places that corner"), never necessary, so a demand
-/// it cannot satisfy inside the budget is simply uninformative about the
-/// rungs inside the budget: the ladder runs the whole doubling sequence it
-/// can afford, under the unchanged Q3 guard shell.
-pub(crate) const REFINE_452_MAX_FACTOR: f64 = 64.0;
-
-/// The rung ladder in force for one STOP: the whole doubling budget,
-/// [`REFINE_452_ROUNDS`]'s first rung up to [`REFINE_452_MAX_FACTOR`]. When
-/// the STOP's under-resolution certificate demands more than the fixed
-/// ladder's last rung, the ladder STARTS at the first power of two strictly
-/// above the demand (`d_ε/f < |d_far(q)|` for every crossed corner is the
-/// certificate's own inequality). Rungs below the demand are skipped as an
-/// ECONOMY — the paper's loop "repeated if optimization failure persists"
-/// reaches the same rung, one full op per skipped rung slower.
+/// `natural_failures` is the failure set of the natural run (T1 Stage-4
+/// non-convergence, T2 boundary-domain fires, T4 non-manifold mesh, T5
+/// reassembly STOPs, T3b output-level curve crossings — `boolean::failures`),
+/// read BEFORE any other run could overwrite the record. Empty ⇒ nothing to
+/// do (`None`, the caller returns the natural result).
 ///
-/// The ladder never STOPS short of the ceiling on a prediction (P0039,
-/// 2026-10-12): the certificate is read at the natural resolution and
-/// names the rung that places the corner the natural mesh crossed; each
-/// rung's refined mesh can cross a NEW corner — on a gear tooth, the next
-/// one along — with its own, tighter demand. P0039's natural demand is 2.24
-/// (inside the fixed `[2, 4]`), its d_ε/4 rung re-reads 14.6 at the next
-/// corner, and the op converges at d_ε/64, the ceiling; the fixed ladder
-/// ended at 4 and the STOP stood. The paper's procedure is "repeated if
-/// optimization failure persists" with termination guaranteed by
-/// convergence under refinement (`refs/text/yang2025_hybrid_boolean.txt:665-670`),
-/// so a failed rung is followed by the next one until the budget is spent —
-/// the fixed ladder is the FLOOR of that sequence, not its end. (P0015 had
-/// already established the same for a demand the ceiling cannot reach.)
-/// `YANG_452_ROUNDS=3,6,8` overrides everything for the census ladder that
-/// MEASURES the budget (spec §6).
-fn refine_452_rounds(under_resolution: Option<f64>) -> Vec<f64> {
-    refine_452_rounds_override().unwrap_or_else(|| refine_452_rounds_for(under_resolution))
-}
-
-/// `YANG_452_ROUNDS=3,6,8`: the census override of either ladder's rungs.
-fn refine_452_rounds_override() -> Option<Vec<f64>> {
-    std::env::var("YANG_452_ROUNDS")
-        .ok()
-        .map(|s| {
-            s.split(',')
-                .filter_map(|t| t.trim().parse::<f64>().ok())
-                .filter(|f| f.is_finite() && *f > 1.0)
-                .collect::<Vec<f64>>()
-        })
-        .filter(|v| !v.is_empty())
-}
-
-/// The pure half of [`refine_452_rounds`] (no environment): the ladder a
-/// STOP's under-resolution certificate derives. See there for the rule.
-pub(crate) fn refine_452_rounds_for(under_resolution: Option<f64>) -> Vec<f64> {
-    let last = REFINE_452_ROUNDS.last().copied().unwrap_or(1.0);
-    match under_resolution {
-        Some(demand) if !demand.is_nan() && demand >= last => {
-            if demand >= REFINE_452_MAX_FACTOR {
-                // Uninformative certificate (P0015): run the whole budget.
-                return refine_452_full_budget();
-            }
-            let mut f = last;
-            while f <= demand {
-                f *= 2.0;
-            }
-            let mut rungs = Vec::new();
-            while f <= REFINE_452_MAX_FACTOR {
-                rungs.push(f);
-                f *= 2.0;
-            }
-            rungs
-        }
-        // No certificate, or one the fixed ladder already satisfies: the
-        // fixed ladder first, then on to the ceiling (P0039).
-        _ => refine_452_full_budget(),
-    }
-}
-
-/// Every rung the budget allows: double from [`REFINE_452_ROUNDS`]'s first
-/// rung up to [`REFINE_452_MAX_FACTOR`]. The ladder in force when the
-/// under-resolution certificate names a rung past the ceiling and therefore
-/// certifies nothing about the rungs inside it.
-fn refine_452_full_budget() -> Vec<f64> {
-    let mut f = REFINE_452_ROUNDS.first().copied().unwrap_or(2.0);
-    let mut rungs = Vec::new();
-    while f <= REFINE_452_MAX_FACTOR {
-        rungs.push(f);
-        f *= 2.0;
-    }
-    rungs
-}
-
-/// The §4.5.2 topology-error functional: the number of unpaired undirected
-/// edges in an emitted mesh (Q3 guard-shell clause 2 names
-/// "unpaired-edge count / |χ−2|"; the unpaired count is the half that is
-/// valid at ANY genus, so it is the one used — `|χ−2|` presumes genus 0 and
-/// would misjudge every handle-carrying union in the corpus).
+/// Each iteration: the region is the faces every site names plus one ring,
+/// per operand (`failures::region`); those faces are refined — density ×2,
+/// or the certificate's first rung (`density_for_demand`) on the first
+/// iteration — and the op re-runs. A run with an EMPTY failure set is
+/// adopted. The loop ends at the iteration cap, when no site names a face
+/// (a faceless STOP: nothing to refine), or when every named face is at the
+/// ceiling. Then: a natural run that EMITTED stands (its fires are
+/// inventoried, never a wall — `yang_45_boundary_point_domain_certificate`
+/// §7); a natural STOP is replaced by the first refined body that was
+/// watertight (no T1 / T4 / T5 — the STOP ladder's own adoption clause) if
+/// one appeared, else the STOP stands.
 ///
-/// Zero ⇔ the mesh is a watertight 2-manifold, the condition
-/// `check_watertight_2manifold` gates on.
-fn refine_452_unpaired(brep: &BRep) -> usize {
-    crate::stage4_project::detect_nonmanifold_seams(&brep.mesh.tris, &|_| None)
-        .iter()
-        .map(|r| r.edges.len())
-        .sum()
-}
-
-/// Yang §4.5.2 local refinement (`refs/text/yang2025_hybrid_boolean.txt:659-670`),
-/// wrapped in the BINDING Q3 guard shell
-/// (`docs/yang_junction_research_findings.md` Q3).
-///
-/// TRIGGER — the paper's own: "we collect the point pairs that cannot
-/// converge to a distance of 0 within their domains" (`:648-651`). Our typed
-/// [`YangError::Stage4RegionInvalid`] IS that collection, in all three of its
-/// reasons: the relocation solved a junction outside the carrier's domain
-/// (`OffCurveBeyondChordBand`, `RelocationCrossedCarrierVertex`) or could not
-/// solve one in-domain at all (`LocalRefinementRequired` — named for this
-/// remedy). §4.5.1 has already had its turn by then: the corner-transit arm
-/// runs inside Stage 4 and this error is what it leaves behind when it
-/// refuses, which is the paper's own ordering ("If such bound cannot be found
-/// or after crossing boundaries the optimization still fails, we increase the
-/// mesh resolution locally and re-optimize as the second strategy").
-///
-/// ACTION — divide `d_ε` and re-run the op. The paper refines only the patches
-/// the failed segment traverses plus a one-ring of neighbours and
-/// re-intersects only there; this increment refines the WHOLE op. That is
-/// strictly MORE refinement than the paper asks for, so the resulting
-/// intersection curves are at least as accurate — locality is the paper's
-/// efficiency measure, not a correctness condition — and it costs a second
-/// full pass, which only an already-FAILED op ever pays.
-///
-/// GUARD SHELL (Q3 clauses 2–4):
-/// * **strict decrease** — rung k is only allowed to continue the ladder when
-///   it strictly lowered the topology-error functional; the first
-///   non-improving rung ends the loop (a refinement that is not converging is
-///   not going to).
-/// * **budget** — [`REFINE_452_ROUNDS`], a fixed ladder with a floor.
-/// * **output gated on the oracle** — a rung's body is ADOPTED only when the
-///   functional reaches ZERO (a watertight 2-manifold mesh). A non-converged
-///   refinement can only STOP, never silently accept: every other rung is
-///   reported and discarded, and the standing Stage-4 STOP stands.
-///
-/// Q3 clause 1 (the transversality entry gate) needs the failing SITE's
-/// geometry, which the typed error does not carry; it is increment 3. Until
-/// then a tangential case pays the (bounded) ladder and keeps its STOP — a
-/// cost, never a correctness hazard, because of the output gate above.
-///
-/// NON-REGRESSING BY CONSTRUCTION: a `Stage4RegionInvalid` op is already a
-/// loud failure, so no passing op enters this path.
-fn refine_452(
+/// This replaced the three §4.5.2 remedies that grew here one case at a
+/// time — the whole-op STOP ladder (`refine_452`, d_ε/2 … d_ε/64), the
+/// domain-fire ladder with its apex-centred rim LENS
+/// (`refine_452_domain`, P0031), and their knobs — with the paper's single
+/// rule; `YANG_452_PROBE=1` prints every iteration.
+fn refine_loop(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
     natural: &Result<BRep, YangError>,
+    natural_failures: Vec<failures::FailureSite>,
 ) -> Option<BRep> {
-    let adopt = refine_452_mode()?;
-    let Err(YangError::Stage4RegionInvalid {
-        vertex,
-        reason,
-        under_resolution,
-    }) = natural
-    else {
+    use failures::FailureTrigger;
+    if natural_failures.is_empty() {
         return None;
+    }
+    let probe = std::env::var_os("YANG_452_PROBE").is_some();
+    let summarize = |f: &[failures::FailureSite]| -> String {
+        let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
+        for s in f {
+            *counts.entry(format!("{:?}", s.trigger)).or_default() += 1;
+        }
+        counts
+            .into_iter()
+            .map(|(k, n)| format!("{k}×{n}"))
+            .collect::<Vec<_>>()
+            .join(" ")
     };
-    let probe = !adopt || std::env::var_os("YANG_452_PROBE").is_some();
-    let rounds = refine_452_rounds(*under_resolution);
+    // The natural STOP's under-resolution certificate names the first rung.
+    let first_k = match natural {
+        Err(YangError::Stage4RegionInvalid {
+            under_resolution, ..
+        }) => failures::density_for_demand(*under_resolution),
+        _ => 2,
+    };
     if probe {
         eprintln!(
-            "[s452] op={op:?} trigger v{vertex} {reason:?} adopt={adopt} \
-             under_resolution={under_resolution:?} rungs={rounds:?}"
+            "[s452] op={op:?} natural {} failures ({}), first density rung k={first_k}",
+            natural_failures.len(),
+            summarize(&natural_failures)
         );
+        for s in natural_failures.iter().take(12) {
+            eprintln!("[s452]   {:?} faces={:?} {}", s.trigger, s.faces, s.detail);
+        }
     }
-    let mut best: Option<usize> = None;
-    for factor in rounds {
-        // Re-derive BOTH operands' discretizations at the refined `d_ε`
-        // before re-running the op. Refining the bands ALONE would be the
-        // inverse of the paper's remedy: it tightens every Stage-3/4/6
-        // membership test against a mesh that is still as coarse as before,
-        // which manufactures fresh `OffCurveBeyondChordBand` STOPs instead of
-        // resolving anything (measured on R0050 before this rebuild landed).
-        // The mesh and the bands must move together — `d_ε` is ONE quantity.
-        let out = crate::stage1_tessellate::with_refined_chord(factor, || {
-            let ra = a.retessellated_at_current_d_eps()?;
-            let rb = b.retessellated_at_current_d_eps()?;
-            if std::env::var_os("YANG_452_PROBE").is_some() || !adopt {
-                eprintln!(
-                    "[s452]     operands a {} -> {} tris (forced_rim_n={:?}), b {} -> {} tris \
-                     (forced_rim_n={:?})",
-                    a.mesh.tris.len(),
-                    ra.mesh.tris.len(),
-                    a.forced_rim_n,
-                    b.mesh.tris.len(),
-                    rb.mesh.tris.len(),
-                    b.forced_rim_n,
-                );
-            }
-            boolean_once(&ra, &rb, op, backend, false)
+    let watertight = |f: &[failures::FailureSite]| -> bool {
+        !f.iter().any(|s| {
+            matches!(
+                s.trigger,
+                FailureTrigger::RelocationDiverged
+                    | FailureTrigger::NonManifoldMesh
+                    | FailureTrigger::ReassemblyStop
+            )
+        })
+    };
+    let at_ceiling = |br: &BRep, reg: &std::collections::BTreeSet<u32>| -> bool {
+        reg.iter().all(|fi| {
+            br.face_refine().get(fi).copied().unwrap_or(1)
+                >= crate::stage1_tessellate::FACE_REFINE_MAX
+        })
+    };
+    let mut f = natural_failures;
+    let (mut ra, mut rb) = (a.clone(), b.clone());
+    let mut best_watertight: Option<BRep> = None;
+    // Convergence monitor (spec §6.0.1): the paper's loop terminates because
+    // the mesh intersections CONVERGE under refinement; a failure set that
+    // comes back IDENTICAL — the same triggers on the same faces — after a
+    // doubling is the observable negation. One identical return is tolerated
+    // (P0031's two fires sit on the exact corner at ×2 and clear at ×4), the
+    // second ends the loop. The SET is compared, not the count: a STOP whose
+    // site moves to the next corner (P0039's tooth corners) is progress and
+    // keeps refining; a tangency STOP (P0026) or a gear's inventoried fires
+    // (R0070) return the same set and stop paying — measured 2026-10-14:
+    // P0026 climbed to the ceiling for 483 s before this rule.
+    let signature = |f: &[failures::FailureSite]| -> FailureSignature {
+        let mut v: Vec<_> = f.iter().map(|s| (s.trigger, s.faces.clone())).collect();
+        v.sort_by(|x, y| {
+            format!("{:?}", x.0)
+                .cmp(&format!("{:?}", y.0))
+                .then_with(|| x.1.len().cmp(&y.1.len()))
+                .then_with(|| format!("{:?}", x.1).cmp(&format!("{:?}", y.1)))
         });
-        let brep = match out {
-            Ok(brep) => brep,
-            Err(e) => {
-                if probe {
-                    eprintln!("[s452]   d_eps/{factor} -> Err({e:?})");
+        v
+    };
+    // Every signature seen so far: a set that RETURNS — identical to the
+    // previous iteration's or to any earlier one (P0005's second op
+    // oscillates between two sets of gear-tooth fires and climbed to the
+    // ceiling for 80 s under a previous-only test) — is the same
+    // non-convergence.
+    let mut seen_signatures: Vec<FailureSignature> = vec![signature(&f)];
+    let mut plateaus = 0usize;
+    for iter in 0..REFINE_LOOP_ITER_CAP {
+        let (reg_a, reg_b) = failures::region(&f, &ra, &rb);
+        if reg_a.is_empty() && reg_b.is_empty() {
+            if probe {
+                eprintln!("[s452]   iter {iter}: no site names a face — nothing to refine");
+            }
+            break;
+        }
+        if at_ceiling(&ra, &reg_a) && at_ceiling(&rb, &reg_b) {
+            if probe {
+                eprintln!("[s452]   iter {iter}: every named face is at the ceiling");
+            }
+            break;
+        }
+        let k = if iter == 0 { first_k } else { 2 };
+        let refined =
+            |br: &BRep, reg: &std::collections::BTreeSet<u32>| -> Result<BRep, YangError> {
+                if reg.is_empty() {
+                    Ok(br.clone())
+                } else {
+                    br.refined_by(reg, k)
                 }
-                // A rung that cannot emit a body at all has no functional to
-                // compare; the ladder continues to the next rung (the paper's
-                // "repeated if optimization failure persists").
-                continue;
+            };
+        let (na, nb) = match (refined(&ra, &reg_a), refined(&rb, &reg_b)) {
+            (Ok(x), Ok(y)) => (x, y),
+            (Err(e), _) | (_, Err(e)) => {
+                if probe {
+                    eprintln!("[s452]   iter {iter}: refinement rebuild failed: {e}");
+                }
+                break;
             }
         };
-        let unpaired = refine_452_unpaired(&brep);
-        // Clause 4 is the natural path's OWN acceptance: a watertight
-        // 2-manifold emission (the pairing functional at zero), with every
-        // downstream gate — kernel-v2's render-mesh self-intersection gate on
-        // the RESAMPLED B-Rep, the composition oracle — applying unchanged.
-        //
-        // The improper-contact census below is a PROBE number, not a gate.
-        // From 2026-09-13 to 2026-09-22 adoption also demanded `improper ==
-        // 0` on the Stage-4 mesh, justified only by "kernel-v2's gate refuses
-        // the same body one crate later" (R0050 at d_ε/2: unpaired 0,
-        // improper 55, render gate `SelfIntersectingBooleanOutput`). That
-        // held while torus intersection edges left Stage 3 as `LineSegment`
-        // chord polylines the render sampler could not refine. With the M5
-        // torus arm the edge is a `Curve::SurfacePair` the render sampler
-        // resamples to the render band, the gate passes, and R0050's d_ε/2
-        // body is SUPPORTED_CORRECT on every oracle — the exact contacts it
-        // carries are the Stage-4 mesh's OWN chords crossing at a 4.4°
-        // knife-edge void (an A-torus facet against a B-torus facet in the
-        // strip beside the shared curve), the discretization's artifact, not
-        // the B-Rep's. The mesh is the computational tool (A15), the B-Rep
-        // is the output; an absolute test on the tool's chords is the
-        // contradiction `output_improper_count`'s own contract names
-        // ("never as an absolute 'is this output valid?' test").
-        let improper = output_improper_count(&brep);
+        ra = na;
+        rb = nb;
+        let out = boolean_once(&ra, &rb, op, backend, false);
+        f = failures::failures(&out);
         if probe {
+            let fa: Vec<(u32, u32)> = ra.face_refine().iter().map(|(&x, &y)| (x, y)).collect();
+            let fb: Vec<(u32, u32)> = rb.face_refine().iter().map(|(&x, &y)| (x, y)).collect();
             eprintln!(
-                "[s452]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} improper={improper}",
-                brep.mesh.tris.len(),
+                "[s452]   iter {iter}: region a={reg_a:?} b={reg_b:?} ×{k} → factors a={fa:?} b={fb:?}; \
+                 run {} with {} failures ({})",
+                if out.is_ok() { "emitted" } else { "STOPped" },
+                f.len(),
+                summarize(&f)
             );
+            for s in f.iter().take(6) {
+                eprintln!(
+                    "[s452]     {:?} faces={:?} {}",
+                    s.trigger, s.faces, s.detail
+                );
+            }
         }
-        if unpaired == 0 {
-            // Converged: the refinement produced a watertight 2-manifold
-            // output. Every downstream gate still applies unchanged.
-            if adopt {
+        let sig = signature(&f);
+        match out {
+            Ok(brep) if f.is_empty() => {
+                if probe {
+                    eprintln!("[s452]   ADOPTED at iter {iter}");
+                }
                 return Some(brep);
             }
-            continue; // census
+            Ok(brep) => {
+                if best_watertight.is_none() && watertight(&f) {
+                    best_watertight = Some(brep);
+                }
+            }
+            Err(_) => {}
         }
-        // Strict-decrease monitor: abort the ladder on the first rung that did
-        // not improve on the previous one.
-        match best {
-            Some(prev) if unpaired >= prev => {
+        if seen_signatures.contains(&sig) {
+            plateaus += 1;
+            if plateaus >= 2 {
                 if probe {
                     eprintln!(
-                        "[s452]   ABORT: unpaired {unpaired} did not improve on {prev} \
-                         (Q3 strict-decrease monitor)"
+                        "[s452]   iter {iter}: the failure set returned to an earlier one twice — \
+                         not converging under refinement"
                     );
                 }
-                return None;
+                break;
             }
-            _ => best = Some(unpaired),
+        } else {
+            plateaus = 0;
         }
+        seen_signatures.push(sig);
+    }
+    if natural.is_ok() {
+        if probe {
+            eprintln!(
+                "[s452]   loop exhausted — the natural body stands (its fires are inventoried)"
+            );
+        }
+        return None;
     }
     if probe {
-        eprintln!("[s452]   BUDGET EXHAUSTED: no rung converged — the Stage-4 STOP stands");
+        eprintln!(
+            "[s452]   loop exhausted — {}",
+            if best_watertight.is_some() {
+                "adopting the first watertight refined body"
+            } else {
+                "the natural STOP stands"
+            }
+        );
     }
-    None
+    best_watertight
 }
 
 pub fn boolean(
@@ -951,8 +873,10 @@ pub fn boolean(
         }
     }
     // Detect-then-refine. Pass 1 at natural resolution.
-    crate::stage4_correct::reset_boundary_domain_fires();
     let natural = boolean_once(a, b, op, backend, false);
+    // The §4.5 failure set of the natural run, read NOW: any further run
+    // (the rim×plane retry below, the loop's own) resets the record.
+    let natural_failures = failures::failures(&natural);
     // Cost probe (print-only, env-gated; `specs/yang_452_refinement_loop.md`
     // §10 step 4): time the §4.5.4 illegal-intersection census on the natural
     // output — the quantity that decides whether T3 can run on every result.
@@ -1015,17 +939,6 @@ pub fn boolean(
             }
         }
     }
-    // Yang §4.5 boundary-point domain fires of the NATURAL op (read before
-    // any retry re-runs Stage 4 and overwrites the count).
-    let natural_domain_fires = match &natural {
-        Ok(_) => crate::stage4_correct::boundary_domain_fires(),
-        Err(_) => 0,
-    };
-    let natural_domain_records = if natural_domain_fires > 0 {
-        crate::stage4_correct::boundary_domain_fire_records()
-    } else {
-        Vec::new()
-    };
     let brep_probe_out = |out: &BRep| {
         if std::env::var_os("YANG_BREP_PROBE").is_some() {
             for (vi, v) in out.vertices().iter().enumerate() {
@@ -1158,188 +1071,15 @@ pub fn boolean(
             // through to the §4.5.2 ladder, then to natural — never worse.
         }
     }
-    if let Some(refined) = refine_452(a, b, op, backend, &natural) {
+    // Yang §4.5 — the one refinement loop (`refine_loop`): every failure
+    // of the natural run names faces; those faces and their ring refine
+    // and the op re-runs until the failure set is empty or the budget is
+    // spent. A natural body stands when the loop cannot better it.
+    if let Some(refined) = refine_loop(a, b, op, backend, &natural, natural_failures) {
         brep_probe_out(&refined);
         return Ok(refined);
     }
-    // Yang §4.5 boundary-point domain certificate (spec
-    // `specs/yang_45_boundary_point_domain_certificate.md`): the natural op
-    // EMITTED, but Stage 4 recorded relocations that left their face across
-    // a crease — boundary points that did not converge "within their
-    // domains", the paper's §4.5.2 trigger for exactly this population
-    // (Fig. 13's exclusion from §4.5.1). Refine, and adopt only a rung that
-    // emits with NO fire; otherwise the natural output stands as it always
-    // has (the fires are inventoried, never a wall — spec §7).
-    if natural_domain_fires > 0 {
-        if let Some(refined) = refine_452_domain(
-            a,
-            b,
-            op,
-            backend,
-            natural_domain_fires,
-            &natural_domain_records,
-        ) {
-            brep_probe_out(&refined);
-            return Ok(refined);
-        }
-    }
     natural
-}
-
-/// Is the domain-fire ladder in force? `YANG_S45_BOUNDARY_DOMAIN` unset (the
-/// production default) = yes; `census` / `stop` / `off` = no (report-only,
-/// the hard-STOP A/B knob, and certificate-off respectively — the last two
-/// never reach here with a count anyway).
-fn refine_452_domain_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_S45_BOUNDARY_DOMAIN").as_deref(),
-        Ok("census") | Ok("stop") | Ok("1") | Ok("on") | Ok("0") | Ok("off")
-    )
-}
-
-/// The §4.5.2 ladder for a natural op that emitted WITH boundary-point domain
-/// fires (`boundary_domain_postcondition`). Same rungs and the same Q3 guard
-/// shell as [`refine_452`] — a rung is adopted only when it emits a
-/// watertight 2-manifold body — plus the certificate's own clause: the rung
-/// must record NO fire. No under-resolution certificate names a first rung
-/// here (the overrun past a crease is not the true junction's clearance
-/// from the corner), so the fixed budget applies; `YANG_452_ROUNDS`
-/// overrides it for the census ladder.
-///
-/// Measured (2026-09-28): P0003's two fires clear at d_ε/2 (adopted,
-/// SUPPORTED_CORRECT); the many-facet gear cases keep fires at every rung
-/// and keep their natural output (spec §7).
-fn refine_452_domain(
-    a: &BRep,
-    b: &BRep,
-    op: BoolOp,
-    backend: &dyn MeshBoolean,
-    natural_fires: usize,
-    natural_records: &[crate::stage4_correct::DomainFire],
-) -> Option<BRep> {
-    if !refine_452_domain_enabled() {
-        return None;
-    }
-    let probe = std::env::var_os("YANG_452_PROBE").is_some();
-    // The FIXED budget, deliberately: this ladder runs on ops that EMITTED
-    // (the natural body stands when no rung clears the fires), and the
-    // many-facet gear cases keep their fires at every rung — each rung is a
-    // whole op on a mesh twice as dense, paid by a case that is already
-    // CORRECT. The STOP ladder's run-to-the-ceiling rule (P0039) is for ops
-    // that have no body at all without it.
-    let rounds = refine_452_rounds_override().unwrap_or_else(|| REFINE_452_ROUNDS.to_vec());
-    if probe {
-        eprintln!(
-            "[s452-domain] op={op:?} natural emitted with {natural_fires} boundary-domain \
-             fire(s); rungs={rounds:?}"
-        );
-    }
-    // The LOCAL form first (spec §8, P0031): the paper's remedy raises the
-    // resolution of "the parametric surfaces associated with the erroneous
-    // regions", and the fires name those regions. Each rung spends the
-    // demand as an apex-centred lens of extra rim samples on every cylinder
-    // / cone face the fired vertices sit on
-    // (`rim_junction::domain_fire_local_rim_overrides`); the adoption clause
-    // is the body-wide ladder's. A site that derives no lens (planar,
-    // spherical or toroidal faces only — P0003's torus) takes the body-wide
-    // rungs below exactly as before. Kill switch `YANG_452_LOCAL=0|off`.
-    let local_on = !matches!(
-        std::env::var("YANG_452_LOCAL").as_deref(),
-        Ok("0") | Ok("off")
-    );
-    if local_on && !natural_records.is_empty() {
-        for divisor in crate::boolean::rim_junction::LOCAL_452_STEP_DIVISORS {
-            let (ma, mb) = crate::boolean::rim_junction::domain_fire_local_rim_overrides(
-                a,
-                b,
-                natural_records,
-                divisor,
-            );
-            if ma.is_empty() && mb.is_empty() {
-                if probe {
-                    eprintln!("[s452-domain]   local: no lens derivable from the fires");
-                }
-                break;
-            }
-            crate::stage4_correct::reset_boundary_domain_fires();
-            let out = (|| -> Result<BRep, YangError> {
-                let ra = if ma.is_empty() {
-                    a.clone()
-                } else {
-                    a.rebuilt_with_rim_overrides(&ma)?
-                };
-                let rb = if mb.is_empty() {
-                    b.clone()
-                } else {
-                    b.rebuilt_with_rim_overrides(&mb)?
-                };
-                boolean_once(&ra, &rb, op, backend, false)
-            })();
-            let fires = crate::stage4_correct::boundary_domain_fires();
-            let (pts_a, pts_b) = (
-                ma.values().map(Vec::len).sum::<usize>(),
-                mb.values().map(Vec::len).sum::<usize>(),
-            );
-            let brep = match out {
-                Ok(brep) => brep,
-                Err(e) => {
-                    if probe {
-                        eprintln!(
-                            "[s452-domain]   local step/{divisor} (pts_a={pts_a} pts_b={pts_b}) \
-                             -> Err({e:?})"
-                        );
-                    }
-                    continue;
-                }
-            };
-            let unpaired = refine_452_unpaired(&brep);
-            let improper = output_improper_count(&brep);
-            if probe {
-                eprintln!(
-                    "[s452-domain]   local step/{divisor} (pts_a={pts_a} pts_b={pts_b}) -> Ok \
-                     tris={} unpaired={unpaired} improper={improper} fires={fires}",
-                    brep.mesh.tris.len(),
-                );
-            }
-            if unpaired == 0 && fires == 0 {
-                return Some(brep);
-            }
-        }
-    }
-    for factor in rounds {
-        crate::stage4_correct::reset_boundary_domain_fires();
-        let out = crate::stage1_tessellate::with_refined_chord(factor, || {
-            let ra = a.retessellated_at_current_d_eps()?;
-            let rb = b.retessellated_at_current_d_eps()?;
-            boolean_once(&ra, &rb, op, backend, false)
-        });
-        let fires = crate::stage4_correct::boundary_domain_fires();
-        let brep = match out {
-            Ok(brep) => brep,
-            Err(e) => {
-                if probe {
-                    eprintln!("[s452-domain]   d_eps/{factor} -> Err({e:?})");
-                }
-                continue;
-            }
-        };
-        let unpaired = refine_452_unpaired(&brep);
-        let improper = output_improper_count(&brep);
-        if probe {
-            eprintln!(
-                "[s452-domain]   d_eps/{factor} -> Ok tris={} unpaired={unpaired} \
-                 improper={improper} fires={fires}",
-                brep.mesh.tris.len(),
-            );
-        }
-        if unpaired == 0 && fires == 0 {
-            return Some(brep);
-        }
-    }
-    if probe {
-        eprintln!("[s452-domain]   no rung emitted fire-free — the natural output stands");
-    }
-    None
 }
 
 fn boolean_once(

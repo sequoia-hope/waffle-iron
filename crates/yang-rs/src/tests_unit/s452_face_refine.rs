@@ -35,7 +35,7 @@ fn vert_bits(b: &BRep) -> Vec<[u64; 3]> {
 #[test]
 fn empty_refinement_is_the_byte_identical_identity() {
     let a = cyl();
-    let b = a.refined_at(&BTreeSet::new()).expect("identity rebuild");
+    let b = a.refined_by(&BTreeSet::new(), 2).expect("identity rebuild");
     assert!(b.face_refine().is_empty());
     assert_eq!(vert_bits(&a), vert_bits(&b));
     assert_eq!(a.mesh.tris, b.mesh.tris);
@@ -52,7 +52,7 @@ fn refining_the_lateral_doubles_both_rims_and_both_caps_follow() {
         "a tube of two N-rings is 2N triangles"
     );
     let b = a
-        .refined_at(&[0u32].into_iter().collect())
+        .refined_by(&[0u32].into_iter().collect(), 2)
         .expect("refined rebuild");
     assert_eq!(b.face_refine().get(&0), Some(&2));
     assert_eq!(
@@ -78,7 +78,7 @@ fn refining_one_cap_refines_its_rim_alone_and_the_tube_zips_unequal_rims() {
     let a = cyl();
     let n = face_tris(&a, 1);
     let b = a
-        .refined_at(&[1u32].into_iter().collect())
+        .refined_by(&[1u32].into_iter().collect(), 2)
         .expect("refined rebuild");
     assert_eq!(face_tris(&b, 1), 2 * n, "the refined cap's rim is at 2N");
     assert_eq!(face_tris(&b, 2), n, "the other cap's rim is untouched");
@@ -95,13 +95,13 @@ fn refinement_composes_by_doubling_and_saturates_at_the_ceiling() {
     let a = cyl();
     let n = face_tris(&a, 1);
     let lateral: BTreeSet<u32> = [0u32].into_iter().collect();
-    let b = a.refined_at(&lateral).expect("×2");
-    let c = b.refined_at(&lateral).expect("×4");
+    let b = a.refined_by(&lateral, 2).expect("×2");
+    let c = b.refined_by(&lateral, 2).expect("×4");
     assert_eq!(c.face_refine().get(&0), Some(&4));
     assert_eq!(face_tris(&c, 0), 8 * n);
     let mut d = c;
     for _ in 0..10 {
-        d = d.refined_at(&lateral).expect("towards the ceiling");
+        d = d.refined_by(&lateral, 2).expect("towards the ceiling");
     }
     assert_eq!(d.face_refine().get(&0), Some(&FACE_REFINE_MAX));
     assert_eq!(face_tris(&d, 0), 2 * n * FACE_REFINE_MAX as usize);
@@ -112,10 +112,10 @@ fn refinement_composes_by_doubling_and_saturates_at_the_ceiling() {
 fn refinement_is_standing_across_a_from_topology_rebuild() {
     let a = cyl();
     let b = a
-        .refined_at(&[2u32].into_iter().collect())
+        .refined_by(&[2u32].into_iter().collect(), 2)
         .expect("refined rebuild");
     let c = b
-        .retessellated_at_current_d_eps()
+        .rebuilt_with_rim_overrides(&std::collections::BTreeMap::new())
         .expect("rebuild from topology");
     assert_eq!(c.face_refine(), b.face_refine());
     assert_eq!(vert_bits(&b), vert_bits(&c));
@@ -125,5 +125,5 @@ fn refinement_is_standing_across_a_from_topology_rebuild() {
 #[test]
 fn refining_an_out_of_range_face_is_loud() {
     let a = cyl();
-    assert!(a.refined_at(&[7u32].into_iter().collect()).is_err());
+    assert!(a.refined_by(&[7u32].into_iter().collect(), 2).is_err());
 }

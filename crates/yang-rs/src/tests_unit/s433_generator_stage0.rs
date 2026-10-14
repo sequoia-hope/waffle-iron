@@ -137,7 +137,9 @@ fn s433_standing_rim_samples_survive_from_topology_rebuilds() {
     assert_eq!(boosted.standing_rim(), &ga);
     let n = boosted.as_mesh().verts.len();
 
-    let again = boosted.retessellated_at_current_d_eps().unwrap();
+    let again = boosted
+        .rebuilt_with_rim_overrides(&std::collections::BTreeMap::new())
+        .unwrap();
     assert!(has(&again));
     assert_eq!(again.as_mesh().verts.len(), n);
     let empty = BTreeMap::new();

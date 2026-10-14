@@ -146,6 +146,22 @@ pub enum Curve {
     SurfacePair { a: Surface, b: Surface },
 }
 
+/// Plane carrier of a planar conic: `n·x + d = 0` through the conic's
+/// center / vertex with the conic's plane normal (unit as stored).
+/// `SurfacePair` (non-planar) and `LineSegment` (no carrier) yield `None`.
+pub(crate) fn curve_plane(c: &Curve) -> Option<([f64; 3], f64)> {
+    let (p, n) = match c {
+        Curve::Circle { center, normal, .. } => (center, normal),
+        Curve::Ellipse { center, normal, .. } => (center, normal),
+        Curve::Parabola { vertex, normal, .. } => (vertex, normal),
+        Curve::Hyperbola { center, normal, .. } => (center, normal),
+        Curve::LineSegment | Curve::SurfacePair { .. } => return None,
+    };
+    let n = n.as_array();
+    let q = p.as_array();
+    Some((n, -(n[0] * q[0] + n[1] * q[1] + n[2] * q[2])))
+}
+
 // =========================================================================
 // PR-YR11 — ONE shared ellipse frame (analogous to `ortho_basis` for circles).
 //

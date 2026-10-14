@@ -494,7 +494,7 @@ pub(crate) fn s455_stage1_face_constraint_is_an_edge_of_the_cdt() {
         Some(1)
     );
     let again = rebuilt
-        .retessellated_at_current_d_eps()
+        .rebuilt_with_rim_overrides(&std::collections::BTreeMap::new())
         .expect("re-tessellate");
     assert_eq!(again.as_mesh().tris.len(), mesh.tris.len());
 }

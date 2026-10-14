@@ -6909,22 +6909,6 @@ pub(crate) fn face_chord_bound(f: &BRepFace, edges: &[crate::BRepEdge]) -> Optio
     }
 }
 
-thread_local! {
-    /// The fire count of the most recent [`boundary_domain_postcondition`]
-    /// (reset at its entry): the op-level ladder reads it after the natural
-    /// op to decide whether §4.5.2 refinement is owed. Thread-local for the
-    /// same reason as `CHORD_REFINE` (the pipeline is single-threaded per op;
-    /// parallel test threads must not see each other's count).
-    static BOUNDARY_DOMAIN_FIRES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// The fires themselves (spec `yang_45_boundary_point_domain_certificate`
-    /// §8, P0031): the op-level LOCAL ladder needs each fire's SITE — where
-    /// the vertex went and which faces its triangles carry — to name the
-    /// curved surfaces whose resolution the paper's §4.5.2 says to raise
-    /// ("the parametric surfaces associated with the erroneous regions").
-    static BOUNDARY_DOMAIN_FIRE_RECORDS: std::cell::RefCell<Vec<DomainFire>> =
-        const { std::cell::RefCell::new(Vec::new()) };
-}
-
 /// One Yang §4.5 boundary-point domain fire: a relocated vertex whose step
 /// `pre → post` left face `face` of input `input` across its crease `edge`
 /// (`f_pre` / `f_post` the signed divider distances, see
@@ -6942,26 +6926,6 @@ pub(crate) struct DomainFire {
     pub(crate) pre: [f64; 3],
     pub(crate) post: [f64; 3],
     pub(crate) incident: Vec<(InputId, u32)>,
-}
-
-/// The number of Yang §4.5 boundary-point domain fires the last Stage 4 of
-/// this thread recorded (0 when the certificate is off or nothing fired).
-pub(crate) fn boundary_domain_fires() -> usize {
-    BOUNDARY_DOMAIN_FIRES.with(|c| c.get())
-}
-
-/// The fires of the last Stage 4 of this thread, in the deterministic order
-/// the postcondition found them (empty when the certificate is off or
-/// nothing fired). A clone: the records stay readable until the next reset.
-pub(crate) fn boundary_domain_fire_records() -> Vec<DomainFire> {
-    BOUNDARY_DOMAIN_FIRE_RECORDS.with(|c| c.borrow().clone())
-}
-
-/// Forget the last Stage 4's fire count (the op-level driver resets before
-/// each `boolean_once` so a STOP before Stage 4 cannot read a stale count).
-pub(crate) fn reset_boundary_domain_fires() {
-    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(0));
-    BOUNDARY_DOMAIN_FIRE_RECORDS.with(|c| c.borrow_mut().clear());
 }
 
 /// Yang §4.5 boundary-point DOMAIN certificate, as a Stage-4 postcondition
@@ -7000,8 +6964,6 @@ fn boundary_domain_postcondition(
 ) -> Result<(), YangError> {
     use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex};
     let mode = std::env::var("YANG_S45_BOUNDARY_DOMAIN").unwrap_or_default();
-    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(0));
-    BOUNDARY_DOMAIN_FIRE_RECORDS.with(|c| c.borrow_mut().clear());
     if mode == "0" || mode == "off" {
         return Ok(());
     }
@@ -7076,11 +7038,10 @@ fn boundary_domain_postcondition(
             }
         }
     }
-    // §4.5 trigger T2 (`boolean::failures`): every fire is a failure site
-    // with the faces it already names. Record-only.
+    // §4.5 trigger T2 (`boolean::failures`, spec `yang_452_refinement_loop.md`
+    // §3): every fire is a failure site with the faces it already names;
+    // the one refinement loop reads them from there.
     crate::boolean::failures::record_domain_fires(&records);
-    BOUNDARY_DOMAIN_FIRES.with(|c| c.set(fires.len()));
-    BOUNDARY_DOMAIN_FIRE_RECORDS.with(|c| *c.borrow_mut() = records);
     if fires.is_empty() {
         return Ok(());
     }

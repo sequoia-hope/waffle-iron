@@ -402,7 +402,24 @@ Do NOT skip to lower-priority items because they are easier.
    junction; the ring builder's bit-exact E-C1 policy for Stage-0
    crossing twins is unchanged — spec `stage1_azimuth_merge_unequal_rings.md`;
    canonical corpus **346C / 0W / 22E / 5EE / 0T + 1U over 374** (release, 8 jobs, 900 s; wall 977.7 s) — versus 343C / 0W / 25E exactly THREE moves, P0044 / P0054 / P0058 ERROR → SUPPORTED_CORRECT, zero regressions (R0072 holds at `TAU_WORK`), one detail drift (P0052's face id under the same `surface-pair Newton projection did not converge` text); the 22 ERROR rows are the seven C-series walls, P0026 and the open tail P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062).
-   **The open P-series ERROR tail is P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062**
+   **2026-10-14: THE FAITHFUL CLEANUP BEGINS** (`specs/yang_faithful_cleanup.md`,
+   the plan of record; governance A15.7; user: *"ad hoc patches will destroy a
+   kernel like this. the fixes must be principled. the principles are the
+   paper"*). Phase 0: 11 gated-off experiment knobs and 7.2k lines of the
+   dead machinery behind them deleted, the P2 ledger check made mechanical.
+   Phase 1 (1a, 1b, 1e, 1c): the §4.5.2 refinement UNIT `BRep::face_refine`
+   (density ×2 per face, rims at N·k over the finer incident face), the
+   failure-site RECORD `boolean::failures` (T1/T2/T4 where detected, T4 on
+   the emitted body, T3b output-level curve crossings), the §4.5.4 census on
+   a shared AABB octree (measured: every improper pair on CORRECT outputs is
+   an un-retriangulated Stage-4 chord crossing — the mesh census waits for
+   Phase 2's §4.4.1), and **the ONE loop `boolean::refine_loop`** replacing
+   both whole-op ladders and the lens (`specs/yang_452_refinement_loop.md`;
+   N62 RESOLVED): **P0046 / P0050 / P0052 / P0062 CONVERTED**, canonical
+   corpus **350C / 0W / 18E / 5EE / 0T + 1U over 374** (wall 967.6 s), zero
+   regressions. Next: the nine Stage-1 pre-emptive arms retire one per corpus
+   run, wedge first (spec §7); then Phase 2, §4.4.1 mesh updating.
+   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0049, P0051, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

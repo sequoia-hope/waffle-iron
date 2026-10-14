@@ -633,20 +633,20 @@ impl BRep {
 
     /// Yang §4.5.2 local refinement (spec `specs/yang_452_refinement_loop.md`
     /// §5): the same topology with every face in `faces` discretized at
-    /// TWICE its current density (the paper's refinement step, "the mesh
-    /// density increases by 2×", `refs/text/yang2025_hybrid_boolean.txt:365-366`),
+    /// `times` its current density (`times` a power of two ≥ 2; 2 is the
+    /// paper's step, "the mesh density increases by 2×",
+    /// `refs/text/yang2025_hybrid_boolean.txt:365-366`; a §4.5.2
+    /// under-resolution certificate names a larger first rung, §6.1),
     /// re-tessellated from topology with every standing override carried
-    /// on. A face already at [`crate::stage1_tessellate::FACE_REFINE_MAX`]
-    /// stays there (the ceiling bounds the loop; the caller reads
-    /// [`Self::face_refine`] to know). An empty `faces` is the byte-identical
-    /// identity; a face index out of range is a loud `MalformedTopology`.
-    // Phase 1a primitive (spec §10 landing sequence): its production reader
-    // is the one §4.5.2 loop of Phase 1c; pinned by `tests_unit/s452_face_refine.rs`.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub(crate) fn refined_at(
+    /// on. A face at [`crate::stage1_tessellate::FACE_REFINE_MAX`] stays
+    /// there. An empty `faces` is the byte-identical identity; an index out
+    /// of range is a loud `MalformedTopology`.
+    pub(crate) fn refined_by(
         &self,
         faces: &std::collections::BTreeSet<u32>,
+        times: u32,
     ) -> Result<Self, YangError> {
+        let times = times.max(2);
         let mut refine = self.face_refine.clone();
         for &f in faces {
             if f as usize >= self.faces.len() {
@@ -656,7 +656,9 @@ impl BRep {
                 )));
             }
             let cur = refine.get(&f).copied().unwrap_or(1).max(1);
-            let next = (cur * 2).min(crate::stage1_tessellate::FACE_REFINE_MAX);
+            let next = cur
+                .saturating_mul(times)
+                .min(crate::stage1_tessellate::FACE_REFINE_MAX);
             if next > 1 {
                 refine.insert(f, next);
             }
@@ -831,34 +833,6 @@ impl BRep {
             standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
             face_refine: crate::stage1_tessellate::FaceRefine::new(),
         })
-    }
-
-    /// Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
-    /// this B-Rep's Stage-1 mesh forcing the rim segment count to at least
-    /// `n`. Topology (vertices/edges/faces) is unchanged — only the
-    /// tessellation density rises, which is always chord-valid (a finer N
-    /// only shrinks the sagitta; governance A14.3).
-    /// §4.5.2 local refinement (spec `specs/yang_452_local_refinement.md`):
-    /// re-derive this B-Rep's Stage-1 discretization at the `d_ε` currently in
-    /// force — i.e. inside [`crate::stage1_tessellate::with_refined_chord`].
-    ///
-    /// TOPOLOGY IS UNTOUCHED: the same vertices, edges and faces, re-meshed at
-    /// the finer tolerance, which is exactly what Yang §4.5.2 asks for
-    /// ("we increase the mesh resolution of the parametric surfaces associated
-    /// with the erroneous regions"). Any phantom-guard rim boost already in
-    /// force (`forced_rim_n`) is preserved, so the two mechanisms compose. At
-    /// the natural rung this returns a byte-identical rebuild.
-    pub(crate) fn retessellated_at_current_d_eps(&self) -> Result<Self, YangError> {
-        Self::from_topology_with_rim_overrides(
-            self.vertices.clone(),
-            self.edges.clone(),
-            self.faces.clone(),
-            self.forced_rim_n,
-            &self.standing_rim,
-            &self.standing_face,
-            &self.standing_face_constraints,
-            &self.face_refine,
-        )
     }
 
     pub(crate) fn rebuilt_with_min_rim_segments(&self, n: usize) -> Result<Self, YangError> {
