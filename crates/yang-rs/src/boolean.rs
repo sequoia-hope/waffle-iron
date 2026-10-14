@@ -882,7 +882,7 @@ pub fn boolean(
     // output — the quantity that decides whether T3 can run on every result.
     if std::env::var_os("YANG_SELFX_COST_PROBE").is_some() {
         if let Ok(brep) = &natural {
-            let t0 = std::time::Instant::now();
+            let t0 = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_SELFX_COST_PROBE), never set in wasm
             let report = cherchi_rs::detect_improper_contacts(&brep.mesh.verts, &brep.mesh.tris);
             eprintln!(
                 "[selfx-cost] op={op:?} tris={} verts={} census={:.3}s improper={} unresolved={}",

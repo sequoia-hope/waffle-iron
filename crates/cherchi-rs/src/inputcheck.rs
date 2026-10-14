@@ -828,10 +828,10 @@ mod tests {
     fn broad_phase_cost_census() {
         for (n, size) in [(20_000usize, 0.02f64), (60_000, 0.012)] {
             let (v, t) = lcg_soup(n, 77, size);
-            let t0 = std::time::Instant::now();
+            let t0 = std::time::Instant::now(); // wasm-ok: #[ignore]d test-only measurement
             let tree = detect_improper_contacts(&v, &t);
             let dt_tree = t0.elapsed();
-            let t1 = std::time::Instant::now();
+            let t1 = std::time::Instant::now(); // wasm-ok: #[ignore]d test-only measurement
             let sweep = detect_improper_contacts_sweep(&v, &t);
             let dt_sweep = t1.elapsed();
             assert_eq!(tree.improper_pairs, sweep.improper_pairs);
