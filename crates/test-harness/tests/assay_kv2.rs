@@ -2134,8 +2134,11 @@ fn smoke_corpus_boundary_categories() {
         ("P0048", Category::Error),
         // P0049 (3 ops) ⇒ `boolean_subtract` `SelfIntersectingBooleanOutput`
         // on two PLANAR faces (31 × 34, 3 penetrations). Same class at ×1e-3
-        // and ×1e3.
-        ("P0049", Category::Error),
+        // and ×1e3. CONVERTED 2026-10-14 (Phase 1f): the §4.3 near-miss
+        // check T6 names two crossings the natural subtract's meshes missed
+        // (faces A6×B6, A7×B6) and the §4.5.2 loop's ×4 run clears them
+        // (spec `yang_452_refinement_loop` §3 "T6 as built").
+        ("P0049", Category::SupportedCorrect),
         // P0050 (4 ops) ⇒ explicit-Union `ring rejected by CDT` with a
         // 22-tooth gear — a fifth locus. ×1e3 keeps the class, ×1e-3 CORRECT.
         ("P0050", Category::SupportedCorrect),
