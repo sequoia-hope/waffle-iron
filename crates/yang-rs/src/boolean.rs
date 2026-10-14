@@ -888,8 +888,7 @@ fn refine_452(
         // the B-Rep's. The mesh is the computational tool (A15), the B-Rep
         // is the output; an absolute test on the tool's chords is the
         // contradiction `output_improper_count`'s own contract names
-        // ("never as an absolute 'is this output valid?' test"). The strict
-        // clause survives as the A/B knob `YANG_452_REQUIRE_CLEAN=1`.
+        // ("never as an absolute 'is this output valid?' test").
         let improper = output_improper_count(&brep);
         if probe {
             eprintln!(
@@ -900,11 +899,10 @@ fn refine_452(
         if unpaired == 0 {
             // Converged: the refinement produced a watertight 2-manifold
             // output. Every downstream gate still applies unchanged.
-            let require_clean = std::env::var_os("YANG_452_REQUIRE_CLEAN").is_some();
-            if adopt && (improper == 0 || !require_clean) {
+            if adopt {
                 return Some(brep);
             }
-            continue; // census, or (A/B strict mode) a self-contacting rung
+            continue; // census
         }
         // Strict-decrease monitor: abort the ladder on the first rung that did
         // not improve on the previous one.
@@ -1173,7 +1171,6 @@ fn refine_452_domain(
              fire(s); rungs={rounds:?}"
         );
     }
-    let require_clean = std::env::var_os("YANG_452_REQUIRE_CLEAN").is_some();
     // The LOCAL form first (spec §8, P0031): the paper's remedy raises the
     // resolution of "the parametric surfaces associated with the erroneous
     // regions", and the fires name those regions. Each rung spends the
@@ -1241,7 +1238,7 @@ fn refine_452_domain(
                     brep.mesh.tris.len(),
                 );
             }
-            if unpaired == 0 && fires == 0 && (improper == 0 || !require_clean) {
+            if unpaired == 0 && fires == 0 {
                 return Some(brep);
             }
         }
@@ -1272,7 +1269,7 @@ fn refine_452_domain(
                 brep.mesh.tris.len(),
             );
         }
-        if unpaired == 0 && fires == 0 && (improper == 0 || !require_clean) {
+        if unpaired == 0 && fires == 0 {
             return Some(brep);
         }
     }

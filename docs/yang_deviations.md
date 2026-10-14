@@ -35,6 +35,37 @@ The user, 2026-10-14, on the batch below: *"sometimes Opus would ask questions I
    - **N64.** PROPOSED since 2026-09-27; behaved honestly in P0060 (its STOP window left the 1.47e-8 gap exact). Needs the prose sign-off request of point 3.
    - **The thirty-eight unledgered conversions** P0025–P0062 (less the open tail) of 2026-10-08 → 2026-10-14. Each needs either an entry (where it changed a mechanism this ledger owns: §4.5.3 sweep, §4.5.2 ladder, §4.3.3 guard arms, Stage-1 rim sampling, Stage-0 edge-in-plane, kernel-v2 collapses) or a "faithful, no deviation" line in the triage ledger with the paper cite. The triage ledger's per-case sections already hold the mechanism and the spec; the missing piece is the cross-reference to the entry whose rule they amended.
 5. **Fine as they stand** (same audit): N33 (its conservative AABB was the correct mechanism and fixed P0041), N17 (one honest customer, R0023), N7 (see point 1), the Cherchi arrangement entries N13–N24 (no customer since N69).
+6. **Phase 0 landed 2026-10-14**: 11 gated-off experiment knobs and the dead machinery behind them deleted (net −7,216 lines, 71 tests on deleted code; N2 update, N50 note), the P2 pre-commit check live, the catch-up table below written. Corpus proof in `docs/yang_tail_triage.md` §"2026-10-14 (Phase 0)".
+7. **The cleanup's plan of record is `specs/yang_faithful_cleanup.md`** (2026-10-14, user: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*): the substitution table (nine Stage-1 arms → §4.5.2; eight Stage-4 passes → §4.4.1/§4.3/§4.5.3), the phases, the knob policy, and the acceptance metric — REMOVAL with the corpus held, never a score.
+
+### Catch-up ledger — the conversions of 2026-10-08 → 10-14 and the entries they amended
+
+Written 2026-10-14 under the directive. Each row names the mechanism the conversion changed and the ledger entry whose rule it amended, or states that the change is the paper's own form. Detail per case: `docs/yang_tail_triage.md` §(date). "Substitute" marks a change that stands in for a missing paper mechanism and is slated for retirement by `specs/yang_faithful_cleanup.md`.
+
+| case(s) | mechanism changed | entry amended / verdict | paper |
+|---|---|---|---|
+| P0025, P0027, incidence gate (10-08, 10-13) | Stage-4 triple-corner admission: junction-map enumeration → three distinct incident surfaces | **faithful** — §4.5.1 "s is a corner point where more than two surfaces meet" (`:689-692`); N30/N31 closed forms unchanged | §4.5.1 |
+| P0028 (10-08) | §4.5.3 collapse victim ranks by incidence (§3d) | **N29 amended** — the ranking itself is the deviation; paper's order is remove-next-and-reconnect (`:727-732`) | §4.5.3 |
+| P0029 (10-09) | #195 arm pays sub-render demands locally (apex-centred rim samples) | **substitute** for §4.5.2 local refinement (N5 family) | §4.5.2 |
+| P0030 (10-10) | untouched-shell passthrough (`shell_contact_census`, set algebra on whole shells) | **N33 extended** — §4.3.1's 2d_ε check refined by §4.1 subdivision certifies untouched shells; outside the paper's interacting scope, as N33 | §4.3.1 |
+| P0031 (10-10) | §4.5.2 LOCAL form: apex-centred lens on the faces a certificate names, then the ladder | **N62 amended → the paper's local form exists**; the lens is the seed of Phase 1 | §4.5.2 `:659-680` |
+| P0032 + 3a/3b (10-10/11) | torus × plane `SurfacePair`; Stage-0 MIXED overlay vocabulary; torus owner's chord budget | **N37 extended**, **N25 extended** | §4.3, §4.5.5 |
+| P0033 (10-11) | §4.4.2 carried-edge restoration re-types onto Hyperbola / SurfacePair with the §4.3.4 bound | **N60 amended** — faithful generalization | §4.4.2, §4.3.4 |
+| P0034 (10-11) | Case-III guard gains the skew-axis PINCH verdict (Case V); kernel-v2 CDT neighbour-chord tags any twin face | **N75 amended** (substitute: the verdict is pre-emptive at Stage 1); kernel-v2 render CDT — no yang entry | §4.3.3 |
+| P0035 (10-12) | kernel-v2 seam bridge clears boundary nodes by the render floor | kernel-v2 render tessellator — **no yang deviation** | — |
+| P0036 (10-12) | §4.5.3 carried-curve overtake arm (exact parameter order) | **N29 amended** (second detector arm; faithful in direction, N29's posture) | §4.5.3 |
+| P0037 (10-12) | self-contact guard halves the cylinder CHART bound | **substitute** for §4.1 d_ε certificate (N5/N61) | §4.1 |
+| P0038 (10-12) | universal-cover chart for a sheared lateral | **N5/N61 amended** — a chart choice inside "discretize each patch independently" (`:397-402`); folds into Phase 3 | §4.1.2 |
+| P0039 (10-12) | §4.5.2 STOP ladder runs to the ceiling | **N62/N67 amended — faithful**: "repeated if optimization failure persists" (`:650-652`) | §4.5.2 |
+| P0040 + generalization (10-12/13) | §4.5.1 transit certifies the landing side; a crease's divider is its OTHER surface for every planar conic | **faithful** — §4.5.1 step rescaling onto the boundary curve (`:664-676`) | §4.5.1 |
+| P0041 (10-12) | kernel-v2 body splitter clusters by orientation + containment | kernel-v2 — **no yang deviation**; adopted N33's conservative AABB | — |
+| seed-5 adjudication (10-13) | harness: exact chain composes Subtract/Intersect; `NonManifoldVertex` names its vertex | harness + kernel-v2 diagnostics — **no deviation** | — |
+| P0060 (10-13) | kernel-v2 KV15b sub-resolution collapse applies §4-I8 CONTAINMENT | **N56's kernel-v2 sibling amended** — the containment criterion is now mandatory for every collapse (directive §4) | §4.3 `:535-536` |
+| P0057, P0047 (10-13) | §4.3.3 piercing-edge DIP arm; §4.5.3 ranks a Stage-1 mint as a corner (§3e) | **substitute** (dip arm, N5 family); **N29 amended** (§3e, the ranking again) | §4.5.2, §4.5.3 |
+| P0059 (10-13) | inc-4c fan rebuild orients by `surface_normal_at`; DIRECTED-pairing postcondition | **N58 amended** — a repair that the paper's merge-with-retriangulation never needs (Phase 2b) | §4.4.1 |
+| P0044, P0054, P0058 (10-13) | wedge arm cuts at surface roots; azimuth-merge ZIPPER; one rim sample per model-scale request; `merge_rim_points` TAU_WORK twins | **substitute** (wedge arm, N5 family); **N5 amended** (the zipper is the first §4.1.2 step); **N27 amended** (sample dedup at the composition layer; the model band refuted by R0072 at that layer) | §4.1.2, §4.3 |
+
+Rows above cover P0025–P0062 less the open tail (P0042, P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062) and P0026 (adjudicated, not a mechanism change).
 
 ## Sign-off batch 2026-07-16 — RESOLVED BY DELEGATION (2026-07-17) — **RE-GRADED DELEGATED 2026-10-14, see the directive above**
 
@@ -423,6 +454,24 @@ it can still be supplied.
 
 
 **State:** OPEN — remediation actively tracked; investigation on this component follows the in-entry status.
+
+**Update (2026-10-14, cleanup Phase 0 — `specs/yang_faithful_cleanup.md`).**
+The #169 banked mesh-update primitives that never ran in production —
+`replan_degenerate_cylinder_patches`, `remesh_nonmanifold_patches`,
+`run_meshup_splice_passes` and the `stage4_splice` loop, all of
+`stage4_update` but `Patch`, the I2c input-edge refinement, and the N2-3a
+fold-risk PLANNER (`FoldRisk`, `rank_fold_risks`, `classify_folds`, …; the
+selector layer the live Fig-11 merge reads stays) — are DELETED with their
+gates (`YANG_MESHUP_ENABLE`, `YANG_MESHUP_RECDT`, `YANG_N2_RECDT_ENABLE`,
+`YANG_441_BOUNDARY_EXIT` / `_INPUT_REFINE` / `_CORNER_MERGE` / `_RIM_TRIM`,
+`YANG_S4_FIG11_MERGE`, `YANG_S4_FOLD_RISK`). Git history is the bank. The
+N55 finding stands: that machinery greened nothing because it was aimed at
+the wrong population. **Phase 2 of the cleanup builds §4.4.1 from the paper
+(`:605-660`, Fig. 11): merge-with-retriangulation replaces `collapse_vertex`
++ `repair_fan_cluster` (N58), the §4.5.3 sweep takes the paper's ORDER
+instead of N29's victim ranking, and every §4.3 collapse carries
+carried-surface containment.** N2 stays OPEN until that lands; the
+remediation vehicle is now the cleanup spec, not epic #169.
 **Remit expansion (2026-07-17, user-ratified N6 closure):** N2 also carries
 the **§4.5.4 removal** half transferred from N6 — remove/refine the
 illegal mesh self-intersections the shipped detection finds. Concrete
@@ -4294,6 +4343,8 @@ Assay evidence this increment: baseline 239C/52E → weld 236C/54E (R0012 +1,
 F0063/F0090/R0014/R0088 −4), 0 SUPPORTED_WRONG.
 
 ### N50 — f32-render-twin weld before topology emission (Stage 5/6; the shipped fix for R0012/R0098, task #166)
+
+*(2026-10-14: `weld_f32_render_twins` and its `n50_f32_render_twin.rs` pins DELETED in cleanup Phase 0 — it had no production caller since I4-1 retired the arm; the §4.3 dedup of N56 is what recovers its cases.)*
 
 **State:** HISTORICAL — SUPERSEDED — the shipped f32-render-twin weld was retired from production by N53 and confirmed as the sole real hack by N56 (its cases recover via §4.3 dedup; it regresses C0036). The dev-gated arm (`YANG_WELD_ENABLE=f32`) and the `weld_enabled` gate were DELETED by the §4.4.1 epic's I4-1 (2026-08-15); `weld_f32_render_twins` survives as a unit-tested banked primitive.
 

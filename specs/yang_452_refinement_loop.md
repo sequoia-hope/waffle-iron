@@ -1,0 +1,231 @@
+# §4.5.2 — ONE refinement loop: the paper's response to mesh inadequacy
+
+**Status:** DESIGN 2026-10-14 (Phase 1 of `specs/yang_faithful_cleanup.md`).
+Owner `yang-rs` `boolean.rs` (`boolean`, `refine_452`, `refine_452_domain`),
+`boolean/rim_junction.rs` (the lens sampler), `brep.rs` (per-face rebuild).
+Resolves ledger **N62** when landed; retires the nine Stage-1 pre-emptive
+arms (cleanup §2a) one per corpus run. Paper citations are line numbers in
+`refs/text/yang2025_hybrid_boolean.txt`.
+
+## 1. The paper's loop, as written
+
+> "The failed areas will undergo local intersection handling or local mesh
+> refinement until all the failures are resolved." (`:309-312`)
+>
+> "After optimization, we collect the point pairs that cannot converge to a
+> distance of 0 within their domains. … If such bound cannot be found or
+> after crossing boundaries the optimization still fails, we increase the
+> mesh resolution locally and re-optimize as the second strategy shown in
+> Fig. 14. The above procedures are repeated if optimization failure
+> persists. The algorithm is guaranteed to terminate since the mesh
+> intersections converge to the spline surface intersections under
+> refinement." (`:646-652`)
+>
+> "The surfaces requiring refinement include those traversed by C_p (red
+> regions) and the neighbors of a ring of them (orange regions). We then
+> compute the intersections between the meshes only in the refined regions."
+> (`:663-668`)
+>
+> "The self-intersections that may occur during surface discretization and
+> the new intersections that may arise during mesh updating can lead to
+> topological inconsistencies between the mesh and the B-Rep model … We
+> detect these illegal intersections and perform local refinement."
+> (`:752-758`, §4.5.4)
+
+Four facts the paper fixes and the current code does not:
+
+1. **Refinement is a RESPONSE to a detected failure**, never a prediction
+   made before the arrangement runs. The paper discretizes at d_ε, runs,
+   and refines where it failed. Our nine Stage-1 arms (graze, pinch, lens,
+   edge graze, plane graze, segment-face graze, pierce dip, wedge,
+   self-contact) compute at Stage 1 where the mesh WILL fail and inject
+   samples pre-emptively — nine predictors, each wrong in its localization
+   at least once (P0013, P0029, P0044, P0047, P0057).
+2. **There is ONE trigger set**: optimization failures within their domains
+   (§4.5), plus illegal intersections of the output (§4.5.4). Today the
+   triggers are scattered: `Stage4RegionInvalid` → `refine_452`;
+   boundary-domain fires → `refine_452_domain`; a self-intersecting output →
+   the rim×plane retry, but only when a graze predictor says so; a Stage-5/6
+   non-manifold STOP → nothing.
+3. **Locality is by FACE** — the surfaces the failing curve segment
+   traverses plus one ring — not by body (N62's whole-op ladder) and not by
+   a rim lens whose shape is one arm's guess.
+4. **The loop runs until it terminates**, by convergence under refinement;
+   the budget is the ceiling, not the plan.
+
+## 2. Contract
+
+```
+boolean(a, b, op):
+    out   = run(a, b)                          # natural d_ε
+    k     = 0
+    loop:
+        F = failures(out)                      # §3: the trigger set
+        if F.is_empty():            return out
+        if k == CEILING:            return out.into_stop()   # loud, with F
+        R = region(F)                          # §4: faces + one ring, per operand
+        (a, b) = refine(a, b, R, factor = 2)   # §5: those faces at d_ε/2^(k+1)
+        out = run(a, b)
+        k += 1
+```
+
+`run` is today's `boolean_once` with the pre-emptive arms REMOVED (§7
+retires them one at a time). `out` is either an emitted B-Rep or a typed
+STOP; both carry their failure set.
+
+### 3. The trigger set `failures(out)`
+
+Each trigger names the faces (input, face id) at its site. The set is the
+union of:
+
+| trigger | paper | today's producer | names |
+|---|---|---|---|
+| T1 relocation did not converge in-domain | §4.5 `:646-648` | `YangError::Stage4RegionInvalid { vertex, reason, under_resolution }` (`LocalRefinementRequired`, `OffCurveBeyondChordBand`, `RelocationCrossedCarrierVertex`) | the faces of the vertex's live triangles on both operands (today the error carries the vertex only — it gains `incident: Vec<(InputId, u32)>`, the `DomainFire` form) |
+| T2 boundary point left its face across a crease | §4.5 / Fig. 13 (`:683-700`) | `DomainFire` records (`boundary_domain_fire_records`) | `fire.incident` |
+| T3 illegal intersection in the output | §4.5.4 `:752-758` | `cherchi_rs::detect_improper_contacts` on the emitted mesh (`output_improper_count`) | the two faces of each improper pair, via the triangle attribution |
+| T4 non-manifold output | §4.4.3 `:596-600` (the paper's output is 2-manifold by construction; a non-manifold emission is a mesh-updating failure the paper's loop would have refined) | `NonManifoldOutput`, unpaired-edge census (`refine_452_unpaired`) | the faces of the triangles at the unpaired edges |
+| T5 Stage-6 reassembly STOP (deadend, loop simplicity, face resolution) | same as T4 | typed Stage-5/6 errors | the faces the error names (they do today, by output face; map to input faces through the attribution) |
+
+Not triggers: `NonManifoldInput` (topological, the paper's precondition
+"watertight manifold B-Rep models" `:793`; refining it is futile, measured
+R0019), the loud-by-design walls (coplanar residue, feature floor, the
+minted tangency P0026), `AmbiguousCurve` (a Stage-3 producer fault).
+
+**Cost of T3.** `detect_improper_contacts` is O(n²) today and was measured
+to push F0090 / R0019 / R0081 over the corpus budget when always-on, which
+is why it rides a predictor gate. The paper runs it on every result. The
+remedy is an acceleration structure (a BVH over the output triangles,
+cherchi-rs already has one for the arrangement), not a gate; it is the one
+piece of new non-paper engineering this spec needs, and it is Phase 1
+step 2.
+
+### 4. The region `region(F)`
+
+For each failure site, the faces it names on each operand, plus every face
+sharing an edge with one of them (the paper's "ring of neighbors", Fig.
+14's orange). Expressed per operand as `BTreeSet<u32>` of face ids. A site
+with no curved face in its region contributes planar faces only, whose
+refinement is a no-op at Stage 1 (planar faces carry no chord error, N9);
+such a site refines nothing and, if it is the only failure, the loop ends
+with the STOP standing — honestly, as today.
+
+### 5. The refinement `refine(a, b, R, factor)`
+
+**Per-face chord factor.** Stage 1 sizes every curved face from
+`chord_rel() · scale` (`normals_chord_bounds.rs`; one thread-local divisor
+for the whole op today). Measured 2026-10-14 (`stage1_tessellate.rs:466-527`):
+the rim ring count is ONE `n_seg` for every circle edge of the operand —
+`max_r` over all circles against one `d_eps` — so "per-face" refinement is,
+concretely, **per-RIM N**: a circle edge's ring is sized from the finer of
+its two incident faces' factors, and a band whose two rims differ in N is
+tessellated by the azimuth ZIPPER (`stage1_azimuth_merge_unequal_rings.md`,
+P0044) — the primitive that makes unequal rims legal geometry is already
+landed. `natural_rim_n(y)` and every reader of the operand-wide N become
+per-edge readers; Stage-3/4 band readers (`chord_tol_for_curved_owner` and
+the `*_chord_bound` family) read the face's factor, so mesh and bands move
+together per face (`fix_all_gates_sharing_a_metric`). It gains a per-operand map `face_factor: BTreeMap<u32, f64>`
+consulted by every `*_chord_bound` reader for the face in hand: the bound
+for face f is `CHORD_BASE · scale / (op_divisor · face_factor[f])`. Rims
+shared by two faces take the MAX of the two faces' demands (a rim ring is
+one sample set, the finer face wins — this is what keeps the shared-ring
+watertightness N5 relies on, and it is exactly how the paper's CDT
+re-samples a boundary curve once for both patches, `:402-407`).
+
+Reader map (2026-10-14): the operand-wide bound is read by
+`stage3_ssi::chord_tol_for_curved_owner` (9 call sites across Stage 3/4),
+`stage4_correct::input_curved_chord_bound` (5), `boolean.rs:2744/:3209`,
+`rim_junction::natural_rim_n` (`:235`), and Stage 1's ring builder
+(`stage1_tessellate.rs:473-609`, one `n_seg`, the ellipse/sphere/torus
+siblings at `:1095…`). A FACE-level reader already exists —
+`stage4_correct::face_chord_bound(f, edges)` (`:6872`) — and is the shape
+every reader takes under this spec; the owner-level readers become
+"max over the owner's faces" where they genuinely need an operand bound.
+
+`BRep::refined_at(faces: &BTreeSet<u32>, factor)` doubles `face_factor[f]`
+for every f in `faces` and rebuilds from topology
+(`from_topology_with_rim_overrides`, standing samples and `forced_rim_n`
+preserved). The body-wide `with_refined_chord` becomes the degenerate case
+`faces = all`, and stays available for the census ladder only.
+
+**What the lens was.** `domain_fire_local_rim_overrides` (P0031) is a
+hand-shaped special case of this: it refines ONE rim closure around ONE
+azimuth at `natural_step / divisor`. Under the per-face factor the same
+faces refine uniformly at d_ε/2 per rung — fewer bespoke rules (no apex,
+no half-span, no arc clipping, no `LOCAL_452_MAX_SAMPLES_PER_N` budget,
+no "all-planar sites derive nothing" fallback), and the sample count is
+bounded by the face's own extent. The lens code is retired when the first
+corpus run under per-face refinement holds P0031 (expected: it converges
+at rung 2 or 3 instead of lens rung 1, at a cost of one more op).
+
+### 6. The ladder and adoption
+
+- Rungs: factor 2 per iteration on the CURRENT region (regions accumulate
+  across iterations: a face refined at rung 1 and named again at rung 2 is
+  at factor 4). Ceiling: `REFINE_452_MAX_FACTOR = 64` per face (R0085 /
+  P0015 / P0039 all converge at or before 64). The under-resolution
+  certificate, when present, sets the FIRST factor for the faces it names
+  (the existing economy, `refine_452_rounds_for`).
+- Adoption: `failures(out)` is EMPTY. There is no separate "unpaired == 0"
+  / "fires == 0" / "improper == 0 unless not required" trio; those are T4,
+  T2, T3. (`YANG_452_REQUIRE_CLEAN` is deleted in Phase 0; the clause it
+  guarded is now simply T3.)
+- Strict-decrease monitor (Q3 clause 2): kept as a per-trigger count
+  `|F|`; a rung that does not reduce `|F|` continues (the paper does not
+  abort on a plateau — P0039's rung 2 plateaued and rung 6 converged) but
+  the ceiling bounds the loop. The monitor becomes a probe line.
+- Ordering: the loop replaces the three-remedy sequence in `boolean`
+  (rim-plane retry → STOP ladder → domain ladder). One loop, one trigger
+  set, one region rule.
+
+### 7. Retiring the arms (the proof obligation)
+
+One arm per corpus run, cheapest first. For arm X:
+
+1. Run the corpus with X off (`YANG_<X>=0`) and the loop on. Record every
+   case X protected (the moves CORRECT → anything).
+2. Each such case must come back CORRECT through the loop (by the trigger
+   it raises — T3 for the wedge/dip class, whose failure is a silent
+   topology the output self-intersection reveals; T1/T2 for the graze
+   class). A case that does not: the loop is incomplete, find which trigger
+   it needed (`YANG_452_PROBE`), fix the loop, re-run. The arm is never the
+   answer.
+3. Delete the arm, its knob, its demand functions, and the off-arms of its
+   pins (the on-arm stays, now asserting the loop converts the fixture).
+4. Record wall-time before/after; the paper's cost is paid honestly.
+
+Order: wedge (`segment_risk_intervals` + demand), pierce dip, segment-face
+graze, edge graze (`edge_graze_sites` …), rim×plane graze (both forms,
+`rim_plane_graze_min_segments` / `_local_rim_overrides`, and the
+`refine_rim_plane` retry pass), cylinder pinch, cylinder graze
+(`graze_min_rim_segments`), Case-IV phantom floor
+(`phantom_min_rim_segments`). The self-contact guard is Phase 3's.
+
+### 8. What this does NOT change
+
+- Stage-1 mints that are the paper's own "set r_A = r_B = r" (tangent
+  point/generator, §4.3.3; rim junctions; P3a conformal junction sampling;
+  Stage-0 overlay). They are not predictions of failure, they are shared
+  exact points, and they stay.
+- Stage 4's relocation and §4.5.1 transit. The loop wraps them.
+- The §4.5.2 census instruments (`YANG_452_PROBE`, `YANG_452_ROUNDS` for
+  the census ladder).
+
+## 9. Oracles
+
+- Unit: `refined_at` doubles the named faces' density and leaves the others
+  byte-identical; a shared rim takes the finer face's ring; `failures()`
+  names the faces of each trigger on fixtures (one per trigger type);
+  the loop converges on the P0031 fixture without the lens; the loop
+  STOPs loudly at the ceiling on P0026's minted tangency.
+- Corpus: step 1 (loop + per-face refinement, arms still on) must be
+  byte-identical or monotone; each arm retirement is its own run (§7).
+- Prospector: the per-seed ERROR rate after Phase 1 is the headline.
+
+## 10. Landing sequence
+
+1. `face_factor` + `refined_at` (Phase 1a, gated: nothing reads the map until 1c) — byte-identical.
+2. `failures(out)` with T1–T5 and face attribution; `Stage4RegionInvalid` gains `incident` (1b) — byte-identical (read-only).
+3. The loop replaces the three remedies, lens kept as a first rung for one run (1c) — corpus monotone; then lens deleted (1d) — corpus holds P0031.
+4. BVH-accelerated `detect_improper_contacts` so T3 can be always-on (1e) — corpus wall-time measured.
+5. Arm retirements §7, one per run (1f…).
+6. N62 → RESOLVED; N5's "local arms" paragraph struck; the nine arms' specs marked SUPERSEDED by this one.

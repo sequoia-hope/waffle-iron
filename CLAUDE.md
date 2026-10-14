@@ -101,7 +101,13 @@ rule already existed and was skipped for 38 conversions (2026-10-05 →
 10-14)** — check `git log -1 -- docs/yang_deviations.md` against the kernel
 log at session start; the catch-up debt and its order (N5 curved Stage 1,
 N29 §4.5.3 victim rule, the N47/N55/N56 weld band, then the rest) is the
-ledger's 2026-10-14 directive.
+ledger's 2026-10-14 directive. **The cleanup's plan of record is
+`specs/yang_faithful_cleanup.md`** — read it before any yang-rs change: it
+maps every Stage-1 sample arm and Stage-4 repair pass to the paper
+mechanism it stands in for (§4.5.2, §4.4.1) and fixes the order of
+retirement; a new arm or pass is not added, the paper mechanism is built.
+The pre-commit hook now blocks a kernel commit whose ledger did not move
+(`SKIP_LEDGER_CHECK=1` only for a mechanism-free refactor).
 
 ## Current Priorities
 

@@ -43,6 +43,54 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 0) — the faithful cleanup begins: governance A15.7, forty-five deviations re-graded DELEGATED, eleven gated-off experiments and the dead machinery behind them deleted (net −7,216 lines); corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
+
+**No mechanism changed; faithful, no deviation.** This is bookkeeping and
+deletion only, Phase 0 of `specs/yang_faithful_cleanup.md` (the plan of
+record, written today under the user's directive *"ad hoc patches will
+destroy a kernel like this. the fixes must be principled. the principles
+are the paper"*).
+
+- **Governance.** `ARCHITECTURAL_INVARIANTS.md` A15.7 "a delegation is not
+  a signature": the 2026-07-17 "no opinion on A B C" batch that made
+  forty-three ledger entries PERMANENT was a delegation; those entries plus
+  N57 and N62 are now `DELEGATED` (open debt) in `docs/yang_deviations.md`,
+  whose status index reads 2 OPEN + 45 DELEGATED + 1 PROPOSED. The ledger's
+  catch-up table maps every conversion of 2026-10-08 → 10-14 to the entry it
+  amended or marks it faithful with a paper cite.
+- **The P2 same-commit rule is now mechanical.** `.githooks/pre-commit`
+  check 3 blocks a commit touching `crates/yang-rs/src` or kernel-v2's
+  boolean unless `docs/yang_deviations.md` is staged or this ledger gains a
+  "faithful, no deviation" line (`SKIP_LEDGER_CHECK=1` for a mechanism-free
+  refactor).
+- **Deleted** (every unset path kept verbatim): the gates
+  `YANG_MESHUP_ENABLE`, `YANG_MESHUP_RECDT`, `YANG_N2_RECDT_ENABLE`,
+  `YANG_441_BOUNDARY_EXIT` / `_INPUT_REFINE` / `_CORNER_MERGE` / `_RIM_TRIM`,
+  `YANG_S4_FIG11_MERGE`, `YANG_452_REQUIRE_CLEAN`, `YANG_S4_FOLD_RISK`, and
+  with them `replan_degenerate_cylinder_patches`,
+  `remesh_nonmanifold_patches`, `run_meshup_splice_passes`,
+  `weld_f32_render_twins` (+ `n50_f32_render_twin.rs`), the `stage4_splice`
+  loop, all of `stage4_update` but `Patch`, the I2c input-edge refinement,
+  and the N2-3a fold-risk PLANNER (`rank_fold_risks`, `classify_folds`, …);
+  the selector layer the live Fig-11 merge reads (`fold_merge_sites_censused`,
+  `run_absorption_sites`, `RehomeCandidate`, …) stays. Ten gates kept as
+  print-only probes. 71 tests on deleted code removed, none added; yang-rs
+  lib 1076 / 0, 75 integration binaries 0 failed; clippy clean with two
+  pre-existing `dead_code` allowances gone.
+- **Phase-1 design written:** `specs/yang_452_refinement_loop.md` — one
+  §4.5.2 loop with one trigger set (T1 Stage-4 non-convergence, T2
+  boundary-domain fires, T3 §4.5.4 illegal intersections, T4 non-manifold
+  output, T5 Stage-6 STOPs), regions of named faces plus one ring, per-FACE
+  chord factors (per-RIM N; the P0044 zipper makes unequal rims legal),
+  adoption only on an empty failure set; the nine Stage-1 pre-emptive arms
+  retire one per corpus run, wedge first.
+
+**Corpus (release, 8 jobs, 900 s; wall 999.4 s): 346C / 0W / 22E / 5EE / 0T
++ 1U over 374** — versus the committed 346C / 0W / 22E baseline ZERO
+category moves and ZERO detail drift on non-CORRECT rows. The 22 ERROR rows
+are unchanged: the seven C-series walls, P0026 and the open tail P0042,
+P0043, P0045, P0046, P0048–P0053, P0055, P0056, P0061, P0062.
+
 ## 2026-10-13 (wedge) — P0044, P0054, P0058 CONVERTED (the wedge-arm follow-up): `segment_risk_intervals` cuts at the surface's own roots; Stage 1's azimuth-merge band is a ZIPPER of two sorted rings (unequal rims accepted); one rim sample per model-scale point (`RimAngleOverrides::finish`, `merge_rim_points`); P0047 holds
 
 **The follow-up named at the P0057 landing, in three parts (spec

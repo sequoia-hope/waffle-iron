@@ -68,4 +68,38 @@ if [ "${SKIP_WASM_CHECK:-0}" != "1" ]; then
     fi
 fi
 
+# ---------------------------------------------------------------------------
+# 3. Deviations ledger moves with the kernel (Constitution P2, governance
+#    A15.7 point 4): a commit that changes yang-rs production code or
+#    kernel-v2's boolean must either touch docs/yang_deviations.md or add a
+#    "faithful, no deviation" / "no deviation" line to docs/yang_tail_triage.md.
+#
+# The rule existed since 2026-07-12 and was skipped for 38 conversions between
+# 2026-10-05 and 2026-10-14 (ledger §"2026-10-14 directive"). Now something
+# enforces it.
+#
+# Escape hatch: `SKIP_LEDGER_CHECK=1 git commit ...` — for refactors that
+# change no mechanism (say so in the commit message) or pure test additions.
+# ---------------------------------------------------------------------------
+if [ "${SKIP_LEDGER_CHECK:-0}" != "1" ]; then
+    staged="$(git diff --cached --name-only)"
+    kernel_touched="$(printf '%s\n' "$staged" | grep -E '^crates/yang-rs/src/|^crates/kernel-v2/src/boolean' | grep -vE '/tests_unit/|/tests/' || true)"
+    if [ -n "$kernel_touched" ]; then
+        ledger_touched="$(printf '%s\n' "$staged" | grep -c '^docs/yang_deviations.md$' || true)"
+        triage_faithful="$(git diff --cached -U0 -- docs/yang_tail_triage.md 2>/dev/null | grep -E '^\+' | grep -ciE 'no deviation|faithful' || true)"
+        if [ "${ledger_touched:-0}" = "0" ] && [ "${triage_faithful:-0}" = "0" ]; then
+            printf '\npre-commit: BLOCKED — kernel mechanism changed, deviations ledger did not move\n\n' >&2
+            printf '  Staged kernel sources:\n' >&2
+            printf '%s\n' "$kernel_touched" | sed 's/^/      /' >&2
+            printf '\n  Constitution P2 (Yang-increment clarification) and governance A15.7 point 4:\n' >&2
+            printf '  every Yang increment carries, in the same commit, either\n' >&2
+            printf '    - an entry or amendment in docs/yang_deviations.md, or\n' >&2
+            printf '    - a line in docs/yang_tail_triage.md saying "faithful, no deviation"\n' >&2
+            printf '      with the paper section it implements.\n\n' >&2
+            printf '  (override for a mechanism-free refactor: SKIP_LEDGER_CHECK=1 git commit ...)\n\n' >&2
+            exit 1
+        fi
+    fi
+fi
+
 exit 0

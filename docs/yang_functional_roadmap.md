@@ -3059,7 +3059,12 @@ pipeline (full entries in `docs/yang_deviations.md`). They — not the assay —
 the roadmap's remaining work. **Since 2026-10-14 the backlog also holds the
 forty-five DELEGATED entries** (ledger directive §4 orders them; N5 / N29 /
 weld band first, then N62, N27, N64, then the thirty-eight unledgered
-conversions of 2026-10-08 → 10-14):
+conversions of 2026-10-08 → 10-14). **The cleanup's plan of record is
+`specs/yang_faithful_cleanup.md`**: two missing paper mechanisms (§4.5.2
+local refinement as THE response to mesh inadequacy; §4.4.1 mesh updating)
+each compensated by a family of substitutes (nine Stage-1 sample arms;
+eight Stage-4 repair passes), retired in phases with the corpus held —
+the acceptance metric is REMOVAL, not score:
 
 1. **Stage 0 §4.5.5 coplanarity is NOT general** (the keystone; see §4 M8 below).
    Today a lattice of shape/normal-specific handlers ships and everything else

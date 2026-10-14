@@ -1,9 +1,7 @@
-//! #169 Phase B — per-operand parametric charts for the mesh-update splice.
+//! Per-operand parametric charts for the §4.4.1 patch rebuilds.
 //!
-//! The frame-agnostic mesh-update driver
-//! ([`crate::stage4_update::two_sided_conformal_update_lifted`]) re-triangulates
-//! each operand's trimmed patch in its OWN parametric domain and verifies the
-//! seam in 3D. To feed it, Phase B needs, per analytic surface, a chart:
+//! The construct pass (`stage4_construct`) re-triangulates each patch in its
+//! OWN parametric domain. To feed it, it needs, per analytic surface, a chart:
 //!
 //! * `project`: world `Point3` (on/near the surface) → parametric `Point2`,
 //! * `lift`:    parametric `Point2` → world `Point3`,
@@ -15,12 +13,8 @@
 //!
 //! Charts are provided for **Plane**, **Cylinder**, and (I13a, always-on
 //! since 2026-08-25) **Cone**. Sphere / Torus return `None` for now, so the
-//! Phase-B wiring simply does not engage those patches and leaves them
+//! construct pass simply does not engage those patches and leaves them
 //! byte-identical.
-//!
-//! WIRED (2026-08-06, N2-3b step 2): this is the projection layer
-//! [`crate::stage4_splice`]'s loop consumes, reached from
-//! `reconstruct_topology_stage4` behind `YANG_MESHUP_ENABLE`.
 
 use crate::{normalize3, ortho_basis, Surface};
 use cad_primitives::{Point2, Point3};
@@ -467,16 +461,16 @@ pub(crate) fn detect_nonmanifold_seams(
         .collect()
 }
 
-/// Build the parametric [`Patch`](crate::stage4_update::Patch) the mesh-update
-/// driver consumes, from a 3D patch's boundary cycles.
+/// Build the parametric [`Patch`](crate::stage4_update::Patch) the construct
+/// pass re-triangulates, from a 3D patch's boundary cycles.
 ///
 /// `cycles[0]` is the outer boundary and the rest are holes — the order
 /// [`crate::stage4_correct::PatchInfo`] already stores them in. Each cycle is
 /// mesh-vertex indices; every vertex is projected through `chart`.
 ///
 /// Returns the patch **and** the index map `patch vertex -> mesh vertex`, which
-/// the splice needs to write the re-triangulated result back into the 3D mesh.
-/// Without it the `PatchUpdate` is a set of 2D points with no way home.
+/// the rebuild needs to write the re-triangulated result back into the 3D mesh.
+/// Without it the result is a set of 2D points with no way home.
 ///
 /// The outer boundary is normalized to **CCW in the chart frame**, which
 /// `Patch` requires; a cycle whose projection winds CW is reversed (and its
@@ -493,21 +487,8 @@ pub(crate) fn detect_nonmanifold_seams(
 /// `θ = ±π` projects to a self-crossing boundary and must be unwrapped by the
 /// caller first. This function does not unwrap, and does not detect it — the
 /// splice loop must, before it trusts the result.
-// Superseded in production by `patch_from_cycles_shifted` (the splice loop
-// always has a shift map, empty for planes). Kept as the no-shift form its own
-// tests exercise; `allow(dead_code)` is scoped to this one wrapper so it cannot
-// hide an unreachable arm anywhere else.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn patch_from_cycles(
-    chart: &SurfaceChart,
-    verts: &[Point3],
-    cycles: &[Vec<u32>],
-) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
-    patch_from_cycles_shifted(chart, verts, cycles, &std::collections::BTreeMap::new())
-}
-
-/// As [`patch_from_cycles`], but adds `theta_shift[v]` to the FIRST parametric
-/// coordinate of mesh vertex `v` before any winding or area decision.
+/// Adds `theta_shift[v]` to the FIRST parametric coordinate of mesh vertex `v`
+/// before any winding or area decision.
 ///
 /// This is the hook the splice loop's cylinder seam unwrapping needs. A patch
 /// straddling `θ = ±π` projects to a self-crossing boundary, so its shoelace
@@ -517,11 +498,10 @@ pub(crate) fn patch_from_cycles(
 /// Every shift MUST be a multiple of `2π`, which makes the transformation a
 /// **no-op in world space**: [`SurfaceChart::lift`] is `2π`-periodic in `θ`, so
 /// a shifted patch lifts back to exactly the same 3D points. The caller
-/// ([`crate::stage4_splice::unwrap_theta`]) is what guarantees that; this
+/// (`stage4_splice::unwrap_theta`) is what guarantees that; this
 /// function does not re-check it.
 ///
-/// For a `Plane` chart the shift is meaningless and callers pass an empty map;
-/// `patch_from_cycles` delegates here with one, so its behaviour is unchanged.
+/// For a `Plane` chart the shift is meaningless and callers pass an empty map.
 pub(crate) fn patch_from_cycles_shifted(
     chart: &SurfaceChart,
     verts: &[Point3],
@@ -578,9 +558,6 @@ pub(crate) fn patch_from_cycles_shifted(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::stage4_update::{
-        two_sided_conformal_update_lifted, MeshUpdateOpts, Patch, Polyline, TwoSidedUpdate,
-    };
     use crate::Vector3;
 
     fn dist3(a: Point3, b: Point3) -> f64 {
@@ -766,115 +743,21 @@ mod tests {
             assert!(sd.abs() < 1e-11, "lifted point off torus by {sd}");
         }
     }
-
-    // ---- Integration: chart + frame-agnostic driver on a REAL surface pair. --
-
-    /// Build a rectangular patch in `chart` param space that straddles the chord
-    /// `p0 → p2` (given already in param space): P0 and P2 sit on the two short
-    /// boundary edges (an edge-split each), the chord runs through the interior.
-    /// Works for any (possibly diagonal) chord.
-    fn rect_around_chord(p0: Point2, p2: Point2, halfwidth: f64) -> Patch {
-        let dir = [p2.x() - p0.x(), p2.y() - p0.y()];
-        let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
-        let (dx, dy) = (dir[0] / len, dir[1] / len);
-        // Perpendicular.
-        let (px, py) = (-dy * halfwidth, dx * halfwidth);
-        Patch {
-            verts: vec![
-                Point2::new(p0.x() - px, p0.y() - py), // 0
-                Point2::new(p0.x() + px, p0.y() + py), // 1  (edge 0-1 hosts P0 at t=.5)
-                Point2::new(p2.x() + px, p2.y() + py), // 2
-                Point2::new(p2.x() - px, p2.y() - py), // 3  (edge 2-3 hosts P2 at t=.5)
-            ],
-            boundary: vec![0, 1, 2, 3],
-            holes: vec![],
-        }
-    }
-
-    /// A plane tangent to a cylinder shares ONE generator line (the #168 R0038
-    /// geometry). Re-triangulating the plane patch and the cylinder patch against
-    /// that shared generator, each in its OWN chart, produces a seam that
-    /// coincides in 3D — the Phase-B two-sided update on a genuine surface pair.
-    #[test]
-    fn plane_tangent_cylinder_generator_is_conformal() {
-        // Cylinder: axis = z, radius 2 → tangent generator at θ=0 is the line
-        // x=2, y=0, z free.
-        let cyl = Surface::Cylinder {
-            axis_point: Point3::new(0.0, 0.0, 0.0),
-            axis_dir: Vector3::new(0.0, 0.0, 1.0),
-            radius: 2.0,
-        };
-        // Tangent plane at that generator: x = 2, i.e. normal (1,0,0), d = -2.
-        let plane = Surface::Plane {
-            normal: Vector3::new(1.0, 0.0, 0.0),
-            d: -2.0,
-        };
-        let chart_p = SurfaceChart::new(plane).unwrap();
-        let chart_c = SurfaceChart::new(cyl).unwrap();
-
-        // The ONE shared 3D curve: the generator (2,0,z), z = 0, 0.5, 1.
-        let world: Vec<Point3> = vec![
-            Point3::new(2.0, 0.0, 0.0),
-            Point3::new(2.0, 0.0, 0.5),
-            Point3::new(2.0, 0.0, 1.0),
-        ];
-        // Sanity: every world point lies on BOTH surfaces.
-        for &w in &world {
-            assert!(crate::signed_distance_to_surface(plane, w).unwrap().abs() < 1e-12);
-            assert!(crate::signed_distance_to_surface(cyl, w).unwrap().abs() < 1e-12);
-        }
-
-        // Project into each chart.
-        let pa: Vec<Point2> = world.iter().map(|&w| chart_p.project(w)).collect();
-        let pc: Vec<Point2> = world.iter().map(|&w| chart_c.project(w)).collect();
-        let curve_a = Polyline {
-            points: pa.clone(),
-            closed: false,
-        };
-        let curve_c = Polyline {
-            points: pc.clone(),
-            closed: false,
-        };
-
-        // A patch around the chord in each chart.
-        let patch_a = rect_around_chord(pa[0], pa[2], 1.0);
-        let patch_c = rect_around_chord(pc[0], pc[2], 0.5);
-
-        let opts = MeshUpdateOpts {
-            merge_tol: 1e-6,
-            d_eps: 1e-2,
-        };
-        let ts: TwoSidedUpdate = two_sided_conformal_update_lifted(
-            &patch_a,
-            |q| chart_p.lift(q),
-            &curve_a,
-            &patch_c,
-            |q| chart_c.lift(q),
-            &curve_c,
-            opts,
-            1e-9,
-        )
-        .expect("plane-tangent-cylinder seam must be conformal");
-
-        assert_eq!(ts.seam.len(), 3);
-        // Every paired seam vertex lifts to the SAME world point — and it is the
-        // original shared curve point.
-        for (i, &(ia, ib)) in ts.seam.iter().enumerate() {
-            let wa = chart_p.lift(ts.a.verts[ia as usize]);
-            let wc = chart_c.lift(ts.b.verts[ib as usize]);
-            assert!(dist3(wa, wc) < 1e-9, "seam pair {i} diverges in world");
-            assert!(
-                dist3(wa, world[i]) < 1e-9,
-                "seam pair {i} off the shared curve"
-            );
-        }
-    }
 }
 
 #[cfg(test)]
 mod patch_extraction_tests {
     use super::*;
     use cad_primitives::Vector3;
+
+    /// The no-shift form of [`patch_from_cycles_shifted`].
+    fn patch_from_cycles(
+        chart: &SurfaceChart,
+        verts: &[Point3],
+        cycles: &[Vec<u32>],
+    ) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
+        patch_from_cycles_shifted(chart, verts, cycles, &std::collections::BTreeMap::new())
+    }
 
     fn xy_plane() -> SurfaceChart {
         SurfaceChart::new(Surface::Plane {

@@ -153,19 +153,12 @@ mod stage4_transit;
 // §4.5.1 corner-transit APPLY planner (spec §3h, inc-2c-3b-0): the pure
 // corrected-cycle machinery (mint pool, corridor path, directed sub-path
 // replacement). Census-wired report-only; the gated mutation is 3b-1.
-mod stage4_corridor;
-// N2-3a (Yang §4.4.1): the fold-risk planner — decides WHICH relocations need
-// the Fig-11 mesh update. Pure decision function, NOT wired into
-// `stage4_relocate_and_correct`; wiring the merge arm onto its plan is N2-3b.
-// `pub` for the same reason `stage4_dt` / `stage4_update` are: an unwired
-// primitive has no in-crate caller, and hiding it behind `allow(dead_code)`
-// would also hide a genuinely unreachable arm once it IS wired.
-pub mod stage4_fold_risk;
-mod stage4_project;
-// #169 Phase B — the splice loop joining the chart / extraction / two-sided
-// driver layers to the forward mesh. WIRED behind `YANG_MESHUP_ENABLE` from
-// `stage5_topology::run_meshup_splice_passes` (N2-3b step 2, 2026-08-06).
 mod stage4_construct;
+mod stage4_corridor;
+// §4.4.1 Fig-11 merge selectors (fold-merge sites, run absorption, rehome
+// candidates) consumed by `stage5_topology::run_fold_merge_passes`.
+mod stage4_fold_risk;
+mod stage4_project;
 mod stage4_splice;
 // #169 / N2 — Yang step truncation. TWO primitives, both UNWIRED:
 // `max_simple_step` (loop-simplicity trigger, a borrow justified by its own
@@ -175,7 +168,7 @@ mod stage4_splice;
 // its first strategy (Fig-13), and all 24 sites measure as exactly that, so they
 // belong to §4.5.2 local refinement. See spec §4-I10 (f).
 mod stage4_truncate;
-pub mod stage4_update;
+mod stage4_update;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
 pub(crate) use geom::{
     ellipse_param, ellipse_point, ellipse_tangent, hyperbola_param, surface_normal_at,
