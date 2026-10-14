@@ -204,6 +204,16 @@ census and gate were removed. Under the final crossing test the tangency
 fixture records no T6 site (its contact is depth 0), so nothing reaches
 that adoption.
 
+*The arms-off run (same day).* With `YANG_433_GUARD=0` the corpus reads
+349C / 0W / 20E: P0044 and P0047 fail exactly as in the morning's
+measurement and T6 refines nothing on their failing subtracts (every
+candidate coarse-rejected, coarse-intersecting, or captured). The class the
+§4.3.3 arm cluster protects is therefore NOT a missed intersection but a
+mis-joined one — the meshes met, Stages 4–6 emitted, and only kernel-v2's
+patch / ring checks reject the region. T6 is the mechanism for P0021-type
+lenses and P0049; the cluster's own retirement waits on a trigger that
+sees an invalid output region inside yang-rs.
+
 *R0023 (open).* The 0.131-deep sliver P0057 keeps is a real crossing T6
 names on R0023's second op; the loop's ×4 body carries each cap's sliver as
 TWO coplanar circular-segment faces on the r = 150.39 rim (chord 12.56,

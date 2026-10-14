@@ -77,8 +77,26 @@ depth), plus a T4 extension (overloaded edges / pinched vertices on the
 emitted body) that regressed F0060 with 446 sites on a legitimately
 edge-doubled tangency-seam mesh and was removed. Kernel-v2's P0021
 default-path pin now asserts the fused body: with the N75 extent arm off,
-T6 names the razor lens and the loop fuses the pair. **Owed: the arms-off
-corpus run** (`YANG_433_GUARD=0`) — do P0044 / P0047 recover through T6.
+T6 names the razor lens and the loop fuses the pair.
+
+**The arms-off run (measured the same day, `YANG_433_GUARD=0`, wall
+1048.1 s): 349C / 0W / 20E / 5EE / 0T** — against the arms-on 351C, exactly
+P0044 and P0047 move CORRECT → ERROR, with the same kernel-v2 texts as the
+morning's measurement (`CurvedGeometryMismatch … exactly one material-CCW
+loop`; `ring rejected by CDT`). R0023 reads ERROR either way, so its morning
+false green is gone. **T6 does not see them, and by construction should
+not:** on each failing subtract the census refines NOTHING (`YANG_T6_COST_PROBE`:
+every candidate is coarse-rejected, coarse-intersecting, or captured in its
+one-rings — P0044 16–18 skipped, P0047 6–21). The meshes DID meet there and
+the arrangement joined them; the defect is a MIS-joined intersection whose
+Stage 4–6 output is a B-Rep yang-rs emits with an empty failure set and only
+kernel-v2's patch / ring checks reject. That is not §4.3's near-miss but an
+invalid output region — the paper's remedy is the same §4.5.2 loop, the
+missing piece is a yang-side trigger that sees the invalid region (T3b's
+output-level curve crossings do not fire here). The wedge / pierce-dip /
+edge-graze arms therefore cannot retire on T6 alone; the next increment is
+that trigger, anchored on P0044 (cylinder patch with ≠ 1 material-CCW loop)
+and P0047 (a CDT-rejected ring).
 
 ## 2026-10-14 (arm measurement) — the §4.3.3 edge-graze cluster off with the loop on protects exactly TWO cases (P0044, P0047); R0023's apparent conversion is the pre-P0057 false green; the class the arms predict is a mesh that MISSES an intersection, for which yang has no trigger — the paper's §4.3 near-miss check (T6) is the next increment
 

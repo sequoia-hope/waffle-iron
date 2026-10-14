@@ -426,8 +426,11 @@ Do NOT skip to lower-priority items because they are easier.
    CONVERTED**; R0023 moved UNSUPPORTED → ERROR one op earlier (kernel-v2
    refuses a refined cap segment face — open, anchored in
    `docs/yang_tail_triage.md` §"2026-10-14 (Phase 1f)"); canonical corpus
-   **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s). Owed: the
-   arms-off corpus run, then the arms retire.
+   **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s). Arms-off run:
+   349C / 20E — P0044 / P0047 still fail and T6 sees nothing there (their
+   meshes met; the output region is invalid and only kernel-v2 rejects it).
+   Next: a yang-side trigger for that invalid output region, then the arms
+   retire.
    **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0051, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
