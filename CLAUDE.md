@@ -419,7 +419,16 @@ Do NOT skip to lower-priority items because they are easier.
    corpus **350C / 0W / 18E / 5EE / 0T + 1U over 374** (wall 967.6 s), zero
    regressions. Next: the nine Stage-1 pre-emptive arms retire one per corpus
    run, wedge first (spec §7); then Phase 2, §4.4.1 mesh updating.
-   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0049, P0051, P0053, P0055, P0056, P0061**
+   **2026-10-14 (Phase 1f): T6, the §4.3 near-miss check, is a loop
+   trigger** (spec `yang_452_refinement_loop.md` §3 "T6 as built": disjoint
+   mesh triangles whose exact surfaces CROSS deeper than the model band,
+   joined by the arrangement nowhere in their one-rings) — **P0049
+   CONVERTED**; R0023 moved UNSUPPORTED → ERROR one op earlier (kernel-v2
+   refuses a refined cap segment face — open, anchored in
+   `docs/yang_tail_triage.md` §"2026-10-14 (Phase 1f)"); canonical corpus
+   **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s). Owed: the
+   arms-off corpus run, then the arms retire.
+   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0051, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

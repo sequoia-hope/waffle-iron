@@ -2131,6 +2131,21 @@ fn boolean_once(
         Some(s0) => (&s0.tri_face_a, &s0.tri_face_b),
         None => (a.tri_face(), b.tri_face()),
     };
+    // §4.3 trigger T6 (`boolean::failures`, spec `yang_452_refinement_loop.md`
+    // §3 "T6"): "if the two meshes do not intersect but are within the
+    // distance tolerance d_ε" — every cross-operand contact pair (exact
+    // surfaces within the band, coarse triangles disjoint) that the
+    // arrangement joined nowhere in the two triangles' one-rings is a
+    // missed intersection naming both faces. Record-only; the loop reads it.
+    failures::record_missed_intersections(
+        mesh_a,
+        tri_face_a,
+        a.faces(),
+        mesh_b,
+        tri_face_b,
+        b.faces(),
+        &la,
+    );
     let all_planar = a
         .faces()
         .iter()

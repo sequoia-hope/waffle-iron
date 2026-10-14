@@ -128,6 +128,114 @@ naming both faces, which the loop refines. T6 is Phase 1f; it is the ONE
 mechanism the nine Stage-1 arms stand in for, and their retirement (§7)
 waits on it.
 
+**T6 as built (2026-10-14, Phase 1f).** Three pieces.
+
+1. `shell_contact::contact_pairs` — the P0030 shell census's machinery
+   (`TriSet`, `Bvh`, exact-surface pieces) over every A×B triangle pair whose
+   COARSE triangles are disjoint (an intersecting coarse pair is the
+   arrangement's own population: Cherchi inserts its tri×tri segment as a
+   constraint, an intersection edge), pairs of identical surfaces skipped
+   (the §4.5.5 and coincident-cylinder Stage-0 populations). For each,
+   `pieces_cross_point` refines the exact pieces — the larger deviation
+   first, then, once both deviations are within the band, the larger PIECE
+   (planes split too) until the two are within 2× in size — and reports the
+   first leaf pair that is a RESOLVABLE CROSSING: the leaf triangles
+   intersect, and each leaf's vertices reach more than the band into AND out
+   of the other piece's EXACT surface (`geom::signed_distance_to_surface`,
+   the cone's radial residual × cos α).
+2. `failures::joined_triangle_pairs(la)` — the arrangement's record of
+   where the meshes met: for every `LabeledArrangement::intersection_edges`
+   entry, the A-parent × B-parent input triangles of the output triangles
+   incident to it (`la.source`).
+3. `failures::missed_intersection_sites` — a crossing the arrangement joined
+   NOWHERE in its two triangles' one-rings is a missed intersection naming
+   both faces, one site per face pair. Topological, as the paper's test is
+   ("the two meshes do not intersect").
+
+The capture test runs FIRST: `failures::RingCapture` is built once per run
+and handed to `contact_pairs` as its skip predicate, so a candidate the
+arrangement already joined in its one-rings is never refined. Recorded in
+`boolean_once` right after the arrangement (`record_missed_intersections`);
+the loop reads it like every trigger.
+
+*The paper's near-miss population is three things* — "a tangent point, or
+a small loop, or no intersection" (`:525-530`). Only a crossing deeper than
+the model resolution is one refinement can make the meshes meet; the rest
+is the §4.3.3 tangent-point mint's business, the A14.2 feature floor's, or
+nothing. Every rule above was measured into place on 2026-10-14:
+
+| draft | what it did | measured on | outcome |
+|---|---|---|---|
+| metric capture | missed = no intersection edge within d_ε of the contact | C0058 (`tests/tangency_pinch_split.rs`) | fired on two TRUE crossings 1.07 d_ε / 1.38 d_ε from their edges (the facet-line offset is (dev_A + dev_B) / sin θ); the loop's ×2 body left the pin's volume band → **one-ring topological capture** |
+| circumradius bound | piece deviation = osculating-sphere sagitta over the CIRCUMRADIUS | R0016 (gear revolve, 5 cm) | a sliver's bound read **6.3**; every gear-boss triangle visited all 440 revolve triangles and refined ~90 of them 16 levels — 300 s CPU without finishing one census; four gear cases hit 900 s → **exact `surface_deviation`** per surface (below); R0016's census now 0.064 s |
+| all intersecting pairs | the census refined coarse pairs that already intersect | C0058 | 38 s → 5.8 s once skipped (0.1 s with the exact bound) |
+| within-band contact | a leaf pair within the band was a contact | R0015 (1e-4 model) | seven planar×planar sites 2e-7 apart (reach = band exactly) took its loop to the ceiling → **leaf pair must intersect** |
+| capture after search | the one-ring capture ran AFTER the exact crossing search | F0055 (1e4 model) | 21 pairs BESIDE a real crossing — pieces within reach along the curve, never crossing themselves — refined to the depth limit: 112 s; R0085 went past its 900 s budget → **capture first** (F0055's census 0.000 s, all 21 skipped) |
+| plane-extension depth | crossing depth read against the other leaf's infinite PLANE | `n2_rim_mint_adversary` δ = 1e-4·r | a box cap crossing a cylinder over a lens 2.13e-8 deep (band 2e-7) passed through a large cap triangle's far corners; the loop adopted a ×8 body with a vertex 2.13e-8 off its surface where the natural body was valid → **size-matched leaves, depth against the exact surface** |
+
+`surface_deviation` (the census's per-piece bound, also the P0030
+passthrough's) reads each surface's own distance field: plane 0; sphere
+by the point of the triangle nearest the centre; cylinder by the triangle's
+least distance to the axis (closed form per edge, R when the axis pierces
+it) — those three exact; cone and outer torus (the whole triangle at ρ ≥ R,
+checked by its least distance to the axis since ρ is convex — a vertex
+check is not enough) by a TANGENT-PLANE bound on a concave maximum: for any
+point p, `max_t g ≤ g(p) + max_j ∇g(p)·(t_j − p)`, least over seven interior
+points — exact where ∇g vanishes, within 3× of the maximum on the pin's
+fixtures; the inner torus by a Lipschitz-covered sample grid. A nested
+ternary search found the cone / torus maximum exactly but at ~5,000
+evaluations per piece: R0085's gear × 289° tube census took 45.8 s (88k
+refined pairs); the bound takes it to 19.5 s. Pinned against a 400-step
+brute oracle on seven inscribed triangles including a cylinder sliver
+(circumradius > 100 × deviation) and a cone generator sliver
+(`shell_contact::tests::surface_deviation_is_exact_on_inscribed_triangles`).
+
+*A T4 extension tried and refuted (same day).* Under the within-band
+draft, `n2_rim_mint_adversary::exact_tangency_and_just_past` had its loop's
+×4 run join a cylinder and a box along their shared tangent generator — an
+edge with four incident triangles, directions balanced 2 + 2 — and ADOPT a
+χ = 3 body. An emitted-body census of overloaded edges and pinched vertices
+(plus a `NonManifoldOutput` gate on a standing natural body) caught it, and
+regressed F0060 (equal-radius cylinders at 90°, CORRECT) with 446 sites:
+yang's internal MESH is legitimately edge-doubled along a tangency seam —
+the P10 record in `check_watertight_2manifold` — and the 2-manifold
+contract is the B-REP's, which kernel-v2 builds from faces and loops. The
+census and gate were removed. Under the final crossing test the tangency
+fixture records no T6 site (its contact is depth 0), so nothing reaches
+that adoption.
+
+*R0023 (open).* The 0.131-deep sliver P0057 keeps is a real crossing T6
+names on R0023's second op; the loop's ×4 body carries each cap's sliver as
+TWO coplanar circular-segment faces on the r = 150.39 rim (chord 12.56,
+sagitta 0.131 — one split at the arc's midpoint, one at 3.736 / 8.830)
+where the natural body had one, and kernel-v2's planar tessellator samples
+one of them to its two chord endpoints and refuses it ("outer loop has
+fewer than 3 vertices"). R0023 moves from its honest UNSUPPORTED (the
+third op's coplanar wall) to a loud ERROR one op earlier. A first reading —
+a straight-edged zero-area two-gon from yang — was refuted by
+`[face-loop]` printing the faces; the census written for it was removed.
+Open: whether the two segment faces per cap are a correct split (two
+slivers) or a duplicated region, and why kernel-v2's arc sampling drops a
+4.8° arc's interior points.
+
+The pins (`tests_unit/s452_missed_intersection.rs`, six): a sub-sagitta
+graze (B's axis along 15°, half a segment, so the chord polygons present
+midpoints to each other) is a lateral × lateral crossing; clearly separated
+cylinders have none; an arrangement that joined nothing ⇒ the lateral pair
+is missed; joined at the contact pairs, or one vertex-neighbour over on
+each side ⇒ nothing missed, joined only far away ⇒ missed; two crossing
+cylinders through `boolean()` record no T6; on the crossing pair every
+intersecting coarse pair is in `joined_triangle_pairs` and absent from the
+census. Beside them, kernel-v2's `p0021_case_iii_finite_extent.rs`
+default-path pin asserts the FUSED body: with the N75 extent arm off, T6
+names P0021's razor lens and the loop fuses the pair — the first
+arm-protected case recovered through the paper's trigger. Probes:
+`YANG_T6_PROBE=1` (every candidate pair and every missed site with ring
+sizes), `YANG_T6_COST_PROBE=1` (one census summary per run: pairs visited,
+box / coarse / intersecting rejections, refined, contacts). The assay
+runner nulls a child's stderr — read probes through `WAFFLE_PATH=…
+user_case_probe replay_waffle_env`.
+
 ### 4. The region `region(F)`
 
 For each failure site, the faces it names on each operand, plus every face

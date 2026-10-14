@@ -66,6 +66,7 @@ mod s441a_split_winding;
 mod s451_crease_domain;
 mod s452_face_refine;
 mod s452_failure_sites;
+mod s452_missed_intersection;
 mod s452_refinement_loop;
 mod s452_under_resolution_ladder;
 mod s453_carried_curve_overtake;

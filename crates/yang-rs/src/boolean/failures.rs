@@ -41,6 +41,12 @@ pub(crate) enum FailureTrigger {
     /// T5 — a Stage-5/6 reassembly STOP, or any other typed error the
     /// pipeline raised without a recorded site.
     ReassemblyStop,
+    /// T6 — §4.3 `:525-530`: "the two meshes do not intersect but are
+    /// within the distance tolerance d_ε" — a cross-operand pair of DISJOINT
+    /// mesh triangles whose exact surfaces cross deeper than the model band
+    /// (`shell_contact::contact_pairs`), joined by the arrangement nowhere
+    /// in the two triangles' one-rings: the mesh missed a real intersection.
+    MissedIntersection,
 }
 
 /// One failure site: what fired and the input faces it names. `faces` may be
@@ -177,6 +183,217 @@ pub(crate) fn nonmanifold_sites(
             ),
         })
         .collect()
+}
+
+/// The input-triangle pairs the arrangement JOINED: for every intersection
+/// edge (`LabeledArrangement::intersection_edges`, the producer's record of
+/// the input×input polylines), the A-parent × B-parent input triangles of the
+/// output triangles incident to it (`la.source`). A pair listed here is one
+/// where "the two meshes intersect" in the paper's sense (§4.3 `:525-530`);
+/// T6 asks the complement.
+pub(crate) fn joined_triangle_pairs(la: &cherchi_rs::LabeledArrangement) -> BTreeSet<(u32, u32)> {
+    use cherchi_rs::InputId as LaInputId;
+    let mut by_edge: std::collections::BTreeMap<(u32, u32), (Vec<u32>, Vec<u32>)> =
+        Default::default();
+    for (ot, tri) in la.mesh.tris.iter().enumerate() {
+        for k in 0..3 {
+            let (i, j) = (tri[k], tri[(k + 1) % 3]);
+            let key = (i.min(j), i.max(j));
+            if !la.intersection_edges.contains(&key) {
+                continue;
+            }
+            let entry = by_edge.entry(key).or_default();
+            for &(inp, raw) in la.source.get(ot).map(|v| v.as_slice()).unwrap_or(&[]) {
+                if inp == LaInputId(0) {
+                    entry.0.push(raw);
+                } else {
+                    entry.1.push(raw);
+                }
+            }
+        }
+    }
+    let mut joined = BTreeSet::new();
+    for (pa, pb) in by_edge.values() {
+        for &x in pa {
+            for &y in pb {
+                joined.insert((x, y));
+            }
+        }
+    }
+    joined
+}
+
+/// Per-vertex incident triangles of an input mesh — the one-ring reader
+/// behind the T6 capture test.
+fn vertex_stars(mesh: &Mesh) -> Vec<Vec<u32>> {
+    let mut stars = vec![Vec::new(); mesh.verts.len()];
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        for &v in tri {
+            if let Some(s) = stars.get_mut(v as usize) {
+                s.push(t as u32);
+            }
+        }
+    }
+    stars
+}
+
+/// T6's capture test, prepared once per run: is an A×B input-triangle pair
+/// joined by the arrangement anywhere in the two triangles' one-rings?
+pub(crate) struct RingCapture<'m> {
+    mesh_a: &'m Mesh,
+    mesh_b: &'m Mesh,
+    stars_a: Vec<Vec<u32>>,
+    stars_b: Vec<Vec<u32>>,
+    joined: &'m BTreeSet<(u32, u32)>,
+}
+
+impl<'m> RingCapture<'m> {
+    pub(crate) fn new(
+        mesh_a: &'m Mesh,
+        mesh_b: &'m Mesh,
+        joined: &'m BTreeSet<(u32, u32)>,
+    ) -> Self {
+        RingCapture {
+            mesh_a,
+            mesh_b,
+            stars_a: vertex_stars(mesh_a),
+            stars_b: vertex_stars(mesh_b),
+            joined,
+        }
+    }
+
+    fn ring(mesh: &Mesh, stars: &[Vec<u32>], t: u32) -> Vec<u32> {
+        let mut r: Vec<u32> = mesh
+            .tris
+            .get(t as usize)
+            .into_iter()
+            .flat_map(|tri| tri.iter())
+            .flat_map(|&v| stars.get(v as usize).into_iter().flatten().copied())
+            .collect();
+        r.push(t);
+        r.sort_unstable();
+        r.dedup();
+        r
+    }
+
+    /// The two one-rings, and whether any of their pairs is joined.
+    pub(crate) fn rings(&self, tri_a: u32, tri_b: u32) -> (Vec<u32>, Vec<u32>, bool) {
+        let ra = Self::ring(self.mesh_a, &self.stars_a, tri_a);
+        let rb = Self::ring(self.mesh_b, &self.stars_b, tri_b);
+        let hit = ra
+            .iter()
+            .any(|&x| rb.iter().any(|&y| self.joined.contains(&(x, y))));
+        (ra, rb, hit)
+    }
+
+    pub(crate) fn captured(&self, tri_a: u32, tri_b: u32) -> bool {
+        self.rings(tri_a, tri_b).2
+    }
+}
+
+/// T6 as a pure function (spec §3 "T6"): a contact pair the arrangement did
+/// not join anywhere in the two triangles' one-rings — no intersection edge
+/// whose A-parent shares a vertex with `tri_a` AND whose B-parent shares a
+/// vertex with `tri_b` (`joined`, from [`joined_triangle_pairs`]) — is a
+/// missed intersection; each names the two triangles' input faces, one site
+/// per distinct face pair (the first pair's point as its detail).
+///
+/// The test is topological, as the paper's is ("the two meshes do not
+/// intersect"): no distance to the arrangement's edges is measured. A
+/// metric capture at d_ε was measured WRONG on C0058 (2026-10-14): a point
+/// on the exact curve is within d_ε of each operand's facet, but the facets'
+/// intersection LINE sits up to (dev_A + dev_B) / sin θ away for a dihedral
+/// θ between the surfaces — 1.07 d_ε and 1.38 d_ε at two true crossings of
+/// that tangency pair, unbounded at its tangent point. The one-ring absorbs
+/// that offset wherever θ is not degenerate; a degenerate θ is the §4.3.3
+/// tangent-point mint's business, not T6's.
+pub(crate) fn missed_intersection_sites(
+    contacts: &[crate::shell_contact::ContactPair],
+    mesh_a: &Mesh,
+    tri_face_a: &[u32],
+    mesh_b: &Mesh,
+    tri_face_b: &[u32],
+    joined: &BTreeSet<(u32, u32)>,
+) -> Vec<FailureSite> {
+    let capture = RingCapture::new(mesh_a, mesh_b, joined);
+    let probe = std::env::var_os("YANG_T6_PROBE").is_some();
+    let mut seen: BTreeSet<(u32, u32)> = BTreeSet::new();
+    let mut out = Vec::new();
+    for c in contacts {
+        let (Some(&fa), Some(&fb)) = (
+            tri_face_a.get(c.tri_a as usize),
+            tri_face_b.get(c.tri_b as usize),
+        ) else {
+            continue;
+        };
+        if seen.contains(&(fa, fb)) {
+            continue;
+        }
+        let (ring_a, ring_b, captured) = capture.rings(c.tri_a, c.tri_b);
+        if captured {
+            continue;
+        }
+        if probe {
+            eprintln!(
+                "[t6-site] faces {fa}×{fb} tris {}×{} point {:?} reach {:.3e}; rings {}×{} \
+                 triangles, {} joined pairs in the arrangement, none between the rings",
+                c.tri_a,
+                c.tri_b,
+                c.point,
+                c.reach,
+                ring_a.len(),
+                ring_b.len(),
+                joined.len()
+            );
+        }
+        seen.insert((fa, fb));
+        out.push(FailureSite {
+            trigger: FailureTrigger::MissedIntersection,
+            faces: vec![(InputId::A, fa), (InputId::B, fb)],
+            detail: format!(
+                "tris {}×{} touch within {:.3e} at ({:.6e}, {:.6e}, {:.6e}); the arrangement \
+                 joins no triangle pair of their one-rings",
+                c.tri_a, c.tri_b, c.reach, c.point[0], c.point[1], c.point[2]
+            ),
+        });
+    }
+    out
+}
+
+/// T6 producer: the Stage-2 input meshes against the arrangement's own
+/// intersection edges. Record-only here; the loop reads the record.
+pub(crate) fn record_missed_intersections(
+    mesh_a: &Mesh,
+    tri_face_a: &[u32],
+    faces_a: &[crate::BRepFace],
+    mesh_b: &Mesh,
+    tri_face_b: &[u32],
+    faces_b: &[crate::BRepFace],
+    la: &cherchi_rs::LabeledArrangement,
+) {
+    // The capture test first: a candidate the arrangement already joined in
+    // its one-rings is never refined (spec §3 "T6 as built", F0055).
+    let joined = joined_triangle_pairs(la);
+    let capture = RingCapture::new(mesh_a, mesh_b, &joined);
+    let Ok(contacts) = crate::shell_contact::contact_pairs(
+        mesh_a,
+        tri_face_a,
+        faces_a,
+        mesh_b,
+        tri_face_b,
+        faces_b,
+        &|ta, tb| capture.captured(ta, tb),
+    ) else {
+        return; // no lineage: nothing to say (the census is loud on its own path)
+    };
+    if contacts.is_empty() {
+        return;
+    }
+    for site in
+        missed_intersection_sites(&contacts, mesh_a, tri_face_a, mesh_b, tri_face_b, &joined)
+    {
+        record(site);
+    }
 }
 
 /// T3: the §4.5.4 illegal intersections of an EMITTED mesh — every improper

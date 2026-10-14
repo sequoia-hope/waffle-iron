@@ -43,6 +43,43 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 1f) — T6, the §4.3 near-miss check, lands as a §4.5.2 loop trigger; P0049 CONVERTED through it; R0023 moves UNSUPPORTED → ERROR one op earlier (anchored, open); corpus **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s)
+
+**The paper's detection after the arrangement** (`refs/text/yang2025_hybrid_boolean.txt:525-530`:
+"if the two meshes do not intersect but are within the distance tolerance
+d_ε, there is a tangent point, or a small loop, or no intersection"), as
+the arm measurement above asked. Spec `specs/yang_452_refinement_loop.md`
+§3 "T6 as built": a cross-operand pair of DISJOINT mesh triangles whose
+exact surfaces cross deeper than the model band (refined, size-matched leaf
+pieces intersect and reach past each other's exact surfaces on both sides),
+which the arrangement joined nowhere in the two triangles' one-rings, is a
+missed intersection naming both faces; the loop refines them. The one-ring
+capture runs FIRST.
+
+Corpus (release, 8 jobs, 900 s; wall 1035.9 s) against the Phase 1c
+canonical 350C / 0W / 18E / 5EE / 0T + 1U (wall 967.6 s):
+
+| case | before | after | reading |
+|---|---|---|---|
+| P0049 | ERROR `SelfIntersectingBooleanOutput { 31 × 34 }` | CORRECT | T6 names two missed crossings (faces A6×B6, A7×B6) on the natural subtract; the loop's ×2 run adds three domain fires, its ×4 run clears everything and is adopted |
+| R0023 | UNSUPPORTED (coplanar wall at op 3) | ERROR at op 2: kernel-v2 `TessellationFailed { FaceId(9), "outer loop has fewer than 3 vertices" }` | T6 names a real crossing at the 0.131-deep sliver; the loop's ×4 body carries each cap's sliver as TWO coplanar circular-segment faces on the r = 150.39 rim (chord 12.56) where the natural body had one, and kernel-v2's planar tessellator samples one to its two chord endpoints. Loud. Open: a correct split or a duplicated region, and why kernel-v2 drops a 4.8° arc's interior samples |
+
+Zero detail drift elsewhere. Summed per-case CPU 6,468 s → 6,840 s (+5.8 %),
+led by R0085 751.8 → 818.8 s (its gear × 289° tube census is 19.5 s per run)
+and F0064 47.7 → 97.3 s (two real crossings at B's cap rim, shallower than
+A's chord sagitta: the loop climbs to the ceiling, cannot resolve them, and
+the natural body stands — faithful, and paid).
+
+Six drafts were measured wrong on the way and are recorded in the spec's
+table (metric capture, circumradius deviation bound, refining intersecting
+pairs, within-band contact, capture after the search, plane-extension
+depth), plus a T4 extension (overloaded edges / pinched vertices on the
+emitted body) that regressed F0060 with 446 sites on a legitimately
+edge-doubled tangency-seam mesh and was removed. Kernel-v2's P0021
+default-path pin now asserts the fused body: with the N75 extent arm off,
+T6 names the razor lens and the loop fuses the pair. **Owed: the arms-off
+corpus run** (`YANG_433_GUARD=0`) — do P0044 / P0047 recover through T6.
+
 ## 2026-10-14 (arm measurement) — the §4.3.3 edge-graze cluster off with the loop on protects exactly TWO cases (P0044, P0047); R0023's apparent conversion is the pre-P0057 false green; the class the arms predict is a mesh that MISSES an intersection, for which yang has no trigger — the paper's §4.3 near-miss check (T6) is the next increment
 
 **Measurement, not a change** (`specs/yang_452_refinement_loop.md` §3 "T6",
@@ -1089,7 +1126,7 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 | **P0046** | #108, min 6→4 `convex4:boss convex7:rev convex3:cut circle:boss` | 4 | auto-union `ring rejected by CDT` | a FOURTH locus of the P0002 / P0013 / P0036 text (lineage FaceId 1394) | same / same |
 | **P0047** | #159, min 8→4 `star7(0.66):boss circle:cut convex4:rev-cut circle:cut` | 4 | `boolean_subtract` `ring rejected by CDT` | a 32-point hole-free planar ring at scale 1.7e-4 (`cdt_err=TriangulationFailed outer_len=32`), the same ring on the lineage (FaceId 210) | same / same |
 | **P0048** | #158, min 5→3 `convex4:boss convex6:boss circle:boss` | 3 | auto-union `malformed B-Rep topology: face 2: interior junction (…) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)` | `stage1_tessellate.rs` inc-4e splice: a Stage-1 junction mint landing at a cylinder-grid CORNER; same point to 3 digits on the lineage. **Index 139** (`convex4:boss ×3 circle:cut`, subtract, scale 2e-3, 1.4e3 × floor, same class at ×1e-3, CORRECT at ×1e3) raises the same return and is NOT promoted separately | same / CORRECT |
-| **P0049** | #175, min 7→3 `convex4:boss circle:cut nonconvex9:rev-cut` | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 31 × 34, penetrations: 3 }` | two PLANAR faces (the lineage: 67 × 71, 12 penetrations, the same triangle pair to 3 digits). Not P0021's cylinder × cylinder nor P0031's cylinder × plane | same / same |
+| ~~**P0049**~~ CONVERTED 2026-10-14 (Phase 1f, T6) | #175, min 7→3 `convex4:boss circle:cut nonconvex9:rev-cut` | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 31 × 34, penetrations: 3 }` | two PLANAR faces (the lineage: 67 × 71, 12 penetrations, the same triangle pair to 3 digits). Not P0021's cylinder × cylinder nor P0031's cylinder × plane | same / same |
 | **P0050** | #193, min 5→4 `convex4:boss circle:rev circle:sym gear22:∪` | 4 | explicit-Union `ring rejected by CDT` | a FIFTH locus (lineage FaceId 1156), a 22-tooth gear | CORRECT / same |
 | **P0051** | #188, min 7→4 `convex8:boss convex4:− circle:cut circle:boss` | 4 | auto-union `Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765× the budget)` | a NEW text: the seeded chart path's domain-grid refinement converges 1.77× over budget | stops earlier / same |
 | **P0052** | #84, min 8→3 `gear12:boss circle:cut convex7:rev-cut` | 3 | `boolean_subtract TessellationFailed "surface-pair Newton projection did not converge"` | kernel-v2 `tessellate/sampling.rs`; the lineage (686 s under the prospector) raises it on FaceId 1370, the minimum on FaceId 992 | — |
