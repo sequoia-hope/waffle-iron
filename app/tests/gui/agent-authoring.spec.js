@@ -497,7 +497,13 @@ test.describe('Agent link authoring (Phase 1)', () => {
 	test('G2: a user rebuild holding the engine longer than 10 s refuses the call as rebuilding', async ({ page }) => {
 		// The F0064 rebuild is ~25 s locally and has exceeded 120 s on a loaded
 		// CI runner (run 35911043322, 2026-09-23): the margins are generous.
-		test.setTimeout(300000);
+		// 2026-10-14: the kernel's §4.5.2 loop now re-runs F0064's last union to
+		// its refinement ceiling (two real crossings at a cap rim it cannot
+		// resolve; the natural body stands) — the native rebuild went 47.7 s →
+		// ~97 s and the 240 s wait below timed out on three CI runs out of five
+		// (docs/yang_tail_triage.md §"2026-10-14 (retirement)"). This test pins
+		// the engine-lock refusal, not rebuild speed: the wait doubles with it.
+		test.setTimeout(600000);
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
 		// Loading a five-extrude gear stack is one ~25 s LoadProject rebuild through the user path.
@@ -515,7 +521,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 		expect(waited).toBeGreaterThanOrEqual(9500);
 		expect(await agentSends(page)).toEqual([]);
 
-		await page.waitForFunction(() => (window.__waffle.getFeatureTree()?.features?.length ?? 0) === 10, null, { timeout: 240000 });
+		await page.waitForFunction(() => (window.__waffle.getFeatureTree()?.features?.length ?? 0) === 10, null, { timeout: 540000 });
 		expectNoAnyCrash(crashes);
 	});
 });

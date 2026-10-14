@@ -63,6 +63,18 @@ run one detail drift (P0048, open tail, as measured). Summed case CPU
 the quiet arms-off run 1.028; the arms-off run, the same production path,
 read 6,957 s and wall 1034.1 s).
 
+**Follow-up — F0064's rebuild doubled under T6 (open).** F0064's last union
+carries two real T6 crossings at B's cap rim (radius 0.1691) that the loop
+cannot resolve by the ceiling (density 8); its failure set changes shape
+every iteration, so the convergence monitor (set recurrence) never stops it
+early and the natural body stands after three full re-runs: native 47.7 s →
+~97 s. In WASM that put the relay GUI test `agent-authoring.spec.js` G2
+(which waits for this rebuild) at its 240 s limit — it failed on three CI
+runs of five from the T6 landing on; the wait now doubles with the cost.
+The open question is the loop's, not the test's: whether a site pinned in
+place through two doublings is the paper's "optimization failure
+persists" (refine on) or a non-convergence the monitor should name.
+
 ## 2026-10-14 (T3c) — the output-level §4.5.4 check WITHIN one face; the rim × plane retry may no longer adopt an invalid body; with the §4.3.3 arm cluster OFF the corpus now holds at **351C / 0W / 18E / 5EE / 0T over 374** — the cluster protects nothing
 
 **What the arms-off measurement asked for.** P0044 and P0047 failed with
