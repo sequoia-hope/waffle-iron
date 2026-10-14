@@ -90,6 +90,19 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 
 Track known divergences between the implementation and Yang 2025 / Cherchi 2022 in `docs/yang_deviations.md`. Before working on a Yang stage, compare the code against the paper section it claims to implement. A deviation discovered mid-investigation halts the cycle — the deviation is the bug; do not debug downstream symptoms. (Rule: `feedback_yang_only.md`.)
 
+**A delegation is not an approval (governance A15.7, 2026-10-14).** The
+2026-07-17 "no opinion on A B C" answer that made forty-three ledger entries
+PERMANENT was not a sign-off; those entries (plus N57, N62) are `DELEGATED` —
+open paper-compliance debt, re-adjudicated when their mechanism is next
+touched. Record any "no opinion" / "I don't care" as DELEGATED, never
+PERMANENT; ask for a sign-off in prose with a paper cite, never as a menu; a
+P5 self-sign proves a fix SAFE, not FAITHFUL. **The P2 same-commit ledger
+rule already existed and was skipped for 38 conversions (2026-10-05 →
+10-14)** — check `git log -1 -- docs/yang_deviations.md` against the kernel
+log at session start; the catch-up debt and its order (N5 curved Stage 1,
+N29 §4.5.3 victim rule, the N47/N55/N56 weld band, then the rest) is the
+ledger's 2026-10-14 directive.
+
 ## Current Priorities
 
 When asked "what should I work on?", choose from these areas **in order**.

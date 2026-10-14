@@ -566,6 +566,43 @@ pipeline — ray-cast in/out classification, Algorithm 1; Yang §4.2 cites this)
 [#10] Levy 2025 (exact constructions + radial sort),
 [#4] Shewchuk 1997 (adaptive precision predicates).
 
+### A15.7 A delegation is not a signature
+
+Added 2026-10-14 by user directive. This sub-invariant adds nothing to
+"the paper is the spec" (Constitution §Yang note, P2 Yang-increment
+clarification, Definition of Done "the deviations entry is a merge
+blocker", roadmap §0.1). It closes the one hole those rules left: the
+deviations ledger's own sign-off procedure let a delegation ratify a
+deviation. On 2026-07-17 forty-three entries in `docs/yang_deviations.md`
+became PERMANENT after the user answered a multiple-choice sign-off
+request with "I have no opinion on A, B, C," and the P5 self-sign route
+was "ratified" the same way. The user's 2026-10-14 correction: *"sometimes
+Opus would ask questions I didn't understand so I said I don't care, but
+the real answer is the paper is the spec."*
+
+1. **A delegation leaves a deviation OPEN.** "No opinion", "I don't
+   care", "you decide", or silence is recorded in the ledger as
+   `DELEGATED`, which counts with OPEN in the ratchet. An agent MUST NOT
+   convert it into PERMANENT.
+2. **Only a written rationale makes PERMANENT**: the user's name, the
+   date, and WHY the divergence is acceptable. A P5 self-sign certifies
+   that a shipped fix is SAFE (red/green oracles, zero-WRONG corpus); it
+   never certifies that the fix is FAITHFUL, so it cannot confer
+   PERMANENT.
+3. **A sign-off request is prose**: the deviation, the paper's
+   prescription with a `refs/text/*.txt` line cite, one recommendation,
+   and "do you accept this divergence, and why?" Never an A/B/C menu
+   (memory `feedback_prose_over_multiple_choice`, 2026-06-27, now binding
+   here).
+4. **A DELEGATED entry is re-adjudicated when its mechanism is next
+   touched**, sooner when it hosts a failure family: bring the code to
+   the paper, or write the case for keeping it and ask under point 3.
+   Re-grading a state is never a substitute for either.
+
+The P2 same-commit ledger rule is unchanged by this entry; it was not
+followed for the thirty-eight conversions of 2026-10-05 → 2026-10-14, and
+the ledger's 2026-10-14 directive carries that catch-up debt.
+
 ---
 
 ## A12. Change Control

@@ -3038,11 +3038,28 @@ that override older phrasing in this document:
   real machinery progress but are explicitly an interim scaffold to be subsumed by
   the general §4.5.5 implementation below.
 
+- **A delegation is not an approval (2026-10-14 directive; governance A15.7).**
+  The 2026-07-17 batch sign-off ("i have no opinion on A B C") that made
+  forty-three ledger entries PERMANENT was a delegation, and the user's
+  2026-10-14 correction is that the paper is the spec. Those entries plus
+  N57 and N62 are re-graded `DELEGATED` in `docs/yang_deviations.md` — open
+  debt, re-adjudicated when their mechanism is next touched. Sign-off
+  requests are prose with a paper cite and one recommendation, never a menu;
+  a P5 self-sign certifies safety, not faithfulness; every Yang increment
+  updates the ledger in the same commit (P2). The ledger's 2026-10-14
+  directive lists the catch-up debt in priority order; its first three items
+  (N5 curved Stage 1, N29 §4.5.3 victim rule, the N47/N55/N56 weld band)
+  are where the 2026-10 ERROR tail landed and are the natural partners of
+  N2's mesh update.
+
 ### 0.2 Open paper-faithfulness deviations (the real backlog)
 
 These are the substantive divergences from Yang 2025 in the live `yang-rs`
 pipeline (full entries in `docs/yang_deviations.md`). They — not the assay — are
-the roadmap's remaining work:
+the roadmap's remaining work. **Since 2026-10-14 the backlog also holds the
+forty-five DELEGATED entries** (ledger directive §4 orders them; N5 / N29 /
+weld band first, then N62, N27, N64, then the thirty-eight unledgered
+conversions of 2026-10-08 → 10-14):
 
 1. **Stage 0 §4.5.5 coplanarity is NOT general** (the keystone; see §4 M8 below).
    Today a lattice of shape/normal-specific handlers ships and everything else
