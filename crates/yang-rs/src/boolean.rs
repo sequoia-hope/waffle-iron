@@ -1056,12 +1056,24 @@ pub fn boolean(
                 //    only adopted when it does not increase the
                 //    self-intersection count. The full-corpus assay is the
                 //    P10 verdict on `<=`.
-                let accept = match natural_selfx {
-                    None => true,
-                    Some(n) => refined_improper <= n,
-                };
+                // And never adopt a body that is not a valid B-Rep at the
+                // output level (§4.5.4 T3b / T3c): measured 2026-10-14 on
+                // P0044 with the §4.3.3 arms off, this retry returned a body
+                // whose cut-cylinder patch wound against its material side —
+                // kernel-v2 refused it — and pre-empted the §4.5.2 loop,
+                // which the natural run's own T3c site would have entered.
+                let refined_illegal = failures::output_illegal_sites(&refined);
+                let accept = refined_illegal.is_empty()
+                    && match natural_selfx {
+                        None => true,
+                        Some(n) => refined_improper <= n,
+                    };
                 if probe {
-                    eprintln!("[refine]   refined=Ok improper={refined_improper} accept={accept}");
+                    eprintln!(
+                        "[refine]   refined=Ok improper={refined_improper} output-illegal={} \
+                         accept={accept}",
+                        refined_illegal.len()
+                    );
                 }
                 if accept {
                     return Ok(refined);

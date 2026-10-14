@@ -429,8 +429,10 @@ Do NOT skip to lower-priority items because they are easier.
    **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s). Arms-off run:
    349C / 20E — P0044 / P0047 still fail and T6 sees nothing there (their
    meshes met; the output region is invalid and only kernel-v2 rejects it).
-   Next: a yang-side trigger for that invalid output region, then the arms
-   retire.
+   **T3c landed the same day** (the output-level §4.5.4 check WITHIN one
+   face — spec §3 "T3c"): with it the corpus holds at 351C with the
+   §4.3.3 arm cluster OFF, P0044 / P0047 converting through the loop; the
+   cluster retires next.
    **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0051, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/

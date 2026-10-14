@@ -461,6 +461,392 @@ pub(crate) fn density_for_demand(demand: Option<f64>) -> u32 {
     k
 }
 
+/// One output edge's exact curve sampled from its start vertex to its end
+/// vertex, as kernel-v2 reads it (`from_yang/classify`): a straight edge by
+/// its endpoints; an open circle or ellipse edge along its MINOR arc (`None`
+/// within `1e-9` of a half sweep — kernel-v2 refuses that edge loudly); a
+/// closed conic over its whole period; a parabola / hyperbola between its
+/// endpoint parameters; a surface-pair edge by its chord (no parameter — a
+/// named gap). Samples hold the curve to `tol` (the sagitta of a chord), at
+/// most `MAX_EDGE_SAMPLES` segments.
+fn sample_output_edge(
+    curve: &crate::Curve,
+    ps: crate::Point3,
+    pe: crate::Point3,
+    closed: bool,
+    tol: f64,
+) -> Option<Vec<[f64; 3]>> {
+    use crate::stage4_correct::{conic_param, conic_param_periodic};
+    use crate::Curve;
+    const MAX_EDGE_SAMPLES: usize = 2048;
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let (start, end) = (ps.as_array(), pe.as_array());
+    let radius = match curve {
+        Curve::Circle { radius, .. } => *radius,
+        Curve::Ellipse { major_radius, .. } => *major_radius,
+        Curve::Parabola { .. } | Curve::Hyperbola { .. } => 0.0,
+        Curve::LineSegment | Curve::SurfacePair { .. } => return Some(vec![start, end]),
+    };
+    let ts = conic_param(curve, ps)?;
+    let sweep = if conic_param_periodic(curve) {
+        if closed {
+            two_pi
+        } else {
+            let te = conic_param(curve, pe)?;
+            let ccw = (te - ts).rem_euclid(two_pi);
+            if (ccw - std::f64::consts::PI).abs() <= 1e-9 {
+                return None;
+            }
+            if ccw < std::f64::consts::PI {
+                ccw
+            } else {
+                ccw - two_pi
+            }
+        }
+    } else {
+        conic_param(curve, pe)? - ts
+    };
+    let n = if radius > 0.0 && tol > 0.0 && tol < radius {
+        // Chord sagitta `r(1 − cos(Δ/2)) ≤ tol` ⇒ `Δ ≤ 2·acos(1 − tol/r)`.
+        let step = 2.0 * (1.0 - tol / radius).acos();
+        ((sweep.abs() / step).ceil() as usize).clamp(1, MAX_EDGE_SAMPLES)
+    } else {
+        128
+    };
+    let mut pts = Vec::with_capacity(n + 1);
+    pts.push(start);
+    for k in 1..n {
+        let t = ts + sweep * (k as f64) / (n as f64);
+        pts.push(crate::geom::conic_eval(curve, t)?.as_array());
+    }
+    pts.push(end);
+    Some(pts)
+}
+
+/// The OUTPUT-level §4.5.4 sites of an emitted body: T3b (two faces on one
+/// quadric whose boundary conics cross) and T3c (one face whose loops cross
+/// or wind against its material side). A body carrying one is not a valid
+/// B-Rep, whatever produced it.
+pub(crate) fn output_illegal_sites(out: &BRep) -> Vec<FailureSite> {
+    let mut v = output_curve_crossings(out);
+    v.extend(output_loop_crossings(out));
+    v
+}
+
+/// T3c — the OUTPUT-level §4.5.4 check WITHIN one face (spec
+/// `yang_452_refinement_loop.md` §3 "T3c"): a face whose loops, read on
+/// their EXACT curves in the face's own chart, cross each other or wind
+/// against the face's material side. *"The self-intersections that may
+/// occur during surface discretization and the new intersections that may
+/// arise during mesh updating can lead to topological inconsistencies
+/// between the mesh and the B-Rep model … We detect these illegal
+/// intersections and perform local refinement"* (`:752-758`). T3b checks
+/// two DISTINCT faces on one quadric; this is the same mechanism inside one
+/// face. Anchors, measured 2026-10-14 with the §4.3.3 arms off: P0047 — a
+/// prism side whose cut-cylinder ellipse arc bulges past the face's own
+/// straight edge and crosses back (kernel-v2's CDT refused the ring); P0044
+/// — a bounded patch of the cut cylinder whose one loop winds against its
+/// material side (kernel-v2: "exactly one material-CCW loop"). In both,
+/// yang's failure set was empty.
+///
+/// Charts: a plane's own right-handed frame (`ortho_basis`, `e1 × e2 = n`);
+/// a cylinder UNROLLED to `(R·θ, h)`, right-handed about the outward radial
+/// normal. The outer loop must enclose positive oriented area and every
+/// hole negative, the sign flipped for a `reversed` face; two non-adjacent
+/// segments cross when each straddles the other's line by more than the
+/// model band (a tangency or a shared corner is not a crossing). Edges are
+/// sampled as kernel-v2 reads them ([`sample_output_edge`]). Named gaps: a
+/// face with a `SurfacePair` edge (no parameter — its chord could invent a
+/// crossing), a cylinder face with a loop that wraps the axis or a closed rim
+/// edge (a periodic strip — its chart has a seam), and
+/// the cone / sphere / torus charts. Each site names the face's input
+/// lineage and the lineage of the faces across the offending edges, so the
+/// loop refines both operands there.
+pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
+    use crate::Surface;
+    let faces = out.faces();
+    let edges = out.edges();
+    let verts = out.vertices();
+    let scale = verts
+        .iter()
+        .flat_map(|v| v.point.as_array())
+        .fold(0.0f64, |m, c| m.max(c.abs()));
+    let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let lineage = |fi: usize| -> Option<(InputId, u32)> {
+        out.face_attribution.get(fi).map(|at| (at.input, at.face))
+    };
+    // The face across a directed edge: the face whose loop walks the same
+    // two vertices the other way.
+    let mut owner: std::collections::BTreeMap<(u32, u32), usize> = Default::default();
+    for (fi, f) in faces.iter().enumerate() {
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            if let Some(e) = edges.get(ei as usize) {
+                owner.entry((e.start, e.end)).or_insert(fi);
+            }
+        }
+    }
+    let across = |ei: u32| -> Option<usize> {
+        let e = edges.get(ei as usize)?;
+        owner.get(&(e.end, e.start)).copied()
+    };
+    let dot3 = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let probe = std::env::var_os("YANG_T3C_PROBE").is_some();
+    let mut sites = Vec::new();
+    'faces: for (fi, face) in faces.iter().enumerate() {
+        // The face's chart.
+        enum Chart {
+            Plane([f64; 3], [f64; 3]),
+            Cylinder {
+                a: [f64; 3],
+                u: [f64; 3],
+                e1: [f64; 3],
+                e2: [f64; 3],
+                r: f64,
+            },
+        }
+        let (chart, sense) = match face.surface {
+            Surface::Plane { normal, .. } => {
+                let (e1, e2) = crate::ortho_basis(normal);
+                (Chart::Plane(e1.as_array(), e2.as_array()), 1.0)
+            }
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            } => {
+                let un = crate::normalize3(axis_dir.as_array());
+                let (e1, e2) = crate::ortho_basis(axis_dir);
+                (
+                    Chart::Cylinder {
+                        a: axis_point.as_array(),
+                        u: un,
+                        e1: e1.as_array(),
+                        e2: e2.as_array(),
+                        r: radius,
+                    },
+                    if face.reversed { -1.0 } else { 1.0 },
+                )
+            }
+            _ => continue,
+        };
+        // Each loop as exact-curve samples, each sample tagged with the edge
+        // that leaves it.
+        let loops_3d: Vec<Vec<([f64; 3], u32)>> = {
+            let mut all = Vec::new();
+            for lp in std::iter::once(&face.outer_loop).chain(face.inner_loops.iter()) {
+                let mut pts: Vec<([f64; 3], u32)> = Vec::new();
+                for &ei in lp {
+                    let Some(e) = edges.get(ei as usize) else {
+                        if probe {
+                            eprintln!("[t3c] face {fi} skipped: missing edge");
+                        }
+                        continue 'faces;
+                    };
+                    if matches!(e.curve, crate::Curve::SurfacePair { .. }) {
+                        if probe {
+                            eprintln!("[t3c] face {fi} skipped: surface-pair edge");
+                        }
+                        continue 'faces;
+                    }
+                    let (Some(vs), Some(ve)) =
+                        (verts.get(e.start as usize), verts.get(e.end as usize))
+                    else {
+                        if probe {
+                            eprintln!("[t3c] face {fi} skipped: missing vertex");
+                        }
+                        continue 'faces;
+                    };
+                    let closed = e.start == e.end || lp.len() == 1;
+                    if closed && matches!(chart, Chart::Cylinder { .. }) {
+                        // A full rim: the face is a periodic strip whose
+                        // chart has a seam — the wrapping-loop named gap.
+                        if probe {
+                            eprintln!("[t3c] face {fi} skipped: closed rim on a cylinder");
+                        }
+                        continue 'faces;
+                    }
+                    let Some(samples) =
+                        sample_output_edge(&e.curve, vs.point, ve.point, closed, band)
+                    else {
+                        if probe {
+                            eprintln!(
+                                "[t3c] face {fi} skipped: unsampleable edge (half-sweep arc)"
+                            );
+                        }
+                        continue 'faces;
+                    };
+                    for p in &samples[..samples.len() - 1] {
+                        pts.push((*p, ei));
+                    }
+                }
+                if pts.len() < 2 {
+                    if probe {
+                        eprintln!("[t3c] face {fi} skipped: loop under 2 samples");
+                    }
+                    continue 'faces;
+                }
+                all.push(pts);
+            }
+            all
+        };
+        // Into the chart; a cylinder loop is unwrapped along its walk and
+        // must close (no net turn about the axis).
+        let mut loops_2d: Vec<Vec<([f64; 2], u32)>> = Vec::new();
+        for lp in &loops_3d {
+            let mut out2 = Vec::with_capacity(lp.len());
+            match chart {
+                Chart::Plane(e1, e2) => {
+                    for &(p, ei) in lp {
+                        out2.push(([dot3(p, e1), dot3(p, e2)], ei));
+                    }
+                }
+                Chart::Cylinder { a, u, e1, e2, r } => {
+                    let theta = |p: [f64; 3]| {
+                        let w = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+                        (dot3(w, e2).atan2(dot3(w, e1)), dot3(w, u))
+                    };
+                    let (mut prev, _) = theta(lp[0].0);
+                    let mut acc = prev;
+                    for &(p, ei) in lp {
+                        let (th, h) = theta(p);
+                        let mut d = th - prev;
+                        if d > std::f64::consts::PI {
+                            d -= two_pi;
+                        } else if d < -std::f64::consts::PI {
+                            d += two_pi;
+                        }
+                        acc += d;
+                        prev = th;
+                        out2.push(([r * acc, h], ei));
+                    }
+                    // Closing step back to the first sample.
+                    let (th0, _) = theta(lp[0].0);
+                    let mut d = th0 - prev;
+                    if d > std::f64::consts::PI {
+                        d -= two_pi;
+                    } else if d < -std::f64::consts::PI {
+                        d += two_pi;
+                    }
+                    let net = acc + d - out2[0].0[0] / r;
+                    if net.abs() > std::f64::consts::PI {
+                        if probe {
+                            eprintln!("[t3c] face {fi} skipped: wrapping loop");
+                        }
+                        continue 'faces; // a wrapping loop — named gap
+                    }
+                }
+            }
+            loops_2d.push(out2);
+        }
+        let mut named: BTreeSet<(InputId, u32)> = BTreeSet::new();
+        let mut detail: Option<String> = None;
+        // Orientation: outer positive, holes negative (× sense).
+        for (li, lp) in loops_2d.iter().enumerate() {
+            let n = lp.len();
+            let area2: f64 = (0..n)
+                .map(|i| {
+                    let (p, q) = (lp[i].0, lp[(i + 1) % n].0);
+                    p[0] * q[1] - q[0] * p[1]
+                })
+                .sum::<f64>()
+                * sense;
+            let want_positive = li == 0;
+            if probe {
+                eprintln!(
+                    "[t3c] face {fi} {:?} loop {li}: {} samples, oriented area {:.3e} (sense {sense})",
+                    face.surface,
+                    n,
+                    0.5 * area2
+                );
+            }
+            if (area2 > 0.0) != want_positive {
+                detail = Some(format!(
+                    "output face {fi}: loop {li} winds against the face's material side \
+                     (oriented area {:.3e})",
+                    0.5 * area2
+                ));
+                named.extend(lineage(fi));
+                for &(_, ei) in lp {
+                    named.extend(across(ei).and_then(lineage));
+                }
+                break;
+            }
+        }
+        // Crossings.
+        if detail.is_none() {
+            // `(a, b, edge, loop, index-in-loop)`.
+            type Seg = ([f64; 2], [f64; 2], u32, usize, usize);
+            let mut segs: Vec<Seg> = Vec::new();
+            for (li, lp) in loops_2d.iter().enumerate() {
+                let n = lp.len();
+                for i in 0..n {
+                    segs.push((lp[i].0, lp[(i + 1) % n].0, lp[i].1, li, i));
+                }
+            }
+            let side = |a: [f64; 2], b: [f64; 2], p: [f64; 2]| -> f64 {
+                let d = [b[0] - a[0], b[1] - a[1]];
+                let l = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                if l == 0.0 {
+                    return 0.0;
+                }
+                (d[0] * (p[1] - a[1]) - d[1] * (p[0] - a[0])) / l
+            };
+            let straddles = |a: [f64; 2], b: [f64; 2], p: [f64; 2], q: [f64; 2]| -> bool {
+                let (sp, sq) = (side(a, b, p), side(a, b, q));
+                (sp > band && sq < -band) || (sp < -band && sq > band)
+            };
+            let adjacent = |x: &Seg, y: &Seg| -> bool {
+                if x.3 != y.3 {
+                    return false;
+                }
+                let n = loops_2d[x.3].len();
+                let d = x.4.abs_diff(y.4);
+                d <= 1 || d == n - 1
+            };
+            let lo_x = |i: usize| segs[i].0[0].min(segs[i].1[0]);
+            let hi_x = |i: usize| segs[i].0[0].max(segs[i].1[0]);
+            let mut order: Vec<usize> = (0..segs.len()).collect();
+            order.sort_by(|&i, &j| lo_x(i).total_cmp(&lo_x(j)));
+            'sweep: for (k, &i) in order.iter().enumerate() {
+                for &j in &order[k + 1..] {
+                    if lo_x(j) > hi_x(i) + band {
+                        break;
+                    }
+                    let (x, y) = (&segs[i], &segs[j]);
+                    if adjacent(x, y) {
+                        continue;
+                    }
+                    let (ylo, yhi) = (x.0[1].min(x.1[1]), x.0[1].max(x.1[1]));
+                    if y.0[1].max(y.1[1]) < ylo - band || y.0[1].min(y.1[1]) > yhi + band {
+                        continue;
+                    }
+                    if straddles(x.0, x.1, y.0, y.1) && straddles(y.0, y.1, x.0, x.1) {
+                        detail = Some(format!(
+                            "output face {fi}: its loops cross on their exact curves \
+                             (edges {} × {}, loops {} / {})",
+                            x.2, y.2, x.3, y.3
+                        ));
+                        named.extend(lineage(fi));
+                        for ei in [x.2, y.2] {
+                            named.extend(across(ei).and_then(lineage));
+                        }
+                        break 'sweep;
+                    }
+                }
+            }
+        }
+        if let Some(detail) = detail {
+            sites.push(FailureSite {
+                trigger: FailureTrigger::IllegalIntersection,
+                faces: named.into_iter().collect(),
+                detail,
+            });
+        }
+    }
+    sites
+}
+
 /// T3b — the OUTPUT-level §4.5.4 check (spec `yang_452_refinement_loop.md`
 /// §6.3): two DISTINCT faces of the emitted B-Rep on ONE quadric whose
 /// planar boundary curves cross. Every planar section of a quadric is a
@@ -611,7 +997,7 @@ pub(crate) fn failures(result: &Result<BRep, YangError>) -> Vec<FailureSite> {
             // valid (spec §3, measured 2026-10-14: every improper pair on
             // CORRECT outputs is an un-retriangulated chord crossing); the
             // output-level T3b is the trigger.
-            out.extend(output_curve_crossings(brep));
+            out.extend(output_illegal_sites(brep));
         }
         Err(e) => {
             if out.is_empty() {

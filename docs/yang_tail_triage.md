@@ -43,6 +43,33 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (T3c) — the output-level §4.5.4 check WITHIN one face; the rim × plane retry may no longer adopt an invalid body; with the §4.3.3 arm cluster OFF the corpus now holds at **351C / 0W / 18E / 5EE / 0T over 374** — the cluster protects nothing
+
+**What the arms-off measurement asked for.** P0044 and P0047 failed with
+the §4.3.3 arms off while yang's failure set was empty: kernel-v2 alone
+rejected their emitted B-Reps. Anchored with kernel-v2's own probes: P0047's
+prism side carries the cut cylinder's ellipse arc, which bulges past the
+face's own straight edge and crosses back — a self-intersecting loop
+(`KV2_RING_PROVENANCE`, `KV2_RING_REJECT_PROBE`); P0044's cut-cylinder
+patch has ONE loop that winds against its material side
+(`KV2_CYLPATCH_PROBE`: wrap 0, area2 < 0, no material-CCW loop). Both are
+§4.5.4 (`:752-758`) inside one face — T3b only compares two faces.
+`failures::output_loop_crossings` (spec `yang_452_refinement_loop.md` §3
+"T3c") reads every emitted face's loops on their exact curves in the face's
+chart (plane, unrolled cylinder) and fires on a crossing or a mis-wound
+loop. P0044 additionally needed the rim × plane graze retry (`boolean()`,
+before the loop) to stop adopting a body with output-level sites: it had
+returned the very body kernel-v2 rejected and pre-empted the loop.
+
+| run | score | wall | moves vs the T6 landing (351C) |
+|---|---|---|---|
+| arms ON (canonical) | 351C / 0W / 18E / 5EE / 0T | 1040.5 s | none; detail drift P0056 (same `NonManifoldVertex` point, renumbered — the retry's body is refused, the natural stands) and P0061 (`InvalidBooleanOutput` χ → `ring rejected by CDT`: T3c names five crossing faces, the loop reaches the ceiling, the natural stands) |
+| arms OFF (`YANG_433_GUARD=0`) | 351C / 0W / 18E / 5EE / 0T | 1034.1 s | none vs arms ON; P0044 and P0047 convert through T3c + the loop; detail drift P0048 (open tail, a new wall text) |
+
+Summed case CPU 6,840 s → 6,901 s (+0.9 %). The cluster — wedge, pierce
+dip, segment-face graze, edge graze (cleanup §2a) — is now redundant on the
+corpus; its retirement is the next commit, with its own corpus run.
+
 ## 2026-10-14 (Phase 1f) — T6, the §4.3 near-miss check, lands as a §4.5.2 loop trigger; P0049 CONVERTED through it; R0023 moves UNSUPPORTED → ERROR one op earlier (anchored, open); corpus **351C / 0W / 18E / 5EE / 0T over 374** (wall 1035.9 s)
 
 **The paper's detection after the arrangement** (`refs/text/yang2025_hybrid_boolean.txt:525-530`:

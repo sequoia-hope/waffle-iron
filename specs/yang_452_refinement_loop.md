@@ -246,6 +246,50 @@ box / coarse / intersecting rejections, refined, contacts). The assay
 runner nulls a child's stderr — read probes through `WAFFLE_PATH=…
 user_case_probe replay_waffle_env`.
 
+**T3c — the output-level §4.5.4 check WITHIN one face (2026-10-14).**
+The arms-off measurement above left P0044 and P0047 failing with yang's
+failure set EMPTY: their meshes met, Stages 4–6 emitted, and only kernel-v2
+rejected the B-Rep. Anchored with the kernel-v2 probes (`KV2_CYLPATCH_PROBE`,
+`KV2_RING_PROVENANCE`): P0047's emitted prism side carries the cut cylinder's
+ellipse arc, which bulges past the face's own straight edge and crosses
+back (the edge pierces the cylinder twice, below the chord sagitta) — a
+self-intersecting loop; P0044's emitted cut-cylinder patch has one loop that
+winds against its material side. Both are the paper's §4.5.4 case —
+"intersections that may arise during mesh updating can lead to topological
+inconsistencies between the mesh and the B-Rep model … We detect these
+illegal intersections and perform local refinement" (`:752-758`) — inside
+ONE face, where T3b only compares two distinct faces on one quadric.
+
+`failures::output_loop_crossings` reads every emitted face's loops on their
+EXACT curves (`sample_output_edge`: a straight edge by its endpoints, an
+open circle / ellipse edge along its MINOR arc — kernel-v2's own reading,
+`from_yang/classify` — a closed conic over its period, a parabola /
+hyperbola between its endpoint parameters, sampled to the model band) in the
+face's chart — a plane's right-handed frame, a cylinder unrolled to
+`(R·θ, h)` (right-handed about the outward radial normal; `reversed` flips
+the sense). Two rules: the outer loop encloses positive oriented area and
+every hole negative; no two non-adjacent segments cross (each straddles the
+other's line by more than the model band). A site names the face's input
+lineage and the lineage of the faces across the offending edges. Named gaps:
+faces with a `SurfacePair` edge, cylinder faces with a loop that wraps the
+axis, cone / sphere / torus charts. Trigger: `IllegalIntersection` (T3b's).
+Output loops are CCW viewed from outside, as `BRepFace::outer_loop` states —
+measured on three CORRECT outputs; the Stage-1-style `rj_box` fixture walks
+CW and is not an output fixture. Pins `tests_unit/s454_output_loop_crossings.rs`
+(four). Probe `YANG_T3C_PROBE=1` (each face's samples, oriented area, sense,
+and skip reason).
+
+*The rim × plane retry pre-empted the loop.* With the arms off P0044 still
+failed: `boolean()`'s §4.5.4 rim × plane graze retry (a Stage-1 arm,
+cleanup §2a) re-ran the op and RETURNED its body whenever its mesh
+self-intersection count did not grow — a body never scanned by the failure
+set, and the one kernel-v2 rejected (four T3b / T3c sites). The retry's own
+stated purpose is never to adopt illegal geometry, so its adoption now also
+requires `failures::output_illegal_sites` (T3b + T3c) to be empty; otherwise
+it falls through to the loop, which starts from the natural run's sites.
+P0044 then converts at the loop's ×4 run; R0044 and P0029, which convert
+THROUGH the retry, keep a clean retry body and are unchanged.
+
 ### 4. The region `region(F)`
 
 For each failure site, the faces it names on each operand, plus every face

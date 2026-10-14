@@ -164,5 +164,6 @@ fn a_clean_body_has_an_empty_failure_set() {
     failures::reset();
     let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0);
     let ok: Result<crate::BRep, crate::YangError> = Ok(a);
-    assert!(failures::failures(&ok).is_empty());
+    let f = failures::failures(&ok);
+    assert!(f.is_empty(), "{f:?}");
 }
