@@ -43,6 +43,42 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-14 (Phase 1a) — the §4.5.2 refinement UNIT lands as a standing per-face map: `BRep::face_refine` / `refined_at` (density ×2 per face, the paper's own iteration step); corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
+
+**Faithful, no deviation; no production reader yet.** Phase 1a of
+`specs/yang_faithful_cleanup.md`, spec `specs/yang_452_refinement_loop.md`
+§5 and §10 step 1. The paper refines "the parametric surfaces associated
+with the erroneous regions" (`:659-663`) by the same step its discretization
+uses — *"each iteration of our method increases the mesh density by 2×"*
+(`:365-366`). Stage 1 now carries that step as a STANDING per-face density
+multiplier `k` (`FaceRefine`, a power of two, ceiling `FACE_REFINE_MAX = 64`),
+and a face at factor `k` has chord bound `d_ε / k²`:
+
+- every circle rim's ring is `n_seg · k_e`, `k_e` the max over the edge's
+  incident faces (`edge_refine_factors`) — a shared rim takes the finer
+  face's ring, and the band between two rims of different `k` is the
+  azimuth zipper's (P0044's primitive is what makes per-face refinement
+  legal geometry); arcs and ellipse chains follow the same rule;
+- the cylinder chart reads `demand = min(self-contact demand, budget / k²)`
+  and a rim step of `2π / (n_seg · k)`; the torus patch and the sphere read
+  their own bound `/ k²`;
+- the map is threaded through every `from_topology*` rebuild and Stage 0's
+  ring readers (`stage1_tessellate_with_rim_overrides_refined`), so a
+  refined rim stays conformal across a coplanar overlay;
+- `BRep::refined_at(faces)` doubles the named faces and saturates at the
+  ceiling; an empty request is the byte-identical identity.
+
+Not yet covered, named in the spec: the holed-cone chart (reads no budget
+at all today) and the hyperbola chain. Pins `tests_unit/s452_face_refine.rs`
+(six). yang-rs release suite 1521 / 0 across 76 binaries; clippy and fmt
+clean.
+
+**Corpus (release, 8 jobs, 900 s; wall 962.5 s): 346C / 0W / 22E / 5EE / 0T
++ 1U over 374** — versus the Phase 0 baseline ZERO category moves and ZERO
+detail drift, as the landing sequence requires of a primitive with no
+production reader. Next: 1b, the trigger set `failures(out)` (T1–T5) with
+face attribution; 1c, the loop.
+
 ## 2026-10-14 (Phase 0) — the faithful cleanup begins: governance A15.7, forty-five deviations re-graded DELEGATED, eleven gated-off experiments and the dead machinery behind them deleted (net −7,216 lines); corpus byte-identical **346C / 0W / 22E / 5EE / 0T + 1U over 374**
 
 **No mechanism changed; faithful, no deviation.** This is bookkeeping and

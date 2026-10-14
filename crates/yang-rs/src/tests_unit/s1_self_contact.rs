@@ -31,6 +31,7 @@ fn once(
         &empty,
         &crate::stage1_tessellate::FaceConstraints::new(),
         &no_demands,
+        &crate::stage1_tessellate::FaceRefine::new(),
         None,
         &mut n_used,
     )

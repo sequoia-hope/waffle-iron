@@ -141,11 +141,34 @@ siblings at `:1095…`). A FACE-level reader already exists —
 every reader takes under this spec; the owner-level readers become
 "max over the owner's faces" where they genuinely need an operand bound.
 
-`BRep::refined_at(faces: &BTreeSet<u32>, factor)` doubles `face_factor[f]`
-for every f in `faces` and rebuilds from topology
+`BRep::refined_at(faces: &BTreeSet<u32>)` doubles `face_refine[f]` for
+every f in `faces` and rebuilds from topology
 (`from_topology_with_rim_overrides`, standing samples and `forced_rim_n`
 preserved). The body-wide `with_refined_chord` becomes the degenerate case
 `faces = all`, and stays available for the census ladder only.
+
+**Phase 1a LANDED 2026-10-14 (byte-identical).** The unit of refinement is
+the paper's: *"Each iteration of our method increases the mesh density by
+2×"* (`:365-366`) — `face_refine: BTreeMap<u32, u32>` holds a DENSITY
+multiplier `k` (a power of two, ceiling `FACE_REFINE_MAX = 64`), and a face
+at factor `k` has chord bound `d_ε / k²`. Where it lands in Stage 1
+(`stage1_tessellate_once`): every circle rim's ring is `n_seg · k_e` with
+`k_e` the max over the edge's incident faces (`edge_refine_factors`) — arcs
+and ellipse chains alike; the cylinder chart reads `demand = min(guard
+demand, budget / k²)` and a rim step of `2π / (n_seg · k)`; the torus patch
+and the sphere read their own bound `/ k²`. Stage 0's ring readers
+(`stage0::frame`, `mesh_build`, `coincident_cylinder_stage0`) honor the map
+through `stage1_tessellate_with_rim_overrides_refined` /
+`_with_standing_overrides`, so a refined rim stays conformal across a
+coplanar overlay. NOT yet covered (named, not hidden): the holed-cone chart
+(`ChartBudget::default()` at `surface_face_tessellators.rs:233/392`, which
+today reads no budget at all) and the hyperbola chain (sampled from `d_ε`
+directly). Pins `tests_unit/s452_face_refine.rs`: empty map byte-identical;
+refining the lateral doubles both rims and both caps follow; refining one
+cap refines its rim alone and the tube is the zipper's `m + n`; doubling
+composes and saturates at the ceiling; the map stands across a
+from-topology rebuild; out-of-range is loud. The map's production reader is
+Phase 1c; until then `refined_at` is a pinned primitive.
 
 **What the lens was.** `domain_fire_local_rim_overrides` (P0031) is a
 hand-shaped special case of this: it refines ONE rim closure around ONE
@@ -223,7 +246,7 @@ graze, edge graze (`edge_graze_sites` …), rim×plane graze (both forms,
 
 ## 10. Landing sequence
 
-1. `face_factor` + `refined_at` (Phase 1a, gated: nothing reads the map until 1c) — byte-identical.
+1. ~~`face_factor` + `refined_at` (Phase 1a, gated: nothing reads the map until 1c) — byte-identical.~~ **LANDED 2026-10-14** (`face_refine`, see §5).
 2. `failures(out)` with T1–T5 and face attribution; `Stage4RegionInvalid` gains `incident` (1b) — byte-identical (read-only).
 3. The loop replaces the three remedies, lens kept as a first rung for one run (1c) — corpus monotone; then lens deleted (1d) — corpus holds P0031.
 4. BVH-accelerated `detect_improper_contacts` so T3 can be always-on (1e) — corpus wall-time measured.

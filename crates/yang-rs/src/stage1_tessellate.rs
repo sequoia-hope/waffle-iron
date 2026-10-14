@@ -103,6 +103,7 @@ pub(crate) fn stage1_tessellate_with_rim_overrides(
 /// splice): the composed Stage-1 tessellation with rim samples and interior
 /// Steiner points, no straight-edge overrides. An empty `face_overrides`
 /// is byte-identical to the rim-only entry.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn stage1_tessellate_with_standing_overrides(
     verts: &[BRepVertex],
     edges: &[BRepEdge],
@@ -110,9 +111,10 @@ pub(crate) fn stage1_tessellate_with_standing_overrides(
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_constraints: &FaceConstraints,
+    face_refine: &FaceRefine,
     min_n_seg: Option<usize>,
 ) -> Result<Stage1Tess, YangError> {
-    if face_overrides.is_empty() && face_constraints.is_empty() {
+    if face_overrides.is_empty() && face_constraints.is_empty() && face_refine.is_empty() {
         return stage1_tessellate_with_rim_overrides(verts, edges, faces, rim_overrides, min_n_seg);
     }
     stage1_tessellate_inner_overrides(
@@ -123,6 +125,107 @@ pub(crate) fn stage1_tessellate_with_standing_overrides(
         &std::collections::BTreeMap::new(),
         face_overrides,
         face_constraints,
+        face_refine,
+        min_n_seg,
+    )
+    .map(|(t, _)| t)
+}
+
+/// Yang §4.5.2 per-FACE refinement factors (spec
+/// `specs/yang_452_refinement_loop.md` §5; Phase 1a of
+/// `specs/yang_faithful_cleanup.md`): face index → DENSITY multiplier `k`,
+/// a power of two ≥ 2 (absent = 1). The paper's refinement step is "the
+/// mesh density increases by 2×" per iteration (`refs/text/yang2025_hybrid_boolean.txt:365-366`),
+/// applied to "the parametric surfaces associated with the erroneous
+/// regions" (`:659-663`), so a face at factor `k` is discretized `k` times
+/// denser than the natural `d_ε` chose — its chord bound is `d_ε / k²`.
+///
+/// Rims are shared sample sets: a circle edge's ring is sized from the
+/// FINER of its two incident faces (`edge_refine_factors`), so a band whose
+/// two rims differ in `k` carries unequal rings and the azimuth zipper
+/// (spec `stage1_azimuth_merge_unequal_rings.md`) tessellates it. An empty
+/// map is the Stage-1 byte-identical identity.
+pub(crate) type FaceRefine = std::collections::BTreeMap<u32, u32>;
+
+/// The largest per-face density factor the §4.5.2 loop may reach (the
+/// REFINE_452_MAX_FACTOR ceiling of the op-level ladder, in density terms:
+/// 64× the natural rim count; R0085 / P0015 / P0039 all converge at or
+/// before it).
+// Phase 1a primitive (spec §10): read by `BRep::refined_at`, whose production
+// caller is the Phase 1c loop; pinned by `tests_unit/s452_face_refine.rs`.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) const FACE_REFINE_MAX: u32 = 64;
+
+/// The density factor of face `f` under `face_refine` (1 when absent).
+pub(crate) fn face_refine_factor(face_refine: &FaceRefine, f: usize) -> u32 {
+    face_refine.get(&(f as u32)).copied().unwrap_or(1).max(1)
+}
+
+/// Per-edge density factors: for every edge, the MAX factor over the faces
+/// whose loops carry it — a shared rim takes the finer face's ring. All 1
+/// when the map is empty.
+pub(crate) fn edge_refine_factors(
+    n_edges: usize,
+    faces: &[BRepFace],
+    face_refine: &FaceRefine,
+) -> Vec<usize> {
+    let mut out = vec![1usize; n_edges];
+    if face_refine.is_empty() {
+        return out;
+    }
+    for (fi, f) in faces.iter().enumerate() {
+        let k = face_refine_factor(face_refine, fi) as usize;
+        if k <= 1 {
+            continue;
+        }
+        for &e in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            if let Some(slot) = out.get_mut(e as usize) {
+                *slot = (*slot).max(k);
+            }
+        }
+    }
+    out
+}
+
+/// A face's chord DEMAND under refinement: the self-contact guard's demand
+/// (if any) tightened by the refined bound `budget / k²`. `k = 1` returns
+/// `demand` unchanged (byte-identical).
+pub(crate) fn refine_demand(demand: Option<f64>, budget: Option<f64>, k: u32) -> Option<f64> {
+    if k <= 1 {
+        return demand;
+    }
+    let kk = (k as f64) * (k as f64);
+    match (demand, budget.filter(|b| b.is_finite() && *b > 0.0)) {
+        (Some(d), Some(b)) => Some(d.min(b / kk)),
+        (None, Some(b)) => Some(b / kk),
+        (d, None) => d,
+    }
+}
+
+/// [`stage1_tessellate_with_rim_overrides`] plus the per-face refinement
+/// factors — the Stage-0 ring readers' entry (`stage0::frame`), which carry
+/// rim samples but deliberately no face-interior points. An empty
+/// `face_refine` is byte-identical to the rim-only entry.
+pub(crate) fn stage1_tessellate_with_rim_overrides_refined(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    face_refine: &FaceRefine,
+    min_n_seg: Option<usize>,
+) -> Result<Stage1Tess, YangError> {
+    if face_refine.is_empty() {
+        return stage1_tessellate_with_rim_overrides(verts, edges, faces, rim_overrides, min_n_seg);
+    }
+    stage1_tessellate_inner_overrides(
+        verts,
+        edges,
+        faces,
+        rim_overrides,
+        &std::collections::BTreeMap::new(),
+        &std::collections::BTreeMap::new(),
+        &FaceConstraints::new(),
+        face_refine,
         min_n_seg,
     )
     .map(|(t, _)| t)
@@ -213,6 +316,7 @@ pub(crate) fn stage1_tessellate_with_edge_overrides(
         edge_overrides,
         face_overrides,
         &FaceConstraints::new(),
+        &FaceRefine::new(),
         min_n_seg,
     )
     .map(|(t, _)| t)
@@ -237,6 +341,7 @@ pub(crate) fn stage1_tessellate_inner(
         &std::collections::BTreeMap::new(),
         &std::collections::BTreeMap::new(),
         &FaceConstraints::new(),
+        &FaceRefine::new(),
         min_n_seg,
     )
 }
@@ -269,6 +374,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
     edge_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_constraints: &FaceConstraints,
+    face_refine: &FaceRefine,
     min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     let refine_on = !matches!(
@@ -302,6 +408,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
             face_overrides,
             face_constraints,
             &face_chord_demands,
+            face_refine,
             force,
             &mut n_used,
         ) {
@@ -410,10 +517,16 @@ pub(crate) fn stage1_tessellate_once(
     face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
     face_constraints: &FaceConstraints,
     face_chord_demands: &std::collections::BTreeMap<u32, f64>,
+    face_refine: &FaceRefine,
     min_n_seg: Option<usize>,
     n_seg_out: &mut Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
+        // §4.5.2 per-face refinement (spec `yang_452_refinement_loop.md` §5):
+        // every edge's density factor is the MAX over its incident faces, so
+        // a shared rim takes the finer face's ring. All 1 (byte-identical)
+        // when no face is refined.
+        let edge_refine = edge_refine_factors(edges.len(), faces, face_refine);
         let mut inserted_rims: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let mut out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
         let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
@@ -630,6 +743,10 @@ pub(crate) fn stage1_tessellate_once(
                 let e1a = e1.as_array();
                 let e2a = e2.as_array();
                 let seam_vertex = e_start;
+                // This rim's ring count: the operand's shared N times the
+                // §4.5.2 density factor of its finest incident face (1 ⇒
+                // the shared N, byte-identical).
+                let n_e = n_seg * edge_refine.get(e_idx).copied().unwrap_or(1).max(1);
 
                 // Angle of a vertex in this circle's frame + on-circle
                 // validation (the arc convention makes endpoints
@@ -672,7 +789,7 @@ pub(crate) fn stage1_tessellate_once(
                     // Same per-chord angle as the full-circle ring; floor 2
                     // segments so a π arc never degenerates to one diameter
                     // chord.
-                    let m = ((sweep * n_seg as f64) / two_pi).ceil() as usize;
+                    let m = ((sweep * n_e as f64) / two_pi).ceil() as usize;
                     let m = m.max(2);
                     // Interior slots: (start-relative angle offset, override
                     // point or None = uniform Steiner). M8-mixed (spec
@@ -840,9 +957,9 @@ pub(crate) fn stage1_tessellate_once(
                     Uniform(usize),
                     Override(Point3),
                 }
-                let mut slots: Vec<(f64, RimSlot)> = Vec::with_capacity(n_seg);
-                for k in 0..n_seg {
-                    slots.push((two_pi * (k as f64) / (n_seg as f64), RimSlot::Uniform(k)));
+                let mut slots: Vec<(f64, RimSlot)> = Vec::with_capacity(n_e);
+                for k in 0..n_e {
+                    slots.push((two_pi * (k as f64) / (n_e as f64), RimSlot::Uniform(k)));
                 }
                 if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
                     // Angular margin around a uniform sample: a crossing landing
@@ -851,7 +968,7 @@ pub(crate) fn stage1_tessellate_once(
                     // fused-emission survivor of a ULP-split mirrored rim IS the
                     // rim's own sample — the slot takes the override's exact
                     // bits) or is refused loudly (real-scale coincidence).
-                    let uni_step = two_pi / (n_seg as f64);
+                    let uni_step = two_pi / (n_e as f64);
                     let merge_tol = uni_step * 1.0e-6;
                     let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
                     // Uniform slots taken by a merged override (slot → bits).
@@ -883,7 +1000,7 @@ pub(crate) fn stage1_tessellate_once(
                         // is NOT a tolerance widening. A point OUTSIDE the circle,
                         // or inside by MORE than the sagitta (a bad projection),
                         // or off the cap plane (axial) is still a loud fault.
-                        let sagitta = radius * (1.0 - (std::f64::consts::PI / n_seg as f64).cos());
+                        let sagitta = radius * (1.0 - (std::f64::consts::PI / n_e as f64).cos());
                         if r - radius > band || radius - r > sagitta + band || along.abs() > band {
                             return Err(YangError::MalformedTopology(format!(
                                 "circle edge {e_idx}: rim-crossing override ({},{},{}) is off the \
@@ -896,7 +1013,7 @@ pub(crate) fn stage1_tessellate_once(
                         // Coincides angularly with a uniform sample?
                         let k_near = (off / uni_step).round();
                         if (off - k_near * uni_step).abs() <= merge_tol {
-                            let k_slot = (k_near as usize) % n_seg;
+                            let k_slot = (k_near as usize) % n_e;
                             if k_slot == 0 {
                                 // The SEAM is a B-Rep vertex, not a Steiner slot
                                 // — replacing its bits in one ring would desync
@@ -994,7 +1111,7 @@ pub(crate) fn stage1_tessellate_once(
                     }
                     if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                         eprintln!(
-                            "[ring-build] edge={e_idx} n_seg={n_seg} overrides={} merged={} \
+                            "[ring-build] edge={e_idx} n_seg={n_seg} n_e={n_e} overrides={} merged={} \
                              inserted={} ring_len={}",
                             extra.len(),
                             merged_slots.len(),
@@ -1098,6 +1215,9 @@ pub(crate) fn stage1_tessellate_once(
                     n_seg += 1;
                 }
             }
+            // §4.5.2 per-face refinement: the finer incident face's density
+            // factor (1 ⇒ unchanged).
+            let n_seg = n_seg * edge_refine.get(e_idx).copied().unwrap_or(1).max(1);
             let two_pi = 2.0 * std::f64::consts::PI;
             // Param of an endpoint vertex + on-ellipse validation (the arc
             // convention makes endpoints load-bearing, so off-ellipse
@@ -2178,10 +2298,21 @@ pub(crate) fn stage1_tessellate_once(
                         &edge_planar,
                         &mut out_verts,
                         &mut sources,
-                        ChartBudget {
-                            budget: operand_chord_budget,
-                            demand: face_chord_demands.get(&(f_idx as u32)).copied(),
-                            rim_step: n_seg_out.map(|n| 2.0 * std::f64::consts::PI / n as f64),
+                        {
+                            // §4.5.2 per-face refinement: a face at density
+                            // factor k has chord bound budget / k² and rims
+                            // at N·k (spec `yang_452_refinement_loop.md` §5).
+                            let k = face_refine_factor(face_refine, f_idx);
+                            ChartBudget {
+                                budget: operand_chord_budget,
+                                demand: refine_demand(
+                                    face_chord_demands.get(&(f_idx as u32)).copied(),
+                                    operand_chord_budget,
+                                    k,
+                                ),
+                                rim_step: n_seg_out
+                                    .map(|n| 2.0 * std::f64::consts::PI / (n as f64 * k as f64)),
+                            }
                         },
                         axis_point,
                         axis_dir,
@@ -2215,6 +2346,7 @@ pub(crate) fn stage1_tessellate_once(
                         verts,
                         center,
                         radius,
+                        face_refine_factor(face_refine, f_idx),
                         &mut out_verts,
                         &mut sources,
                         &mut out_tris,
@@ -2256,7 +2388,14 @@ pub(crate) fn stage1_tessellate_once(
                         axis_dir,
                         major_radius,
                         minor_radius,
-                        face_chord_demands.get(&(f_idx as u32)).copied(),
+                        // §4.5.2 per-face refinement: the torus patch's own
+                        // chord bound divided by k² (1 ⇒ the guard's demand
+                        // alone, byte-identical).
+                        refine_demand(
+                            face_chord_demands.get(&(f_idx as u32)).copied(),
+                            Some(torus_chord_bound(major_radius, minor_radius)),
+                            face_refine_factor(face_refine, f_idx),
+                        ),
                         &mut out_verts,
                         &mut sources,
                         &mut out_tris,

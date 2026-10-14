@@ -29,6 +29,7 @@ pub(crate) fn tessellate_sphere_face(
     verts: &[BRepVertex],
     center: Point3,
     radius: f64,
+    refine: u32,
     out_verts: &mut Vec<Point3>,
     sources: &mut Vec<TessellationSource>,
     out_tris: &mut Vec<[u32; 3]>,
@@ -83,7 +84,11 @@ pub(crate) fn tessellate_sphere_face(
     // refinement (more triangles), NOT tolerance widening. The factor 2 leaves a
     // comfortable margin across the corpus (verified: worst centroid deviation
     // ≈ 0.82·d_ε), and the ratio is scale-invariant so one N pair fits all radii.
-    let d_eps = sphere_chord_bound(radius);
+    // §4.5.2 per-face refinement (spec `yang_452_refinement_loop.md` §5): a
+    // face at density factor `refine` has chord bound `d_ε / refine²`
+    // (`refine = 1` ⇒ byte-identical).
+    let kk = (refine.max(1) as f64) * (refine.max(1) as f64);
+    let d_eps = sphere_chord_bound(radius) / kk;
     let seg_budget = d_eps / 2.0;
     // n_lon: smallest N ≥ 3 with r·(1 − cos(π/N)) ≤ d_ε/2 (equator chord).
     let mut n_lon = 3usize;

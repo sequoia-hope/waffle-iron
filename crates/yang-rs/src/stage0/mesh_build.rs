@@ -953,6 +953,7 @@ pub(crate) fn build_stage0_mesh(
         &rim_points,
         brep.standing_face(),
         brep.standing_face_constraints(),
+        brep.face_refine(),
         brep.forced_rim_n(),
     )?;
 

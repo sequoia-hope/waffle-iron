@@ -3480,6 +3480,7 @@ fn boolean_once(
         standing_rim: std::collections::BTreeMap::new(),
         standing_face: std::collections::BTreeMap::new(),
         standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
+        face_refine: crate::stage1_tessellate::FaceRefine::new(),
     };
     // N76 (P0017): an output loop that traverses ONE `SurfacePair` curve twice
     // carries a zero-width spur pointing out of the material — the curved twin

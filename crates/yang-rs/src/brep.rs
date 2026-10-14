@@ -476,6 +476,18 @@ pub struct BRep {
     /// `from_topology*` rebuild. Empty for `new` / `from_mesh`; an empty map is
     /// the Stage-1 byte-identical identity.
     pub(crate) standing_face_constraints: crate::stage1_tessellate::FaceConstraints,
+    /// Yang §4.5.2 per-FACE refinement factors (spec
+    /// `specs/yang_452_refinement_loop.md` §5; Phase 1a of
+    /// `specs/yang_faithful_cleanup.md`): face index → density multiplier
+    /// `k` (a power of two; absent = 1). A refined face is discretized `k`
+    /// times denser than the natural `d_ε` chose — its rims at `N·k`, its
+    /// chart / sphere / torus chord bound at `d_ε / k²`; a rim shared with
+    /// an unrefined face takes the finer ring and the band between unequal
+    /// rims is the azimuth zipper's. STANDING like `forced_rim_n`: every
+    /// `from_topology*` rebuild and Stage 0's ring readers honor it.
+    /// Populated by [`Self::refined_at`]; empty for `new` / `from_mesh`; an
+    /// empty map is the Stage-1 byte-identical identity.
+    pub(crate) face_refine: crate::stage1_tessellate::FaceRefine,
 }
 
 impl BRep {
@@ -577,6 +589,7 @@ impl BRep {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             &crate::stage1_tessellate::FaceConstraints::new(),
+            &crate::stage1_tessellate::FaceRefine::new(),
         )
     }
 
@@ -584,6 +597,7 @@ impl BRep {
     /// [`from_topology`] plus per-rim-edge exact junction points inserted
     /// as extra Stage-1 rim samples. An empty map is byte-identical to
     /// [`from_topology`] (the Stage-1 empty-override identity).
+    #[allow(clippy::too_many_arguments)]
     fn from_topology_with_rim_overrides(
         verts: Vec<BRepVertex>,
         edges: Vec<BRepEdge>,
@@ -592,6 +606,7 @@ impl BRep {
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
         face_constraints: &crate::stage1_tessellate::FaceConstraints,
+        face_refine: &crate::stage1_tessellate::FaceRefine,
     ) -> Result<Self, YangError> {
         let tess = crate::stage1_tessellate_with_standing_overrides(
             &verts,
@@ -600,12 +615,66 @@ impl BRep {
             rim_overrides,
             face_overrides,
             face_constraints,
+            face_refine,
             min_n_seg,
         )?;
         let mut out = Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)?;
         out.standing_rim = rim_overrides.clone();
         out.standing_face = face_overrides.clone();
         out.standing_face_constraints = face_constraints.clone();
+        out.face_refine = face_refine.clone();
+        Ok(out)
+    }
+
+    /// The §4.5.2 per-face refinement factors in force (see the field docs).
+    pub(crate) fn face_refine(&self) -> &crate::stage1_tessellate::FaceRefine {
+        &self.face_refine
+    }
+
+    /// Yang §4.5.2 local refinement (spec `specs/yang_452_refinement_loop.md`
+    /// §5): the same topology with every face in `faces` discretized at
+    /// TWICE its current density (the paper's refinement step, "the mesh
+    /// density increases by 2×", `refs/text/yang2025_hybrid_boolean.txt:365-366`),
+    /// re-tessellated from topology with every standing override carried
+    /// on. A face already at [`crate::stage1_tessellate::FACE_REFINE_MAX`]
+    /// stays there (the ceiling bounds the loop; the caller reads
+    /// [`Self::face_refine`] to know). An empty `faces` is the byte-identical
+    /// identity; a face index out of range is a loud `MalformedTopology`.
+    // Phase 1a primitive (spec §10 landing sequence): its production reader
+    // is the one §4.5.2 loop of Phase 1c; pinned by `tests_unit/s452_face_refine.rs`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn refined_at(
+        &self,
+        faces: &std::collections::BTreeSet<u32>,
+    ) -> Result<Self, YangError> {
+        let mut refine = self.face_refine.clone();
+        for &f in faces {
+            if f as usize >= self.faces.len() {
+                return Err(YangError::MalformedTopology(format!(
+                    "refined_at: face {f} out of range ({} faces)",
+                    self.faces.len()
+                )));
+            }
+            let cur = refine.get(&f).copied().unwrap_or(1).max(1);
+            let next = (cur * 2).min(crate::stage1_tessellate::FACE_REFINE_MAX);
+            if next > 1 {
+                refine.insert(f, next);
+            }
+        }
+        if refine == self.face_refine {
+            return Ok(self.clone());
+        }
+        let mut out = Self::from_topology_with_rim_overrides(
+            self.vertices.clone(),
+            self.edges.clone(),
+            self.faces.clone(),
+            self.forced_rim_n,
+            &self.standing_rim,
+            &self.standing_face,
+            &self.standing_face_constraints,
+            &refine,
+        )?;
+        out.face_refine = refine;
         Ok(out)
     }
 
@@ -635,6 +704,7 @@ impl BRep {
             &self.standing_rim,
             &self.standing_face,
             &self.standing_face_constraints,
+            &self.face_refine,
         )
     }
 
@@ -670,6 +740,7 @@ impl BRep {
             &self.standing_rim,
             &self.standing_face,
             &self.standing_face_constraints,
+            &self.face_refine,
         )
     }
 
@@ -758,6 +829,7 @@ impl BRep {
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
             standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
+            face_refine: crate::stage1_tessellate::FaceRefine::new(),
         })
     }
 
@@ -785,6 +857,7 @@ impl BRep {
             &self.standing_rim,
             &self.standing_face,
             &self.standing_face_constraints,
+            &self.face_refine,
         )
     }
 
@@ -797,6 +870,7 @@ impl BRep {
             &self.standing_rim,
             &self.standing_face,
             &self.standing_face_constraints,
+            &self.face_refine,
         )
     }
 
@@ -852,6 +926,7 @@ impl BRep {
             &self.compose_rim_overrides(rim_overrides),
             &merge_rim_points(&self.standing_face, face_overrides),
             &self.standing_face_constraints,
+            &self.face_refine,
         )
     }
 
@@ -938,6 +1013,7 @@ impl BRep {
             edge_overrides,
             &face_overrides,
             &face_constraints,
+            &self.face_refine,
             self.forced_rim_n,
         )
         .map(|(t, _)| t)?;
@@ -951,6 +1027,7 @@ impl BRep {
         out.standing_rim = rim_overrides;
         out.standing_face = face_overrides;
         out.standing_face_constraints = face_constraints;
+        out.face_refine = self.face_refine.clone();
         Ok(out)
     }
 
@@ -1031,6 +1108,7 @@ impl BRep {
             &self.standing_rim,
             &self.standing_face,
             &self.standing_face_constraints,
+            &self.face_refine,
         )?))
     }
 
@@ -1103,6 +1181,7 @@ impl BRep {
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
             standing_face_constraints: crate::stage1_tessellate::FaceConstraints::new(),
+            face_refine: crate::stage1_tessellate::FaceRefine::new(),
         }
     }
 

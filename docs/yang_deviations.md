@@ -1051,6 +1051,19 @@ and holed *planar* faces now go through a no-Steiner CDT — see **N9** — but 
 **D14** analog). **Sign-off:** candidate (faithful-by-exactness for the analytic
 scope).
 
+**Update (2026-10-14, cleanup Phase 1a — `specs/yang_452_refinement_loop.md`
+§5).** Stage 1 gains the paper's refinement UNIT as a standing per-face map:
+`BRep::face_refine` (face → density multiplier `k`, "the mesh density
+increases by 2×" per iteration, `:365-366`), consumed by every rim ring
+(`n_seg · k` over the finer incident face), the cylinder chart, the torus
+patch and the sphere (`d_ε / k²`), and honored by Stage 0's ring readers.
+`BRep::refined_at(faces)` is the §4.5.2 primitive the one refinement loop
+(Phase 1c) will drive; nothing reads the map in production yet, so the
+corpus is byte-identical. This does not close N5 — the discretization is
+still rim rings + per-surface dispatch, not the §4.1 u-v CDT — but the
+"rim N is one number per operand" half of the entry is no longer true: a
+band between two rims of different `k` is the azimuth zipper's.
+
 ### N9 — Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade)
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
