@@ -14,7 +14,11 @@
 //!    edges whose endpoints lie on different components — kernel-v2's
 //!    render sampler STOPped on the bridge ("surface-pair projection left
 //!    the chord neighborhood"). The guard's skew-axis internal-graze term
-//!    now derives N 37 for this pair before Stage 1 samples it.
+//!    derived N 37 for this pair before Stage 1 sampled it — RETIRED
+//!    2026-10-15 (cleanup step 2): T3c now names the bridging pair edges
+//!    after reassembly and the §4.5.2 loop refines the two cylinders ×2, ×4
+//!    (a faceless non-manifold STOP, re-refined in place) and ×8, which is
+//!    adopted.
 //!
 //! 2. kernel-v2 (spec `kv2_cdt_triangulation_core.md` §6f, generalized):
 //!    with the curve right, the two faces — the boss lateral and the

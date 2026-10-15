@@ -16,35 +16,17 @@
 //! `meshes_touch=false`, which is Yang Fig. 8 Case III by definition
 //! (`refs/text/yang2025_hybrid_boolean.txt:436-447`).
 //!
-//! The N75 ladder witnesses the overlap on the two faces' OWN axial
-//! extents and then refines until the exact tri-tri predicate flips. It is
-//! GATED OFF by default (`YANG_172_EXTENT=1|on`) because the always-on
-//! flip is a corpus-cost decision owing the full release categorized assay
-//! (P10). Until 2026-10-14 this file pinned BOTH sides — the honest selfx
-//! wall the default path hit, and the fused body the ladder recovers. Since
-//! the §4.3 near-miss trigger T6 of the one §4.5.2 refinement loop (Phase
-//! 1f, `specs/yang_452_refinement_loop.md` §3 "T6"), the default path
-//! fuses the pair too: the contact census names the razor lens (lateral A ×
-//! cap B, cap A × cap B — exact surfaces touching where the arrangement
-//! joined no triangle pair), the loop refines both operands ×2 and the
-//! re-run emits with an empty failure set. Both arms now pin the SAME
-//! fused body; the arm's own kill switch retires with the arm (cleanup §2a).
-//!
-//! The gate is process-global; both tests serialise on one mutex and
-//! set/clear the env var themselves (the `s434_typed_rim_seam_mint.rs`
-//! pattern).
+//! The N75 extent ladder (inside that guard) witnessed the overlap on the
+//! two faces' OWN axial extents and refined until the meshes met; through
+//! 2026-10-14 this file pinned both the wall the default path hit and the
+//! body the ladder fused. Since Phase 1f the §4.3 near-miss trigger T6 of the
+//! one §4.5.2 refinement loop (`specs/yang_452_refinement_loop.md` §3 "T6")
+//! names the razor lens after the arrangement and the loop fuses the pair on
+//! its own; on 2026-10-15 the guard and its ladder were RETIRED (cleanup
+//! step 2), so one pin remains: the fused body.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{boolean_op, extrude, BrepArena, Curve, SolidId, Surface};
-use std::sync::{Mutex, MutexGuard};
-
-static GATE: Mutex<()> = Mutex::new(());
-
-fn ladder(on: bool) -> MutexGuard<'static, ()> {
-    let g = GATE.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("YANG_172_EXTENT", if on { "1" } else { "0" });
-    g
-}
 
 /// The two measured P0021 boss poses, authored exactly as the recipe does:
 /// a circle sketched on the plane through `axis_point` normal to
@@ -102,44 +84,21 @@ fn union_the_pair(arena: &mut BrepArena) -> Result<SolidId, kernel_v2::KernelV2E
     boolean_op(arena, sa, sb, BoolOp::Union)
 }
 
-/// DEFAULT PATH (N75 extent arm off). The BARE PAIR reproduces P0021 with
-/// no prism at all — a 2-operand reduction of the 3-op corpus case: the
-/// natural meshes miss the lens and both laterals come through un-trimmed
-/// against each other. Through 2026-10-13 kernel-v2's render-resolution
-/// selfx gate caught that penetration loudly and this pin held the wall.
-/// Since Phase 1f the §4.3 near-miss trigger T6 names the lens after the
-/// arrangement and the §4.5.2 loop refines until the meshes meet, so the
-/// default path derives the cylinder×cylinder curve exactly as the arm's
-/// path does (the P0007-shaped assertion: the `SurfacePair` TYPE survives
-/// into the output). A silently unfused pair would be a P9 silent-wrong and
-/// a STOP would be the arm's wall back — both fail here.
+/// The BARE PAIR reproduces P0021 with no prism at all — a 2-operand
+/// reduction of the 3-op corpus case: the natural meshes miss the lens and
+/// both laterals come through un-trimmed against each other. T6 names the
+/// lens after the arrangement and the §4.5.2 loop refines until the meshes
+/// meet, so the union derives the cylinder×cylinder curve (the P0007-shaped
+/// assertion: the `SurfacePair` TYPE survives into the output). A silently
+/// unfused pair would be a P9 silent-wrong, and a STOP would be a regression.
 #[test]
-fn p0021_pair_default_path_fuses_through_the_452_loop() {
-    let _g = ladder(false);
+fn p0021_pair_fuses_through_the_452_loop() {
     let mut arena = BrepArena::new();
-    let solid = union_the_pair(&mut arena)
-        .expect("T6 + the §4.5.2 loop must fuse the pair with the N75 arm off");
+    let solid = union_the_pair(&mut arena).expect("T6 + the §4.5.2 loop must fuse the pair");
     let n = surface_pair_half_edges(&arena, solid);
     assert!(
         n > 0,
         "the loop must derive the cyl x cyl SurfacePair curve; got {n} half-edges"
-    );
-}
-
-/// CONVERSION (gate on): the ladder refines until the meshes meet, so the
-/// union derives the cylinder×cylinder intersection and the two laterals
-/// are actually trimmed against each other. The surviving `SurfacePair`
-/// curve is the P0007-shaped assertion: the restored curve TYPE must
-/// survive into the output B-Rep, not just the volume be plausible.
-#[test]
-fn p0021_pair_with_the_n75_ladder_derives_the_cyl_cyl_curve() {
-    let _g = ladder(true);
-    let mut arena = BrepArena::new();
-    let solid = union_the_pair(&mut arena).expect("the N75 ladder must fuse the pair");
-    let n = surface_pair_half_edges(&arena, solid);
-    assert!(
-        n > 0,
-        "the ladder must derive the cyl x cyl SurfacePair curve; got {n} half-edges"
     );
 }
 

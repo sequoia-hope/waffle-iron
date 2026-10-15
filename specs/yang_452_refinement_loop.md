@@ -304,6 +304,14 @@ it falls through to the loop, which starts from the natural run's sites.
 P0044 then converts at the loop's ×4 run; R0044 and P0029, which convert
 THROUGH the retry, keep a clean retry body and are unchanged.
 
+**Faceless STOPs inside the loop (2026-10-15).** A REFINED run that
+STOPs without naming a face (a Stage-5/6 text STOP) re-refines the
+previous iteration's region: the failure persists where the loop was
+refining (`:650-652`). Anchor: kernel-v2's two-op P0034 pin with the
+cylinder-pair arm retired — ×2 still bridged the pinch, ×4 reassembled
+non-manifold naming no face, ×8 is adopted. The NATURAL run's faceless
+STOP still ends the loop (no region exists yet). Corpus-neutral.
+
 ### 4. The region `region(F)`
 
 For each failure site, the faces it names on each operand, plus every face

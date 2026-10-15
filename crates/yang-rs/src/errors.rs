@@ -212,7 +212,11 @@ pub enum YangError {
     /// the intersection, so the output stays unfused while the true
     /// surfaces interpenetrate — below the #173 render gate's sagitta
     /// too). A P10 LOUD stop, the graze mirror of
-    /// [`Self::SubResolutionCoplanarGap`].
+    /// [`Self::SubResolutionCoplanarGap`]. **No longer raised since
+    /// 2026-10-15**: its producer, the Case-III graze guard, was retired
+    /// (cleanup step 2) — the §4.5.2 loop's T6 / T3c triggers detect the
+    /// missed or mis-joined intersection after the arrangement instead. The
+    /// variant stays for API stability.
     SubSagittaGrazeIntersection {
         face_a: usize,
         face_b: usize,

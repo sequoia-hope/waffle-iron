@@ -120,7 +120,7 @@ Do NOT skip to lower-priority items because they are easier.
    M2, M6, M7 and the Phase-6 migration are COMPLETE; the kernel is live in
    the app). As of 2026-09-22 (night) the **actionable ERROR tail of
    `docs/yang_tail_triage.md` was EMPTY** — the seven C-series ERROR rows
-   (C0046, C0107, C0108, C0109, C0111, C0113, C0118) are loud-by-design
+   (C0046, C0107, C0108, C0109, C0111, C0113; C0118 converted 2026-10-15) are loud-by-design
    walls, each its own design call. **Since 2026-09-27 the assay
    prospector (`specs/assay_prospector.md`) grows the corpus**: its first
    seed promoted P0001–P0003 (loud kernel STOPs on generic geometry — a
@@ -434,9 +434,13 @@ Do NOT skip to lower-priority items because they are easier.
    §4.3.3 arm cluster OFF, P0044 / P0047 converting through the loop —
    and the cluster is DELETED (wedge, pierce dip, segment-face graze, edge
    graze; `YANG_433_GUARD` gone; −1,376 lines; corpus 351C, unchanged).
-   Next arms to retire: cylinder graze / pinch (`YANG_172_EXTENT`), rim ×
-   plane graze (`YANG_195_LOCAL`).
-   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0051, P0053, P0055, P0056, P0061**
+   **2026-10-15: T3c reads `SurfacePair` edges and the cylinder-pair
+   graze / pinch arm is DELETED too** (with its N75 ladder; −647 lines) —
+   **C0118 and P0051 CONVERTED; canonical corpus 353C / 0W / 16E / 5EE / 0T
+   over 374** (wall 1037.8 s). C0118 is no longer a loud-by-design wall.
+   Next arms: rim × plane graze (`YANG_195_LOCAL`), the Case-IV phantom
+   boost (`phantom_min_rim_segments`).
+   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0053, P0055, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

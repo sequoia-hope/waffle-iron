@@ -43,6 +43,35 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-15 (retirement 2) — the cylinder-pair graze / pinch arm and its N75 extent ladder DELETED; a refined run's faceless STOP re-refines the same region; **C0118 and P0051 CONVERTED; corpus 353C / 0W / 16E / 5EE / 0T over 374**
+
+Cleanup step 2's second retirement: `graze_min_rim_segments` (Case-III
+graze, Case-V pinch, the N75 finite-extent ladder, and the
+`SubSagittaGrazeIntersection` STOP it raised) is removed from
+`boolean_once`'s rim-density boost, with everything only it reached and the
+unit tests of those functions (net −647 lines in `rim_junction.rs`, twenty
+tests in `m5_case_iii.rs`; `YANG_172_EXTENT` gone; the error variant stays
+for API stability, no longer raised). Outcome pins stay: kernel-v2's two
+P0021 pins (default path / ladder on) are now one, the fused body.
+
+**One loop rule had to change.** kernel-v2's two-op P0034 pin (boss −
+skew cutter, two curve loops 5.3e-6 apart) failed with the arm gone: T3c
+named the bridging pair edges, ×2 still bridged, ×4 reassembled
+non-manifold with NO face named — and the loop stopped ("nothing to
+refine"), leaving the natural body for kernel-v2 to refuse. A refined run
+that STOPs without naming a face is the failure PERSISTING in the region
+being refined — "repeated if optimization failure persists" (`:650-652`) —
+so it now refines that region again; ×8 is adopted. The natural run's
+faceless STOP still has nothing to refine.
+
+Corpus (release, 8 jobs, 900 s; wall 1037.8 s; case CPU 6,959 s): 353C /
+0W / 16E / 5EE / 0T — against the T3c-pair canonical exactly C0118 and
+P0051 ERROR → CORRECT and P0026's text drift (still its loud minted-tangency
+STOP); the loop rule moves no corpus case. **C0118 leaves the seven
+loud-by-design C walls**: its oracles expect a successful rebuild (χ 2,
+volume 2.5604 ± 5 %) and now get it — one fused lump, not the feared
+unfused two. Smoke pins C0118 / P0051 → SupportedCorrect.
+
 ## 2026-10-15 (T3c, surface-pair edges) — T3c reads `SurfacePair` edges as kernel-v2 does; with it the cylinder-pair graze / pinch arm OFF reads **353C / 0W / 16E** — P0034 holds through the loop, C0118 and P0051 convert
 
 T3c's named gap closes for `SurfacePair` edges: `sample_output_edge` bisects
@@ -1244,7 +1273,7 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 | **P0048** | #158, min 5→3 `convex4:boss convex6:boss circle:boss` | 3 | auto-union `malformed B-Rep topology: face 2: interior junction (…) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)` | `stage1_tessellate.rs` inc-4e splice: a Stage-1 junction mint landing at a cylinder-grid CORNER; same point to 3 digits on the lineage. **Index 139** (`convex4:boss ×3 circle:cut`, subtract, scale 2e-3, 1.4e3 × floor, same class at ×1e-3, CORRECT at ×1e3) raises the same return and is NOT promoted separately | same / CORRECT |
 | ~~**P0049**~~ CONVERTED 2026-10-14 (Phase 1f, T6) | #175, min 7→3 `convex4:boss circle:cut nonconvex9:rev-cut` | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 31 × 34, penetrations: 3 }` | two PLANAR faces (the lineage: 67 × 71, 12 penetrations, the same triangle pair to 3 digits). Not P0021's cylinder × cylinder nor P0031's cylinder × plane | same / same |
 | **P0050** | #193, min 5→4 `convex4:boss circle:rev circle:sym gear22:∪` | 4 | explicit-Union `ring rejected by CDT` | a FIFTH locus (lineage FaceId 1156), a 22-tooth gear | CORRECT / same |
-| **P0051** | #188, min 7→4 `convex8:boss convex4:− circle:cut circle:boss` | 4 | auto-union `Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765× the budget)` | a NEW text: the seeded chart path's domain-grid refinement converges 1.77× over budget | stops earlier / same |
+| ~~**P0051**~~ CONVERTED 2026-10-15 (retirement 2) | #188, min 7→4 `convex8:boss convex4:− circle:cut circle:boss` | 4 | auto-union `Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765× the budget)` | a NEW text: the seeded chart path's domain-grid refinement converges 1.77× over budget | stops earlier / same |
 | **P0052** | #84, min 8→3 `gear12:boss circle:cut convex7:rev-cut` | 3 | `boolean_subtract TessellationFailed "surface-pair Newton projection did not converge"` | kernel-v2 `tessellate/sampling.rs`; the lineage (686 s under the prospector) raises it on FaceId 1370, the minimum on FaceId 992 | — |
 
 **Two of seed 4's minima are NOT the lineage's finding.** #11's 3-op minimum

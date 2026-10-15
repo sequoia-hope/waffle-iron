@@ -643,9 +643,10 @@ type FailureSignature = Vec<(failures::FailureTrigger, Vec<(crate::brep::InputId
 /// per operand (`failures::region`); those faces are refined — density ×2,
 /// or the certificate's first rung (`density_for_demand`) on the first
 /// iteration — and the op re-runs. A run with an EMPTY failure set is
-/// adopted. The loop ends at the iteration cap, when no site names a face
-/// (a faceless STOP: nothing to refine), or when every named face is at the
-/// ceiling. Then: a natural run that EMITTED stands (its fires are
+/// adopted. A refined run that STOPs without naming a face refines the
+/// previous iteration's region again (the failure persists there). The loop
+/// ends at the iteration cap, when the NATURAL run's sites name no face, or
+/// when every named face is at the ceiling. Then: a natural run that EMITTED stands (its fires are
 /// inventoried, never a wall — `yang_45_boundary_point_domain_certificate`
 /// §7); a natural STOP is replaced by the first refined body that was
 /// watertight (no T1 / T4 / T5 — the STOP ladder's own adoption clause) if
@@ -743,14 +744,41 @@ fn refine_loop(
     // non-convergence.
     let mut seen_signatures: Vec<FailureSignature> = vec![signature(&f)];
     let mut plateaus = 0usize;
+    let mut prev_region: Option<(
+        std::collections::BTreeSet<u32>,
+        std::collections::BTreeSet<u32>,
+    )> = None;
     for iter in 0..REFINE_LOOP_ITER_CAP {
-        let (reg_a, reg_b) = failures::region(&f, &ra, &rb);
+        let (mut reg_a, mut reg_b) = failures::region(&f, &ra, &rb);
         if reg_a.is_empty() && reg_b.is_empty() {
-            if probe {
-                eprintln!("[s452]   iter {iter}: no site names a face — nothing to refine");
+            // A refined run that STOPs without naming a face (a Stage-5/6
+            // text STOP) is the failure PERSISTING where the loop was
+            // refining — "repeated if optimization failure persists"
+            // (`:650-652`): refine that region again. Measured 2026-10-15 on
+            // kernel-v2's P0034 pin with the cylinder-pair arm retired: ×2
+            // still bridged the pinch, ×4 reassembled non-manifold (no face
+            // named), and the loop had stopped there. On the natural run (no
+            // previous region) a faceless STOP still has nothing to refine.
+            match &prev_region {
+                Some((pa, pb)) => {
+                    reg_a = pa.clone();
+                    reg_b = pb.clone();
+                    if probe {
+                        eprintln!(
+                            "[s452]   iter {iter}: a faceless STOP — the failure persists in \
+                             the previous region; refining it again"
+                        );
+                    }
+                }
+                None => {
+                    if probe {
+                        eprintln!("[s452]   iter {iter}: no site names a face — nothing to refine");
+                    }
+                    break;
+                }
             }
-            break;
         }
+        prev_region = Some((reg_a.clone(), reg_b.clone()));
         if at_ceiling(&ra, &reg_a) && at_ceiling(&rb, &reg_b) {
             if probe {
                 eprintln!("[s452]   iter {iter}: every named face is at the ceiling");
@@ -1135,13 +1163,11 @@ fn boolean_once(
     // pairs cannot mesh-intersect. `None` (no cylinder faces, e.g. the
     // `from_mesh` chained-output operand, or no disjoint pair demanding
     // more than each solid's own N) leaves both operands byte-identical.
-    // Case-III graze guard (spec `yang_172_case_iii_graze_guard`, M5 #172
-    // half b): the mirror scan — cross cylinder pairs whose surfaces
-    // INTERSECT at a penetration shallower than the combined chord sagitta
-    // would be MISSED by the meshes (measured C0116: unfused emission
-    // whose true trims interpenetrate). Boost so the meshes must sample
-    // the wedge; a genuine sub-resolution graze STOPs loudly
-    // (`SubSagittaGrazeIntersection`).
+    // (The Case-III graze / pinch guard that boosted here — spec
+    // `yang_172_case_iii_graze_guard` — was RETIRED 2026-10-15, cleanup
+    // step 2: the meshes that miss or mis-join a shallow cylinder × cylinder
+    // intersection are detected after the arrangement by T6 / T3c and
+    // refined by the §4.5.2 loop.)
     // Rim×plane graze arm (spec `yang_195_seal_neighborhood_self_overlap`
     // §5): a rim circle shallowly crossing a partner PLANE face (extent
     // below the rim's chord sagitta) is missed by the meshes; the labeling
@@ -1163,14 +1189,10 @@ fn boolean_once(
     } else {
         None
     };
-    let req = [
-        phantom_min_rim_segments(a, b),
-        graze_min_rim_segments(a, b)?,
-        rim_plane_req,
-    ]
-    .into_iter()
-    .flatten()
-    .max();
+    let req = [phantom_min_rim_segments(a, b), rim_plane_req]
+        .into_iter()
+        .flatten()
+        .max();
     let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,

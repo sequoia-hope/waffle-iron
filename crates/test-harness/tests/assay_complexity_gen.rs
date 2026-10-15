@@ -136,10 +136,10 @@ fn complexity_generator_gate() {
     // re-authoring the case to dodge it.
     //
     // C0118 (added by #172, the sub-sagitta cyl×cyl graze) is likewise absent
-    // from `gate`, for the opposite reason: it is a DESIGNED-ERROR case. Its
-    // whole point is that the guard rejects it loudly with
-    // `SubSagittaGrazeIntersection`, so `assert_case_correct` could never hold
-    // for it. Group 2/7 milestone trackers are pinned in `assay_kv2.rs`, not
+    // from `gate`, for the opposite reason: it was a DESIGNED-ERROR case
+    // (the graze guard rejected it loudly with `SubSagittaGrazeIntersection`).
+    // The guard was retired 2026-10-15 and C0118 now completes CORRECT; its
+    // category is pinned in `assay_kv2.rs`. Group 2/7 milestone trackers are pinned in `assay_kv2.rs`, not
     // here.
     let gate: &[&str] = &[
         "C0001", "C0005", "C0007", "C0009", // 1a

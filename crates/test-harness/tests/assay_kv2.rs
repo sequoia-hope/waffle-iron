@@ -1347,7 +1347,11 @@ fn smoke_corpus_boundary_categories() {
         // finite refinement answer). Must reject with the typed
         // `SubSagittaGrazeIntersection`; the silent failure is unfused
         // two-lump emission below even the render gate's sagitta.
-        ("C0118", Category::Error),
+        // CONVERTED 2026-10-15: the graze guard is RETIRED (cleanup step 2);
+        // without its boost the op completes and passes every oracle —
+        // rebuild, χ 2 (one fused lump, not the feared two), volume 2.5604
+        // ± 5 % — the §4.5.2 loop's T6 / T3c triggers standing in for it.
+        ("C0118", Category::SupportedCorrect),
         // P-series: assay prospector findings (`specs/assay_prospector.md`
         // §8), promoted 2026-09-27 as ERROR-class pins. Each is a loud
         // kernel STOP on generic geometry the random generator drew; a
@@ -1983,7 +1987,9 @@ fn smoke_corpus_boundary_categories() {
         // symptom, and the "tangent march" once filed as 3c could never
         // follow an edge that is not on the curve. (1) The Case-III graze
         // guard's skew-axis internal-graze term (`GrazeDemand::Pinch`, spec
-        // `yang_172_case_iii_graze_guard` §3) derives N 37 before Stage 1.
+        // `yang_172_case_iii_graze_guard` §3) derived N 37 before Stage 1 —
+        // RETIRED 2026-10-15; T3c now names the edge whose chord bridges the
+        // two branches and the §4.5.2 loop's ×2 run fuses it.
         // (2) With the curve right, the boss lateral and the hole wall
         // (8.6° apart; the wedge 1.7e-7 thick) both ear-clipped the same
         // concave dip of the shared curve with the same two diagonals — two
@@ -2144,8 +2150,10 @@ fn smoke_corpus_boundary_categories() {
         // P0051 (4 ops) ⇒ auto-union `Stage-1 chart triangulation of face 14
         // cannot meet the face's chord budget after 4 domain-grid round(s)
         // (worst interior edge 1.765× the budget)` — a NEW text. ×1e3 keeps
-        // the class; ×1e-3 stops earlier in the chain.
-        ("P0051", Category::Error),
+        // the class; ×1e-3 stops earlier in the chain. CONVERTED 2026-10-15:
+        // the Case-III graze guard's rim boost was what drove the chart past
+        // its budget; with the guard retired (cleanup step 2) the op completes.
+        ("P0051", Category::SupportedCorrect),
         // P0052 (3 ops) ⇒ `boolean_subtract` `TessellationFailed
         // "surface-pair Newton projection did not converge"` — a revolve cut
         // through a 12-tooth gear boss (the lineage cost 686 s under the

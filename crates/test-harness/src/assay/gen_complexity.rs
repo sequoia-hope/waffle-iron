@@ -3926,7 +3926,8 @@ fn family_junction_scenarios(dir: &Path) -> Vec<ManifestEntry> {
     // tessellation can sample it (Yang Fig. 8 Case III). The #172 graze
     // guard must reject loudly (`SubSagittaGrazeIntersection`); the silent
     // failure is unfused two-lump emission whose true surfaces
-    // interpenetrate below even the render gate's sagitta.
+    // interpenetrate below even the render gate's sagitta. (2026-10-15: the
+    // guard is retired; the case completes CORRECT, χ 2 — one fused lump.)
     {
         let mut c = CCase::new("C0118");
         base_cyl(&mut c);
