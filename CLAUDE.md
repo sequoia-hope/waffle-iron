@@ -445,8 +445,12 @@ Do NOT skip to lower-priority items because they are easier.
    (`8·ε·max(|x|, |anchor|)`, yang-rs + kernel-v2) — **P0042, P0043, P0053,
    P0055 CONVERTED; canonical corpus 357C / 0W / 12E / 5EE / 0T over 374**
    (wall 1080.4 s; named cost follow-up: R0019 / R0044 ~2× under the loop).
-   Next arm: the Case-IV phantom boost (`phantom_min_rim_segments`, cross
-   pairs only).
+   The Case-IV phantom boost (`phantom_min_rim_segments`) measured OFF the
+   same day: 355C / 14E — F0088 recovers once Stage 3's solving failure
+   names its faces (landed), but **C0117 needs Phase 2**: the paper rules a
+   phantom OUT (labels per B-Rep patch), it does not refine it away. With
+   it and the self-contact guard (Phase 3) the Stage-1 arms are done until
+   Phase 2 (§4.4.1 mesh updating), the cleanup's next phase.
    **The open P-series ERROR tail is P0045, P0048, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
