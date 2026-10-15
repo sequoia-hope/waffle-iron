@@ -461,41 +461,115 @@ pub(crate) fn density_for_demand(demand: Option<f64>) -> u32 {
     k
 }
 
+/// Why an output edge could not be sampled: [`EdgeRead::Undecided`] when the
+/// check cannot read it (a half-sweep conic, a projection that fails) — the
+/// face is skipped; [`EdgeRead::Invalid`] when the edge itself is not a valid
+/// curve piece — a site.
+#[derive(Debug)]
+pub(crate) enum EdgeRead {
+    Undecided,
+    Invalid(String),
+}
+
 /// One output edge's exact curve sampled from its start vertex to its end
-/// vertex, as kernel-v2 reads it (`from_yang/classify`): a straight edge by
-/// its endpoints; an open circle or ellipse edge along its MINOR arc (`None`
-/// within `1e-9` of a half sweep — kernel-v2 refuses that edge loudly); a
-/// closed conic over its whole period; a parabola / hyperbola between its
-/// endpoint parameters; a surface-pair edge by its chord (no parameter — a
-/// named gap). Samples hold the curve to `tol` (the sagitta of a chord), at
-/// most `MAX_EDGE_SAMPLES` segments.
-fn sample_output_edge(
+/// vertex, as kernel-v2 reads it (`from_yang/classify`, `tessellate::sampling`):
+/// a straight edge by its endpoints; an open circle or ellipse edge along its
+/// MINOR arc (undecided within `1e-9` of a half sweep — kernel-v2 refuses that
+/// edge loudly); a closed conic over its whole period; a parabola / hyperbola
+/// between its endpoint parameters; a `SurfacePair` edge by recursive chord
+/// bisection, each midpoint Newton-projected onto BOTH surfaces
+/// (`relocate_onto_implicit_pair`), INVALID when a projection moves at least
+/// the chord's length — the chord bridges two branches of the curve, which is
+/// kernel-v2's "surface-pair projection left the chord neighborhood" (P0034
+/// with the cylinder-pair pinch arm off) — or when the chord's sag never
+/// falls within the bisection depth (two branches side by side; kernel-v2's
+/// "refinement depth cap exceeded"). Samples hold the curve to `tol`.
+pub(crate) fn sample_output_edge(
     curve: &crate::Curve,
     ps: crate::Point3,
     pe: crate::Point3,
     closed: bool,
     tol: f64,
-) -> Option<Vec<[f64; 3]>> {
+) -> Result<Vec<[f64; 3]>, EdgeRead> {
     use crate::stage4_correct::{conic_param, conic_param_periodic};
     use crate::Curve;
     const MAX_EDGE_SAMPLES: usize = 2048;
     let two_pi = 2.0 * std::f64::consts::PI;
     let (start, end) = (ps.as_array(), pe.as_array());
+    if let Curve::SurfacePair { a, b } = *curve {
+        // Bisection depth: the sag of a chord on a smooth curve falls ~4× per
+        // halving, so 16 levels take any chord up to ~4e9 × the model band
+        // down to it. A chord whose sag never falls is bridging two branches
+        // that run side by side (each midpoint projects to the nearer branch,
+        // half the gap away, never a whole chord) — kernel-v2 refuses it as
+        // "refinement depth cap exceeded"; so does this.
+        const PAIR_DEPTH: u32 = 16;
+        fn refine(
+            a: crate::Surface,
+            b: crate::Surface,
+            p0: [f64; 3],
+            p1: [f64; 3],
+            tol: f64,
+            depth: u32,
+            out: &mut Vec<[f64; 3]>,
+        ) -> Result<(), EdgeRead> {
+            let m = [
+                0.5 * (p0[0] + p1[0]),
+                0.5 * (p0[1] + p1[1]),
+                0.5 * (p0[2] + p1[2]),
+            ];
+            let Some(mp) = crate::stage4_relocate::relocate_onto_implicit_pair(
+                crate::Point3::new(m[0], m[1], m[2]),
+                a,
+                b,
+            ) else {
+                return Err(EdgeRead::Undecided);
+            };
+            let mp = mp.as_array();
+            let d = |x: [f64; 3], y: [f64; 3]| {
+                ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+            };
+            let (sag, chord) = (d(mp, m), d(p0, p1));
+            if sag <= tol {
+                return Ok(());
+            }
+            if sag >= chord || !sag.is_finite() {
+                return Err(EdgeRead::Invalid(format!(
+                    "a surface-pair edge leaves its chord neighbourhood (chord {chord:.3e}, \
+                     projection {sag:.3e}) — its ends lie on different branches"
+                )));
+            }
+            if depth == 0 {
+                return Err(EdgeRead::Invalid(format!(
+                    "a surface-pair edge's chord never converges onto the curve (sag \
+                     {sag:.3e} after {PAIR_DEPTH} bisections) — its ends lie on different \
+                     branches"
+                )));
+            }
+            refine(a, b, p0, mp, tol, depth - 1, out)?;
+            out.push(mp);
+            refine(a, b, mp, p1, tol, depth - 1, out)
+        }
+        let mut pts = vec![start];
+        refine(a, b, start, end, tol, PAIR_DEPTH, &mut pts)?;
+        pts.push(end);
+        return Ok(pts);
+    }
     let radius = match curve {
         Curve::Circle { radius, .. } => *radius,
         Curve::Ellipse { major_radius, .. } => *major_radius,
         Curve::Parabola { .. } | Curve::Hyperbola { .. } => 0.0,
-        Curve::LineSegment | Curve::SurfacePair { .. } => return Some(vec![start, end]),
+        Curve::LineSegment | Curve::SurfacePair { .. } => return Ok(vec![start, end]),
     };
-    let ts = conic_param(curve, ps)?;
+    let ts = conic_param(curve, ps).ok_or(EdgeRead::Undecided)?;
     let sweep = if conic_param_periodic(curve) {
         if closed {
             two_pi
         } else {
-            let te = conic_param(curve, pe)?;
+            let te = conic_param(curve, pe).ok_or(EdgeRead::Undecided)?;
             let ccw = (te - ts).rem_euclid(two_pi);
             if (ccw - std::f64::consts::PI).abs() <= 1e-9 {
-                return None;
+                return Err(EdgeRead::Undecided);
             }
             if ccw < std::f64::consts::PI {
                 ccw
@@ -504,7 +578,7 @@ fn sample_output_edge(
             }
         }
     } else {
-        conic_param(curve, pe)? - ts
+        conic_param(curve, pe).ok_or(EdgeRead::Undecided)? - ts
     };
     let n = if radius > 0.0 && tol > 0.0 && tol < radius {
         // Chord sagitta `r(1 − cos(Δ/2)) ≤ tol` ⇒ `Δ ≤ 2·acos(1 − tol/r)`.
@@ -517,16 +591,21 @@ fn sample_output_edge(
     pts.push(start);
     for k in 1..n {
         let t = ts + sweep * (k as f64) / (n as f64);
-        pts.push(crate::geom::conic_eval(curve, t)?.as_array());
+        pts.push(
+            crate::geom::conic_eval(curve, t)
+                .ok_or(EdgeRead::Undecided)?
+                .as_array(),
+        );
     }
     pts.push(end);
-    Some(pts)
+    Ok(pts)
 }
 
 /// The OUTPUT-level §4.5.4 sites of an emitted body: T3b (two faces on one
-/// quadric whose boundary conics cross) and T3c (one face whose loops cross
-/// or wind against its material side). A body carrying one is not a valid
-/// B-Rep, whatever produced it.
+/// quadric whose boundary conics cross) and T3c (one face whose loops cross,
+/// wind against its material side, or carry a surface-pair edge that bridges
+/// two branches). A body carrying one is not a valid B-Rep, whatever
+/// produced it.
 pub(crate) fn output_illegal_sites(out: &BRep) -> Vec<FailureSite> {
     let mut v = output_curve_crossings(out);
     v.extend(output_loop_crossings(out));
@@ -555,10 +634,11 @@ pub(crate) fn output_illegal_sites(out: &BRep) -> Vec<FailureSite> {
 /// hole negative, the sign flipped for a `reversed` face; two non-adjacent
 /// segments cross when each straddles the other's line by more than the
 /// model band (a tangency or a shared corner is not a crossing). Edges are
-/// sampled as kernel-v2 reads them ([`sample_output_edge`]). Named gaps: a
-/// face with a `SurfacePair` edge (no parameter — its chord could invent a
-/// crossing), a cylinder face with a loop that wraps the axis or a closed rim
-/// edge (a periodic strip — its chart has a seam), and
+/// sampled as kernel-v2 reads them ([`sample_output_edge`]) — a
+/// `SurfacePair` edge by Newton-projected chord bisection, itself a site when
+/// its chord bridges two branches. Named gaps: a cylinder face with a loop
+/// that wraps the axis or a closed rim edge (a periodic strip — its chart has
+/// a seam), and
 /// the cone / sphere / torus charts. Each site names the face's input
 /// lineage and the lineage of the faces across the offending edges, so the
 /// loop refines both operands there.
@@ -643,12 +723,6 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                         }
                         continue 'faces;
                     };
-                    if matches!(e.curve, crate::Curve::SurfacePair { .. }) {
-                        if probe {
-                            eprintln!("[t3c] face {fi} skipped: surface-pair edge");
-                        }
-                        continue 'faces;
-                    }
                     let (Some(vs), Some(ve)) =
                         (verts.get(e.start as usize), verts.get(e.end as usize))
                     else {
@@ -666,16 +740,27 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                         }
                         continue 'faces;
                     }
-                    let Some(samples) =
-                        sample_output_edge(&e.curve, vs.point, ve.point, closed, band)
-                    else {
-                        if probe {
-                            eprintln!(
-                                "[t3c] face {fi} skipped: unsampleable edge (half-sweep arc)"
-                            );
-                        }
-                        continue 'faces;
-                    };
+                    let samples =
+                        match sample_output_edge(&e.curve, vs.point, ve.point, closed, band) {
+                            Ok(v) => v,
+                            Err(EdgeRead::Undecided) => {
+                                if probe {
+                                    eprintln!("[t3c] face {fi} skipped: undecidable edge {ei}");
+                                }
+                                continue 'faces;
+                            }
+                            Err(EdgeRead::Invalid(why)) => {
+                                let mut named: BTreeSet<(InputId, u32)> = BTreeSet::new();
+                                named.extend(lineage(fi));
+                                named.extend(across(ei).and_then(lineage));
+                                sites.push(FailureSite {
+                                    trigger: FailureTrigger::IllegalIntersection,
+                                    faces: named.into_iter().collect(),
+                                    detail: format!("output face {fi}, edge {ei}: {why}"),
+                                });
+                                continue 'faces;
+                            }
+                        };
                     for p in &samples[..samples.len() - 1] {
                         pts.push((*p, ei));
                     }

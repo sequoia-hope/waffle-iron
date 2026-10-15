@@ -279,6 +279,20 @@ CW and is not an output fixture. Pins `tests_unit/s454_output_loop_crossings.rs`
 (four). Probe `YANG_T3C_PROBE=1` (each face's samples, oriented area, sense,
 and skip reason).
 
+*Surface-pair edges (2026-10-15).* The `SurfacePair` gap closed: a pair
+edge is sampled by chord bisection, each midpoint Newton-projected onto
+both surfaces (`relocate_onto_implicit_pair`); a projection that moves at
+least the chord's length, or a sag that never falls within 16 bisections
+(two branches side by side — each midpoint lands on the nearer one, half
+the gap away), means the edge's ends lie on different branches: a site.
+Kernel-v2 refuses exactly these ("left the chord neighborhood", "depth cap
+exceeded"). A failed projection (tangency, an axis, non-convergence) is
+undecided — the face is skipped, never a site. Anchor P0034 with the
+cylinder-pair arm off. Pins: a one-branch edge samples onto both
+surfaces; a chord bridging the two loops of a narrow cylinder through a
+wide one is invalid (asymmetric ends: at a mirror-symmetric midpoint both
+normals lose their x-component and the Newton cannot leave that plane).
+
 *The rim × plane retry pre-empted the loop.* With the arms off P0044 still
 failed: `boolean()`'s §4.5.4 rim × plane graze retry (a Stage-1 arm,
 cleanup §2a) re-ran the op and RETURNED its body whenever its mesh

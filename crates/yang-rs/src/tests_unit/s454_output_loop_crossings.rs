@@ -161,3 +161,65 @@ fn an_arc_that_bulges_through_the_opposite_edge_is_a_crossing() {
     assert_eq!(sites.len(), 1, "{sites:?}");
     assert_eq!(sites[0].trigger, FailureTrigger::IllegalIntersection);
 }
+
+/// A narrower cylinder (axis x, r = 0.95) through a wider one (axis z,
+/// r = 1): their intersection is TWO loops, one at x > 0 and one at x < 0.
+fn two_loop_pair() -> (Surface, Surface) {
+    (
+        Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        },
+        Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(1.0, 0.0, 0.0),
+            radius: 0.95,
+        },
+    )
+}
+
+/// The pair-curve point at height-side `y` on the loop with sign `sx`.
+fn on_loop(sx: f64, y: f64) -> Point3 {
+    Point3::new(
+        sx * (1.0 - y * y).sqrt(),
+        y,
+        (0.95f64 * 0.95 - y * y).sqrt(),
+    )
+}
+
+#[test]
+fn a_surface_pair_edge_on_one_branch_samples_onto_both_surfaces() {
+    use crate::boolean::failures::sample_output_edge;
+    let (a, b) = two_loop_pair();
+    let curve = Curve::SurfacePair { a, b };
+    let pts = sample_output_edge(&curve, on_loop(1.0, 0.5), on_loop(1.0, -0.5), false, 1e-7)
+        .expect("one branch: a valid edge");
+    assert!(
+        pts.len() > 8,
+        "a curved piece samples densely: {}",
+        pts.len()
+    );
+    for p in &pts {
+        let q = Point3::new(p[0], p[1], p[2]);
+        for s in [a, b] {
+            let d = crate::signed_distance_to_surface(s, q).expect("distance");
+            assert!(d.abs() < 1e-9, "sample {p:?} is {d:e} off a surface");
+        }
+    }
+}
+
+#[test]
+fn a_surface_pair_edge_bridging_two_branches_is_invalid() {
+    use crate::boolean::failures::{sample_output_edge, EdgeRead};
+    let (a, b) = two_loop_pair();
+    let curve = Curve::SurfacePair { a, b };
+    // One end on the x > 0 loop, the other on the x < 0 loop: the chord
+    // crosses the gap between the branches, and no bisection converges onto
+    // it. (Different heights: at a mirror-symmetric midpoint x = 0 both
+    // normals lose their x-component and the Newton cannot leave that plane.)
+    match sample_output_edge(&curve, on_loop(1.0, 0.5), on_loop(-1.0, 0.3), false, 1e-7) {
+        Err(EdgeRead::Invalid(why)) => assert!(why.contains("branches"), "{why}"),
+        other => panic!("expected an invalid edge, got {other:?}"),
+    }
+}

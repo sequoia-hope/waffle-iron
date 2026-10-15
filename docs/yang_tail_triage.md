@@ -43,6 +43,26 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-15 (T3c, surface-pair edges) — T3c reads `SurfacePair` edges as kernel-v2 does; with it the cylinder-pair graze / pinch arm OFF reads **353C / 0W / 16E** — P0034 holds through the loop, C0118 and P0051 convert
+
+T3c's named gap closes for `SurfacePair` edges: `sample_output_edge` bisects
+a pair edge's chord, Newton-projecting each midpoint onto BOTH surfaces
+(`relocate_onto_implicit_pair`), and the edge is a site when a projection
+moves at least the chord's length or the sag never falls within 16
+bisections — its two ends lie on different branches (kernel-v2's "surface-
+pair projection left the chord neighborhood" / "refinement depth cap
+exceeded"); faces carrying pair edges now get the crossing and orientation
+checks too. Anchor: P0034 with the arm off — `output face 2, edge 30: a
+surface-pair edge leaves its chord neighbourhood (chord 1.384e-4,
+projection 2.470e-4)`; the loop's ×2 run is adopted.
+
+| run | score | wall | moves vs the retirement canonical (351C) |
+|---|---|---|---|
+| arm ON (canonical) | 351C / 0W / 18E / 5EE / 0T | 1045.4 s | none, zero drift |
+| arm OFF (temporary switch) | 353C / 0W / 16E / 5EE / 0T | 1032.5 s | C0118 ERROR → CORRECT (its oracles: rebuild succeeds, χ 2, volume 2.5604 ± 5 % — all pass; its "must reject loudly" was the wrong-topology graze, which the arm's own boost produced), P0051 ERROR → CORRECT, P0026 drift (still the minted tangency's loud STOP); P0034 stays CORRECT |
+
+Case CPU 7,023 s (on) / 6,954 s (off). The arm's retirement is next.
+
 ## 2026-10-14 (measurement) — the cylinder-pair graze / pinch arm (`graze_min_rim_segments`) OFF: 352C / 0W / 17E — it protects ONE case (P0034) and BLOCKS two (C0118, P0051); not retirable until yang sees P0034's class
 
 **Measurement, not a change** (a temporary uncommitted switch dropping
