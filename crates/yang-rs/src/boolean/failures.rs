@@ -73,6 +73,11 @@ thread_local! {
     /// raise is not a failure until it reaches `boolean_once`'s result.
     static NONMANIFOLD_PENDING: std::cell::RefCell<Option<FailureSite>> =
         const { std::cell::RefCell::new(None) };
+    /// The site of the LATEST Stage-3 solving failure
+    /// (`YangError::SsiRefinementFailed`), keyed by its edge; read only when
+    /// the run ends in that same error.
+    static SSI_PENDING: std::cell::RefCell<Option<((u32, u32), FailureSite)>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Forget the previous run's sites. Called at every `boolean_once` entry.
@@ -80,6 +85,40 @@ pub(crate) fn reset() {
     FAILURE_SITES.with(|c| c.borrow_mut().clear());
     NONMANIFOLD_CONTEXT.with(|c| c.borrow_mut().clear());
     NONMANIFOLD_PENDING.with(|c| *c.borrow_mut() = None);
+    SSI_PENDING.with(|c| *c.borrow_mut() = None);
+}
+
+/// Stage-3 producer — §4.3 `:528-532`: "if there is no solution in one of
+/// the two parametric domains, we regard it as a solving failure" (the
+/// paper's Case IV filter). A mesh intersection edge with no SSI curve
+/// through it names the faces of the triangles on that edge, so the loop can
+/// refine where the meshes met without their surfaces (measured F0088 with
+/// the Case-IV phantom boost off: two analytically disjoint cylinders whose
+/// chord bands overlapped, `AmbiguousCurve { candidates: 0 }`, faceless).
+/// Pending like a non-manifold raise: some callers recover.
+pub(crate) fn note_ssi_failure(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    edge: (u32, u32),
+    detail: String,
+) {
+    let mut keys: BTreeSet<(bool, u32)> = BTreeSet::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        if tri.contains(&edge.0) && tri.contains(&edge.1) {
+            if let Some(Some(at)) = attribution.attributions.get(ti) {
+                keys.insert((matches!(at.input, InputId::B), at.face));
+            }
+        }
+    }
+    let site = FailureSite {
+        trigger: FailureTrigger::RelocationDiverged,
+        faces: keys
+            .into_iter()
+            .map(|(is_b, f)| (if is_b { InputId::B } else { InputId::A }, f))
+            .collect(),
+        detail,
+    };
+    SSI_PENDING.with(|c| *c.borrow_mut() = Some((edge, site)));
 }
 
 /// While alive, a `NonManifoldOutput` raise names `faces` (spec
@@ -1243,6 +1282,15 @@ pub(crate) fn failures(result: &Result<BRep, YangError>) -> Vec<FailureSite> {
             if out.is_empty() && matches!(e, YangError::NonManifoldOutput) {
                 if let Some(site) = NONMANIFOLD_PENDING.with(|c| c.borrow().clone()) {
                     out.push(site);
+                }
+            }
+            if let YangError::SsiRefinementFailed { edge, .. } = e {
+                if out.is_empty() {
+                    if let Some((pe, site)) = SSI_PENDING.with(|c| c.borrow().clone()) {
+                        if pe == *edge {
+                            out.push(site);
+                        }
+                    }
                 }
             }
             if out.is_empty() {

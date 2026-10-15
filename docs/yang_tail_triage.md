@@ -43,6 +43,41 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-15 (measurement: the Case-IV phantom boost OFF) — **355C / 0W / 14E**: it protects C0117 and F0088; Stage 3's solving failure now names its faces (F0088 recovers through the loop), C0117 waits for Phase 2
+
+`phantom_min_rim_segments` (cross-operand cylinder pairs, `boolean_once`'s
+rim boost) switched off for one corpus run (wall 1065.0 s): exactly C0117
+and F0088 CORRECT → ERROR, nothing else moved.
+
+- **F0088** — `Stage-3 SSI refinement failed for intersection edge (2, 292):
+  AmbiguousCurve { candidates: 0, matched: 0 }`: two analytically disjoint
+  cylinders whose chord bands overlapped, the paper's Case IV verbatim —
+  "if there is no solution in one of the two parametric domains, we regard
+  it as a solving failure" (§4.3 `:528-532`). The STOP was faceless, so the
+  loop had nothing to refine. Stage 3's `SsiRefinementFailed` now names the
+  faces of the triangles on its edge (`failures::note_ssi_failure`, pending,
+  read only when the run ends in that error on that edge — T1); with the
+  boost off F0088 is adopted at the loop's first ×2 (A:2, B:2). With the
+  boost on it is a no-op on F0088 and costs C0109 (a loud-by-design wall
+  with the same text) two cheap refinements before the monitor stops it.
+- **C0117** — kernel-v2 `output face plane normal disagrees with its
+  outer-loop Newell normal`. T3c names twelve output faces (loops winding
+  against their material side, loops crossing) and the loop refines all
+  three faces per operand — and the site count GROWS, 12 → 24 → 48 → 64,
+  to the ceiling. The arm demands N = 315 on natural rims 10 / 8 (sagitta
+  ∝ 1/N², so ≈ 32–40× density) against the loop's ceiling of 8 (raised to
+  64 once in Phase 1a, cut back when P0005's gear climbed there on a
+  CORRECT body). Refining further is not the paper's remedy anyway: its
+  optimization RULES OUT a phantom (no point is added to the curve) and its
+  in / out labels are per B-Rep patch, so a phantom mesh overlap never cuts
+  a patch. Our exact arrangement cuts along the phantom before Stage 3
+  sees it; the faithful replacement is Phase 2 (§4.4.1): a mesh curve with
+  no SSI solution is not a patch boundary. The boost stays until then.
+
+Canonical with the Stage-3 site (boost ON; release, 8 jobs, 900 s; wall
+1081.2 s; case CPU 7,213 s): **357C / 0W / 12E / 5EE / 0T over 374** —
+byte-identical categories and details to retirement 3.
+
 ## 2026-10-15 (retirement 3) — the rim × plane graze arm and its detect-then-refine retry DELETED; every non-manifold STOP names faces; T3c reads every face's edges; the pair / triple Newton floor reads the surface anchor; **P0042, P0043, P0053, P0055 CONVERTED; corpus 357C / 0W / 12E / 5EE / 0T over 374**
 
 Cleanup step 2's third retirement. **Arm OFF, first measurement: 349C /

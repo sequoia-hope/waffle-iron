@@ -279,3 +279,36 @@ fn a_nonmanifold_raise_names_its_scope_face_only_when_the_run_ends_there() {
     assert!(failures::failures(&err)[0].faces.is_empty());
     failures::reset();
 }
+
+/// §4.3 solving failure (Stage 3): a mesh intersection edge with no SSI
+/// curve through it names the faces of the triangles ON that edge — read
+/// only when the run ends in that same error (edge and all), never on an
+/// emitted body (measured F0088 with the Case-IV phantom boost off).
+#[test]
+fn a_stage3_solving_failure_names_the_faces_on_its_edge_only_when_the_run_ends_there() {
+    failures::reset();
+    let (mesh, at) = two_tris();
+    failures::note_ssi_failure(&mesh, &at, (0, 1), "no candidate".into());
+    let reason = crate::errors::SsiRefinementError::AmbiguousCurve {
+        candidates: 0,
+        matched: 0,
+    };
+    let same: Result<crate::BRep, crate::YangError> = Err(crate::YangError::SsiRefinementFailed {
+        edge: (0, 1),
+        reason,
+    });
+    let f = failures::failures(&same);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].faces, vec![(InputId::A, 3), (InputId::B, 7)]);
+    // Another edge's failure is not this site.
+    let other: Result<crate::BRep, crate::YangError> = Err(crate::YangError::SsiRefinementFailed {
+        edge: (1, 2),
+        reason,
+    });
+    assert!(failures::failures(&other)[0].faces.is_empty());
+    // An emitted body ignores it (the caller recovered).
+    let ok: Result<crate::BRep, crate::YangError> =
+        Ok(rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0));
+    assert!(failures::failures(&ok).is_empty());
+    failures::reset();
+}

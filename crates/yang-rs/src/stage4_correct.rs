@@ -1293,7 +1293,17 @@ pub(crate) fn compute_phase_a(
         }
     }
 
-    let curves = build_intersection_curves(&incidence, mesh, a, b, edge_provenance)?;
+    let curves =
+        build_intersection_curves(&incidence, mesh, a, b, edge_provenance).inspect_err(|err| {
+            if let YangError::SsiRefinementFailed { edge, .. } = err {
+                crate::boolean::failures::note_ssi_failure(
+                    mesh,
+                    attribution,
+                    *edge,
+                    format!("{err}"),
+                );
+            }
+        })?;
     Ok((infos, incidence, curves))
 }
 
