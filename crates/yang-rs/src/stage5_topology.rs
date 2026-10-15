@@ -5305,6 +5305,8 @@ pub(crate) fn emit_topology(
             input: info.input,
             face: info.face_idx as u32,
         };
+        // §4.5 T5: an emission STOP names this patch's input face.
+        let _scope = crate::boolean::failures::nonmanifold_scope(info.input, info.face_idx as u32);
 
         // PR-YR8 (P2c) Blocker 2, spec §4: curved-surface branch BEFORE the
         // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
@@ -7053,6 +7055,11 @@ pub(crate) fn patch_boundary_cycle(
     // from the reference arrangement. A patch that is ALL fold slivers derives
     // an empty boundary here → the caller's empty-cycles guard raises the loud
     // `NonManifoldOutput` (S5), never a silent degenerate face.
+    // §4.5 T5: a walk STOP names this patch's input face.
+    let _scope = crate::boolean::failures::nonmanifold_scope(
+        patch.attribution.input,
+        patch.attribution.face,
+    );
     let excluded_slivers = patch_fold_slivers(patch, mesh);
     let mut patch_edge_count: BTreeMap<(u32, u32), u32> = BTreeMap::new();
     for &t in &patch.tri_indices {

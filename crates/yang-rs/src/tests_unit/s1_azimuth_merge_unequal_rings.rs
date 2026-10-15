@@ -209,7 +209,6 @@ fn start_partner_across_the_wrap_zips() {
 
 // ── §3b: one rim sample per model-scale point ────────────────────────────
 
-use crate::boolean::rim_junction::RimAngleOverrides;
 use crate::tests_unit::n2_junction::rj_cylinder;
 
 /// The uniform cylinder tube: a sample inserted on ONE rim leaves the two
@@ -229,53 +228,6 @@ fn uniform_tube_routes_unequal_rings_to_the_zipper() {
     let verts = &rebuilt.as_mesh().verts;
     assert_eq!(verts.len(), natural + 1, "one inserted sample");
     assert!(verts.contains(&p));
-}
-
-/// `RimAngleOverrides::finish`: two sample requests closer than the model's
-/// coincidence band `TAU_MODEL·(1 + scale)` of arc are one sample; two
-/// requests farther apart stay two.
-#[test]
-fn finish_merges_sample_requests_within_the_model_band() {
-    let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    let b = rj_cylinder([5.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    let theta = 0.9_f64;
-    // scale = |center| + r = 1 ⇒ band 2e-7 of arc on r = 1.
-    for (delta, want) in [(1.0e-7, 1usize), (1.0e-5, 2usize)] {
-        let mut acc = RimAngleOverrides::default();
-        acc.commit(
-            true,
-            vec![0, 1],
-            [0.0, 0.0, 1.0],
-            vec![theta, theta + delta],
-            0.1,
-        );
-        let (out_a, out_b) = acc.finish(&a, &b);
-        assert!(out_b.is_empty());
-        assert_eq!(out_a[&0].len(), want, "rim 0 at Δθ = {delta}");
-        assert_eq!(out_a[&1].len(), want, "rim 1 at Δθ = {delta}");
-    }
-}
-
-/// `RimAngleOverrides::finish`: a free sample within the model band of a point
-/// the rim ALREADY carries (standing on the operand) is dropped — the
-/// standing point keeps its bits.
-#[test]
-fn finish_drops_a_free_sample_the_rim_already_carries() {
-    let a = rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    let b = rj_cylinder([5.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 1.0);
-    let theta = 2.1_f64;
-    let standing_pt = Point3::new(theta.cos(), theta.sin(), 0.0);
-    let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
-    ov.insert(0, vec![standing_pt]);
-    let a = a.rebuilt_with_rim_overrides(&ov).expect("standing sample");
-    let mut acc = RimAngleOverrides::default();
-    acc.commit(true, vec![0, 1], [0.0, 0.0, 1.0], vec![theta], 0.1);
-    let (out_a, _) = acc.finish(&a, &b);
-    assert!(
-        out_a.get(&0).is_none_or(|v| v.is_empty()),
-        "rim 0 already carries the point: {out_a:?}"
-    );
-    assert_eq!(out_a[&1].len(), 1, "rim 1 does not: the sample stands");
 }
 
 /// `merge_rim_points` (the composition of a B-Rep's STANDING rim samples with

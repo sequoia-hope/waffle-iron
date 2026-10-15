@@ -2098,12 +2098,17 @@ fn smoke_corpus_boundary_categories() {
         // `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned
         // None. Its lineage STOPs at a DIFFERENT site (P0043). ×1e3 keeps the
         // class, ×1e-3 reads CORRECT.
-        ("P0042", Category::Error),
+        // CONVERTED 2026-10-15 (retirement 3): the pair Newton floor reads the
+        // surface anchor, `8·ε·max(|x|, |anchor|)` — the converged root was
+        // refused at the seed-only floor.
+        ("P0042", Category::SupportedCorrect),
         // P0043 (5 ops, the UN-MINIMIZED index-11 lineage) ⇒ the same text at
         // `stage4_correct.rs:13236`, the `surface_pair_endpoint_mix` decline
         // — P0026's site with GENERIC geometry (a cylinder × cone pair edge
         // ending on the cylinder's cap plane, no junction map claims it).
-        ("P0043", Category::Error),
+        // CONVERTED 2026-10-15 (retirement 3), the same floor (by elimination;
+        // its natural run is now clean).
+        ("P0043", Category::SupportedCorrect),
         // P0044 (4 ops) ⇒ `CurvedGeometryMismatch "bounded cylinder patch must
         // have exactly one material-CCW loop"` — one loop, wrap 0, negative
         // area. ×1e-3 keeps the class, ×1e3 reads CORRECT.
@@ -2180,7 +2185,9 @@ fn smoke_corpus_boundary_categories() {
         // P0053 (2 ops, gear17:boss circle:cut) ⇒ `boolean_subtract` `yang-rs:
         // geometric face resolution failed for kept triangle 1724`. ×1e-3 and
         // ×1e3 keep the class.
-        ("P0053", Category::Error),
+        // CONVERTED 2026-10-15 (retirement 3): its Stage-6 walk STOP names the
+        // patch's input face (T5) and the §4.5.2 loop refines it.
+        ("P0053", Category::SupportedCorrect),
         // P0054 (4 ops) ⇒ `boolean_subtract` reassembly non-2-manifold,
         // `s6-boundary-walk-deadend` vertex 47; P0055 is its UN-MINIMIZED
         // 8-op lineage, which first complains `s6-wedge-succ-collision`
@@ -2191,7 +2198,8 @@ fn smoke_corpus_boundary_categories() {
         // surface's own roots, Stage 1 zips unequal rims, and one rim sample
         // per model-scale point (spec `stage1_azimuth_merge_unequal_rings.md`).
         ("P0054", Category::SupportedCorrect),
-        ("P0055", Category::Error),
+        // CONVERTED 2026-10-15 (retirement 3), as P0053 (T5 with faces).
+        ("P0055", Category::SupportedCorrect),
         // P0056 (4 ops, scale 899) ⇒ `boolean_subtract NonManifoldVertex`
         // at (3.533e2, −5.999e2, −2.052e1); the lineage's vertex sits 13
         // units away. Scale-invariant.

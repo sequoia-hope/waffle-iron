@@ -438,9 +438,16 @@ Do NOT skip to lower-priority items because they are easier.
    graze / pinch arm is DELETED too** (with its N75 ladder; −647 lines) —
    **C0118 and P0051 CONVERTED; canonical corpus 353C / 0W / 16E / 5EE / 0T
    over 374** (wall 1037.8 s). C0118 is no longer a loud-by-design wall.
-   Next arms: rim × plane graze (`YANG_195_LOCAL`), the Case-IV phantom
-   boost (`phantom_min_rim_segments`).
-   **The open P-series ERROR tail is P0042, P0043, P0045, P0048, P0053, P0055, P0056, P0061**
+   **2026-10-15 (retirement 3): the rim × plane graze arm and its retry
+   are DELETED too** — every non-manifold STOP now names faces (T4's Euler
+   condition, T5 by the patch being walked), T3c reads every face's edges,
+   and the pair / triple Newton floor reads the surface anchor
+   (`8·ε·max(|x|, |anchor|)`, yang-rs + kernel-v2) — **P0042, P0043, P0053,
+   P0055 CONVERTED; canonical corpus 357C / 0W / 12E / 5EE / 0T over 374**
+   (wall 1080.4 s; named cost follow-up: R0019 / R0044 ~2× under the loop).
+   Next arm: the Case-IV phantom boost (`phantom_min_rim_segments`, cross
+   pairs only).
+   **The open P-series ERROR tail is P0045, P0048, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

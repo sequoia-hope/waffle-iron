@@ -787,3 +787,38 @@ fn surface_pair_project_torus_tangency_fails_loud() {
         .expect_err("tangency fails loud");
     assert!(err.contains("tangency"), "{err}");
 }
+
+/// The projection floor reads each surface's ANCHOR magnitude (yang-rs
+/// `surface_anchor_magnitude`): measured R0032, a torus × cone seed near
+/// |x| ≈ 166 whose cone apex lies at |apex| ≈ 8.4e3 converged and then
+/// oscillated at 4.0e-13 against the seed-only floor 3.0e-13 —
+/// "did not converge" for a point on both surfaces.
+#[test]
+fn surface_pair_project_floor_reads_the_anchor_r0032() {
+    let unit = |x: f64, y: f64, z: f64| {
+        let l = (x * x + y * y + z * z).sqrt();
+        UnitVector3 {
+            x: x / l,
+            y: y / l,
+            z: z / l,
+        }
+    };
+    let a = PairSurface::Torus {
+        center: Point3::new(-189.82076258123104, 100.10377304308409, -123.06115221661842),
+        axis_dir: unit(-0.43953359041777035, 0.0, -0.8982261535351015),
+        major_radius: 45.585755019430586,
+        minor_radius: 30.39050334628706,
+    };
+    let b = PairSurface::Cone {
+        apex: Point3::new(-4028.7880132507335, -65.68788270054742, 8432.199210567525),
+        axis_dir: unit(0.4149206193228114, -0.0, -0.909857615047967),
+        half_angle: 0.013860168257132596,
+    };
+    let seed = Point3::new(-166.20744235395728, 53.98126582286075, -164.0581202036727);
+    let p = kernel_v2::surface_pair_project(&a, &b, seed).expect("a converged root is accepted");
+    let d = ((p.x() + 166.20901236657727).powi(2)
+        + (p.y() - 53.98191623567585).powi(2)
+        + (p.z() + 164.06342717370984).powi(2))
+    .sqrt();
+    assert!(d < 1e-9, "projected {d:.3e} from yang's root");
+}

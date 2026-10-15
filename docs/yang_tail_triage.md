@@ -43,6 +43,58 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-15 (retirement 3) — the rim × plane graze arm and its detect-then-refine retry DELETED; every non-manifold STOP names faces; T3c reads every face's edges; the pair / triple Newton floor reads the surface anchor; **P0042, P0043, P0053, P0055 CONVERTED; corpus 357C / 0W / 12E / 5EE / 0T over 374**
+
+Cleanup step 2's third retirement. **Arm OFF, first measurement: 349C /
+0W / 20E** — the arm protected four cases, and none of them was a gap in
+the loop's refinement, all four were gaps in what the failure set NAMES:
+
+| case | arm-off STOP | why the loop could not act | the faithful piece |
+|---|---|---|---|
+| P0029 | Stage-4 gate `s4-shell-euler`, χ = 1: rim chord (20,21) lying in the partner's cap plane, used 2 + 2 by A:1, B:0, B:2 | T4 named only UNPAIRED edges; a balanced over-covered edge is the gate's OTHER condition, so the site was faceless | T4 names an impossible-χ shell's over-covered edges' faces (`failures::euler_sites`) — refined ×4, adopted |
+| P0017 | Stage-6 `s6-boundary-walk-deadend` | every Stage-5/6 `NonManifoldOutput` was faceless | T5 with faces: a raise names the input face of the patch being walked / emitted (`NonManifoldScope`, read only when the run ENDS in that error, so a recovered walk leaves nothing) — adopted at iter 2 |
+| P0020 | Stage-6 `s6-wedge-walk-not-outgoing` | same | same — adopted watertight |
+| R0032 | none in yang — kernel-v2 `TessellationFailed "surface-pair Newton projection did not converge"` | T3c skipped the non-chart (torus / cone) face, and on chart faces a failed projection was "undecided" | (i) T3c reads every face's EDGES, chart or not; (ii) the failed projection was a FLOOR bug in both crates: a torus × cone point converged in two steps then oscillated with the cone residual at 4.0e-13 against `8·ε·|seed|` = 3.0e-13 — the residual is measured from the apex 8.4e3 away, so it rounds at `max(|x|, |apex|)`. The floor is now `8·ε·max(|x|, |anchor|)` per residual in `relocate_onto_implicit_pair` / `_triple` and kernel-v2's `surface_pair_project` — the scale kernel-v2's strict on-surface checks already read (`validate::eval_floor_linear`); a SUM `|x| + |anchor|` was measured first and over-accepted a torus vertex kernel-v2's validator refused (`VertexOffSurface`, 6.6e-13 linear vs 5e-13) |
+
+**Arm OFF with the three pieces: 357C / 0W / 12E / 5EE / 0T** (wall
+1074.2 s) — the four hold and four more convert, zero regressions, zero
+detail drift: P0042 and P0043 by the floor alone (their natural runs are
+now clean, no loop entered — P0042's pinned STOP was literally
+`relocate_onto_implicit_pair` returning None; P0043's endpoint-mix decline
+attributed by elimination: unmoved in the first arm-off run, and the other
+two pieces only ADD sites), P0053 and P0055 by T5's face (P0053's natural
+run now STOPs at `s6-wedge-walk-not-outgoing` on B:2, adopted at iter 1;
+P0055 `s6-boundary-walk-deadend` on B:2, adopted at iter 0).
+
+Deleted: the retry in `boolean()` (gate, natural/refined improper counts,
+adoption rule), `boolean_once`'s `refine_rim_plane` parameter and both arm
+forms, and everything only they reached in `rim_junction.rs`
+(`rim_plane_graze_n`, `rim_plane_graze_min_segments`,
+`rim_plane_graze_local_rim_overrides`, `rim_plane_lens`, `RimAngleOverrides`,
+`coaxial_rim_closure`, …; `YANG_195_LOCAL` gone), the unit tests of those
+functions (`s195_rim_plane_graze.rs`, two `RimAngleOverrides::finish` tests,
+the inline `coaxial_rim_closure` test), and a misplaced stale doc block.
+Outcome pins stay; kernel-v2's §5k steep-tilt reproducer
+(`s195_rim_plane_local_graze.rs`, `#[ignore]`d since 2026-10-09 at Stage-4
+`split_cycle`) now BUILDS through the loop and is un-quarantined.
+`n2_rim_mint_adversary`'s calibration read the retry's refined ring (az
+31.62°); the baseline union now builds at its natural ring (az 34.62°) —
+recalibrated, all nine adversary tests green.
+
+Canonical (release, 8 jobs, 900 s; wall 1080.4 s; case CPU 7,267 s against
+6,959 s): **357C / 0W / 12E / 5EE / 0T over 374** — identical to the arm-off
+measurement; against the retirement-2 canonical exactly P0042 / P0043 /
+P0053 / P0055 ERROR → CORRECT, zero regressions, zero detail drift. The 12
+ERROR rows: the six C-series walls (C0046, C0107, C0108, C0109, C0111,
+C0113), P0026 (adjudicated), R0023 (open, kernel-v2 cap segment face) and
+the open tail P0045, P0048, P0056, P0061. **Cost follow-up (named):** R0019
+341.6 → 735.8 s and R0044 282.0 → 544.5 s (both CORRECT both ways; the
+retry paid ONE body-wide boost where the loop now iterates region by
+region — stable over three runs, 715–748 s for R0019, 82 % of the budget;
+R0085 829 → 538 s the other way). The F0064 convergence-monitor question
+(the loop climbing to the ceiling on a failure it cannot resolve) is the
+same family.
+
 ## 2026-10-15 (retirement 2) — the cylinder-pair graze / pinch arm and its N75 extent ladder DELETED; a refined run's faceless STOP re-refines the same region; **C0118 and P0051 CONVERTED; corpus 353C / 0W / 16E / 5EE / 0T over 374**
 
 Cleanup step 2's second retirement: `graze_min_rim_segments` (Case-III
@@ -960,9 +1012,9 @@ its lineage.
 
 | case | source | ops | error text | SITE | ×1e-3 / ×1e3 |
 |---|---|---|---|---|---|
-| **P0053** | #77, already minimal `gear17:boss circle:cut` (scale 122.8) | 2 | `boolean_subtract` `yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces …)` | `boolean.rs` face resolution after the subtract's labeling (`YANG_KEEP_PROBE`: 5 patches, 3612 of 5722 kept, then a second pass 3882 of 6388); the minimum IS the lineage | same / same (tri 1726) |
+| ~~**P0053**~~ CONVERTED 2026-10-15 (retirement 3) | #77, already minimal `gear17:boss circle:cut` (scale 122.8) | 2 | `boolean_subtract` `yang-rs: geometric face resolution failed for kept triangle 1724 (centroid off all face surfaces …)` | `boolean.rs` face resolution after the subtract's labeling (`YANG_KEEP_PROBE`: 5 patches, 3612 of 5722 kept, then a second pass 3882 of 6388); the minimum IS the lineage | same / same (tri 1726) |
 | ~~**P0054**~~ CONVERTED 2026-10-13 (wedge) | #55, min 8→4 `convex4:sym convex5:cut circle:cut circle:thru` | 4 | `boolean_subtract` `reassembled output would be non-2-manifold` | Stage-6 wedge orbit: `s6-boundary-walk-deadend: vertex 47 has incoming boundary but no outgoing` → legacy fallback `NonManifoldOutput` — the wedge arm's span classification (§"2026-10-13 (wedge)") | same / same |
-| **P0055** | #55 **UN-MINIMIZED** 8 ops (23 s) | 8 | the same text | the same orbit but a DIFFERENT first complaint: `s6-wedge-succ-collision: edge (79, 105) claimed by 2 strands`, then a deadend at vertex 79 — the P0042/P0043 rule, both halves | — |
+| ~~**P0055**~~ CONVERTED 2026-10-15 (retirement 3) | #55 **UN-MINIMIZED** 8 ops (23 s) | 8 | the same text | the same orbit but a DIFFERENT first complaint: `s6-wedge-succ-collision: edge (79, 105) claimed by 2 strands`, then a deadend at vertex 79 — the P0042/P0043 rule, both halves | — |
 | **P0056** | #59, min 5→4 `convex4:boss convex4:solo convex5:boss circle:cut` (scale 899) | 4 | `boolean_subtract NonManifoldVertex { vertex 42, point (3.533e2, −5.999e2, −2.052e1) }` | kernel-v2 `validate.rs` invariant 3 (single radial fan) on the output of a circle cut r 3600; the lineage (stars where the minimum has squares) STOPs at the same op on vertex 114 at (3.514e2, −6.089e2, −2.966e1), 13 units away | same / same (vertex 42) |
 | **P0057** | #5, min 7→3 `convex4:boss circle:boss convex7:cut` (scale 1.16e-3) | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 20 × 19, penetrations: 51 }` | two ADJACENT output faces around (−2.6e-3, −5.0e-4, 4.9e-3 … 5.1e-3); the lineage's 156 × 155 at the same coordinates | CORRECT / same |
 | ~~**P0058**~~ CONVERTED 2026-10-13 (wedge) | #69, rounding only `star7(0.29):boss circle:sym circle:cut` (scale 7.7e-3) | 3 | `boolean_subtract` `ring rejected by CDT` FaceId 63 | a 75-point outer ring with one 52-point hole (`outer_len=75 holes=1 npts=127`), identical on the lineage — another locus of the P0002 / P0013 / P0036 / P0046 / P0047 / P0050 text — the wedge arm's span classification (§"2026-10-13 (wedge)") | STOPs earlier (`output ellipse-arc endpoint does not lie on its ellipse`) / same |
@@ -1264,8 +1316,8 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 |---|---|---|---|---|---|
 | ~~**P0040**~~ | #190, min 8→2 by TRUNCATION ONLY (`circle:boss circle:boss`, the lineage's coordinates) | 2 | auto-union `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")` | `from_yang.rs` pairing: the top cap's 42-edge loop runs the rim circle AND the rectangular hole through ONE vertex, v50 at (−271.50, −359.99, 540.38) = the {top cap z = 540.38, big lateral r 450.9, start-cap PLANE x = −271.50} triple point — which is **10 units (3.4 %) outside the start cap's disc** (300 from the small axis, r 290.09), so no exact edge ends there. The true corner is {top cap, start cap, small lateral} at (−271.50, −347.87, 540.38), 12 units away; the rim chord sagitta is 10.7 and `YANG_451_CORNER_PROBE` shows the triple gate (d_ε 13.85) accepting the mesh vertex's relocation onto the phantom (`v=50 rho=17.8 gate=124.9 metric=slab`). Same probe output on the lineage | **CORRECT / CORRECT** — scale-sensitive in BOTH directions. ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, later)** → SUPPORTED_CORRECT 0.9 s (the radial divider + the transit's neighbour-side certificate; see the section above) |
 | ~~**P0041**~~ | #42, min 8→3 `circle:boss convex4:cut convex4:cut` | 3 | `boolean_subtract` the same text | Seg edges of a planar cap loop (yang face 0 at x = 100) used once; the lineage: the same on its plane x = 124.88 | same / same — ~~ERROR 0.1 s~~ **CONVERTED 2026-10-12 (seed 4, P0041)** → SUPPORTED_CORRECT 0.9 s (the body splitter's vertex-hull box; see the section above) |
-| **P0042** | #11, min 5→3 `convex4:boss convex5:rev circle:boss` | 3 | auto-union Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned None (v29). **Not the lineage's site** | CORRECT / same |
-| **P0043** | #11 **UN-MINIMIZED** `circle:boss circle:cut circle:∪ convex5:rev circle:∪` | 5 | the same text | `stage4_correct.rs:13236` — `surface_pair_endpoint_mix` (P0026's site, there a minted tangency; here generic): v38 on a cylinder (r 487.5, axis x) × cone (half-angle 0.019) pair edge whose endpoint also lies on the cylinder's cap plane, `n_inc_surfs=3 {A cone, B plane, B cylinder}`, `cone_ell=true`, no junction map claims it | — (unminimized) |
+| ~~**P0042**~~ CONVERTED 2026-10-15 (retirement 3) | #11, min 5→3 `convex4:boss convex5:rev circle:boss` | 3 | auto-union Stage-4 `LocalRefinementRequired` | `stage4_correct.rs:13243` — `relocate_onto_implicit_pair` returned None (v29). **Not the lineage's site** | CORRECT / same |
+| ~~**P0043**~~ CONVERTED 2026-10-15 (retirement 3) | #11 **UN-MINIMIZED** `circle:boss circle:cut circle:∪ convex5:rev circle:∪` | 5 | the same text | `stage4_correct.rs:13236` — `surface_pair_endpoint_mix` (P0026's site, there a minted tangency; here generic): v38 on a cylinder (r 487.5, axis x) × cone (half-angle 0.019) pair edge whose endpoint also lies on the cylinder's cap plane, `n_inc_surfs=3 {A cone, B plane, B cylinder}`, `cone_ell=true`, no junction map claims it | — (unminimized) |
 | ~~**P0044**~~ CONVERTED 2026-10-13 (wedge) | #37, min 6→4 `convex4:boss convex4:boss star6(0.45):sym circle:cut` | 4 | `boolean_subtract CurvedGeometryMismatch "bounded cylinder patch must have exactly one material-CCW loop"` | kernel-v2 `validate/faces.rs`: the cut cylinder's lateral (r 0.133, axis y) keeps ONE loop, wrap 0, mean_h 8e-4, NEGATIVE area2 (LineSegment + Arc + EllipseArc …) — zero material-CCW loops; identical face on the lineage — the wedge arm's span classification (§"2026-10-13 (wedge)") | same / CORRECT |
 | **P0045** | #88, min 7→3 `convex4:boss circle:rev convex3:boss` | 3 | auto-union `TessellationFailed "torus patch UV-CDT failed …"` | P0003's text on P0030's recipe shape, with a prism that TOUCHES the torus (so the whole-shell passthrough does not apply); same text on the lineage (FaceId 21) | same / same |
 | **P0046** | #108, min 6→4 `convex4:boss convex7:rev convex3:cut circle:boss` | 4 | auto-union `ring rejected by CDT` | a FOURTH locus of the P0002 / P0013 / P0036 text (lineage FaceId 1394) | same / same |

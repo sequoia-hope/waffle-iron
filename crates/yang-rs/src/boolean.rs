@@ -336,45 +336,6 @@ fn concat_breps(a: &BRep, b: &BRep) -> Result<BRep, YangError> {
     BRep::new(verts, edges, faces)
 }
 
-/// Exact triangle-triangle self-intersection COUNT of a boolean output —
-/// the §4.5.4 illegal-self-intersection measure the #173 detector reports
-/// (`cherchi_rs::detect_improper_contacts`). The DETECT half of #195 inc-4
-/// detect-then-refine. We count `improper_pairs` (genuine tri-tri
-/// intersections) only, NOT the `unresolved` (degenerate) tier, so a benign
-/// degeneracy never registers.
-///
-/// NOTE this count is NOISY as an absolute quality signal — a CORRECT output
-/// can carry benign improper contacts (coplanar touches; the ~33 #173
-/// false-positive cases). It is therefore used only as a RELATIVE monotone
-/// measure in the acceptance gate ("did refinement reduce the count?"), never
-/// as an absolute "is this output valid?" test.
-fn output_improper_count(brep: &BRep) -> usize {
-    cherchi_rs::detect_improper_contacts(&brep.mesh.verts, &brep.mesh.tris)
-        .improper_pairs
-        .len()
-}
-
-/// Boolean entry point.
-///
-/// Runs the paper's §4.5.4 detect-then-refine (spec
-/// `yang_195_seal_neighborhood_self_overlap.md` §5h, inc-4/inc-5): pass 1 at
-/// natural rim resolution; ONLY if that output self-intersects (or errors)
-/// AND a rim×plane graze is geometrically present do we re-run with the
-/// crossing-sampling rim boost, ACCEPTING the refined output only when it is
-/// self-intersection-free. A CORRECT natural-N result is never refined, so the
-/// refinement provably cannot regress a passing case — the eager-boost
-/// false-positive class (R0021 / F0085 over-fire, spec §5h) is structurally
-/// excluded. This replaces the eager pre-tessellation boost, which fired on
-/// every geometric graze whether or not it produced a defect.
-///
-/// ALWAYS-ON since inc-5 (was `YANG_RIM_PLANE_GRAZE_ENABLE`). Flip measured on
-/// the full 312-case corpus against the honest 252C/0W/58E/0T baseline:
-/// **254C/0W/56E/0T, exactly two deltas — R0072 and R0095 ERROR→CORRECT — and
-/// zero CORRECT→ERROR.** The flip is paired with the §4.4.1 rim-snap pass
-/// (`stage4_boundary_curve`), which the refinement depends on: boosting the rim
-/// exposes a latent Stage-4 relocation gap that rim-snap closes (the
-/// `n2_junction_cluster::i1` oracle is RED with this arm alone and GREEN with
-/// both). The two must stay on together.
 /// I6 coincident-triple guard with the I6.6 sub-resolution pleat exception.
 ///
 /// Scans the compacted kept set for two surviving triangles on the SAME
@@ -805,7 +766,7 @@ fn refine_loop(
         };
         ra = na;
         rb = nb;
-        let out = boolean_once(&ra, &rb, op, backend, false);
+        let out = boolean_once(&ra, &rb, op, backend);
         f = failures::failures(&out);
         if probe {
             let fa: Vec<(u32, u32)> = ra.face_refine().iter().map(|(&x, &y)| (x, y)).collect();
@@ -876,6 +837,11 @@ fn refine_loop(
     best_watertight
 }
 
+/// Boolean entry point: one natural run, then — when its failure set
+/// (`boolean::failures`) is non-empty — the one §4.5.2 refinement loop
+/// (`refine_loop`, spec `yang_452_refinement_loop.md`), which refines the
+/// faces every site names plus one ring and re-runs until the set is empty
+/// or the budget is spent.
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -901,7 +867,7 @@ pub fn boolean(
         }
     }
     // Detect-then-refine. Pass 1 at natural resolution.
-    let natural = boolean_once(a, b, op, backend, false);
+    let natural = boolean_once(a, b, op, backend);
     // The §4.5 failure set of the natural run, read NOW: any further run
     // (the rim×plane retry below, the loop's own) resets the record.
     let natural_failures = failures::failures(&natural);
@@ -993,124 +959,6 @@ pub fn boolean(
     if let Ok(out) = &natural {
         brep_probe_out(out);
     }
-    // Two refinement remedies follow, TARGETED before WHOLE-OP:
-    //
-    //  1. §4.5.4 rim×plane graze retry — re-run the op with the grazed rims
-    //     boosted to the density the graze demands (the rim under-sampling
-    //     remedy). Cheap gate first: a rim×plane graze the natural
-    //     resolution under-samples must be present, else this remedy has
-    //     nothing to refine. Every §4.5.1 corner-transit corridor the retry
-    //     invocation applies rides here (R0044 converts on this path).
-    //  2. §4.5.2 local refinement (Yang :659-670) — an out-of-domain Stage-4
-    //     optimization failure is the paper's own refinement trigger; the
-    //     op-level ladder re-tessellates BOTH operands at d_ε/f. It runs
-    //     AFTER the targeted retry: measured 2026-09-18, a ladder consulted
-    //     first adopted R0044's d_ε/32 body (0 unpaired, 0 improper, 173k
-    //     triangles) and pre-empted the retry that converts the case — and
-    //     kernel-v2 then refused to tessellate one face of that body
-    //     (`surface-pair Newton projection did not converge`). Local
-    //     before global is the paper's own economy (§4.5.2 refines "the
-    //     surfaces traversed by C_p and a ring of neighbours", not the op),
-    //     and it is what keeps the whole-op cost off every case a targeted
-    //     retry already resolves. On the no-graze path the ladder is the
-    //     only remedy and runs at once (this class is surface-vs-surface
-    //     under-resolution, not a rim under-sampling).
-    let probe = std::env::var_os("YANG_REFINE_PROBE").is_some();
-    // `rim_plane_graze_min_segments` is self-limiting: `None` when both
-    // operands' natural N already suffice. Keeping the output
-    // self-intersection scan behind this gate keeps the per-op
-    // `detect_improper_contacts` cost off the common no-graze path (an
-    // always-on scan pushed CORRECT large cases F0090/R0019/R0081 over the
-    // assay budget — the scan must ride the graze gate).
-    let graze = rim_plane_graze_min_segments(a, b);
-    // The arm's LOCAL form has its own arming predicate: a sub-render-line
-    // graze derives no body-wide `n`, so `graze` is `None` for exactly the
-    // population §5k converts (P0029). Arm on either.
-    let graze_local_present = graze.is_none() && {
-        let (ma, mb) = rim_plane_graze_local_rim_overrides(a, b);
-        !(ma.is_empty() && mb.is_empty())
-    };
-    // An INPUT-side non-manifold error is not a §4.5.4 self-intersection the
-    // rim boost can address — non-manifoldness is topological, not a
-    // resolution deficit — so refining it is a provably futile second full
-    // pass (measured R0019: 90s → 188s, still ERROR). Skip it. Every OTHER
-    // error is an OUTPUT-side failure (LocalRefinementRequired,
-    // NonManifoldOutput, χ mismatch, …) that the refinement legitimately
-    // attempts (measured R0072: LRR → Ok).
-    if (graze.is_some() || graze_local_present)
-        && !matches!(&natural, Err(YangError::NonManifoldInput))
-    {
-        // `Some(n)` = natural emitted a body with n self-intersections (n>0 ⇒
-        // broken); `None` = natural was a hard error (the strongest "broken").
-        let natural_selfx: Option<usize> = match &natural {
-            Ok(brep) => Some(output_improper_count(brep)),
-            Err(_) => None,
-        };
-        let natural_broken = !matches!(natural_selfx, Some(0));
-        if probe {
-            let nat = match (&natural, natural_selfx) {
-                (Ok(_), Some(n)) => format!("Ok improper={n}"),
-                (Err(e), _) => format!("Err({e:?})"),
-                _ => unreachable!(),
-            };
-            eprintln!(
-                "[refine] op={op:?} natural={nat} broken={natural_broken} graze={graze:?} \
-                 graze_local={graze_local_present}"
-            );
-        }
-        // Refine when the natural output is broken (the graze is already
-        // confirmed present above).
-        if natural_broken {
-            let attempt = boolean_once(a, b, op, backend, true);
-            if probe {
-                if let Err(e) = &attempt {
-                    eprintln!("[refine]   refined=Err({e:?})");
-                }
-            }
-            if let Ok(refined) = attempt {
-                let refined_improper = output_improper_count(&refined);
-                // Adopt the refinement unless it is WORSE than natural:
-                //  - natural was a hard error  ⇒ any emitted body is better;
-                //  - natural was Ok-but-selfx  ⇒ accept when the refined body
-                //    has NO MORE illegal intersections than natural (`<=`).
-                //    The count is a noisy ABSOLUTE (benign coplanar contacts
-                //    survive refinement, and repositioning a malignant
-                //    crossing can trade it for a benign one at equal count —
-                //    measured R0095: 2→2 with the downstream op fixed), so we
-                //    never demand a reduction, only that refinement did not
-                //    ADD illegal geometry. Refinement is the paper's §4.5.4
-                //    remedy; the tie goes to the more-sampled body.
-                //    Non-regressing: refined only for already-broken ops, and
-                //    only adopted when it does not increase the
-                //    self-intersection count. The full-corpus assay is the
-                //    P10 verdict on `<=`.
-                // And never adopt a body that is not a valid B-Rep at the
-                // output level (§4.5.4 T3b / T3c): measured 2026-10-14 on
-                // P0044 with the §4.3.3 arms off, this retry returned a body
-                // whose cut-cylinder patch wound against its material side —
-                // kernel-v2 refused it — and pre-empted the §4.5.2 loop,
-                // which the natural run's own T3c site would have entered.
-                let refined_illegal = failures::output_illegal_sites(&refined);
-                let accept = refined_illegal.is_empty()
-                    && match natural_selfx {
-                        None => true,
-                        Some(n) => refined_improper <= n,
-                    };
-                if probe {
-                    eprintln!(
-                        "[refine]   refined=Ok improper={refined_improper} output-illegal={} \
-                         accept={accept}",
-                        refined_illegal.len()
-                    );
-                }
-                if accept {
-                    return Ok(refined);
-                }
-            }
-            // Refinement did not improve on natural (or errored): fall
-            // through to the §4.5.2 ladder, then to natural — never worse.
-        }
-    }
     // Yang §4.5 — the one refinement loop (`refine_loop`): every failure
     // of the natural run names faces; those faces and their ring refine
     // and the op re-runs until the failure set is empty or the budget is
@@ -1127,7 +975,6 @@ fn boolean_once(
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
-    refine_rim_plane: bool,
 ) -> Result<BRep, YangError> {
     // §4.5 failure sites of THIS run (`boolean::failures`, spec
     // `yang_452_refinement_loop.md` §3): forget the previous run's.
@@ -1168,31 +1015,12 @@ fn boolean_once(
     // step 2: the meshes that miss or mis-join a shallow cylinder × cylinder
     // intersection are detected after the arrangement by T6 / T3c and
     // refined by the §4.5.2 loop.)
-    // Rim×plane graze arm (spec `yang_195_seal_neighborhood_self_overlap`
-    // §5): a rim circle shallowly crossing a partner PLANE face (extent
-    // below the rim's chord sagitta) is missed by the meshes; the labeling
-    // then keeps the submerged region and Stage-4 relocation mints the true
-    // junction beyond the plane — the producing op emits a self-intersecting
-    // B-Rep (measured F0082 Extrude-11; Yang §4.5.4). Refinement eliminates
-    // it, per the paper.
-    //
-    // #195 inc-4 (spec §5h): applied here ONLY on the refinement pass
-    // (`refine_rim_plane`) driven by `boolean`'s detect-then-refine wrapper,
-    // never eagerly. Pass 1 (natural resolution) always sees `None`, so a
-    // shallow crossing that produces no self-intersection (the R0021/F0085
-    // eager-boost false-positive class, spec §5h) is never boosted. The
-    // detect-then-refine path in `boolean` is always-on since inc-5; pass 1
-    // still takes the `refine_rim_plane=false` route, so a case that never
-    // trips detection is byte-identical to the pre-#195 behavior.
-    let rim_plane_req = if refine_rim_plane {
-        rim_plane_graze_min_segments(a, b)
-    } else {
-        None
-    };
-    let req = [phantom_min_rim_segments(a, b), rim_plane_req]
-        .into_iter()
-        .flatten()
-        .max();
+    // (So was the rim × plane graze arm — spec
+    // `yang_195_seal_neighborhood_self_overlap` §5 — and its detect-then-
+    // refine retry, 2026-10-15: a grazed rim's doubled chord is a T4 Euler
+    // site, its Stage-6 walk STOP a T5 site naming its face, and the loop
+    // refines both.)
+    let req = phantom_min_rim_segments(a, b);
     let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,
@@ -1202,44 +1030,6 @@ fn boolean_once(
     };
     let (a, b): (&BRep, &BRep) = match &boosted {
         Some((ba, bb)) => (ba, bb),
-        None => (a, b),
-    };
-
-    // #195 rim×plane arm, LOCAL form (spec
-    // `yang_195_seal_neighborhood_self_overlap` §5k): the grazes BELOW the
-    // render-observability line, which the body-wide floor above refuses.
-    // A sub-sagitta rim×plane crossing reaches the arrangement as a
-    // TANGENTIAL line contact — the chord between the two exact crossings
-    // lies in both planes by construction — so the rim's two faces and the
-    // partner plane share one segment and the gate reports a doubled edge
-    // (measured P0029). The demand is spent as extra samples on the grazed
-    // arc of the rim's own closure (THREE points there), never as the
-    // rim-N floor of 128 both operands would otherwise pay. Rides the
-    // refinement pass only, like the body-wide arm: pass 1 never boosts, so
-    // a shallow crossing that produces no defect is left alone.
-    let rim_plane_local: Option<(BRep, BRep)> = if refine_rim_plane {
-        let (ma, mb) = rim_plane_graze_local_rim_overrides(a, b);
-        if ma.is_empty() && mb.is_empty() {
-            None
-        } else {
-            Some((
-                if ma.is_empty() {
-                    a.clone()
-                } else {
-                    a.rebuilt_with_rim_overrides(&ma)?
-                },
-                if mb.is_empty() {
-                    b.clone()
-                } else {
-                    b.rebuilt_with_rim_overrides(&mb)?
-                },
-            ))
-        }
-    } else {
-        None
-    };
-    let (a, b): (&BRep, &BRep) = match &rim_plane_local {
-        Some((ga, gb)) => (ga, gb),
         None => (a, b),
     };
 

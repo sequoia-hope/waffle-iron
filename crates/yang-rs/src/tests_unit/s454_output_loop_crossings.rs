@@ -223,3 +223,33 @@ fn a_surface_pair_edge_bridging_two_branches_is_invalid() {
         other => panic!("expected an invalid edge, got {other:?}"),
     }
 }
+
+/// A face with no T3c chart yet (here a sphere — cone, sphere and torus are
+/// the named chart gap) still has its EDGES read: a `SurfacePair` edge
+/// bridging two branches is invalid whatever face it bounds. Measured R0032
+/// with the rim × plane arm off: the refined body's pair edge on a non-chart
+/// face was read by nothing, and kernel-v2's tessellator refused it.
+#[test]
+fn a_bridging_pair_edge_on_a_face_without_a_chart_is_a_site() {
+    let (a, b) = two_loop_pair();
+    let p = |q: Point3| BRepVertex { point: q };
+    let verts = vec![
+        p(on_loop(1.0, 0.5)),
+        p(on_loop(-1.0, 0.3)),
+        p(Point3::new(0.0, 0.4, 2.0)),
+    ];
+    // Built straight and planar (the validating constructor tessellates, and
+    // refuses a bridging pair edge and a seamless sphere), then typed as
+    // Stage 6 types an output face and edge.
+    let edges = vec![line(0, 1), line(1, 2), line(2, 0)];
+    let mut brep = BRep::new(verts, edges, vec![plane_face(vec![0, 1, 2])]).expect("valid fixture");
+    brep.edges[0].curve = Curve::SurfacePair { a, b };
+    brep.faces[0].surface = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let sites = output_loop_crossings(&brep);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0].trigger, FailureTrigger::IllegalIntersection);
+    assert!(sites[0].detail.contains("branches"), "{}", sites[0].detail);
+}

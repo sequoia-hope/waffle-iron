@@ -3114,3 +3114,28 @@ pub(crate) fn m5_torus_pair_local_scale_is_tightest_curvature_radius() {
     let fat = ytorus([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.5, 1.0);
     assert_eq!(surface_pair_local_scale(fat, p), Some(0.5));
 }
+
+/// The floor must also read the SURFACE's magnitude: a residual measured from
+/// an apex or a centre rounds at `max(|x|, |anchor|)`. Measured R0032 (rim ×
+/// plane arm off): a torus × cone point near |x| ≈ 166, the cone's apex at
+/// |apex| ≈ 8.4e3, converged in two steps and then oscillated with the cone
+/// residual at 4.0e-13 against the seed-only floor 3.0e-13 — `None` for a
+/// point on both surfaces, and kernel-v2's mirror refused the face.
+#[test]
+fn pair_newton_floor_reads_the_surface_anchor_r0032() {
+    let torus = Surface::Torus {
+        center: Point3::new(-189.82076258123104, 100.10377304308409, -123.06115221661842),
+        axis_dir: Vector3::new(-0.43953359041777035, 0.0, -0.8982261535351015),
+        major_radius: 45.585755019430586,
+        minor_radius: 30.39050334628706,
+    };
+    let cone = Surface::Cone {
+        apex: Point3::new(-4028.7880132507335, -65.68788270054742, 8432.199210567525),
+        axis_dir: Vector3::new(0.4149206193228114, -0.0, -0.909857615047967),
+        half_angle: 0.013860168257132596,
+    };
+    let seed = Point3::new(-166.20744235395728, 53.98126582286075, -164.0581202036727);
+    let p = relocate_onto_implicit_pair(seed, torus, cone).expect("a converged root is accepted");
+    assert!(signed_distance_to_surface(torus, p).unwrap().abs() < 1e-11);
+    assert!(signed_distance_to_surface(cone, p).unwrap().abs() < 1e-11);
+}

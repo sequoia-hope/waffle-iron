@@ -19,17 +19,15 @@
 //!
 //! The lens is REAL — on P0029's own numbers the sliver the solids trade is
 //! 2.37 × 3.37e-2, some 3.4e4 × `MIN_FEATURE_SIZE` — so the STOP is a
-//! capability gap, not a loud-by-design wall. The body-wide rim-N floor that
-//! would resolve it is 128 against a natural 9; the LOCAL form pays the same
-//! sagitta demand as three extra samples on the grazed arc of the rim's own
-//! closure.
-//!
-//! RED with `YANG_195_LOCAL=off`. Measured over a 60-fixture sweep of this
-//! family (3 radii × 5 lens depths × 5 tilts, every one RED at the natural
-//! density): 53 build with the rule on. The residual 7 all sit on the two
-//! steepest tilts and STOP at a DIFFERENT Stage-4 site —
-//! `YANG_LRR_STOP site=split_cycle` (`stage4_correct.rs:14628`), the named
-//! follow-up in `docs/yang_tail_triage.md`.
+//! capability gap, not a loud-by-design wall. Through 2026-10-14 the #195
+//! rim × plane arm paid the sagitta demand as extra samples on the grazed
+//! arc of the rim's closure (spec `yang_195_seal_neighborhood_self_overlap`
+//! §5k); 53 of a 60-fixture sweep of this family converted that way and the
+//! 7 steepest STOPped at Stage-4 `split_cycle`. Since 2026-10-15 the arm is
+//! RETIRED (`specs/yang_faithful_cleanup.md` step 2): the doubled chord is a
+//! §4.4.3 Euler site (an impossible-χ shell's over-covered edge names its
+//! faces) and the one §4.5.2 refinement loop refines them — both pins below,
+//! including the former `split_cycle` residual, build through it.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
@@ -251,20 +249,13 @@ fn a_rim_grazing_a_cap_plane_crosses_it_instead_of_lying_in_it() {
     }
 }
 
-/// The §5k residual (2026-10-09): 7 of the 60 swept fixtures still STOP,
-/// all on the two steepest tilts. The arm fires and the doubled edge is
-/// GONE — the refinement reaches Stage 4 and STOPs there instead, at
-/// `YANG_LRR_STOP site=split_cycle` / `stage4_correct.rs:14628`
-/// `LocalRefinementRequired` — so a SECOND wall sits behind this one, on a
-/// different site. This is the same axis as P0029's own
-/// (`(0.2, 0.45, 0.87)`) at P0029's own lens depth.
-///
-/// Un-quarantine in the commit that lands that wall.
+/// The former §5k residual (2026-10-09): 7 of the 60 swept fixtures STOPped
+/// on the two steepest tilts — the arm's samples cleared the doubled edge and
+/// the refinement then STOPped at Stage-4 `split_cycle`. Quarantined until
+/// 2026-10-15, when the arm was retired into the §4.5.2 loop and this pose
+/// (P0029's own axis `(0.2, 0.45, 0.87)` at P0029's own lens depth) built.
 #[test]
-#[ignore = "§5k residual: the refined mesh STOPs at Stage-4 split_cycle \
-            (stage4_correct.rs:14628) — a different site, named follow-up \
-            in docs/yang_tail_triage.md §2026-10-09"]
-fn a_steeply_tilted_grazing_rim_still_stops_at_split_cycle() {
+fn a_steeply_tilted_grazing_rim_builds_through_the_452_loop() {
     const STEEP: [f64; 3] = [0.2, 0.45, 0.87];
     let mut a = BrepArena::new();
     let p = prism(&mut a);

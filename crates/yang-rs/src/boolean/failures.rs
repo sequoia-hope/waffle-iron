@@ -63,11 +63,58 @@ pub(crate) struct FailureSite {
 thread_local! {
     static FAILURE_SITES: std::cell::RefCell<Vec<FailureSite>> =
         const { std::cell::RefCell::new(Vec::new()) };
+    /// The input faces the reassembly code is working on right now — set by
+    /// a [`NonManifoldScope`] around one output patch's walk or emission.
+    static NONMANIFOLD_CONTEXT: std::cell::RefCell<Vec<(InputId, u32)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    /// The site of the LATEST `NonManifoldOutput` raise
+    /// (`stage4_relocate::non_manifold_at`). Read only when the run ends in
+    /// that error: several callers recover from a patch walk's error, so a
+    /// raise is not a failure until it reaches `boolean_once`'s result.
+    static NONMANIFOLD_PENDING: std::cell::RefCell<Option<FailureSite>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 /// Forget the previous run's sites. Called at every `boolean_once` entry.
 pub(crate) fn reset() {
     FAILURE_SITES.with(|c| c.borrow_mut().clear());
+    NONMANIFOLD_CONTEXT.with(|c| c.borrow_mut().clear());
+    NONMANIFOLD_PENDING.with(|c| *c.borrow_mut() = None);
+}
+
+/// While alive, a `NonManifoldOutput` raise names `faces` (spec
+/// `yang_452_refinement_loop.md` §3, T5 with faces). Restores the enclosing
+/// context on drop, so scopes nest.
+pub(crate) struct NonManifoldScope {
+    prev: Vec<(InputId, u32)>,
+}
+
+/// Open a [`NonManifoldScope`] naming one input face.
+pub(crate) fn nonmanifold_scope(input: InputId, face: u32) -> NonManifoldScope {
+    let prev =
+        NONMANIFOLD_CONTEXT.with(|c| std::mem::replace(&mut *c.borrow_mut(), vec![(input, face)]));
+    NonManifoldScope { prev }
+}
+
+impl Drop for NonManifoldScope {
+    fn drop(&mut self) {
+        let prev = std::mem::take(&mut self.prev);
+        NONMANIFOLD_CONTEXT.with(|c| *c.borrow_mut() = prev);
+    }
+}
+
+/// Called by every `NonManifoldOutput` raise: the raise's site is the
+/// current scope's faces (empty outside any scope) — it replaces the
+/// previous raise's, which was either recovered from or is this one's cause.
+pub(crate) fn note_nonmanifold_raise(site: &str, detail: String) {
+    let faces = NONMANIFOLD_CONTEXT.with(|c| c.borrow().clone());
+    NONMANIFOLD_PENDING.with(|c| {
+        *c.borrow_mut() = Some(FailureSite {
+            trigger: FailureTrigger::ReassemblyStop,
+            faces,
+            detail: format!("{site}: {detail}"),
+        })
+    });
 }
 
 /// Push one site.
@@ -142,9 +189,105 @@ pub(crate) fn record_domain_fires(fires: &[DomainFire]) {
 /// T4 producer: the watertightness gate records every non-manifold seam
 /// region's attribution keys as one site.
 pub(crate) fn record_nonmanifold_mesh(mesh: &Mesh, attribution: &TriangleAttributionMap) {
-    for site in nonmanifold_sites(mesh, attribution) {
+    let seams = nonmanifold_sites(mesh, attribution);
+    let sites = if seams.is_empty() {
+        euler_sites(mesh, attribution)
+    } else {
+        seams
+    };
+    for site in sites {
         record(site);
     }
+}
+
+/// T4's second gate condition (§4.4.3, `check_watertight_2manifold`): a
+/// connected shell whose Euler characteristic no closed orientable surface
+/// has (odd, or above 2). Every half-edge is paired there, so the defect is
+/// an OVER-covered edge (`fwd == rev ≥ 2`) — legitimate at a tangency seam
+/// of a valid shell (the Steinmetz subtract), so only an impossible shell's
+/// over-covered edges are a site: one site per such shell, naming the faces
+/// of every triangle on those edges (measured P0029 with the rim × plane
+/// arm off: a rim chord lying in the partner's cap plane, the edge used by
+/// both cap faces and the cylinder, χ = 1).
+pub(crate) fn euler_sites(mesh: &Mesh, attribution: &TriangleAttributionMap) -> Vec<FailureSite> {
+    use std::collections::BTreeMap;
+    let n = mesh.verts.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], x: usize) -> usize {
+        let mut r = x;
+        while parent[r] != r {
+            r = parent[r];
+        }
+        let mut cur = x;
+        while parent[cur] != r {
+            let nx = parent[cur];
+            parent[cur] = r;
+            cur = nx;
+        }
+        r
+    }
+    let mut dir: BTreeMap<(u32, u32), i64> = BTreeMap::new();
+    let mut inc: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            *dir.entry((a, b)).or_default() += 1;
+            inc.entry((a.min(b), a.max(b))).or_default().push(ti);
+            let (ra, rb) = (find(&mut parent, a as usize), find(&mut parent, b as usize));
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+    }
+    // Per shell: V, E (undirected), F.
+    let mut v_of: BTreeMap<usize, BTreeSet<u32>> = BTreeMap::new();
+    let mut f_of: BTreeMap<usize, i64> = BTreeMap::new();
+    for tri in &mesh.tris {
+        let root = find(&mut parent, tri[0] as usize);
+        v_of.entry(root).or_default().extend(tri.iter().copied());
+        *f_of.entry(root).or_default() += 1;
+    }
+    let mut e_of: BTreeMap<usize, i64> = BTreeMap::new();
+    for &(a, _) in inc.keys() {
+        *e_of.entry(find(&mut parent, a as usize)).or_default() += 1;
+    }
+    let mut out = Vec::new();
+    for (&root, verts) in &v_of {
+        let chi = verts.len() as i64 - e_of.get(&root).copied().unwrap_or(0)
+            + f_of.get(&root).copied().unwrap_or(0);
+        if chi <= 2 && chi.rem_euclid(2) == 0 {
+            continue;
+        }
+        let mut faces: BTreeSet<(bool, u32)> = BTreeSet::new();
+        let mut first: Option<(u32, u32)> = None;
+        let mut n_edges = 0usize;
+        for (&(a, b), tris) in &inc {
+            if find(&mut parent, a as usize) != root {
+                continue;
+            }
+            let fwd = dir.get(&(a, b)).copied().unwrap_or(0);
+            let rev = dir.get(&(b, a)).copied().unwrap_or(0);
+            if fwd < 2 && rev < 2 {
+                continue;
+            }
+            n_edges += 1;
+            first.get_or_insert((a, b));
+            for &ti in tris {
+                if let Some(Some(at)) = attribution.attributions.get(ti) {
+                    faces.insert((matches!(at.input, InputId::B), at.face));
+                }
+            }
+        }
+        out.push(FailureSite {
+            trigger: FailureTrigger::NonManifoldMesh,
+            faces: faces
+                .into_iter()
+                .map(|(is_b, f)| (if is_b { InputId::B } else { InputId::A }, f))
+                .collect(),
+            detail: format!("shell chi={chi}: {n_edges} over-covered edge(s), first {first:?}"),
+        });
+    }
+    out
 }
 
 /// T4 as a pure function: one site per non-manifold seam region of `mesh`,
@@ -467,7 +610,8 @@ pub(crate) fn density_for_demand(demand: Option<f64>) -> u32 {
 /// curve piece — a site.
 #[derive(Debug)]
 pub(crate) enum EdgeRead {
-    Undecided,
+    /// Why the edge could not be read (probe text).
+    Undecided(&'static str),
     Invalid(String),
 }
 
@@ -523,7 +667,7 @@ pub(crate) fn sample_output_edge(
                 a,
                 b,
             ) else {
-                return Err(EdgeRead::Undecided);
+                return Err(EdgeRead::Undecided("surface-pair projection failed"));
             };
             let mp = mp.as_array();
             let d = |x: [f64; 3], y: [f64; 3]| {
@@ -561,15 +705,15 @@ pub(crate) fn sample_output_edge(
         Curve::Parabola { .. } | Curve::Hyperbola { .. } => 0.0,
         Curve::LineSegment | Curve::SurfacePair { .. } => return Ok(vec![start, end]),
     };
-    let ts = conic_param(curve, ps).ok_or(EdgeRead::Undecided)?;
+    let ts = conic_param(curve, ps).ok_or(EdgeRead::Undecided("conic parameter"))?;
     let sweep = if conic_param_periodic(curve) {
         if closed {
             two_pi
         } else {
-            let te = conic_param(curve, pe).ok_or(EdgeRead::Undecided)?;
+            let te = conic_param(curve, pe).ok_or(EdgeRead::Undecided("conic parameter"))?;
             let ccw = (te - ts).rem_euclid(two_pi);
             if (ccw - std::f64::consts::PI).abs() <= 1e-9 {
-                return Err(EdgeRead::Undecided);
+                return Err(EdgeRead::Undecided("half-sweep conic"));
             }
             if ccw < std::f64::consts::PI {
                 ccw
@@ -578,7 +722,7 @@ pub(crate) fn sample_output_edge(
             }
         }
     } else {
-        conic_param(curve, pe).ok_or(EdgeRead::Undecided)? - ts
+        conic_param(curve, pe).ok_or(EdgeRead::Undecided("conic parameter"))? - ts
     };
     let n = if radius > 0.0 && tol > 0.0 && tol < radius {
         // Chord sagitta `r(1 − cos(Δ/2)) ≤ tol` ⇒ `Δ ≤ 2·acos(1 − tol/r)`.
@@ -593,7 +737,7 @@ pub(crate) fn sample_output_edge(
         let t = ts + sweep * (k as f64) / (n as f64);
         pts.push(
             crate::geom::conic_eval(curve, t)
-                .ok_or(EdgeRead::Undecided)?
+                .ok_or(EdgeRead::Undecided("conic parameter"))?
                 .as_array(),
         );
     }
@@ -685,10 +829,15 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                 r: f64,
             },
         }
+        // A face with no chart yet (cone / sphere / torus — the named gap)
+        // still has its EDGES read: a `SurfacePair` edge bridging two branches
+        // is invalid whatever face it bounds (measured R0032 with the rim ×
+        // plane arm off: the refined body's pair edge on a non-chart face was
+        // read by nothing, and kernel-v2's tessellator refused it).
         let (chart, sense) = match face.surface {
             Surface::Plane { normal, .. } => {
                 let (e1, e2) = crate::ortho_basis(normal);
-                (Chart::Plane(e1.as_array(), e2.as_array()), 1.0)
+                (Some(Chart::Plane(e1.as_array(), e2.as_array())), 1.0)
             }
             Surface::Cylinder {
                 axis_point,
@@ -698,17 +847,17 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                 let un = crate::normalize3(axis_dir.as_array());
                 let (e1, e2) = crate::ortho_basis(axis_dir);
                 (
-                    Chart::Cylinder {
+                    Some(Chart::Cylinder {
                         a: axis_point.as_array(),
                         u: un,
                         e1: e1.as_array(),
                         e2: e2.as_array(),
                         r: radius,
-                    },
+                    }),
                     if face.reversed { -1.0 } else { 1.0 },
                 )
             }
-            _ => continue,
+            _ => (None, 1.0),
         };
         // Each loop as exact-curve samples, each sample tagged with the edge
         // that leaves it.
@@ -732,7 +881,7 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                         continue 'faces;
                     };
                     let closed = e.start == e.end || lp.len() == 1;
-                    if closed && matches!(chart, Chart::Cylinder { .. }) {
+                    if closed && matches!(chart, Some(Chart::Cylinder { .. })) {
                         // A full rim: the face is a periodic strip whose
                         // chart has a seam — the wrapping-loop named gap.
                         if probe {
@@ -743,9 +892,12 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                     let samples =
                         match sample_output_edge(&e.curve, vs.point, ve.point, closed, band) {
                             Ok(v) => v,
-                            Err(EdgeRead::Undecided) => {
+                            Err(EdgeRead::Undecided(why)) => {
                                 if probe {
-                                    eprintln!("[t3c] face {fi} skipped: undecidable edge {ei}");
+                                    eprintln!(
+                                    "[t3c] face {fi} skipped: undecidable edge {ei} ({why}, {:?})",
+                                    e.curve
+                                );
                                 }
                                 continue 'faces;
                             }
@@ -774,6 +926,9 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                 all.push(pts);
             }
             all
+        };
+        let Some(chart) = chart else {
+            continue 'faces;
         };
         // Into the chart; a cylinder loop is unwrapped along its walk and
         // must close (no net turn about the axis).
@@ -1085,6 +1240,11 @@ pub(crate) fn failures(result: &Result<BRep, YangError>) -> Vec<FailureSite> {
             out.extend(output_illegal_sites(brep));
         }
         Err(e) => {
+            if out.is_empty() && matches!(e, YangError::NonManifoldOutput) {
+                if let Some(site) = NONMANIFOLD_PENDING.with(|c| c.borrow().clone()) {
+                    out.push(site);
+                }
+            }
             if out.is_empty() {
                 out.push(FailureSite {
                     trigger: FailureTrigger::ReassemblyStop,

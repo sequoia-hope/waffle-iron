@@ -657,11 +657,13 @@ fn signature(r: &Result<BRep, YangError>) -> String {
 /// x > 0, on the rim circle within the import band; the max-x such vertex).
 /// Under the always-on M8 rim membership refinement (2026-08-14 corpus
 /// flip) the ring carries exact on-circle refinement samples in addition to
-/// the N = 13 uniform ones; the max-x +y sample is now the az ≈ 31.62°
-/// refinement sample — measured
-/// (1.8170833687781708e-4, 1.1188226014404256e-4, 0). Deterministic: the
-/// ring sampling depends only on A's own rim circles and the pair's
-/// refinement demands.
+/// the N = 13 uniform ones; through 2026-10-14 the max-x +y sample was the
+/// az ≈ 31.62° sample the rim × plane retry's refined body carried
+/// ((1.8170833687781708e-4, 1.1188226014404256e-4, 0)). That retry was
+/// RETIRED on 2026-10-15 (`specs/yang_faithful_cleanup.md` step 2): the
+/// baseline union now builds at its natural ring, whose max-x +y sample is
+/// the az ≈ 34.62° uniform one. Deterministic: the ring sampling depends
+/// only on A's own rim circles and the pair's refinement demands.
 fn calibrated_rim_sample() -> [f64; 3] {
     let out = try_union(cyl_a(1.0), box_b_coplanar(1.0, DELTA))
         .expect("baseline acceptance-class union must build (acceptance suite is green)");
@@ -676,13 +678,13 @@ fn calibrated_rim_sample() -> [f64; 3] {
         }
     }
     let s = sample.expect("baseline output must contain a +y bottom-rim ring sample");
-    // Sanity: the calibrated sample is the az ≈ 31.62° refinement vertex
-    // (measured at the 2026-08-14 flip census; the pre-flip N = 13 uniform
-    // sample was az ≈ 34.62°).
+    // Sanity: the calibrated sample is the az ≈ 34.62° N = 13 uniform
+    // vertex (the az ≈ 31.62° refinement vertex until the rim × plane retry
+    // was retired, 2026-10-15).
     let az = s[1].atan2(s[0]).to_degrees();
     assert!(
-        (az - 31.62).abs() < 0.1,
-        "calibration drifted: expected the az≈31.62° ring sample, got az={az:.2}° at {s:?}"
+        (az - 34.62).abs() < 0.1,
+        "calibration drifted: expected the az≈34.62° ring sample, got az={az:.2}° at {s:?}"
     );
     s
 }

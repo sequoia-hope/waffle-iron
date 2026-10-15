@@ -167,3 +167,115 @@ fn a_clean_body_has_an_empty_failure_set() {
     let f = failures::failures(&ok);
     assert!(f.is_empty(), "{f:?}");
 }
+
+/// A tetrahedron `[o, a, b, c]` with outward winding, every triangle on
+/// `face`.
+fn tet_tris(o: u32, a: u32, b: u32, c: u32) -> Vec<[u32; 3]> {
+    vec![[o, b, a], [o, a, c], [o, c, b], [a, b, c]]
+}
+
+/// Two closed tetrahedra glued along ONE edge (0,1): every half-edge is
+/// paired, the edge is used 2 + 2 times, and the shell's χ = 6 − 11 + 8 = 3
+/// — the Stage-4 gate's second condition (measured P0029 with the rim ×
+/// plane arm off). The site names the faces on the over-covered edge.
+#[test]
+fn an_impossible_euler_shell_names_the_faces_on_its_over_covered_edges() {
+    failures::reset();
+    let p = |x: f64, y: f64, z: f64| Point3::new(x, y, z);
+    let mesh = Mesh::new(
+        vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(0.0, 0.0, 1.0),
+            p(0.0, -1.0, 0.0),
+            p(0.0, 0.0, -1.0),
+        ],
+        tet_tris(0, 1, 2, 3)
+            .into_iter()
+            .chain(tet_tris(0, 1, 4, 5))
+            .collect(),
+    );
+    let at = attr(&[
+        Some((InputId::A, 1)),
+        Some((InputId::A, 1)),
+        Some((InputId::A, 2)),
+        Some((InputId::A, 2)),
+        Some((InputId::B, 4)),
+        Some((InputId::B, 5)),
+        Some((InputId::B, 6)),
+        Some((InputId::B, 6)),
+    ]);
+    assert!(
+        crate::stage4_relocate::check_watertight_2manifold(&mesh).is_err(),
+        "the gate must refuse the χ = 3 shell"
+    );
+    let sites = failures::euler_sites(&mesh, &at);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0].trigger, FailureTrigger::NonManifoldMesh);
+    // The four triangles on edge (0,1): tet 1's [0,2,1] (A:1) and [0,1,3]
+    // (A:1); tet 2's [0,4,1] (B:4) and [0,1,5] (B:5).
+    assert_eq!(
+        sites[0].faces,
+        vec![(InputId::A, 1), (InputId::B, 4), (InputId::B, 5)]
+    );
+    // The recorder falls back to them when no edge is unpaired.
+    record_nonmanifold_mesh(&mesh, &at);
+    assert_eq!(failures::recorded(), sites);
+    failures::reset();
+}
+
+/// A valid closed shell is not an Euler site, even when a seam is used 2 + 2
+/// times elsewhere (the tangency-seam doubling is legal on a χ = 2 shell).
+#[test]
+fn a_valid_shell_is_no_euler_site() {
+    let mesh = Mesh::new(
+        vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(0.0, 0.0, 1.0),
+        ],
+        tet_tris(0, 1, 2, 3),
+    );
+    let at = attr(&[Some((InputId::A, 0)); 4]);
+    assert!(failures::euler_sites(&mesh, &at).is_empty());
+}
+
+/// T5 with faces: a `NonManifoldOutput` raise inside a scope names the
+/// scope's face; the run's failure set reads it only when the run ENDS in
+/// that error; a later raise outside any scope replaces it with no face.
+#[test]
+fn a_nonmanifold_raise_names_its_scope_face_only_when_the_run_ends_there() {
+    failures::reset();
+    let err: Result<crate::BRep, crate::YangError> = Err(crate::YangError::NonManifoldOutput);
+    {
+        let _s = failures::nonmanifold_scope(InputId::B, 9);
+        let _ = crate::stage4_relocate::non_manifold_at("test-site", format_args!("v1"));
+    }
+    let f = failures::failures(&err);
+    assert_eq!(f.len(), 1);
+    assert_eq!(f[0].trigger, FailureTrigger::ReassemblyStop);
+    assert_eq!(f[0].faces, vec![(InputId::B, 9)]);
+    assert!(f[0].detail.contains("test-site"), "{}", f[0].detail);
+
+    // A recovered raise leaves nothing on a body the run emits.
+    let ok: Result<crate::BRep, crate::YangError> =
+        Ok(rj_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0));
+    assert!(failures::failures(&ok)
+        .iter()
+        .all(|s| s.trigger != FailureTrigger::ReassemblyStop));
+
+    // Scopes nest and restore; a raise outside every scope names nothing.
+    {
+        let _outer = failures::nonmanifold_scope(InputId::A, 1);
+        {
+            let _inner = failures::nonmanifold_scope(InputId::A, 2);
+        }
+        let _ = crate::stage4_relocate::non_manifold_at("outer", format_args!(""));
+    }
+    assert_eq!(failures::failures(&err)[0].faces, vec![(InputId::A, 1)]);
+    let _ = crate::stage4_relocate::non_manifold_at("bare", format_args!(""));
+    assert!(failures::failures(&err)[0].faces.is_empty());
+    failures::reset();
+}

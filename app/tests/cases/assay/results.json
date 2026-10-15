@@ -1,8 +1,8 @@
 {
-  "errored": 16,
+  "errored": 12,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 353,
+  "passed": 357,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -2123,16 +2123,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 29 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0042",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 7b455f24-2cbd-4739-961f-6d8c795ec8e9: operation error: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 38 is invalid: LocalRefinementRequired\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0043",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2189,10 +2189,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): e3031155-42e8-42b9-9a3a-7181a5c9b379: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0053",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2201,10 +2201,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): bfbf0291-0c88-4553-a54a-41fa2c47ec52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0055",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

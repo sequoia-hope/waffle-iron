@@ -67,6 +67,32 @@ pub(crate) fn project_onto_circle(
 /// chord bound (d_ε = 1e-2·diag) at the same scale, so chord-sagitta
 /// inexactness can never certify. NOT a tolerance widening (P9): the
 /// property witnessed is the strongest float arithmetic can express.
+/// The magnitude of the point a surface's signed distance is measured FROM
+/// (`x − apex`, `x − center`, `x − axis_point`, the plane offset): that
+/// subtraction rounds at `max(|x|, |anchor|)`, so a relocation Newton's
+/// evaluation-precision floor is `8·ε·max(|x|, this)` — the same scale
+/// kernel-v2's strict on-surface checks use (`validate::eval_floor_linear`
+/// of `coord_mag(p).max(coord_mag(anchor))`). Measured R0032: a converged
+/// torus × cone point, cone apex 8.4e3 away, oscillated at 4e-13 against the
+/// seed-only floor 3e-13 in yang's AND kernel-v2's projector.
+pub(crate) fn surface_anchor_magnitude(s: Surface) -> f64 {
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    match s {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if nl > 0.0 {
+                d.abs() / nl
+            } else {
+                d.abs()
+            }
+        }
+        Surface::Sphere { center, .. } | Surface::Torus { center, .. } => mag3(center.as_array()),
+        Surface::Cylinder { axis_point, .. } => mag3(axis_point.as_array()),
+        Surface::Cone { apex, .. } => mag3(apex.as_array()),
+    }
+}
+
 pub(crate) fn junction_certificate_band(p: [f64; 3], s: Surface) -> f64 {
     let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
     let refmag = match s {
@@ -281,8 +307,16 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
     // (R0044 has a second vertex that blows up to |x| ≈ 5e25) would otherwise
     // inflate its own acceptance threshold and turn a divergence into a
     // silent accept. Seed-scaled keeps divergence loud.
+    //
+    // Each residual's floor reads its surface's anchor too
+    // ([`surface_anchor_magnitude`]) — the residual is evaluated against it.
+    // Still seed-anchored: both terms are fixed before the first step.
     let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
-    let tau = TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * mag3(p.as_array()));
+    let floor = |s: Surface| {
+        TORUS_RELOC_WORK_FLOOR
+            .max(8.0 * f64::EPSILON * mag3(p.as_array()).max(surface_anchor_magnitude(s)))
+    };
+    let (tau0, tau1) = (floor(s0), floor(s1));
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
     let mut x = p.as_array();
     let trace = std::env::var_os("YANG_PAIR_NEWTON_TRACE").is_some();
@@ -295,7 +329,7 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
         let det = 1.0 - b * b; // sin²θ between the two unit normals
         if trace {
             eprintln!(
-                "YANG_PAIR_NEWTON it={it} f0={f0:.3e} f1={f1:.3e} det={det:.3e} tau={tau:.3e} \
+                "YANG_PAIR_NEWTON it={it} f0={f0:.3e} f1={f1:.3e} det={det:.3e} tau=({tau0:.3e}, {tau1:.3e}) \
                  x={x:?} s0={s0:?} s1={s1:?}"
             );
         }
@@ -306,7 +340,7 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
         if det <= rank_eps {
             return None;
         }
-        if f0.abs() <= tau && f1.abs() <= tau {
+        if f0.abs() <= tau0 && f1.abs() <= tau1 {
             return Some(Point3::new(x[0], x[1], x[2]));
         }
         // (J Jᵀ)⁻¹ [f0; f1] = 1/det · [[1, −b], [−b, 1]] [f0; f1]
@@ -347,7 +381,11 @@ pub(crate) fn relocate_onto_implicit_triple(
     // so the shipped torus-block behavior is byte-identical.
     let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
     let l = mag3(p.as_array());
-    let tau = TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * l);
+    // Each residual at its surface's anchor scale, as in the pair projector.
+    let floor = |s: Surface| {
+        TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * l.max(surface_anchor_magnitude(s)))
+    };
+    let (tau0, tau1, tau2) = (floor(s0), floor(s1), floor(s2));
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE;
     let cross = |a: [f64; 3], b: [f64; 3]| {
         [
@@ -370,7 +408,7 @@ pub(crate) fn relocate_onto_implicit_triple(
         if det.abs() <= rank_eps {
             return None; // coplanar normals → ill-posed junction
         }
-        if f0.abs() <= tau && f1.abs() <= tau && f2.abs() <= tau {
+        if f0.abs() <= tau0 && f1.abs() <= tau1 && f2.abs() <= tau2 {
             return Some(Point3::new(x[0], x[1], x[2]));
         }
         // dx = −J⁻¹ f = −(1/det)[ f0·(n1×n2) + f1·(n2×n0) + f2·(n0×n1) ]
@@ -1982,6 +2020,9 @@ pub(crate) fn non_manifold_at(site: &str, detail: std::fmt::Arguments<'_>) -> Ya
     if std::env::var("NONMANIFOLD_SITE_PROBE").is_ok() {
         eprintln!("NONMANIFOLD_SITE_PROBE {site}: {detail}");
     }
+    // §4.5 trigger T5 (`boolean::failures`): the raise names the faces of
+    // the enclosing `NonManifoldScope`, read if the run ends here.
+    crate::boolean::failures::note_nonmanifold_raise(site, detail.to_string());
     YangError::NonManifoldOutput
 }
 

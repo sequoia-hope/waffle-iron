@@ -714,10 +714,24 @@ pub(crate) fn hyperbola_interior_samples(
 /// iterate's, so a diverging iterate cannot inflate its own acceptance.
 const SURFACE_PAIR_PROJECT_TAU: f64 = 1e-13;
 
-/// See [`SURFACE_PAIR_PROJECT_TAU`].
-fn surface_pair_project_tau(seed: [f64; 3]) -> f64 {
-    let l = seed[0].abs().max(seed[1].abs()).max(seed[2].abs());
-    SURFACE_PAIR_PROJECT_TAU.max(8.0 * f64::EPSILON * l)
+/// See [`SURFACE_PAIR_PROJECT_TAU`]. Each residual is evaluated against its
+/// surface's ANCHOR (`x − apex`, `x − center`, …), which rounds at
+/// `max(|x|, |anchor|)` — the scale `validate::eval_floor_linear` already
+/// reads, and yang-rs `surface_anchor_magnitude`'s contract (measured R0032:
+/// a converged torus × cone point, apex 8.4e3 away, oscillated at 4e-13
+/// against the seed-only floor 3e-13).
+fn surface_pair_project_tau(seed: [f64; 3], s: &crate::arena::PairSurface) -> f64 {
+    use crate::arena::PairSurface;
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    let anchor = match *s {
+        PairSurface::Cylinder { axis_point, .. } => mag3(axis_point.as_array()),
+        PairSurface::Cone { apex, .. } => mag3(apex.as_array()),
+        PairSurface::Sphere { center, .. } | PairSurface::Torus { center, .. } => {
+            mag3(center.as_array())
+        }
+        PairSurface::Plane { point, .. } => mag3(point.as_array()),
+    };
+    SURFACE_PAIR_PROJECT_TAU.max(8.0 * f64::EPSILON * mag3(seed).max(anchor))
 }
 
 /// Depth cap of the recursive chord refinement (2¹² sub-chords per edge —
@@ -737,7 +751,10 @@ fn project_onto_surface_pair(
     p: Point3,
 ) -> Result<Point3, &'static str> {
     let mut x = [p.x(), p.y(), p.z()];
-    let tau = surface_pair_project_tau(x);
+    let (tau_a, tau_b) = (
+        surface_pair_project_tau(x, a),
+        surface_pair_project_tau(x, b),
+    );
     for _ in 0..32 {
         let Some((f1, g1)) = crate::geom::pair_surface_residual_gradient(a, x) else {
             return Err("surface-pair projection hit a defining surface's axis");
@@ -745,7 +762,7 @@ fn project_onto_surface_pair(
         let Some((f2, g2)) = crate::geom::pair_surface_residual_gradient(b, x) else {
             return Err("surface-pair projection hit a defining surface's axis");
         };
-        if f1.abs() <= tau && f2.abs() <= tau {
+        if f1.abs() <= tau_a && f2.abs() <= tau_b {
             return Ok(Point3::new(x[0], x[1], x[2]));
         }
         let c = g1[0] * g2[0] + g1[1] * g2[1] + g1[2] * g2[2];
