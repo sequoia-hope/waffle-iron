@@ -13328,6 +13328,11 @@ fn stage4_relocate_and_correct_inner(
         attribution.attributions = attr_vec;
     }
 
+    // Phase 2b increment 0 (print-only, `YANG_441_UPDATE_CENSUS`): the
+    // §4.4.1 per-patch update's outcome at its planned site — after the §4.3
+    // dedups, before the unzip / validation repairs.
+    crate::stage4_construct::update_census(mesh, attribution, a, b, "pre-repair");
+
     // Twin-scan probe (read-only, env-gated `YANG_TWIN_SCAN`): dump every
     // sub-feature-floor mesh edge surviving the §4.4.1(b) merge, with
     // eligibility flags — self-localizes a surviving ULP-twin pair (the

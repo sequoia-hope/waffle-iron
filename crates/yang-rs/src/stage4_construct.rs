@@ -2811,6 +2811,130 @@ fn implied_inserts_rec(
     1 + left + right
 }
 
+/// Phase 2b increment 0 (spec `yang_441_phase2b_patch_update.md` §4): the
+/// §4.4.1 per-patch update CENSUS — print-only, never changes a result. For
+/// every patch an intersection edge bounds, run [`rebuild_patch_planar`] (a
+/// pure planner: it reads `mesh` and returns a plan) and tally its outcome,
+/// plus the degenerate triangles the patch carries now (the population the
+/// later §4.4.1(a) unzip and the degenerate STOP act on). Appends one line per
+/// call to the file named by `YANG_441_UPDATE_CENSUS`, keyed by the worker's
+/// `ASSAY_CASE` (the subprocess runner discards stderr; best effort).
+pub(crate) fn update_census(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &crate::brep::BRep,
+    b: &crate::brep::BRep,
+    tag: &str,
+) {
+    let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") else {
+        return;
+    };
+    let t0 = std::time::Instant::now();
+    let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
+    let raw = crate::stage4_correct::merge_same_plane_patches(
+        crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency),
+        &adjacency,
+        a,
+        b,
+    );
+    let line = match crate::stage4_correct::compute_phase_a(
+        mesh,
+        attribution,
+        a,
+        b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    ) {
+        Err(e) => format!("phase_a_err={e:?}"),
+        Ok((infos, incidence, curves)) if infos.len() == raw.len() => {
+            let key = |s: u32, e: u32| if s < e { (s, e) } else { (e, s) };
+            let is_isect = |k: (u32, u32)| {
+                curves.contains_key(&k)
+                    || incidence.get(&k).is_some_and(|en| {
+                        en.iter().any(|&(i, _)| i == crate::brep::InputId::A)
+                            && en.iter().any(|&(i, _)| i == crate::brep::InputId::B)
+                    })
+            };
+            let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+            let (mut n_isect, mut degen_patches, mut degen_tris) = (0usize, 0usize, 0usize);
+            for (pi, (p, info)) in raw.iter().zip(infos.iter()).enumerate() {
+                let touched = info
+                    .cycles
+                    .iter()
+                    .flatten()
+                    .any(|&(s, e)| is_isect(key(s, e)));
+                if !touched {
+                    continue;
+                }
+                n_isect += 1;
+                let nd = p
+                    .tri_indices
+                    .iter()
+                    .filter(|&&t| {
+                        let tri = mesh.tris[t as usize];
+                        crate::stage4_correct::tri_is_degenerate(
+                            mesh.verts[tri[0] as usize].as_array(),
+                            mesh.verts[tri[1] as usize].as_array(),
+                            mesh.verts[tri[2] as usize].as_array(),
+                        )
+                    })
+                    .count();
+                if nd > 0 {
+                    degen_patches += 1;
+                    degen_tris += nd;
+                }
+                let patch = SplicePatch {
+                    cycles: info
+                        .cycles
+                        .iter()
+                        .map(|c| c.iter().map(|&(s, _)| s).collect())
+                        .collect(),
+                    tris: p.tri_indices.clone(),
+                    surface: info.inherited,
+                };
+                let kind = if !SurfaceChart::supports(&info.inherited) {
+                    let s = format!("{:?}", info.inherited);
+                    format!("unsupported_{}", s.split([' ', '{']).next().unwrap_or("?"))
+                } else {
+                    match rebuild_patch_planar(mesh, pi, &patch) {
+                        Ok(_) => "ok".to_string(),
+                        Err(ConstructError::Cdt { error, .. }) => format!("cdt_{error:?}"),
+                        Err(e) => {
+                            let s = format!("{e:?}");
+                            s.split([' ', '{']).next().unwrap_or("?").to_string()
+                        }
+                    }
+                };
+                let kind = if nd > 0 {
+                    format!("{kind}+degen")
+                } else {
+                    kind
+                };
+                *tally.entry(kind).or_default() += 1;
+            }
+            format!(
+                "patches={} isect={n_isect} degen_patches={degen_patches} \
+                 degen_tris={degen_tris} {tally:?}",
+                raw.len()
+            )
+        }
+        Ok((infos, ..)) => format!("correspondence_broken {} vs {}", infos.len(), raw.len()),
+    };
+    use std::io::Write as _;
+    let case = std::env::var("ASSAY_CASE").unwrap_or_default();
+    let rung = crate::stage1_tessellate::chord_refine_scale();
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(
+            f,
+            "{case} {tag} rung={rung} {line} ms={}",
+            t0.elapsed().as_millis()
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

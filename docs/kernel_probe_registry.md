@@ -105,3 +105,5 @@ cargo feature**, not an environment variable.
   `docs/TESTING.md` and roadmap §0.0 item 6.
 
 **Deleted 2026-10-16 (Phase 2a-i, the §4.5.3 sweep in the paper's order):** `YANG_453_RANK` (with the victim ranking), `YANG_453_PAIR` (kill switch and its result-changing `census` mode), `YANG_453_SPAIR`, `YANG_453_OVERTAKE` — the arms they switched are always on.
+
+**Added 2026-10-16:** `YANG_441_UPDATE_CENSUS=<file>` — Phase 2b increment 0 (`stage4_construct::update_census`): appends, per Stage-4 run, the outcome tally of the §4.4.1 per-patch rebuild over every intersected patch, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set).

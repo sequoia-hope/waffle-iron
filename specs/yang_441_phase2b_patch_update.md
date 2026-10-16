@@ -110,3 +110,43 @@ validation step (M onward).** It is `rebuild_patch_planar` generalized:
   ERROR cases. This phase's metric is removal, not conversion.
 - Cost: every intersected patch re-CDTs once per Stage-4 run, and the §4.5.2
   loop re-runs Stage 4. The census records per-case time.
+
+## 6. Increment 0 measured (2026-10-16)
+
+`stage4_construct::update_census` (print-only, `YANG_441_UPDATE_CENSUS=<file>`,
+called after the N47 weld, before the unzip). Corpus run with the probe set:
+**358C / 0W / 11E / 5EE — verdict-identical**; census cost 7.7 s CPU over the
+whole corpus (R0044 2.2 s). 559 Stage-4 runs in 179 cases; 17,693 intersected
+patch evaluations:
+
+| outcome of `rebuild_patch_planar` at the site | patches | cases (C / E) |
+|---|---|---|
+| ok | 14,962 | 158 (153 / 5) |
+| ok, patch carries degenerate triangles now (the rebuild removes them) | 182 | 48 (46 / 2) |
+| `ChordDegradation` (new max d(T) > the replaced triangles' max) | 1,711 | 31 (31 / 0) |
+| `ThetaUnwrap` (a cylinder band encircling the axis) | 396 | 105 (104 / 1) |
+| CDT `TriangulationFailed` (cycles cross in the chart) | 226 | 36 (34 / 2) |
+| CDT `DegenerateInput` | 84 | 38 (38 / 0) |
+| unsupported chart: torus / sphere | 81 / 2 | 20 / 2 |
+| CDT `DuplicateVertex` | 4 | 3 |
+| (`+degen` variants of the refusals) | 31 | — |
+
+57 cases carry degenerate relocated triangles at the site (the unzip / STOP
+population). Reading: the operation already serves 85 % of intersected
+patches as-is; the refusals sit almost entirely on CORRECT cases — the states
+the later repairs mend. The worklist, largest first:
+
+1. **`ThetaUnwrap` (105 cases): a periodic cylinder chart.** A band that wraps
+   the axis needs a seam cut (two copies of one generator, the Stage-1
+   universal-cover idea, `yang_stage1_curved_holed_patch.md` Slice I) — the
+   paper's parametric domain of a closed surface is periodic.
+2. **`ChordDegradation` (31 cases): the budget.** The live rule (new max ≤ old
+   max) is stricter than the paper's ("recalculate d(T) to maintain
+   controllable error" — the bound is the patch's d_ε, §4.1). Anchor one case:
+   does seeding to d_ε pass?
+3. **CDT `TriangulationFailed` / `DegenerateInput` (36 + 38 cases):** anchor
+   each class on its smallest case — a cycle crossing in the chart before
+   the repairs is either a relocation overshoot (§4.5.3 / §4.5.1 territory,
+   a site for the loop) or a chart artifact (a near-seam θ branch, a cone
+   near its apex).
+4. Torus / sphere: Phase-3 charts.
