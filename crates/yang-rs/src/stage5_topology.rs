@@ -3074,9 +3074,7 @@ fn run_construct_passes(
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
 ) -> Result<usize, YangError> {
-    use crate::stage4_construct::{
-        apply_rebuild_batch, rebuild_patch_planar, replace_seam_run, seam_groups,
-    };
+    use crate::stage4_construct::{apply_rebuild_batch, replace_seam_run, seam_groups};
     use crate::stage4_splice::{ordered_seam_side, Side, SplicePatch};
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -3869,7 +3867,12 @@ fn run_construct_passes(
                     tris: patches[pi].tris.clone(),
                     surface: patches[pi].surface,
                 };
-                match rebuild_patch_planar(mesh, pi, &modp) {
+                match crate::stage4_construct::rebuild_patch_planar_bounded(
+                    mesh,
+                    pi,
+                    &modp,
+                    crate::stage4_correct::stage4_chord_band(a, b),
+                ) {
                     Ok(r) => out.push(r),
                     Err(e) => {
                         skip[6] += 1;
@@ -3953,6 +3956,46 @@ fn run_construct_passes(
                 rebuilds.len()
             );
             break;
+        }
+        // §4.4.1 batch postcondition (Phase 2b): a seam edit changes BOTH of
+        // its patches' boundaries, and the two changes must cancel inside the
+        // batch — the batch as a whole keeps its outer directed boundary, or
+        // a neighbour outside it no longer pairs (watertightness is inherited,
+        // §4.4.3, only if this holds). A batch that leaks is not applied.
+        {
+            let old_all: Vec<[u32; 3]> = rebuilds
+                .iter()
+                .flat_map(|r| r.old_tris.iter().map(|&t| mesh.tris[t as usize]))
+                .collect();
+            let n_verts = mesh.verts.len() as u32;
+            let new_all: Vec<[u32; 3]> = rebuilds
+                .iter()
+                .enumerate()
+                .flat_map(|(ri, r)| {
+                    // Seed vertices get batch-unique ids past the mesh so
+                    // two rebuilds' seeds never alias.
+                    let base = n_verts + (ri as u32) * 1_000_000;
+                    r.new_tris.iter().map(move |t| {
+                        t.map(|v| {
+                            if v >= r.plan_verts {
+                                base + (v - r.plan_verts)
+                            } else {
+                                v
+                            }
+                        })
+                    })
+                })
+                .collect();
+            if crate::stage4_construct::directed_boundary(&old_all)
+                != crate::stage4_construct::directed_boundary(&new_all)
+            {
+                c441_log!(
+                    "[s4-construct] STOP pass={pass}: batch of {} rebuilds would change \
+                     its outer boundary — not applied",
+                    rebuilds.len()
+                );
+                break;
+            }
         }
         match apply_rebuild_batch(mesh, attribution, &rebuilds) {
             Ok(()) => {

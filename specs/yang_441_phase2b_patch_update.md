@@ -221,3 +221,52 @@ validity check (`plan_keeps_boundary`: no triangle repeats a mesh vertex — a
 cycle pinched at one vertex appears twice in the chart pool — no directed
 edge twice, directed boundary unchanged) and the census's
 `mixed_attribution` class.
+
+## 9. The band chart LANDED (2026-10-16, same day)
+
+The F0064 / F0067 regressions anchored to two latent defects the band chart
+EXPOSED, both in code that predates it:
+
+1. **`rebuild_patch_planar` oriented its result by the area vector**
+   (`dot(area_vector(old), area_vector(new))`). A closed band's area vector
+   sums to ~0 around the axis — the sign is rounding noise — and the F0067
+   strip band came out flipped. A band is now oriented by its BOUNDARY: a
+   directed boundary edge of the replaced triangles must be traversed the same
+   way by the new ones. Pin `a_closed_band_rebuilds_with_its_boundary_unchanged`.
+2. **The construct pass applied a seam batch that changed its OUTER
+   boundary** (F0064: a planar cap rebuilt to a 3-cycle while its cylinder
+   neighbour kept the rim samples between — a crack). A seam edit changes both
+   patches' boundaries and the changes must cancel inside the batch; the batch
+   now must keep its combined directed boundary, or it is not applied (the
+   pass stops as when no seam remains). Previously unreachable: band patches
+   refused, so their seams were never edited.
+
+Anchoring method (F0067): kernel-v2's `KV2_OUT_TWIN_PROBE` names the edge by
+coordinate; a temporary coordinate probe in `emit_topology` showed planar
+patch 282 and band patch 294 both traversing mesh edge 543 → 1015 — a doubled
+directed MESH edge minted after Stage 4 (1015 a §4.3.4 seam insert), i.e. the
+construct pass. Kernel-v2 vertex ids are re-indexed at import; never match
+them to yang mesh ids.
+
+Corpus (band chart + both postconditions): **358C / 0W / 11E / 5EE / 0T, no
+move, no drift** (wall 1065.6 s); rebuilt patches 14,797 → 15,141;
+`ThetaUnwrap` refusals 392 → 7.
+
+3. **The d(T) budget was the old triangles' max, not the paper's d_ε.** The
+   yang-rs suites then failed three pins the corpus did not (backend parity
+   on `cylinder_union_box`, the yr13 cavity-wall winding, and
+   `corner_in_band_refines_membership_no_phantom_junction` at volume 28.17
+   against 30–31): a relocated band certified d(T) = 0.86 on a unit cylinder,
+   so "no worse than the old" admitted a rebuild of secant triangles that
+   shaved 7 % of the volume, and the old-max budget is
+   triangulation-dependent (the parity backends triangulate differently).
+   `rebuild_patch_planar_bounded` takes the budget as `min(old max, d_ε)`
+   (`stage4_chord_band(a, b)`), Yang §4.4.1's "recalculate d(T) to maintain
+   controllable error" — never looser than before, stricter exactly where the
+   old triangulation exceeded the paper's bound. The update, its census and
+   the construct pass use it; the unit pins keep the unbounded form.
+
+Corpus with all three: **358C / 0W / 11E / 5EE / 0T, no move** (wall
+1062.1 s; P0056 / P0061 face-id drift only); rebuilt patches 14,577;
+`ChordDegradation` 1,741 → 2,312 (the d_ε bound refusing what the old-max
+rule had accepted — those patches keep relocate-in-place); `ThetaUnwrap` 7.

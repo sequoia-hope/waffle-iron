@@ -537,6 +537,227 @@ pub(crate) fn patch_from_cycles_shifted(
     ))
 }
 
+/// Phase 2b (spec `yang_441_phase2b_patch_update.md` §6 item 1): the chart
+/// polygon of a BAND — a cylinder or cone patch two of whose cycles encircle
+/// the axis (the parametric domain of a closed surface is periodic in θ; a
+/// band has no single branch that unrolls it, `unwrap_theta`'s
+/// `PatchEncirclesAxis`). The band is cut open along a SEAM: a chart segment
+/// joining a vertex `a` of one encircling cycle to a vertex `b` of the other
+/// that crosses no cycle edge on any 2π copy. The polygon walks cycle A in its
+/// own direction from `a` once around (to `a` + 2π·w_A), the seam to `b`'s
+/// copy there, cycle B in its own direction once around, and the seam back to
+/// `a`. Both seam copies are one 3D edge (`lift` is 2π-periodic), so the
+/// triangles on its two sides pair; `back` maps both chart copies of `a` and
+/// `b` to the same mesh vertex. Non-encircling cycles are holes, each placed on
+/// the 2π branch whose first vertex lies inside the cut polygon. `None` when
+/// the cycles are not exactly two encircling loops of opposite winding plus
+/// holes, or no seam is clear.
+pub(crate) fn band_patch_from_cycles(
+    chart: &SurfaceChart,
+    verts: &[Point3],
+    cycles: &[Vec<u32>],
+) -> Option<(crate::stage4_update::Patch, Vec<u32>)> {
+    use std::f64::consts::TAU;
+    if !matches!(
+        chart,
+        SurfaceChart::Cylinder { .. } | SurfaceChart::Cone { .. }
+    ) {
+        return None;
+    }
+    if cycles.iter().any(|c| c.len() < 3) {
+        return None;
+    }
+    let uv = |v: u32| -> Option<Point2> { verts.get(v as usize).map(|&p| chart.project(p)) };
+    // Unwrap a cycle starting from `start` (position index) at θ = `theta0`;
+    // returns the unwrapped θ of each position in walk order and the winding.
+    let unwrap_from = |cyc: &[u32], start: usize, theta0: f64| -> Option<(Vec<Point2>, i64)> {
+        let n = cyc.len();
+        let mut out = Vec::with_capacity(n + 1);
+        let p0 = uv(cyc[start])?;
+        out.push(Point2::new(theta0, p0.y()));
+        for k in 1..=n {
+            let q = uv(cyc[(start + k) % n])?;
+            let prev = out[k - 1].x();
+            let t = q.x() + ((prev - q.x()) / TAU).round() * TAU;
+            out.push(Point2::new(t, q.y()));
+        }
+        let w = ((out[n].x() - theta0) / TAU).round() as i64;
+        out.pop();
+        Some((out, w))
+    };
+    let mut enc: Vec<(usize, i64)> = Vec::new();
+    let mut holes_idx: Vec<usize> = Vec::new();
+    for (ci, c) in cycles.iter().enumerate() {
+        let (_, w) = unwrap_from(c, 0, uv(c[0])?.x())?;
+        match w {
+            0 => holes_idx.push(ci),
+            1 | -1 => enc.push((ci, w)),
+            _ => return None,
+        }
+    }
+    if enc.len() != 2 || enc[0].1 != -enc[1].1 {
+        return None;
+    }
+    let (ca, wa) = enc[0];
+    let (cb, _) = enc[1];
+    let (cyc_a, cyc_b) = (&cycles[ca], &cycles[cb]);
+
+    let cross = |a0: Point2, a1: Point2, b0: Point2, b1: Point2| -> bool {
+        let o = |p: Point2, q: Point2, r: Point2| {
+            (q.x() - p.x()) * (r.y() - p.y()) - (q.y() - p.y()) * (r.x() - p.x())
+        };
+        let (d1, d2) = (o(a0, a1, b0), o(a0, a1, b1));
+        let (d3, d4) = (o(b0, b1, a0), o(b0, b1, a1));
+        // Proper crossings and touching both count; a shared endpoint is
+        // excluded by the caller (it skips edges incident to the seam's ends).
+        (d1 * d2 <= 0.0) && (d3 * d4 <= 0.0)
+    };
+    let clear = |sa: Point2, sb: Point2, va: u32, vb: u32| -> bool {
+        for c in cycles {
+            let n = c.len();
+            let (u, _) = match unwrap_from(c, 0, uv(c[0]).map_or(0.0, |p| p.x())) {
+                Some(x) => x,
+                None => return false,
+            };
+            for i in 0..n {
+                let (x, y) = (c[i], c[(i + 1) % n]);
+                if x == va || x == vb || y == va || y == vb {
+                    continue;
+                }
+                let p = u[i];
+                let q0 = u[(i + 1) % n];
+                let q = Point2::new(q0.x() + ((p.x() - q0.x()) / TAU).round() * TAU, q0.y());
+                for k in -2..=2 {
+                    let s = k as f64 * TAU;
+                    let (ps, qs) = (Point2::new(p.x() + s, p.y()), Point2::new(q.x() + s, q.y()));
+                    if cross(sa, sb, ps, qs) {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    };
+    // Seam search: for each vertex of A, the three vertices of B nearest in θ
+    // (on the branch nearest a); the shortest clear chart segment wins.
+    let mut best: Option<(f64, usize, usize, f64)> = None;
+    for (ia, &va) in cyc_a.iter().enumerate() {
+        let pa = uv(va)?;
+        let mut cand: Vec<(f64, usize, f64)> = cyc_b
+            .iter()
+            .enumerate()
+            .filter_map(|(ib, &vb)| {
+                let pb = uv(vb)?;
+                let t = pb.x() + ((pa.x() - pb.x()) / TAU).round() * TAU;
+                Some(((t - pa.x()).abs(), ib, t))
+            })
+            .collect();
+        cand.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap_or(std::cmp::Ordering::Equal));
+        for &(_, ib, tb) in cand.iter().take(3) {
+            let pb = Point2::new(tb, uv(cyc_b[ib])?.y());
+            let len = ((pb.x() - pa.x()).powi(2) + (pb.y() - pa.y()).powi(2)).sqrt();
+            if best.is_some_and(|b| b.0 <= len) {
+                continue;
+            }
+            if clear(pa, pb, va, cyc_b[ib]) {
+                best = Some((len, ia, ib, tb));
+            }
+        }
+    }
+    let (_, ia, ib, tb) = best?;
+    let pa0 = uv(cyc_a[ia])?;
+    let (ua, _) = unwrap_from(cyc_a, ia, pa0.x())?;
+    // B walks from `b` at the copy nearest a' = a + 2π·w_A.
+    let tb_end = tb + wa as f64 * TAU;
+    let (ub, _) = unwrap_from(cyc_b, ib, tb_end)?;
+    let mut p2: Vec<Point2> = Vec::new();
+    let mut back: Vec<u32> = Vec::new();
+    let mut outer: Vec<u32> = Vec::new();
+    let na = cyc_a.len();
+    for k in 0..=na {
+        // k = na is a' (a's copy one turn on), the seam's far end on A.
+        let t = if k < na {
+            ua[k]
+        } else {
+            Point2::new(ua[0].x() + wa as f64 * TAU, ua[0].y())
+        };
+        outer.push(p2.len() as u32);
+        p2.push(t);
+        back.push(cyc_a[(ia + k) % na]);
+    }
+    let nb = cyc_b.len();
+    for k in 0..=nb {
+        let t = if k < nb {
+            ub[k]
+        } else {
+            Point2::new(ub[0].x() - wa as f64 * TAU, ub[0].y())
+        };
+        outer.push(p2.len() as u32);
+        p2.push(t);
+        back.push(cyc_b[(ib + k) % nb]);
+    }
+    let area2 = |lp: &[u32], p2: &[Point2]| -> f64 {
+        (0..lp.len())
+            .map(|i| {
+                let (pa, pb) = (p2[lp[i] as usize], p2[lp[(i + 1) % lp.len()] as usize]);
+                pa.x() * pb.y() - pb.x() * pa.y()
+            })
+            .sum()
+    };
+    let a2 = area2(&outer, &p2);
+    if a2 == 0.0 || !a2.is_finite() {
+        return None;
+    }
+    if a2 < 0.0 {
+        outer.reverse();
+    }
+    let mut holes: Vec<Vec<u32>> = Vec::new();
+    for &hi in &holes_idx {
+        let h = &cycles[hi];
+        let ph = uv(h[0])?;
+        let mut placed = None;
+        for k in -2..=2 {
+            let t0 = ph.x() + k as f64 * TAU;
+            if point_in_polygon(Point2::new(t0, ph.y()), &outer, &p2) {
+                placed = Some(t0);
+                break;
+            }
+        }
+        let (uh, _) = unwrap_from(h, 0, placed?)?;
+        let mut idx = Vec::with_capacity(h.len());
+        for (k, &v) in h.iter().enumerate() {
+            idx.push(p2.len() as u32);
+            p2.push(uh[k]);
+            back.push(v);
+        }
+        holes.push(idx);
+    }
+    Some((
+        crate::stage4_update::Patch {
+            verts: p2,
+            boundary: outer,
+            holes,
+        },
+        back,
+    ))
+}
+
+/// Even-odd point-in-polygon on a chart loop (`lp` indexes `pool`).
+pub(crate) fn point_in_polygon(pt: Point2, lp: &[u32], pool: &[Point2]) -> bool {
+    let mut inside = false;
+    let n = lp.len();
+    for i in 0..n {
+        let (a, b) = (pool[lp[i] as usize], pool[lp[(i + 1) % n] as usize]);
+        if (a.y() > pt.y()) != (b.y() > pt.y()) {
+            let x = a.x() + (pt.y() - a.y()) * (b.x() - a.x()) / (b.y() - a.y());
+            if pt.x() < x {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -628,6 +849,75 @@ mod tests {
             let sd = crate::signed_distance_to_surface(surf, w).unwrap();
             assert!(sd.abs() < 1e-12, "lifted point off plane by {sd}");
         }
+    }
+
+    // Phase 2b: a cylinder BAND (two rims encircling the axis, opposite
+    // winding — the patch's material between them) cuts open along a clear
+    // seam into one simple chart polygon whose area is the band's (2π·Δz on
+    // the unit cylinder), with both seam copies mapped to the same vertices.
+    #[test]
+    fn a_cylinder_band_cuts_open_into_one_simple_polygon() {
+        let surf = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let chart = SurfaceChart::new(surf).expect("cylinder chart");
+        let n = 6u32;
+        let mut verts = Vec::new();
+        for z in [0.0, 1.0] {
+            for i in 0..n {
+                let t = std::f64::consts::TAU * (i as f64 + 0.3 * z) / n as f64;
+                verts.push(Point3::new(t.cos(), t.sin(), z));
+            }
+        }
+        let bottom: Vec<u32> = (0..n).collect();
+        let top: Vec<u32> = (n..2 * n).rev().collect();
+        let (patch, back) =
+            band_patch_from_cycles(&chart, &verts, &[bottom.clone(), top.clone()]).expect("band");
+        assert!(patch.holes.is_empty());
+        assert_eq!(
+            patch.boundary.len(),
+            2 * n as usize + 2,
+            "both rims plus two seam copies"
+        );
+        let area2: f64 = (0..patch.boundary.len())
+            .map(|i| {
+                let a = patch.verts[patch.boundary[i] as usize];
+                let b = patch.verts[patch.boundary[(i + 1) % patch.boundary.len()] as usize];
+                a.x() * b.y() - b.x() * a.y()
+            })
+            .sum();
+        // The rims are chords, so the chart polygon's area is the band's
+        // 2π·Δz exactly (the chart is (θ, z) and the rims sit at constant z).
+        assert!(
+            (area2 * 0.5 - std::f64::consts::TAU).abs() < 1e-12,
+            "area {}",
+            area2 * 0.5
+        );
+        // Every chart vertex lifts back to its mesh vertex.
+        for (k, &v) in back.iter().enumerate() {
+            let lifted = chart.lift(patch.verts[k]);
+            assert!(dist3(lifted, verts[v as usize]) < 1e-12);
+        }
+        // One rim alone (or two rims of the SAME winding) is not a band.
+        assert!(band_patch_from_cycles(&chart, &verts, std::slice::from_ref(&bottom)).is_none());
+        let top_same: Vec<u32> = (n..2 * n).collect();
+        assert!(band_patch_from_cycles(&chart, &verts, &[bottom, top_same]).is_none());
+    }
+
+    #[test]
+    fn point_in_polygon_even_odd() {
+        let pool = vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(2.0, 0.0),
+            Point2::new(2.0, 2.0),
+            Point2::new(0.0, 2.0),
+        ];
+        let lp = [0u32, 1, 2, 3];
+        assert!(point_in_polygon(Point2::new(1.0, 1.0), &lp, &pool));
+        assert!(!point_in_polygon(Point2::new(3.0, 1.0), &lp, &pool));
+        assert!(!point_in_polygon(Point2::new(1.0, -0.5), &lp, &pool));
     }
 
     #[test]

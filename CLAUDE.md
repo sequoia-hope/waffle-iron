@@ -461,8 +461,12 @@ Do NOT skip to lower-priority items because they are easier.
    every intersected patch re-triangulated in its chart before the repairs,
    directed-boundary postcondition; 14,983 patches, corpus unchanged 358C,
    spec `yang_441_phase2b_patch_update.md`). Next: retire the Stage-4 repairs
-   one per corpus run and widen the update's charts (θ-wrapping bands, the
-   d_ε budget).
+   one per corpus run and widen the update's charts. Same day: the periodic
+   BAND chart landed (cylinder / cone bands cut open along a clear seam;
+   `ThetaUnwrap` refusals 392 → 7) with three latent fixes it exposed —
+   a band is oriented by its boundary (its area vector is ~0), a
+   construct-pass seam batch must keep its outer boundary, and the rebuild's
+   d(T) budget is `min(old max, d_ε)` (the paper's bound); corpus 358C.
    **The open P-series ERROR tail is P0045, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/

@@ -43,6 +43,15 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-16 (Phase 2b, the band chart) — cylinder / cone bands rebuild through a cut-open periodic chart; **corpus 358C / 0W / 11E / 5EE / 0T, zero moves**
+
+`ThetaUnwrap` refusals 392 → 7; rebuilt patches 14,797 → 15,141. First
+measurement moved F0064 / F0067 CORRECT → ERROR at kernel-v2's loop pairing;
+anchored (spec `yang_441_phase2b_patch_update.md` §9) to two latent defects
+the band chart exposed — area-vector orientation of a closed band (noise) and
+a construct-pass seam batch that changed its outer boundary — both fixed in
+their own code; both cases CORRECT again. The yang-rs suites then caught a third the corpus did not: the rebuild's d(T) budget was the replaced triangles' max (a relocated band at d(T) 0.86 on a unit cylinder admitted a secant rebuild, −7 % volume on the corner-in-band pin) — now `min(old max, d_ε)`; corpus unchanged 358C (P0056 / P0061 face-id drift).
+
 ## 2026-10-16 (Phase 2b increment 1) — the §4.4.1 per-patch re-CDT is LIVE; **corpus 358C / 0W / 11E / 5EE / 0T, zero moves**
 
 Every intersected patch the rebuild accepts (14,983 over the corpus) is

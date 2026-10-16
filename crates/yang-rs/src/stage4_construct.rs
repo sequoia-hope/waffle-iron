@@ -469,20 +469,64 @@ pub(crate) fn rebuild_patch_planar(
     patch_index: usize,
     patch: &SplicePatch,
 ) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_planar_bounded(mesh, patch_index, patch, None)
+}
+
+/// [`rebuild_patch_planar`] with the paper's d(T) bound: Yang §4.4.1 closes
+/// with "we recalculate d(T) to maintain controllable error" — the bound is
+/// the patch's d_ε (§4.1), not whatever the replaced triangles reached. A
+/// relocated mesh can certify far worse than d_ε (the corner-in-band band:
+/// old max 0.86 on a unit cylinder), and "no worse than the old" then admits
+/// a rebuild of secant triangles that shaves the surface (−7 % volume). The
+/// budget is therefore `min(old max, d_eps)` — never looser than the
+/// old-max rule, stricter exactly where the old triangulation already
+/// exceeds the paper's bound; the seeded retry is how it is met.
+pub(crate) fn rebuild_patch_planar_bounded(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+) -> Result<PatchRebuild, ConstructError> {
     if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
     }
     let chart = SurfaceChart::new(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
-    let shift = crate::stage4_splice::unwrap_theta(
+    // Phase 2b (spec `yang_441_phase2b_patch_update.md` §6 item 1): a patch
+    // whose cycles encircle the axis is a BAND — its chart is the periodic
+    // domain cut open along a clear seam (`band_patch_from_cycles`).
+    let (p2, back, band) = match crate::stage4_splice::unwrap_theta(
         &chart,
         &mesh.verts,
         &patch.cycles,
         crate::stage4_splice::Side::A,
-    )
-    .map_err(|_| ConstructError::ThetaUnwrap { patch: patch_index })?;
-    let (p2, back) = patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &shift)
-        .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
+    ) {
+        Ok(shift) => {
+            let (p2, back) = patch_from_cycles_shifted(&chart, &mesh.verts, &patch.cycles, &shift)
+                .ok_or(ConstructError::MalformedPatch { patch: patch_index })?;
+            (p2, back, false)
+        }
+        Err(_) => {
+            let (p2, back) =
+                crate::stage4_project::band_patch_from_cycles(&chart, &mesh.verts, &patch.cycles)
+                    .ok_or(ConstructError::ThetaUnwrap { patch: patch_index })?;
+            (p2, back, true)
+        }
+    };
+    // In a band the interior branch is the one INSIDE the cut polygon (the
+    // θ span is a full turn, so span containment cannot choose it).
+    let band_branch = |uv: Point2| -> Option<f64> {
+        (-2..=2)
+            .map(|k| uv.x() + k as f64 * std::f64::consts::TAU)
+            .find(|&t| {
+                let q = Point2::new(t, uv.y());
+                crate::stage4_project::point_in_polygon(q, &p2.boundary, &p2.verts)
+                    && !p2
+                        .holes
+                        .iter()
+                        .any(|h| crate::stage4_project::point_in_polygon(q, h, &p2.verts))
+            })
+    };
     // I13a apex guard: the cone chart's `(θ, z)` is injective only on the
     // single nappe strictly beyond the apex (`z > 0` — the same `v ≥ 0`
     // convention `d_of_t` certifies; the apex itself has no azimuth). A patch
@@ -532,10 +576,14 @@ pub(crate) fn rebuild_patch_planar(
                 continue;
             }
             let uv = chart.project(mesh.verts[v as usize]);
-            let mid = 0.5 * (theta_min + theta_max);
-            let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
-            let theta = uv.x() + k * std::f64::consts::TAU;
-            if theta < theta_min || theta > theta_max {
+            let theta = if band {
+                band_branch(uv).ok_or(ConstructError::ThetaUnwrap { patch: patch_index })?
+            } else {
+                let mid = 0.5 * (theta_min + theta_max);
+                let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
+                uv.x() + k * std::f64::consts::TAU
+            };
+            if !band && (theta < theta_min || theta > theta_max) {
                 return Err(ConstructError::ThetaUnwrap { patch: patch_index });
             }
             interior_idx.push(pool.len() as u32);
@@ -579,9 +627,23 @@ pub(crate) fn rebuild_patch_planar(
             }
             Ok(Point2::new(theta, uv.y()))
         };
+        // A band's old triangle is read on one branch: its other two
+        // vertices unwrapped to the nearest copy of the first (d(T) is
+        // invariant under a 2π shift in θ).
+        let tri_uv = |t: &[u32; 3]| -> Result<[Point2; 3], ConstructError> {
+            if !band {
+                return Ok([uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?]);
+            }
+            let p = t.map(|v| chart.project(mesh.verts[v as usize]));
+            let near = |q: Point2| {
+                let k = ((p[0].x() - q.x()) / std::f64::consts::TAU).round();
+                Point2::new(q.x() + k * std::f64::consts::TAU, q.y())
+            };
+            Ok([p[0], near(p[1]), near(p[2])])
+        };
         let mut m = 0.0f64;
         for t in &old {
-            let uv = [uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?];
+            let uv = tri_uv(t)?;
             let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
                 .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
             m = m.max(dt);
@@ -592,7 +654,10 @@ pub(crate) fn rebuild_patch_planar(
                 });
             old_arc_span = old_arc_span.max((hi - lo) * radius);
         }
-        old_max = Some(m);
+        old_max = Some(match d_eps {
+            Some(e) if e.is_finite() && e > 0.0 => m.min(e),
+            _ => m,
+        });
     }
 
     // One CDT attempt over `pool` extended with `seeds` (chart points, I2e).
@@ -631,9 +696,43 @@ pub(crate) fn rebuild_patch_planar(
         // chart basis has arbitrary handedness relative to the surface
         // normal.
         let mesh_pos = |v: u32| -> Point3 { mesh.verts[v as usize] };
-        let want = area_vector(&old, &mesh_pos);
-        let got = area_vector(&tris2, &pos3);
-        let d = dot3(want, got);
+        // A BAND's area vector sums to ~0 around the axis (its sign is
+        // rounding noise), so a band is oriented by its BOUNDARY instead: a
+        // directed boundary edge of the replaced triangles must be traversed
+        // the same way by the new ones (the paper's "boundary curves to
+        // boundary curves"). Boundary pool vertices map 1:1 to mesh vertices
+        // (`back`), so the test reads mesh indices directly.
+        let d = if band {
+            let Some(&(u, v)) = directed_boundary(&old).first() else {
+                return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+            };
+            let mesh_of = |i: u32| -> Option<u32> {
+                let iu = i as usize;
+                if iu < back.len() {
+                    Some(back[iu])
+                } else if iu < n_pool {
+                    Some(interior_back[iu - back.len()])
+                } else {
+                    None
+                }
+            };
+            let mut sense = 0.0f64;
+            for t in &tris2 {
+                let m = [mesh_of(t[0]), mesh_of(t[1]), mesh_of(t[2])];
+                for k in 0..3 {
+                    match (m[k], m[(k + 1) % 3]) {
+                        (Some(a), Some(b)) if a == u && b == v => sense = 1.0,
+                        (Some(a), Some(b)) if a == v && b == u => sense = -1.0,
+                        _ => {}
+                    }
+                }
+            }
+            sense
+        } else {
+            let want = area_vector(&old, &mesh_pos);
+            let got = area_vector(&tris2, &pos3);
+            dot3(want, got)
+        };
         if d == 0.0 || !d.is_finite() {
             return Err(ConstructError::DegenerateOrientation { patch: patch_index });
         }
@@ -2905,7 +3004,12 @@ pub(crate) fn update_census(
                     let s = format!("{:?}", info.inherited);
                     format!("unsupported_{}", s.split([' ', '{']).next().unwrap_or("?"))
                 } else {
-                    match rebuild_patch_planar(mesh, pi, &patch) {
+                    match rebuild_patch_planar_bounded(
+                        mesh,
+                        pi,
+                        &patch,
+                        crate::stage4_correct::stage4_chord_band(a, b),
+                    ) {
                         Ok(plan) => {
                             let old: Vec<[u32; 3]> = plan
                                 .old_tris
@@ -3071,7 +3175,12 @@ pub(crate) fn update_patches(
             tris: p.tri_indices.clone(),
             surface: info.inherited,
         };
-        let Ok(plan) = rebuild_patch_planar(mesh, pi, &patch) else {
+        let Ok(plan) = rebuild_patch_planar_bounded(
+            mesh,
+            pi,
+            &patch,
+            crate::stage4_correct::stage4_chord_band(a, b),
+        ) else {
             continue;
         };
         // §4.4.1: the update "maps boundary curves to boundary curves" —
@@ -3116,6 +3225,42 @@ mod tests {
 
     // Phase 2b: the §4.4.1 update's boundary postcondition reads the
     // directed boundary of a triangle set, multiplicity-aware.
+    // Phase 2b: a closed cylinder BAND rebuilds through the cut-open chart,
+    // and is oriented by its boundary — its area vector sums to zero around
+    // the axis, so the area-vector rule cannot orient it (the F0067 flip).
+    #[test]
+    fn a_closed_band_rebuilds_with_its_boundary_unchanged() {
+        let n = 8u32;
+        let mut verts = Vec::new();
+        for z in [0.0, 0.3] {
+            for i in 0..n {
+                let t = std::f64::consts::TAU * i as f64 / n as f64;
+                verts.push(Point3::new(t.cos(), t.sin(), z));
+            }
+        }
+        let (b, t) = (|i: u32| i % n, |i: u32| n + i % n);
+        let mut tris = Vec::new();
+        for i in 0..n {
+            tris.push([b(i), b(i + 1), t(i + 1)]);
+            tris.push([b(i), t(i + 1), t(i)]);
+        }
+        let mesh = Mesh::new(verts, tris.clone());
+        let patch = SplicePatch {
+            cycles: vec![(0..n).collect(), (n..2 * n).rev().collect()],
+            tris: (0..tris.len() as u32).collect(),
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: cad_primitives::Vector3::new(0.0, 0.0, 1.0),
+                radius: 1.0,
+            },
+        };
+        let plan = rebuild_patch_planar(&mesh, 0, &patch).expect("a band rebuilds");
+        assert!(
+            plan_keeps_boundary(&tris, &plan.new_tris),
+            "the rebuilt band keeps its directed boundary (orientation from the boundary)"
+        );
+    }
+
     #[test]
     fn directed_boundary_of_a_fan_and_its_retriangulation() {
         // A square 0-1-2-3 split two ways: same boundary.
