@@ -2896,7 +2896,18 @@ pub(crate) fn update_census(
                     format!("unsupported_{}", s.split([' ', '{']).next().unwrap_or("?"))
                 } else {
                     match rebuild_patch_planar(mesh, pi, &patch) {
-                        Ok(_) => "ok".to_string(),
+                        Ok(plan) => {
+                            let old: Vec<[u32; 3]> = plan
+                                .old_tris
+                                .iter()
+                                .map(|&t| mesh.tris[t as usize])
+                                .collect();
+                            if directed_boundary(&old) == directed_boundary(&plan.new_tris) {
+                                "ok".to_string()
+                            } else {
+                                "boundary_changed".to_string()
+                            }
+                        }
                         Err(ConstructError::Cdt { error, .. }) => format!("cdt_{error:?}"),
                         Err(e) => {
                             let s = format!("{e:?}");
@@ -2935,8 +2946,161 @@ pub(crate) fn update_census(
     }
 }
 
+/// The directed boundary of a triangle set: each directed edge `(u, v)` with
+/// multiplicity `count(u, v) − count(v, u)` where positive — the edges the
+/// set exposes to its neighbours. Sorted, so two sets compare by value.
+pub(crate) fn directed_boundary(tris: &[[u32; 3]]) -> Vec<(u32, u32)> {
+    let mut count: BTreeMap<(u32, u32), i64> = BTreeMap::new();
+    for t in tris {
+        for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            *count.entry((u, v)).or_default() += 1;
+            *count.entry((v, u)).or_default() -= 1;
+        }
+    }
+    let mut out = Vec::new();
+    for (&e, &c) in &count {
+        for _ in 0..c.max(0) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+/// Phase 2b increment 1 (spec `yang_441_phase2b_patch_update.md` §4): the
+/// §4.4.1 per-patch update — every patch an intersection edge bounds is
+/// re-triangulated in its surface's chart against its own cycles
+/// ([`rebuild_patch_planar`]: CDT with the cycles as constraints, the
+/// near-curve / redundant interior removal, the d(T) budget), written back in
+/// one batch. A patch the rebuild refuses keeps its triangles (the census
+/// names the refusal classes, spec §6), as does a plan whose directed
+/// boundary differs from the replaced triangles' ([`directed_boundary`]).
+/// Returns the number of patches rebuilt. Always on since 2026-10-16 (the
+/// measuring corpus: 358C, zero moves, 14,983 patches rebuilt).
+pub(crate) fn update_patches(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &crate::brep::BRep,
+    b: &crate::brep::BRep,
+) -> usize {
+    let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
+    let raw = crate::stage4_correct::merge_same_plane_patches(
+        crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency),
+        &adjacency,
+        a,
+        b,
+    );
+    let Ok((infos, incidence, curves)) = crate::stage4_correct::compute_phase_a(
+        mesh,
+        attribution,
+        a,
+        b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    ) else {
+        return 0;
+    };
+    if infos.len() != raw.len() {
+        return 0;
+    }
+    let key = |s: u32, e: u32| if s < e { (s, e) } else { (e, s) };
+    let is_isect = |k: (u32, u32)| {
+        curves.contains_key(&k)
+            || incidence.get(&k).is_some_and(|en| {
+                en.iter().any(|&(i, _)| i == crate::brep::InputId::A)
+                    && en.iter().any(|&(i, _)| i == crate::brep::InputId::B)
+            })
+    };
+    let mut plans: Vec<PatchRebuild> = Vec::new();
+    for (pi, (p, info)) in raw.iter().zip(infos.iter()).enumerate() {
+        if !info
+            .cycles
+            .iter()
+            .flatten()
+            .any(|&(s, e)| is_isect(key(s, e)))
+        {
+            continue;
+        }
+        if !SurfaceChart::supports(&info.inherited) {
+            continue;
+        }
+        // One attribution per rebuilt patch (a merged same-plane patch of
+        // two input faces keeps its triangles).
+        let mut it = p
+            .tri_indices
+            .iter()
+            .map(|&t| attribution.attributions[t as usize]);
+        let first = it.next().flatten();
+        if first.is_none() || it.any(|x| x != first) {
+            continue;
+        }
+        let patch = SplicePatch {
+            cycles: info
+                .cycles
+                .iter()
+                .map(|c| c.iter().map(|&(s, _)| s).collect())
+                .collect(),
+            tris: p.tri_indices.clone(),
+            surface: info.inherited,
+        };
+        let Ok(plan) = rebuild_patch_planar(mesh, pi, &patch) else {
+            continue;
+        };
+        // §4.4.1: the update "maps boundary curves to boundary curves" —
+        // the rebuilt patch's directed boundary must be the replaced
+        // triangles' own, edge for edge, or the neighbour across it no
+        // longer pairs (watertightness is inherited, §4.4.3, only if this
+        // holds). A plan that changes it is refused; the patch keeps its
+        // triangles.
+        let old: Vec<[u32; 3]> = plan
+            .old_tris
+            .iter()
+            .map(|&t| mesh.tris[t as usize])
+            .collect();
+        if directed_boundary(&old) != directed_boundary(&plan.new_tris) {
+            continue;
+        }
+        plans.push(plan);
+    }
+    if plans.is_empty() {
+        return 0;
+    }
+    let n = match apply_rebuild_batch(mesh, attribution, &plans) {
+        Ok(()) => plans.len(),
+        Err(_) => 0,
+    };
+    if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
+        use std::io::Write as _;
+        let case = std::env::var("ASSAY_CASE").unwrap_or_default();
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{case} APPLIED patches={n} of_plans={}", plans.len());
+        }
+    }
+    n
+}
+
 #[cfg(test)]
 mod tests {
+
+    // Phase 2b: the §4.4.1 update's boundary postcondition reads the
+    // directed boundary of a triangle set, multiplicity-aware.
+    #[test]
+    fn directed_boundary_of_a_fan_and_its_retriangulation() {
+        // A square 0-1-2-3 split two ways: same boundary.
+        let a = [[0, 1, 2], [0, 2, 3]];
+        let b = [[0, 1, 3], [1, 2, 3]];
+        assert_eq!(directed_boundary(&a), vec![(0, 1), (1, 2), (2, 3), (3, 0)]);
+        assert_eq!(directed_boundary(&a), directed_boundary(&b));
+        // A T-junction: vertex 4 on edge 1-2 used by the new set only — the
+        // boundary changed, the neighbour across 1-2 would no longer pair.
+        let c = [[0, 1, 4], [0, 4, 2], [0, 2, 3]];
+        assert_ne!(directed_boundary(&a), directed_boundary(&c));
+        // Flipped orientation is a different boundary.
+        let d = [[0, 2, 1], [0, 3, 2]];
+        assert_ne!(directed_boundary(&a), directed_boundary(&d));
+    }
     use super::*;
     use crate::geom::Surface;
     use cad_primitives::{Point3, Vector3};

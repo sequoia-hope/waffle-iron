@@ -456,8 +456,13 @@ Do NOT skip to lower-priority items because they are easier.
    deleted), every §4.3 collapse carries carried-surface CONTAINMENT (N47's
    weld gained it — **P0048 CONVERTED**), and the Phase-0 knob policy
    deleted 32 landed kill switches; **canonical corpus 358C / 0W / 11E / 5EE
-   / 0T over 374** (wall 1111.2 s). Next: Phase 2b (§4.4.1
-   merge-with-retriangulation).
+   / 0T over 374** (wall 1111.2 s). **Phase 2b increment 1 the same day:
+   the §4.4.1 per-patch re-CDT is LIVE** (`stage4_construct::update_patches`,
+   every intersected patch re-triangulated in its chart before the repairs,
+   directed-boundary postcondition; 14,983 patches, corpus unchanged 358C,
+   spec `yang_441_phase2b_patch_update.md`). Next: retire the Stage-4 repairs
+   one per corpus run and widen the update's charts (θ-wrapping bands, the
+   d_ε budget).
    **The open P-series ERROR tail is P0045, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/

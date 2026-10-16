@@ -13332,6 +13332,12 @@ fn stage4_relocate_and_correct_inner(
     // §4.4.1 per-patch update's outcome at its planned site — after the §4.3
     // dedups, before the unzip / validation repairs.
     crate::stage4_construct::update_census(mesh, attribution, a, b, "pre-repair");
+    // Phase 2b (spec `yang_441_phase2b_patch_update.md`): the §4.4.1
+    // per-patch update — every intersected patch re-triangulated in its
+    // chart against its own cycles, before the repairs below.
+    if crate::stage4_construct::update_patches(mesh, attribution, a, b) > 0 {
+        collapsed_any = true;
+    }
 
     // Twin-scan probe (read-only, env-gated `YANG_TWIN_SCAN`): dump every
     // sub-feature-floor mesh edge surviving the §4.4.1(b) merge, with

@@ -43,6 +43,19 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-16 (Phase 2b increment 1) — the §4.4.1 per-patch re-CDT is LIVE; **corpus 358C / 0W / 11E / 5EE / 0T, zero moves**
+
+Every intersected patch the rebuild accepts (14,983 over the corpus) is
+re-triangulated in its chart against its own cycles before the Stage-4
+repairs (spec `yang_441_phase2b_patch_update.md` §7). The first measurement
+moved F0064 and F0067 CORRECT → ERROR — a rebuilt patch exposed an edge its
+neighbour did not pair (F0064: edge (1208, 1408) used twice in one direction
+by B-faces 1 and 4) — and the directed-boundary postcondition (the paper's
+"maps boundary curves to boundary curves") recovers both. Drifts, open tail:
+P0056 now reads kernel-v2's `bounded cylinder patch must have exactly one
+material-CCW loop` (FaceId 32; was `NonManifoldVertex` at vertex 40), P0061
+the same CDT-ring text on FaceId 30. Wall 1079.3 s (was 1111.2 s).
+
 ## 2026-10-16 (Phase 2a-ii + Phase-0 knobs) — every §4.3 collapse carries CONTAINMENT; 32 kill switches deleted; **P0048 CONVERTED; corpus 358C / 0W / 11E / 5EE / 0T over 374**
 
 Two changes, one run (release, 8 jobs, 900 s, wall 1111.2 s). (a) The Phase-0

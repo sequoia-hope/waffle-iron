@@ -150,3 +150,33 @@ the later repairs mend. The worklist, largest first:
    a site for the loop) or a chart artifact (a near-seam θ branch, a cone
    near its apex).
 4. Torus / sphere: Phase-3 charts.
+
+## 7. Increment 1 LANDED (2026-10-16)
+
+`stage4_construct::update_patches`, called right after the census at the
+planned site: every intersected patch with a supported chart and ONE
+attribution is planned with `rebuild_patch_planar` and written back in one
+batch (`apply_rebuild_batch`); a refused plan keeps its triangles.
+
+First measurement (series switch on): **F0064 and F0067 CORRECT → ERROR**,
+two error-text drifts (P0056, P0061), nothing else. Anchor (F0064,
+`NONMANIFOLD_SITE_PROBE`): edge (1208, 1408) used twice in ONE direction by
+B-faces 1 and 4 after the update, 10 unpaired edges along their shared line —
+a rebuilt patch's boundary no longer matched its neighbour's. The paper's
+update "maps boundary curves to boundary curves"; that is now the
+postcondition — `directed_boundary(new) == directed_boundary(old)` (directed
+edges with multiplicity), else the plan is refused (census class
+`boundary_changed`). With it F0064 (88.4 s) and F0067 (324.6 s, canonical
+356.3 s) are CORRECT again.
+
+Corpus with the postcondition: **358C / 0W / 11E / 5EE / 0T, zero moves**
+(wall 1079.3 s vs 1111.2 s); 14,983 patches rebuilt over 499 Stage-4 runs;
+drifts: P0056 `NonManifoldVertex` → kernel-v2 `bounded cylinder patch must have
+exactly one material-CCW loop` (FaceId 32), P0061 the same CDT ring text on
+FaceId 30 (was 34) — both open-tail ERRORs. The switch is deleted: the update
+is always on.
+
+Next (increment 2): retire the repairs one per corpus run — first the
+§4.4.1(a) unzip (M) and the degenerate STOP's population, then
+`repair_fan_cluster`; and widen the operation's reach (periodic cylinder
+chart, the d_ε budget) so fewer patches fall back to relocate-in-place.
