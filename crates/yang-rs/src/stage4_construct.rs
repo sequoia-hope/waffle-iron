@@ -2891,7 +2891,17 @@ pub(crate) fn update_census(
                     tris: p.tri_indices.clone(),
                     surface: info.inherited,
                 };
-                let kind = if !SurfaceChart::supports(&info.inherited) {
+                let uniform = {
+                    let mut it = p
+                        .tri_indices
+                        .iter()
+                        .map(|&t| attribution.attributions[t as usize]);
+                    let first = it.next().flatten();
+                    first.is_some() && it.all(|x| x == first)
+                };
+                let kind = if !uniform {
+                    "mixed_attribution".to_string()
+                } else if !SurfaceChart::supports(&info.inherited) {
                     let s = format!("{:?}", info.inherited);
                     format!("unsupported_{}", s.split([' ', '{']).next().unwrap_or("?"))
                 } else {
@@ -2902,7 +2912,7 @@ pub(crate) fn update_census(
                                 .iter()
                                 .map(|&t| mesh.tris[t as usize])
                                 .collect();
-                            if directed_boundary(&old) == directed_boundary(&plan.new_tris) {
+                            if plan_keeps_boundary(&old, &plan.new_tris) {
                                 "ok".to_string()
                             } else {
                                 "boundary_changed".to_string()
@@ -2944,6 +2954,26 @@ pub(crate) fn update_census(
             t0.elapsed().as_millis()
         );
     }
+}
+
+/// The §4.4.1 update's postcondition on one patch plan: the new triangles are
+/// a valid triangulation in MESH indices — no triangle repeats a vertex (a band
+/// chart has two copies of each seam vertex, and a triangle joining them is
+/// 2π wide), no directed edge is used twice — and their directed boundary is
+/// the replaced triangles' own ("maps boundary curves to boundary curves").
+pub(crate) fn plan_keeps_boundary(old: &[[u32; 3]], new: &[[u32; 3]]) -> bool {
+    let mut seen: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for t in new {
+        if t[0] == t[1] || t[1] == t[2] || t[2] == t[0] {
+            return false;
+        }
+        for e in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            if !seen.insert(e) {
+                return false;
+            }
+        }
+    }
+    directed_boundary(old) == directed_boundary(new)
 }
 
 /// The directed boundary of a triangle set: each directed edge `(u, v)` with
@@ -3055,7 +3085,7 @@ pub(crate) fn update_patches(
             .iter()
             .map(|&t| mesh.tris[t as usize])
             .collect();
-        if directed_boundary(&old) != directed_boundary(&plan.new_tris) {
+        if !plan_keeps_boundary(&old, &plan.new_tris) {
             continue;
         }
         plans.push(plan);
@@ -3100,6 +3130,16 @@ mod tests {
         // Flipped orientation is a different boundary.
         let d = [[0, 2, 1], [0, 3, 2]];
         assert_ne!(directed_boundary(&a), directed_boundary(&d));
+        // The plan postcondition: a valid retriangulation passes; a triangle
+        // repeating a vertex (two chart copies of one seam vertex) or a
+        // directed edge used twice fails although the boundary multiset
+        // matches.
+        assert!(plan_keeps_boundary(&a, &b));
+        assert!(!plan_keeps_boundary(&a, &[[0, 1, 2], [0, 2, 3], [0, 0, 2]]));
+        assert!(!plan_keeps_boundary(
+            &a,
+            &[[0, 1, 2], [0, 2, 3], [0, 2, 4], [4, 2, 0]]
+        ));
     }
     use super::*;
     use crate::geom::Surface;

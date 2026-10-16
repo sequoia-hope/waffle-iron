@@ -180,3 +180,44 @@ Next (increment 2): retire the repairs one per corpus run — first the
 §4.4.1(a) unzip (M) and the degenerate STOP's population, then
 `repair_fan_cluster`; and widen the operation's reach (periodic cylinder
 chart, the d_ε budget) so fewer patches fall back to relocate-in-place.
+
+## 8. Increment 2 measurements (2026-10-16) — repairs OFF, and the band chart PARKED
+
+**Repairs OFF (§4.4.1(a) unzip + doubled-membrane removal, one run):** four
+CORRECT → ERROR, all `DegenerateTriangle` (the unzip's population) —
+F0067, P0005, R0059, R0072. Census on them: the degenerate triangles sit on
+patches the update REFUSED — R0059 / R0072 `ThetaUnwrap` (cylinder bands),
+P0005 `ChordDegradation` and CDT `TriangulationFailed`. The unzip stays
+until the update reaches those classes; the membrane pass was not separated
+(no case attributed to it).
+
+**Band chart (§6 item 1), built and PARKED on branch `phase2b-band-chart`:**
+`stage4_project::band_patch_from_cycles` cuts a cylinder / cone band (two
+encircling cycles of opposite winding + holes) open along the shortest seam
+clear of every cycle edge on every 2π copy; `rebuild_patch_planar` takes it
+when `unwrap_theta` refuses, choosing each interior vertex's branch by
+point-in-polygon and reading old-triangle d(T) per triangle on one branch.
+Unit pins pass (`a_cylinder_band_cuts_open_into_one_simple_polygon`). Corpus:
+`ThetaUnwrap` 396 → 7 patches, R0059 / R0072's bands rebuilt (degenerates
+gone) — but **F0064 and F0067 CORRECT → ERROR at kernel-v2**: "an undirected
+output edge is not used by (exactly two | two OPPOSITE) directed edges".
+Anchor (F0067, `KV2_OUT_TWIN_PROBE` + a temporary loop dump): output faces
+294 (the rebuilt band, B face 2, cylinder r 0.128, z 0.879…1.079, two 36-vertex
+rims, 72 → 72 triangles — a pure strip) and 282 both walk rim arc 543 → 545;
+same for 668 / 647 on the r 0.209 band (2,310 → 2,310 triangles). The yang
+MESH pairs at every Stage-4 checkpoint (`NONMANIFOLD_SITE_PROBE` silent), and
+the plan postcondition holds (no repeated vertex, no doubled directed edge,
+directed boundary unchanged). So a pass AFTER the update whose result depends
+on the band's interior triangulation (§4.3.4 seam insert / reorder in the
+construct pass — the band's emitted cycle grows 72 → 1,538 vertices —
+chain decimation, the envelope prepass, or Stage-6 cycle extraction) emits
+two faces' loops inconsistently. Next session: bisect that pass on F0067
+with the branch's temporary probes (`TMP_VERTS` in `emit_topology`,
+`TMP_LOOP_DUMP` in kernel-v2's `from_yang`), fix it there, then re-land the
+band chart.
+
+**Kept on main:** the plan postcondition strengthened to a full local
+validity check (`plan_keeps_boundary`: no triangle repeats a mesh vertex — a
+cycle pinched at one vertex appears twice in the chart pool — no directed
+edge twice, directed boundary unchanged) and the census's
+`mixed_attribution` class.
