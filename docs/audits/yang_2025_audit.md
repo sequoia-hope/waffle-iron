@@ -1,6 +1,6 @@
 # Yang 2025 compliance matrix (paper-ordered)
 
-**As of 2026-10-16, HEAD `62c12b57`.** This replaces the 2026-04-20 audit
+**As of 2026-10-16, HEAD `62c12b57`** (F-1 resolved the same day; row cites elsewhere are at `62c12b57`). This replaces the 2026-04-20 audit
 (79 lines, written when the pipeline passed 1 of 157 cases; git history keeps
 it). Where `specs/yang_faithful_cleanup.md` §2 starts from the code and asks
 which paper mechanism each arm or pass stands in for, this document starts
@@ -50,12 +50,12 @@ with a pin named in its `pin` column.
 | slice | rows | FAITHFUL | PARTIAL | DEVIATES | MISSING | ORDER | SILENT | N/A |
 |---|---|---|---|---|---|---|---|---|
 | §3, §4.1, App. A — discretization | 43 | 10 | 11 | 8 | 2 | 2 | 1 | 9 |
-| §4.2, App. B, §5.6 — mesh intersection | 31 | 8 | 6 | 8 | 2 | 0 | 1 | 6 |
+| §4.2, App. B, §5.6 — mesh intersection | 31 | 9 | 6 | 7 | 2 | 0 | 1 | 6 |
 | §4.3 — intersection optimization | 25 | 8 | 4 | 9 | 3 | 1 | 0 | 0 |
 | §4.4 — mesh updating, Booleans | 28 | 10 | 10 | 4 | 1 | 2 | 1 | 0 |
-| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 6 | 6 | 3 | 0 | 5 | 1 |
+| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 6 | 5 | 3 | 0 | 6 | 1 |
 | §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 18 | 8 | 4 | 0 | 1 | 4 | 0 |
-| **total** | **194** | **65** | **45** | **39** | **11** | **6** | **12** | **16** |
+| **total** | **194** | **66** | **45** | **37** | **11** | **6** | **13** | **16** |
 
 Eighteen rows say UNLEDGERED outright. The cross-cutting findings below add
 more that only show up across slices.
@@ -67,17 +67,18 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
 
 ### F — a known failure leaves without a STOP or a refinable site (P10)
 
-- **F-1. The exhausted §4.5.2 loop ships bodies whose failure set is not
-  empty.** `refine_loop` (`boolean.rs:818-838`) returns `None` when the
-  natural run produced a body, so the natural body stands with its failures
-  only inventoried. When the natural run STOPped, it adopts "the first
-  watertight refined body", which also still has failures. The paper's loop
-  runs "until all the failures are resolved" (`:309-312`, `:667-668`). It
-  never says what happens at a ceiling, so a ceiling is our choice (SILENT).
-  But shipping a body that T6 has certified as missing an intersection, or
-  that T3 has certified as having crossing loops, is a silent-wrong path.
-  N66 records an inventory policy, and its text still names the deleted
-  ladder. (`5.6-03`, `s42 F1`, `s451 F6`.)
+- **F-1. RESOLVED 2026-10-16 — the exhausted §4.5.2 loop shipped bodies
+  whose failure set was not empty.** `refine_loop` returned the natural body
+  with its failures only inventoried, or adopted "the first watertight
+  refined body", which also still had failures. The paper's loop runs
+  "until all the failures are resolved" (`:309-312`, `:667-668`) and names
+  no ceiling. **User sign-off 2026-10-16: the ceiling is LOUD.** Only an
+  empty failure set is adopted; surviving failures STOP as
+  `YangError::RefinementExhausted`. Corpus 358C → 350C. All eight moves are
+  recorded failures that used to ship: four T2, two T6, and two natural
+  STOPs that had been masked. Three ERROR rows (P0045, P0056, P0061) now
+  name their cause at the source instead of kernel-v2. Ledger N66
+  amendment. (`5.6-03`, `4.5-10`.)
 - **F-2. A refused §4.4.1 patch update is silent.** `update_patches`
   (`stage4_construct.rs:3178-3207`) `continue`s on every refusal and maps an
   `apply_rebuild_batch` error to 0. The Phase-2b spec says a refusal records
@@ -441,7 +442,7 @@ Paper: `refs/text/yang2025_hybrid_boolean.txt`. §4.2 body is in the RIGHT colum
 | 4.2-25 | `:516-518` (L) | The two surface points from one intersection point "generally do not coincide. We further optimize" (§4.3) | `stage4_relocate.rs:285` `relocate_onto_implicit_pair` (closed form / Gauss-Newton onto the exact pair) | DEVIATES (closed-form relocation; §4.3 slice owns the detail) | N7 | — |
 | 5.6-01 | `:1037-1041` (L), `:1030-1033` (R) | Extremely small loops where "the meshes … did not intersect directly", found by "the octree to determine potential mesh intersections" | T6: `shell_contact.rs:295` → `failures.rs:547` `record_missed_intersections` → `boolean.rs:621` `refine_loop` | PARTIAL: found only when deeper than the model band (`shell_contact.rs:476`), and resolved only if refinement makes the meshes meet within `REFINE_LOOP_ITER_CAP = 8` (`boolean.rs:582`) / `FACE_REFINE_MAX` | catch-up row P0049 | `s452_missed_intersection.rs::a_sub_sagitta_graze_is_a_contact_pair_on_the_two_laterals`; corpus P0049 |
 | 5.6-02 | `:1033-1035` (R) | Regions are identified "based on the normal estimation and distance evaluation shown in Fig. 9" | distance: `shell_contact.rs:333-356`; normal estimation: none | PARTIAL (distance half only; exact crossing replaces the normal filter) | D13 (stale) | — |
-| 5.6-03 | `:1035-1041` (R) | "our algorithm consistently produced all the intersection results" (no silent miss) | `boolean.rs:819-825`: when the loop cannot clear the failure set and the NATURAL run emitted, "the natural body stands". This includes a natural body carrying a recorded MissedIntersection site, with no STOP or warning (probe-only print) | DEVIATES, UNLEDGERED: a body T6 has certified as having missed an intersection can ship silently | — | — |
+| 5.6-03 | `:1035-1041` (R) | "our algorithm consistently produced all the intersection results" (no silent miss) | `boolean.rs` `refine_loop`: a natural body whose failure set (MissedIntersection included) survives the loop STOPs as `YangError::RefinementExhausted` (since 2026-10-16) | FAITHFUL in posture: a recorded miss never ships (the miss itself is still possible; M-3) | N66 (amended 2026-10-16) | `crates/test-harness/tests/assay_kv2.rs` smoke pin (F0064/F0067 class via P0005, R0070 `Category::Error`) |
 | B-01 | `:1211-1218` (L) | At q, ∂p/∂u ∈ C2, ∂p/∂v ∈ C1. Half cones on one side of P̃ with C1∩C2 = o ⇒ v1×v2 ≠ 0, normal n = v1×v2/‖v1×v2‖ | none | N/A | D14 | — |
 | B-02 | `:1218-1229` (L) | Steps (1)–(3): the normal is fixed by boundary vectors of C1, C2; the Gauss image is a great-circle segment with extremes at tangency; mirrored v1′ gives maps symmetric about d | none | N/A | D14 | — |
 | B-03 | `:1206-1230` (R) | Step (4): l2² − l1² > 0 ⇒ maximal deviation at P tangent to C2 with v1 on a tangential line ⇒ cone angle θ; "Theorem 4.1 is proved" | none | N/A | D14 | — |
@@ -697,7 +698,7 @@ All code paths are relative to `crates/yang-rs/src/` unless they say otherwise.
 | 4.5-07 | `:664-667` | "If such bound cannot be found or after crossing boundaries the optimization still fails", increase mesh resolution locally and re-optimize (second strategy) | `stage4_correct.rs:12748-12751`: any decline returns the first recorded error → T1 → `boolean.rs:966` `refine_loop` | FAITHFUL (strategy 1, then strategy 2) | N62 | kernel-v2 `tests/s452_domain_lens_corner.rs::a_quadruple_corner_inside_the_chord_sagitta_resolves_to_the_exact_triple_pair` |
 | 4.5-08 | `:667-668` | "The above procedures are repeated if optimization failure persists" | `boolean.rs:712-817` loop: region → refine → `boolean_once` (`:769`) → `failures` again. A faceless refined STOP re-refines the previous region (`:723`) | FAITHFUL | N62, N67 | kernel-v2 `tests/s451_transit_neighbour_side_chain.rs::a_transit_onto_a_cap_plane_outside_its_disc_is_declined_and_the_ladder_converges` |
 | 4.5-09 | `:668-670` | "guaranteed to terminate since the mesh intersections converge … under refinement" | `boolean.rs:582` `REFINE_LOOP_ITER_CAP = 8`; `stage1_tessellate.rs:158` `FACE_REFINE_MAX = 8`; convergence monitor (`boolean.rs:803`: a failure signature that returns twice ends the loop) | SILENT. The paper gives no budget. Our choice is ceiling density 8 per face, 8 iterations, and a signature-repeat monitor | N67 | `tests_unit/s452_face_refine.rs::refinement_composes_by_doubling_and_saturates_at_the_ceiling` |
-| 4.5-10 | `:667-670` (+ overview `:309-312` "until all the failures are resolved") | The loop ends with failures resolved | `boolean.rs:819-838`: when the loop is exhausted, a natural Ok body stands with its unresolved fires ("inventoried"); a natural STOP is replaced by the first refined watertight body even if it still has T2/T3b/T6 sites | DEVIATES. A body with failures is emitted | N66 (the "natural output stands, fires inventoried" text) | — |
+| 4.5-10 | `:667-670` (+ overview `:309-312` "until all the failures are resolved") | The loop ends with failures resolved | `boolean.rs` `refine_loop`: only a run with an EMPTY failure set is adopted; at the ceiling a natural body with surviving failures STOPs (`RefinementExhausted`), a natural STOP stands | SILENT — the paper names no ceiling; our choice, a LOUD stop, user-signed 2026-10-16 | N66 (amended 2026-10-16) | `kernel-v2/tests/s4_ellipse_pair_corner_chain.rs::a_surviving_boundary_domain_fire_stops_at_the_ceiling`; `assay_kv2.rs` smoke pin (P0005, P0015, P0020, P0029, R0070 `Category::Error`) |
 | 4.5.1-01 | `:672-678` | Strategy 1 applies when the same surface has two correct points v0, v1 on both sides of the erroneous region | `stage4_correct.rs:760` declines unless exactly 2 distinct bounds; shared cone+plane pair required (conic arm), or a ≥2-surface constraint set (torus arm, `:632-647`) | PARTIAL. The only pair kinds are cone+plane and torus-carried; everything else declines | — | — |
 | 4.5.1-02 | `:678-679` | "points in the erroneous region are removed and replaced with the midpoint p0 of v0 and v1" | `stage4_correct.rs:803` (conic arm `mid`), `:632` (torus arm); collapse at `:12720-12727` with §4-I8 containment | FAITHFUL | N47 (containment) | — |
 | 4.5.1-03 | `:679-680` | "p0 is optimized using the geometric method described in Sec. 4.3.2" | `stage4_correct.rs:808` `project_onto_cone_section` (closed form); `:647` `relocate_onto_implicit_pair` / `_triple` (Newton, torus arm) | N/A for the conic arm (closed form instead of §4.3.2); the torus arm uses Newton on implicit surfaces | N7 | — |
@@ -727,7 +728,7 @@ All code paths are relative to `crates/yang-rs/src/` unless they say otherwise.
 - `stage4_boundary_curve.rs:2660-5077` transit emission chain (`transit_emission_plan` / `_edits` / `_region` / `_parts` / `_fill` / `_refine` / `_write`): mesh surgery that writes a crease transit into the Stage-4 mesh. It stands in for §4.4.1 mesh updating applied locally to a §4.5.1 result. `_refine` is a second Stage-4-internal "§4.5.2" (chord halving) that is separate from `refine_loop`.
 - `stage4_correct.rs:4831` `under_resolution_ratio` + `boolean/failures.rs:634` `density_for_demand`: a predictive first-rung size. Compensates for nothing in the paper; it is an economy (N67).
 - `boolean.rs:803` convergence monitor (failure-signature repeat ⇒ stop): no paper basis. The paper asserts termination.
-- `boolean.rs:819-838` exhausted-loop policy (natural body stands, or the first watertight refined body is adopted): no paper basis. The paper loops "until all the failures are resolved".
+- ~~`boolean.rs:819-838` exhausted-loop policy (natural body stands, or the first watertight refined body is adopted): no paper basis.~~ **Replaced 2026-10-16** by the loud ceiling (F-1).
 - `stage4_correct.rs:199` `s451_post_sweep_census`, `:4685` `strategy_selection_census`, `:4377` `failure_population_census`: census-only prints (`YANG_451=census`, `YANG_S45_SELECT`). Instruments, not mechanisms.
 - `stage4_truncate.rs:351` `max_in_domain_step`: the §4.5.1 truncation primitive, wired only as a print (`stage4_correct.rs:7344`) and in the Stage-5 `YANG_S451_*` probes. Built, never load-bearing.
 
@@ -757,7 +758,7 @@ Inversions:
 3. **N62 is marked RESOLVED, but two of §4.5.2's three locality clauses are not implemented.** First, the refined op is recomputed globally (`boolean.rs:769` `boolean_once` on the whole operands), not "only in the refined regions" (`:667-668`). Second, there is no p_f/p_b identification and no splice of the new curve into the old one (`:661-671`). N62's pre-RESOLVED text named the whole-op recompute; its RESOLVED text silently drops it.
 4. **The region is "faces at the failure point plus one ring", not "surfaces traversed by C_p plus one ring".** `boolean/failures.rs:172` / `:1315`: C_p is never walked, so a long erroneous span crossing several faces refines only the faces at its STOP vertex. Each further span face is picked up one ring per iteration, if at all. Not ledgered as a deviation.
 5. **Failure collection is mostly abort-first.** Only the OffCurve gates record and continue (`stage4_correct.rs:174-185`). About 50 other `LocalRefinementRequired` returns, and the §4-I9 STOP (`:7838`), end Stage 4 at the first fire. T1 therefore names one vertex's faces per run, against the paper's "collect the point pairs" (`:656-659`). The order inversions (corner transit and T2 detection after §4.5.3 and §4.4.1) compound this.
-6. **The exhausted-loop policy emits bodies that still have failures** (`boolean.rs:819-838`). This contradicts "until all the failures are resolved" (`:309-312`, `:667-668`). N66 records the inventory policy, but its text still names the deleted `refine_452_domain` ladder. So does the doc comment on `boundary_domain_postcondition` (`stage4_correct.rs:6975-6990`).
+6. **RESOLVED 2026-10-16 (F-1).** **The exhausted-loop policy emits bodies that still have failures** (`boolean.rs:819-838`). This contradicts "until all the failures are resolved" (`:309-312`, `:667-668`). N66 records the inventory policy, but its text still names the deleted `refine_452_domain` ladder. So does the doc comment on `boundary_domain_postcondition` (`stage4_correct.rs:6975-6990`).
 7. **Stale paper line cites in the ledger and code.** The catch-up rows cite `:689-692` for "s is a corner point" (actual `:639-640`) and `:664-676` for step rescaling (actual `:680-686`). `selector_clause2_walk`'s doc (`stage4_correct.rs:4527`) cites `:740-744` for the same-surface clause (actual `:651-657`). These look like citations made against an older text extraction.
 8. **The loop has no direct pin in yang-rs.** `tests_unit/s452_refinement_loop.rs` pins only T3b. The adoption and ceiling behaviour of `refine_loop` is pinned only indirectly, through kernel-v2's `s452_domain_lens_corner.rs` and `s451_transit_neighbour_side_chain.rs`. The §4.5.1 DRIFT repair has no pin found.
 

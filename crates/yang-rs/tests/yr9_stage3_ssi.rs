@@ -250,13 +250,18 @@ fn unit_cube_brep_offset_at(origin: [f64; 3]) -> BRep {
             point: p(x, y + 1.0, z + 1.0),
         },
     ];
+    // Each loop winds CCW about its face's OUTWARD normal (the material
+    // side). Until 2026-10-16 every loop here wound the other way; the
+    // disjoint-union passthrough returned these faces verbatim and T3c
+    // (`boolean::failures`) reported all of them inside-out, which the
+    // loop's loud ceiling now refuses to ship.
     let face_verts: [[u32; 4]; 6] = [
-        [0, 1, 2, 3], // F0 bottom (z)
-        [4, 7, 6, 5], // F1 top (z+1)
-        [0, 4, 5, 1], // F2 front (y)
-        [1, 5, 6, 2], // F3 right (x+1)
-        [2, 6, 7, 3], // F4 back (y+1)
-        [3, 7, 4, 0], // F5 left (x)
+        [0, 3, 2, 1], // F0 bottom (z), normal −z
+        [4, 5, 6, 7], // F1 top (z+1), normal +z
+        [0, 1, 5, 4], // F2 front (y), normal −y
+        [1, 2, 6, 5], // F3 right (x+1), normal +x
+        [2, 3, 7, 6], // F4 back (y+1), normal +y
+        [3, 0, 4, 7], // F5 left (x), normal −x
     ];
     let mut edges = Vec::with_capacity(24);
     let mut loops = Vec::with_capacity(6);

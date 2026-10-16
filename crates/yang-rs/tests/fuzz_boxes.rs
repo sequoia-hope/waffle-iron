@@ -399,6 +399,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
         YangError::SubSagittaGrazeIntersection { .. } => "SubSagittaGrazeIntersection",
+        YangError::RefinementExhausted { .. } => "RefinementExhausted",
     }
 }
 

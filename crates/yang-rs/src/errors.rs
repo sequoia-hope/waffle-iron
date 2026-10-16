@@ -223,6 +223,19 @@ pub enum YangError {
         depth: f64,
         floor: f64,
     },
+
+    /// Yang §4.5.2 (`:309-312`, `:667-668`): the refinement loop ended —
+    /// iteration cap, every named face at the density ceiling, a failure
+    /// set that returned twice, or sites that name no face — while the
+    /// failure set of the run it would adopt is still NOT EMPTY. The paper
+    /// repeats refinement "until all the failures are resolved" and says
+    /// nothing of a ceiling; the rule at the ceiling (user sign-off
+    /// 2026-10-16, ledger N66) is a LOUD stop: a body the pipeline has
+    /// itself certified as failing (a missed intersection, crossing output
+    /// loops, an unconverged relocation, a non-manifold region) never
+    /// ships. `sites` counts the surviving failure sites; `summary` names
+    /// their triggers and the first site's faces.
+    RefinementExhausted { sites: usize, summary: String },
 }
 
 /// PR-YR10 (Stage 4): why a relocation region could not be made valid.
@@ -541,6 +554,13 @@ impl fmt::Display for YangError {
                      rim-N cap): no practical tessellation can sample the intersection \
                      (Yang Fig. 8 Case III), so the boolean would emit unfused topology \
                      that silently ignores it (#172)"
+                )
+            }
+            Self::RefinementExhausted { sites, summary } => {
+                write!(
+                    f,
+                    "yang-rs: §4.5.2 local refinement ended with {sites} unresolved failure \
+                     site(s): {summary}"
                 )
             }
         }

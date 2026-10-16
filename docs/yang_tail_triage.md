@@ -43,6 +43,44 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-16 (the loud ceiling) — the §4.5.2 loop adopts only an EMPTY failure set; **corpus 350C / 0W / 19E / 5EE / 0T over 374, eight recorded failures that used to ship now STOP**
+
+User sign-off ("yes, stop loudly at the ceiling"). Found by the
+paper-ordered compliance matrix (`docs/audits/yang_2025_audit.md` F-1);
+ledger N66 amendment. `refine_loop` no longer lets a natural body keep its
+inventoried failures, and no longer adopts a refined body that still has
+failures. Release, 8 jobs, 900 s, wall 1199.9 s.
+
+| case | new verdict | surviving failure set | worklist pointer |
+|---|---|---|---|
+| P0005 | ERROR `RefinementExhausted` | T2 ×6 (`v226 left A:3 across edge 242`) | §4.5.1 interior half / §4.5.2 locality (matrix M-1, M-2) |
+| P0020 | ERROR `RefinementExhausted` | T2 ×4 | same |
+| R0049 | ERROR `RefinementExhausted` | T2 ×1 (`f_post=7.2e-6`) | gear corridor family (certificate spec §7) |
+| R0070 | ERROR `RefinementExhausted` | T2 ×81 | gear corridor family |
+| F0064 | ERROR `RefinementExhausted` | T6 ×2 + T2 ×2 (tris 3.3e-7 apart, exact surfaces crossing) | M-3 (tangency / sub-band contact) |
+| F0067 | ERROR `RefinementExhausted` | T6 ×4 (2.0e-7 apart) | M-3 |
+| P0015 | ERROR `RelocationCrossedCarrierVertex` | natural STOP, formerly masked by a refined body with failures | §4.5.2 locality |
+| P0029 | ERROR `RelocationCrossedCarrierVertex` | same | same |
+
+Text drift, all three already ERROR, all now naming the yang-side cause:
+P0045 (`OffCurveBeyondChordBand`, was kernel-v2 torus UV-CDT), P0056 and
+P0061 (`RefinementExhausted` with T3 illegal intersections, were kernel-v2
+loop / CDT ring rejections). The open P tail is now P0005, P0015, P0020,
+P0029, P0045, P0056, P0061, plus R0049, R0070, F0064 and F0067.
+
+Suites: two pins had relied on the old policy. yang-rs
+`yr9_stage3_ssi::t5_stop_path_coincident_planes_is_loud` had a FIXTURE
+bug the rule surfaced: its cube helper wound every loop clockwise about the
+outward normal, the disjoint-union passthrough returned those faces
+verbatim, and T3c reported all twelve inside-out. The helper was rewound;
+all seven yr9 tests pass. kernel-v2 `s4_ellipse_pair_corner_chain` (P0025's
+corner) leaves one T2 fire that shrinks at chord rate (1.7e-1 → 3.8e-2 →
+1.0e-2). Measured with the plateau break disabled, Stage 1 then refuses the
+×8 rebuild (chart chord budget), so the STOP is the loop's honest answer,
+not a monitor artefact. The corner pin is `#[ignore]`d with that reason,
+and `a_surviving_boundary_domain_fire_stops_at_the_ceiling` pins the loud
+STOP.
+
 ## 2026-10-16 (Phase 2b, the band chart) — cylinder / cone bands rebuild through a cut-open periodic chart; **corpus 358C / 0W / 11E / 5EE / 0T, zero moves**
 
 `ThetaUnwrap` refusals 392 → 7; rebuilt patches 14,797 → 15,141. First

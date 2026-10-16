@@ -607,11 +607,16 @@ type FailureSignature = Vec<(failures::FailureTrigger, Vec<(crate::brep::InputId
 /// adopted. A refined run that STOPs without naming a face refines the
 /// previous iteration's region again (the failure persists there). The loop
 /// ends at the iteration cap, when the NATURAL run's sites name no face, or
-/// when every named face is at the ceiling. Then: a natural run that EMITTED stands (its fires are
-/// inventoried, never a wall — `yang_45_boundary_point_domain_certificate`
-/// §7); a natural STOP is replaced by the first refined body that was
-/// watertight (no T1 / T4 / T5 — the STOP ladder's own adoption clause) if
-/// one appeared, else the STOP stands.
+/// when every named face is at the ceiling. Then nothing with a non-empty
+/// failure set is adopted (user sign-off 2026-10-16, ledger N66: the paper
+/// refines "until all the failures are resolved", `:309-312`, and is silent
+/// on a ceiling, so the ceiling is LOUD): a natural run that EMITTED becomes
+/// [`YangError::RefinementExhausted`] naming its surviving sites, and a
+/// natural STOP stands.
+///
+/// Returns `None` when there is nothing to refine (the caller returns the
+/// natural result), `Some(Ok)` for an adopted body, `Some(Err)` for the
+/// exhausted-loop STOP.
 ///
 /// This replaced the three §4.5.2 remedies that grew here one case at a
 /// time — the whole-op STOP ladder (`refine_452`, d_ε/2 … d_ε/64), the
@@ -625,8 +630,7 @@ fn refine_loop(
     backend: &dyn MeshBoolean,
     natural: &Result<BRep, YangError>,
     natural_failures: Vec<failures::FailureSite>,
-) -> Option<BRep> {
-    use failures::FailureTrigger;
+) -> Option<Result<BRep, YangError>> {
     if natural_failures.is_empty() {
         return None;
     }
@@ -659,25 +663,35 @@ fn refine_loop(
             eprintln!("[s452]   {:?} faces={:?} {}", s.trigger, s.faces, s.detail);
         }
     }
-    let watertight = |f: &[failures::FailureSite]| -> bool {
-        !f.iter().any(|s| {
-            matches!(
-                s.trigger,
-                FailureTrigger::RelocationDiverged
-                    | FailureTrigger::NonManifoldMesh
-                    | FailureTrigger::ReassemblyStop
-            )
-        })
-    };
     let at_ceiling = |br: &BRep, reg: &std::collections::BTreeSet<u32>| -> bool {
         reg.iter().all(|fi| {
             br.face_refine().get(fi).copied().unwrap_or(1)
                 >= crate::stage1_tessellate::FACE_REFINE_MAX
         })
     };
+    let exhausted = YangError::RefinementExhausted {
+        sites: natural_failures.len(),
+        summary: {
+            let first = &natural_failures[0];
+            let mut detail = first.detail.clone();
+            if detail.len() > 160 {
+                let mut cut = 160;
+                while !detail.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                detail.truncate(cut);
+                detail.push('…');
+            }
+            format!(
+                "{}; first {:?} on faces {:?}: {detail}",
+                summarize(&natural_failures),
+                first.trigger,
+                first.faces
+            )
+        },
+    };
     let mut f = natural_failures;
     let (mut ra, mut rb) = (a.clone(), b.clone());
-    let mut best_watertight: Option<BRep> = None;
     // Convergence monitor (spec §6.0.1): the paper's loop terminates because
     // the mesh intersections CONVERGE under refinement; a failure set that
     // comes back IDENTICAL — the same triggers on the same faces — after a
@@ -791,14 +805,10 @@ fn refine_loop(
                 if probe {
                     eprintln!("[s452]   ADOPTED at iter {iter}");
                 }
-                return Some(brep);
+                return Some(Ok(brep));
             }
-            Ok(brep) => {
-                if best_watertight.is_none() && watertight(&f) {
-                    best_watertight = Some(brep);
-                }
-            }
-            Err(_) => {}
+            // A refined body with surviving failures is never adopted.
+            Ok(_) | Err(_) => {}
         }
         if seen_signatures.contains(&sig) {
             plateaus += 1;
@@ -818,23 +828,14 @@ fn refine_loop(
     }
     if natural.is_ok() {
         if probe {
-            eprintln!(
-                "[s452]   loop exhausted — the natural body stands (its fires are inventoried)"
-            );
+            eprintln!("[s452]   loop exhausted — the natural body's failures survive: STOP");
         }
-        return None;
+        return Some(Err(exhausted));
     }
     if probe {
-        eprintln!(
-            "[s452]   loop exhausted — {}",
-            if best_watertight.is_some() {
-                "adopting the first watertight refined body"
-            } else {
-                "the natural STOP stands"
-            }
-        );
+        eprintln!("[s452]   loop exhausted — the natural STOP stands");
     }
-    best_watertight
+    None
 }
 
 /// Boolean entry point: one natural run, then — when its failure set
@@ -962,12 +963,15 @@ pub fn boolean(
     // Yang §4.5 — the one refinement loop (`refine_loop`): every failure
     // of the natural run names faces; those faces and their ring refine
     // and the op re-runs until the failure set is empty or the budget is
-    // spent. A natural body stands when the loop cannot better it.
-    if let Some(refined) = refine_loop(a, b, op, backend, &natural, natural_failures) {
-        brep_probe_out(&refined);
-        return Ok(refined);
+    // spent. A body whose failures survive the loop never ships.
+    match refine_loop(a, b, op, backend, &natural, natural_failures) {
+        Some(Ok(refined)) => {
+            brep_probe_out(&refined);
+            Ok(refined)
+        }
+        Some(Err(stop)) => Err(stop),
+        None => natural,
     }
-    natural
 }
 
 fn boolean_once(

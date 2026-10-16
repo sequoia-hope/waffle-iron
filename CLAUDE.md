@@ -467,8 +467,20 @@ Do NOT skip to lower-priority items because they are easier.
    a band is oriented by its boundary (its area vector is ~0), a
    construct-pass seam batch must keep its outer boundary, and the rebuild's
    d(T) budget is `min(old max, d_ε)` (the paper's bound); corpus 358C.
-   **The open P-series ERROR tail is P0045, P0056, P0061**
-   (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
+   **2026-10-16 (the loud ceiling): the §4.5.2 loop adopts only an EMPTY
+   failure set** — the paper-ordered compliance matrix
+   (`docs/audits/yang_2025_audit.md`, F-1) found the loop shipped bodies
+   whose recorded failures survived it; user sign-off "stop loudly at the
+   ceiling" (ledger N66): surviving failures STOP as
+   `YangError::RefinementExhausted`. **Canonical corpus 350C / 0W / 19E /
+   5EE / 0T over 374** — eight recorded failures that used to ship (T2 on
+   P0005 / P0020 / R0049 / R0070, T6 on F0064 / F0067, masked natural
+   STOPs on P0015 / P0029), a worklist for matrix M-1 / M-2 / M-3, not
+   regressions to chase back (`docs/yang_tail_triage.md` §"the loud
+   ceiling").
+   **The open ERROR tail is P0005, P0015, P0020, P0029, P0045, P0056,
+   P0061, R0049, R0070, F0064, F0067**
+   (seeds 4–5; P0001–P0041 otherwise CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;
    re-creatable with `PROSPECT_SEED=<4|5> PROSPECT_COUNT=200 prospect_run` and

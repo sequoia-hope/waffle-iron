@@ -1,8 +1,8 @@
 {
-  "errored": 11,
+  "errored": 19,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 358,
+  "passed": 350,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -293,10 +293,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 1 unresolved failure site(s): BoundaryDomainFire×1; first BoundaryDomainFire on faces [(A, 5), (B, 134)]: v239 left B:134 across edge 1651 f_post=7.235e-6\")",
       "id": "R0049",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -419,10 +419,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 81 unresolved failure site(s): BoundaryDomainFire×81; first BoundaryDomainFire on faces [(A, 1), (B, 1)]: v6 left A:1 across edge 76 f_post=-3.771e-6\")",
       "id": "R0070",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -983,10 +983,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): BoundaryDomainFire×2 MissedIntersection×2; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0064",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1001,10 +1001,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): MissedIntersection×4; first MissedIntersection on faces [(A, 334), (B, 2)]: tris 6703×6236 touch within 2.001e-7 at (-1.860180e-2, -2.080162e-1, 1.751898e0); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0067",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1901,10 +1901,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 6 unresolved failure site(s): BoundaryDomainFire×6; first BoundaryDomainFire on faces [(A, 3), (B, 0)]: v226 left A:3 across edge 242 f_post=1.471e1\"). Body created as standalone.",
       "id": "P0005",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1961,10 +1961,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): d848d213-03e1-4265-b19b-b44eccc60b9c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 149 is invalid: RelocationCrossedCarrierVertex\")",
       "id": "P0015",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1991,10 +1991,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 08bce8a9-133b-4de5-aafe-ab4f76bae438: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): BoundaryDomainFire×4; first BoundaryDomainFire on faces [(A, 0), (B, 3)]: v196 left A:0 across edge 98 f_post=-1.460e-5\")",
       "id": "P0020",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2045,10 +2045,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 6ec5ae89-75b2-4c2f-99f2-c0844364a04d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 98 is invalid: RelocationCrossedCarrierVertex\")",
       "id": "P0029",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2142,7 +2142,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(16), reason: \"torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 101 is invalid: OffCurveBeyondChordBand\"). Body created as standalone.",
       "id": "P0045",
       "status": "error"
     },
@@ -2208,7 +2208,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonManifoldVertex { vertex: VertexId(40), point: \"(3.532880600e2, -5.999111773e2, -2.052352261e1)\" }",
+      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 6 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×4; first BoundaryDomainFire on faces [(A, 1), (B, 0), (B, 2)]: v17 left A:1 across edge 6 f_post=1.410e0\")",
       "id": "P0056",
       "status": "error"
     },
@@ -2238,7 +2238,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: TessellationFailed { face: FaceId(34), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 7 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×5; first BoundaryDomainFire on faces [(A, 2), (A, 3), (B, 1)]: v13 left B:1 across edge 11 f_post=3.640e-2\"). Body created as standalone.",
       "id": "P0061",
       "status": "error"
     },

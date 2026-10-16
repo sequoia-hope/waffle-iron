@@ -1020,7 +1020,9 @@ fn smoke_corpus_boundary_categories() {
         // the generator's perpendicular FOOT, 8.5e-7 off the flank, Stage 6
         // `s6-planar-loop-nonplanar`. The corner is now a triple-block
         // candidate. 14 s release.
-        ("R0070", Category::SupportedCorrect),
+        // R0070 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
+        // sign-off, ledger N66) — 81 surviving T2 boundary-domain fires.
+        ("R0070", Category::Error),
         // F0082 FLIPPED (2026-09-12, the planar chart scan): op 12's input
         // carried op 11's base cap with the two corners where the
         // near-coplanar stack's plane∩plane line meets the rectangle walls
@@ -1415,7 +1417,9 @@ fn smoke_corpus_boundary_categories() {
         // Cherchi sidecar reference: one shell, genus 1 (χ 0) — the ring,
         // the gear and the circle boss overlap pairwise around a tunnel;
         // two live bodies (the first boss never merges); volume pinned.
-        ("P0005", Category::SupportedCorrect),
+        // P0005 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
+        // sign-off, ledger N66) — 6 surviving T2 boundary-domain fires.
+        ("P0005", Category::Error),
         // P0006: two square bosses, a circle boss, a 10-tooth gear boss, a
         // square boss on an oblique plane. Was auto-union rejecting the
         // INPUT: "Stage-1 chart polygon of face 11 crosses itself 8 time(s)
@@ -1631,7 +1635,9 @@ fn smoke_corpus_boundary_categories() {
         // body, boundary_chi 2, volume 9.935958e-1 ± 3e-3) and `derived_meta`
         // cleared. The third row carrying this text (seed 2 index 169) reaches
         // it through the AUTO-UNION path and is ledgered, not promoted.
-        ("P0015", Category::SupportedCorrect),
+        // P0015 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
+        // sign-off, ledger N66) — its natural RelocationCrossedCarrierVertex STOP, no longer masked by a refined body with failures.
+        ("P0015", Category::Error),
         // P0016 (3 ops) was promoted as Stage-3
         // `AmbiguousCurve { candidates: 0, matched: 0 }` — candidates ZERO, so
         // no analytical curve was proposed at all. **CONVERTED 2026-10-03
@@ -1765,7 +1771,9 @@ fn smoke_corpus_boundary_categories() {
         // authored length is 83 × MIN_FEATURE_SIZE — the tightest of the
         // seed-2 promotions, still far above the floor; `derived_meta` stays
         // true (the exact-membership oracle does not cover Intersect).
-        ("P0020", Category::SupportedCorrect), // CONVERTED 2026-10-03: N78 entry-only pinch split always-on (324C/22E over 351)
+        // P0020 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
+        // sign-off, ledger N66) — 4 surviving T2 boundary-domain fires.
+        ("P0020", Category::Error),
         // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
         // render-level output gate — P0007's signature, converted 2026-09-29,
@@ -1905,7 +1913,9 @@ fn smoke_corpus_boundary_categories() {
         // answers with set algebra on whole shells — the hollow ball and the
         // box with a spherical cavity were the same STOP.
         ("P0028", Category::SupportedCorrect),
-        ("P0029", Category::SupportedCorrect),
+        // P0029 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
+        // sign-off, ledger N66) — its natural RelocationCrossedCarrierVertex STOP, no longer masked by a refined body with failures.
+        ("P0029", Category::Error),
         ("P0030", Category::SupportedCorrect),
         // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output
         // gate, on two different SURFACE PAIRS. P0031 is FaceId(32) CYLINDER ×
