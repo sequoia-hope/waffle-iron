@@ -2829,7 +2829,7 @@ pub(crate) fn update_census(
     let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") else {
         return;
     };
-    let t0 = std::time::Instant::now();
+    let t0 = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_441_UPDATE_CENSUS), never set in wasm
     let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
     let raw = crate::stage4_correct::merge_same_plane_patches(
         crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency),
