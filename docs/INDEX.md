@@ -36,7 +36,7 @@ The live kernel is the layered `kernel-v2` stack (Phase-6 migration COMPLETE
 |------|-------------|
 | `yang_functional_roadmap.md` | **Plan of record** for the whole kernel stack: `LabeledArrangement` interface, milestones M0–M8, reference-parity strategy |
 | `yang_deviations.md` | Ledger of known divergences between the implementation and Yang 2025 / Cherchi 2022 — a per-increment entry is a **merge blocker** (Constitution P2 artifact for Yang increments) |
-| `audits/yang_2025_audit.md` | Per-step CORRECT / INCOMPLETE / WRONG / STUB assessment of the Yang pipeline vs the paper — read before working on a stage |
+| `audits/yang_2025_audit.md` | Paper-ordered compliance matrix (2026-10-16): one row per procedural statement of Yang §3–§4 with code site, status, ledger id and pin; pipeline order; ranked findings — read your section's rows before working on a stage |
 | `review/design_review_2026-07-12_kernel.md` | Multi-agent kernel design review (findings F1–F18, governance-doc issues G1–G11) driving current remediation |
 
 ## Testing

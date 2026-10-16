@@ -24,6 +24,15 @@ Measured 2026-10-14: 194 distinct environment knobs in yang-rs (78
 behaviour switches, 116 debug probes); 45 DELEGATED ledger entries; the
 Stage-1 arms and Stage-4 passes below.
 
+**Paper-first complement (2026-10-16):** `docs/audits/yang_2025_audit.md`
+walks the paper in order. It found mechanisms this table does not list — the
+Stage-0 Fig-11 relocation subsystem (U-2), the §4.5.1 transits on the
+boundary class (U-3), Stage-1 junction mints (O-3), and the
+classify-before-update order (O-1) — and three paths where a known failure
+leaves without a STOP or a refinable site (F-1 to F-3). Its "What this
+changes" section lists the proposed changes to the phases below; none is
+adopted until this spec says so.
+
 ## 2. Substitution table
 
 Every arm and pass is listed with the paper mechanism it stands in for and

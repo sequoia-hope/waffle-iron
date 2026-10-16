@@ -535,9 +535,14 @@ Do NOT skip to lower-priority items because they are easier.
    - Cherchi 2022 C++ reference (full Boolean pipeline + ray-cast in/out):
      `github.com/gcherchi/InteractiveAndRobustMeshBooleans`
    - Livesu et al. 2021 (simplified earcut CDT): "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut"
-   - **Implementation audit:** `docs/audits/yang_2025_audit.md` — per-step assessment
-     of what's CORRECT, INCOMPLETE, WRONG, or STUB vs the paper. Read this before
-     working on the Yang pipeline to know what actually needs fixing.
+   - **Compliance matrix:** `docs/audits/yang_2025_audit.md` (rebuilt
+     2026-10-16) — the paper walked in order, one row per procedural
+     statement of §3–§4 (194 rows: FAITHFUL / PARTIAL / DEVIATES / MISSING /
+     ORDER / SILENT / N/A, each with its code site, ledger id and pin), the
+     paper's pipeline order against `boolean.rs`, and ranked cross-cutting
+     findings. It is the paper-first complement of the cleanup spec's
+     code-first §2 table. Read the rows for your section before changing a
+     stage, and update them in the same commit as the ledger.
 
    **Reference parity is not optional.** When the algorithm we're porting has a
    public reference implementation (Cherchi 2020/2022 C++), build differential

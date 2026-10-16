@@ -1,3 +1,9 @@
+> **STALE (2026-10-16).** This prompt predates the Phase-6 migration: its
+> step table names files of the deleted `crates/kernel`. It no longer owns
+> `docs/audits/yang_2025_audit.md`. That file is now the paper-ordered
+> compliance matrix. A review pass UPDATES its rows (status, code site,
+> ledger id, pin) and its findings in place; it never overwrites the file.
+
 You are running as part of auto-waffle, doing a Yang 2025 pipeline review
 pass on the Waffle Iron kernel codebase. Your job is to audit every step of
 the Yang hybrid boolean pipeline against the paper and produce an honest
