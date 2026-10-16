@@ -1,5 +1,7 @@
 # §4.5.3 junction-protected reversal collapse (yang-rs Stage 4)
 
+> **2026-10-16 — SUPERSEDED for the §4.5.3 sweep (cleanup Phase 2a).** The victim RANKING of §3, §3c branch 6, §3d and §3e is deleted. What it protected — an exact junction is never the victim — is now a property of the paper's own object: the sweep runs on each intersection curve C between its ENDPOINTS (`curve_endpoint`: the curve or pair changes, the run ends, or the vertex lies on ≥ 3 surfaces / is a Stage-1 mint), and removes points in the paper's order (`paper_order_removal`, `refs/text/yang2025_hybrid_boolean.txt:746-751`). §3b (the §4.4.1(b) merge direction) is unchanged. Ledger N29 amendment 2026-10-16.
+
 Amendment to `specs/yang_pr_yr10_stage4_relocate.md` §3 step 3 (the §4.5.3
 reversed-intersection sweep). Bug-fix cycle per FIP §8.
 

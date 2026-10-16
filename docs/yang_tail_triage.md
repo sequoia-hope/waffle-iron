@@ -43,6 +43,30 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-16 (Phase 2a-i) — the §4.5.3 sweep takes the paper's ORDER; the victim ranking DELETED; **corpus 357C / 0W / 12E / 5EE / 0T, no case moved**
+
+Cleanup Phase 2a, first half (`specs/yang_faithful_cleanup.md`; ledger N29
+amendment 2026-10-16). The sweep walks each intersection curve C from an
+endpoint and removes points in the paper's order (`:746-751`): `p_n` once a
+later point of C is known to resolve the reversal, else `p_r`. C's endpoints —
+a curve / pair change, a run end, or a vertex on ≥ 3 surfaces or a Stage-1
+mint — are exact and never removed; that one definition replaces the
+§3 / §3c / §3d / §3e ranking (`reversal_collapse_direction_ranked`,
+`YANG_453_RANK`, deleted with the `YANG_453_PAIR` / `_SPAIR` / `_OVERTAKE`
+kill switches).
+
+Corpus (release, 8 jobs, 900 s, wall 1303.5 s on a host loaded by a parallel
+test suite): every verdict and detail identical to canonical except **R0044
+CORRECT → TIMEOUT (928.3 s CPU)**. Alone it measured 1003.7 s: the first draft
+re-read every vertex's incidence rank by scanning the whole incidence map, per
+loop vertex, per pass — quadratic on R0044's large loops. The rank is now read
+once per pass; R0044 alone is **SUPPORTED_CORRECT in 515.5 s**, against
+**510.2 s** at canonical HEAD (`ef5e7449`, a clean worktree) the same hour. The
+rank read is the same set the draft computed, so every other verdict stands.
+No case converted: the order matters only where a reversal's bad point is
+`p_r` itself or two removals compete, and no canonical case had such a site
+outcome change.
+
 ## 2026-10-15 (measurement: the Case-IV phantom boost OFF) — **355C / 0W / 14E**: it protects C0117 and F0088; Stage 3's solving failure now names its faces (F0088 recovers through the loop), C0117 waits for Phase 2
 
 `phantom_min_rim_segments` (cross-operand cylinder pairs, `boolean_once`'s

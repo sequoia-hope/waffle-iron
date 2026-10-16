@@ -111,6 +111,7 @@ that converts no new case still ships (roadmap §0.1). A substitute that
 
 ### Phase 2 — §4.4.1 mesh updating (N2 → RESOLVED)
 - 2a. §4.5.3 by the paper's order (remove-next-and-reconnect, restart from p_b); every §4.3 collapse carries containment or incidence; N29/N47/N55/N56 amended, N29's victim ranking deleted.
+  - [x] **2a-i (2026-10-16): the §4.5.3 sweep takes the paper's ORDER.** `reversal_collapse_direction_ranked` and `YANG_453_RANK` deleted (with the `YANG_453_PAIR` / `_SPAIR` / `_OVERTAKE` kill switches): the sweep walks each curve C from an endpoint (`curve_endpoint` — curve / pair change, run end, ≥ 3 surfaces or a Stage-1 mint — the one definition that replaces the five ranking amendments §3–§3e), and `paper_order_removal` removes `p_n` once a later point of C resolves the reversal, else `p_r` (`:746-751`). Detectors and the 2·d_ε gate unchanged. Corpus 357C / 0W / 12E / 5EE, identical but R0044 (a loaded-host TIMEOUT; alone 515.5 s vs 510.2 s at HEAD once the per-vertex rank read is hoisted per pass). N29's victim rule RESOLVED.
 - 2b. Merge-with-retriangulation: `collapse_vertex` + `repair_fan_cluster` become one §4.4.1 operation that splits/merges/inserts and re-CDTs the touched region in the parameter domain (`:620-640`, Fig. 11); `stage4_relocate_and_correct_inner` is split along the paper's sub-steps as the passes go.
 - 2c. Re-site the Stage-5 seam/decimate passes into §4.4.1; review `merge_same_plane_patches`.
 

@@ -1706,9 +1706,10 @@ pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
     );
 }
 
-// Spec `yang_453_junction_protected_collapse` §3: the §4.5.3 collapse
-// victim is `p_n` on a same-curve run, but `p_r` when `p_n` is a curve
-// junction (the loop's curve changes at `p_n`).
+// Yang §4.5.3's order (`refs/text/yang2025_hybrid_boolean.txt:746-751`):
+// on one curve C, a reversal at p_r removes the NEXT point once a later point
+// of C is known to resolve it; p_n stays an interior point of C while the
+// same curve continues beyond it.
 #[test]
 pub(crate) fn s453_collapse_removes_p_n_on_same_curve_run() {
     let circle = Curve::Circle {
@@ -1722,13 +1723,24 @@ pub(crate) fn s453_collapse_removes_p_n_on_same_curve_run() {
     curves.insert((2, 3), circle);
     let inc: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
         std::collections::BTreeMap::new();
+    let none = std::collections::HashSet::new();
+    assert!(
+        !curve_endpoint(&curves, &inc, &none, 1, 2, 3),
+        "the same curve beyond p_n ⇒ p_n is interior to C"
+    );
+    // Loop 0 → 1 → 2 → 3 → 4 with endpoints 0 and 4; the site p_r = 1 is
+    // reversed against p_n = 2 and resolved by v_2 = 3.
+    let verts = [0u32, 1, 2, 3, 4];
+    let endpoint = [true, false, false, false, true];
     assert_eq!(
-        reversal_collapse_direction(&curves, &inc, 1, 2, 3),
+        paper_order_removal(&verts, &endpoint, 1, |x| x == 2, |_, _| 1.0),
         (2, 1),
-        "same curve beyond p_n ⇒ paper default: p_n is the victim"
+        "a resolving later point ⇒ the paper's default: p_n is removed onto p_r"
     );
 }
 
+// The paper's "if no such next point can be found, we remove p_r": when p_n
+// is C's endpoint (the curve changes there) it is exact and is never removed.
 #[test]
 pub(crate) fn s453_collapse_protects_junction_p_n() {
     let circle = Curve::Circle {
@@ -1747,32 +1759,74 @@ pub(crate) fn s453_collapse_protects_junction_p_n() {
     curves.insert((2, 3), other);
     let inc: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
         std::collections::BTreeMap::new();
-    assert_eq!(
-        reversal_collapse_direction(&curves, &inc, 1, 2, 3),
-        (1, 2),
-        "curve changes at p_n ⇒ p_n is an exact curve-junction endpoint \
-             and must survive; the overshooting p_r is the victim"
+    let none = std::collections::HashSet::new();
+    assert!(
+        curve_endpoint(&curves, &inc, &none, 1, 2, 3),
+        "curve changes at p_n ⇒ p_n is an exact curve-junction endpoint"
     );
     // Canonical-key robustness: descending vertex ids on both edges.
     let mut curves_rev: std::collections::BTreeMap<(u32, u32), Curve> =
         std::collections::BTreeMap::new();
     curves_rev.insert((7, 9), circle);
     curves_rev.insert((3, 7), other);
+    assert!(
+        curve_endpoint(&curves_rev, &inc, &none, 9, 7, 3),
+        "the endpoint holds under canonical (min,max) edge keys"
+    );
+    // Loop 0 → 1 → 2 → 3 with p_n = 2 an endpoint: p_r = 1 is removed onto
+    // its NEARER neighbour, whichever side, and the endpoint survives.
+    let verts = [0u32, 1, 2, 3];
+    let endpoint = [true, false, true, false];
+    let near_n = |x: u32, y: u32| if x.max(y) == 2 { 0.1 } else { 1.0 };
     assert_eq!(
-        reversal_collapse_direction(&curves_rev, &inc, 9, 7, 3),
-        (9, 7),
-        "junction protection must hold under canonical (min,max) edge keys"
+        paper_order_removal(&verts, &endpoint, 1, |_| false, near_n),
+        (1, 2),
+        "p_n is C's endpoint ⇒ no next point can be removed ⇒ p_r goes"
+    );
+    let near_b = |x: u32, y: u32| if x.min(y) == 0 { 0.1 } else { 1.0 };
+    assert_eq!(
+        paper_order_removal(&verts, &endpoint, 1, |_| false, near_b),
+        (1, 0)
     );
 }
 
-// Spec §3d (P0028): a junction by INCIDENCE. The loop's far edge carries
-// the SAME ellipse (a cap sliver's 3-cycle), so the §3 curve test reads
-// "same curve beyond p_n" — but p_n sits on three distinct surfaces (the
-// prism's cap and side planes plus the cylinder) while p_r sits on two:
-// p_n is the exact corner and p_r the overshooting chord vertex.
+// The paper's search for "such next point": when p_r ITSELF is the point out
+// of order every later point of C stays reversed, and removing next points
+// would strip C of its good samples — the search finds none and p_r is
+// removed instead. The search stops at C's next endpoint.
+#[test]
+pub(crate) fn s453_paper_order_removes_p_r_when_no_next_point_resolves() {
+    let verts = [0u32, 1, 2, 3, 4, 5];
+    let endpoint = [true, false, false, false, true, false];
+    let dist = |x: u32, y: u32| if x.min(y) == 0 { 0.1 } else { 1.0 };
+    assert_eq!(
+        paper_order_removal(&verts, &endpoint, 1, |_| true, dist),
+        (1, 0),
+        "no later point resolves the reversal ⇒ p_r is removed, C keeps 2 and 3"
+    );
+    // A resolving point BEYOND the endpoint (vertex 5, on the next curve)
+    // does not count: the search ends at C's endpoint 4.
+    assert_eq!(
+        paper_order_removal(&verts, &endpoint, 1, |x| x != 5, dist),
+        (1, 0),
+        "the search never crosses C's endpoint"
+    );
+    // The endpoint itself may resolve the reversal (it is a point of C; it
+    // is just never removed).
+    assert_eq!(
+        paper_order_removal(&verts, &endpoint, 1, |x| x != 4, dist),
+        (2, 1)
+    );
+}
+
+// Spec §3d (P0028): an endpoint by INCIDENCE. The loop's far edge carries
+// the SAME ellipse (a cap sliver's 3-cycle), so curve identity reads "same
+// curve beyond p_n" — but p_n sits on three distinct surfaces (the prism's
+// cap and side planes plus the cylinder): it is the exact corner, an endpoint
+// of every curve through it.
 #[test]
 pub(crate) fn s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop() {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, HashSet};
     let ellipse = Curve::Ellipse {
         center: p(0.0, 0.0, 1.0),
         normal: Vector3::new(0.0, 0.0, 1.0),
@@ -1793,9 +1847,8 @@ pub(crate) fn s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
-    // The 3-cycle (p_r=0, p_n=2, p_after=3) on one ellipse, plus the
-    // corner's two other edges: the solid edge (2,4) on cap∩side and the
-    // side∩cylinder edge (2,5).
+    // The 3-cycle (0, 2, 3) on one ellipse, plus the corner's two other
+    // edges: the solid edge (2,4) on cap∩side and the side∩cylinder edge (2,5).
     let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
     curves.insert((0, 2), ellipse);
     curves.insert((2, 3), ellipse);
@@ -1807,39 +1860,31 @@ pub(crate) fn s453d_incidence_rank_protects_the_corner_on_a_same_curve_loop() {
     inc.insert((0, 3), vec![(InputId::A, cap), (InputId::B, cyl)]);
     inc.insert((2, 4), vec![(InputId::A, cap), (InputId::A, side)]);
     inc.insert((2, 5), vec![(InputId::A, side), (InputId::B, cyl)]);
+    let none: HashSet<u32> = HashSet::new();
     assert_eq!(distinct_surfaces_at(&inc, 0), 2);
     assert_eq!(distinct_surfaces_at(&inc, 2), 3);
-    assert_eq!(
-        reversal_collapse_direction(&curves, &inc, 0, 2, 3),
-        (0, 2),
-        "a three-surface corner outranks the two-surface chord vertex: the \
-         corner survives although the loop's far edge carries the same curve"
+    assert!(
+        curve_endpoint(&curves, &inc, &none, 0, 2, 3),
+        "a three-surface corner is C's endpoint although the loop's far edge \
+         carries the same curve"
     );
-    // The mirrored site: the corner as p_r (its two edges on one curve) and a
-    // plain chord vertex as p_n keeps the paper default — the corner survives.
-    assert_eq!(
-        reversal_collapse_direction(&curves, &inc, 2, 0, 3),
-        (0, 2),
-        "a corner at p_r is never the victim either"
+    assert!(
+        !curve_endpoint(&curves, &inc, &none, 3, 0, 2),
+        "the two-surface chord vertex is interior to C"
     );
-    // Equal ranks (both plain) keep the §3 curve test byte-identically.
+    // Equal ranks (both plain) fall back to curve identity.
     inc.remove(&(2, 4));
     inc.remove(&(2, 5));
     assert_eq!(distinct_surfaces_at(&inc, 2), 2);
-    assert_eq!(
-        reversal_collapse_direction(&curves, &inc, 0, 2, 3),
-        (2, 0),
-        "same curve beyond a plain p_n ⇒ the paper default stands"
-    );
+    assert!(!curve_endpoint(&curves, &inc, &none, 0, 2, 3));
 }
 
-// Spec §3e (P0057, 2026-10-13): a junction by PROVENANCE. The loop edges at
+// Spec §3e (P0057, 2026-10-13): an endpoint by PROVENANCE. The loop edges at
 // the corner carry only two surfaces — the labeling kept no triangle of the
 // corner's third face there (P0057: the prism's f5 piece ended at the
 // chord-level pierce while the exact corner T2 = f5∩f6∩cylinder was minted
-// at Stage 1) — so the edge-carried rank reads 2 and ties with the chord
-// vertex. The mint record is the authority: a Stage-1 junction mint ranks as
-// a corner and is never the victim, on either side of the site.
+// at Stage 1) — so the edge-carried rank reads 2. The mint record is the
+// authority: a Stage-1 junction mint is an endpoint and is never removed.
 #[test]
 pub(crate) fn s453e_minted_junction_outranks_an_edge_carried_tie() {
     use std::collections::{BTreeMap, HashSet};
@@ -1879,23 +1924,33 @@ pub(crate) fn s453e_minted_junction_outranks_an_edge_carried_tie() {
         3,
         "a mint ranks as a corner"
     );
-    // Without provenance the tie falls to the paper default (p_n removed).
-    assert_eq!(
-        reversal_collapse_direction_ranked(&curves, &inc, &none, 0, 2, 3),
-        (2, 0)
+    assert!(!curve_endpoint(&curves, &inc, &none, 0, 2, 3));
+    assert!(
+        curve_endpoint(&curves, &inc, &minted, 0, 2, 3),
+        "the minted corner is C's endpoint"
     );
-    // With vertex 2 minted it survives as p_n …
+    // P0057's site: the corner between two chord vertices of one ellipse,
+    // the moved one (vertex 3, after it) having overshot it. The paper tests
+    // C's interior points only, so the reversal is found at 3, no later
+    // point resolves it, and 3 — not the corner — is removed.
+    let verts = [0u32, 2, 3];
+    let endpoint = [false, true, false];
     assert_eq!(
-        reversal_collapse_direction_ranked(&curves, &inc, &minted, 0, 2, 3),
-        (0, 2),
-        "the minted corner at p_n survives; the chord vertex is the victim"
-    );
-    // … and as p_r (P0057's site: the corner between two chord vertices of
-    // one ellipse, the moved one having overshot it).
-    assert_eq!(
-        reversal_collapse_direction_ranked(&curves, &inc, &minted, 2, 0, 3),
-        (0, 2),
-        "the minted corner at p_r is never the victim"
+        paper_order_removal(
+            &verts,
+            &endpoint,
+            2,
+            |_| true,
+            |x, y| {
+                if x.min(y) == 2 {
+                    0.1
+                } else {
+                    1.0
+                }
+            }
+        ),
+        (3, 2),
+        "the minted corner is never the victim"
     );
 }
 
@@ -1947,12 +2002,12 @@ pub(crate) fn s453c_line_run_reversal_branches() {
         "a U-turn on ONE straight seam run (unordered-equal pairs) is a \
              §4.5.3 reversal"
     );
-    // Branch 7: same pair continues past p_n → paper default victim p_n.
-    assert_eq!(reversal_collapse_direction(&curves, &inc, 1, 2, 3), (2, 1));
-    // Branch 6: pair changes at p_n → p_n is the run junction; p_r is
-    // the victim.
+    let none = std::collections::HashSet::new();
+    // Branch 7: same pair continues past p_n → p_n is interior to the run.
+    assert!(!curve_endpoint(&curves, &inc, &none, 1, 2, 3));
+    // Branch 6: pair changes at p_n → p_n is the run's endpoint.
     inc.insert((2, 3), pair_other.clone());
-    assert_eq!(reversal_collapse_direction(&curves, &inc, 1, 2, 3), (1, 2));
+    assert!(curve_endpoint(&curves, &inc, &none, 1, 2, 3));
 
     // Branch 4: pair changes AT p_r → corner, never tested as a reversal
     // (even though the polyline doubles back).
@@ -1989,11 +2044,10 @@ pub(crate) fn s453c_line_run_reversal_branches() {
         "p_r with a curve-less incident edge is a run boundary, not a site"
     );
     // Run END at p_n: curve(p_r,p_n) exists, curve(p_n,p_after) doesn't —
-    // p_n survives, p_r is the victim.
-    assert_eq!(
-        reversal_collapse_direction(&curves_gap, &inc, 1, 2, 3),
-        (1, 2),
-        "the run's exact endpoint (no intersection edge beyond) survives"
+    // p_n is the run's exact endpoint.
+    assert!(
+        curve_endpoint(&curves_gap, &inc, &none, 1, 2, 3),
+        "the run's exact endpoint (no intersection edge beyond) is C's end"
     );
 }
 

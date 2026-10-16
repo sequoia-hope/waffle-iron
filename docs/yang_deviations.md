@@ -28,7 +28,7 @@ The user, 2026-10-14, on the batch below: *"sometimes Opus would ask questions I
 3. **Sign-off requests are prose, not multiple choice.** The agent states the deviation, quotes the paper's prescription (`refs/text/*.txt` line cite), gives one recommendation, and asks whether the user accepts the divergence. "I don't care" is recorded as DELEGATED and the agent proceeds with the paper's form where it can.
 4. **Catch-up debt, in priority order** (the 2026-10-14 audit, memory `feedback_paper_is_the_spec_delegation_is_not_approval`):
    - **N5 (curved Stage 1).** Graded "severity low, faithful-by-exactness" for planar faces; the curved half — "two rings plus chord-bound rim sampling, watertightness from shared rings rather than per-boundary CDT" — hosted P0013, P0016, P0031, P0037, P0038, P0039, P0057, P0044/P0054/P0058, and the positional-ring and one-sample-per-azimuth assumptions P0047 tripped. Every fix added a local sample arm to `RimAngleOverrides` in place of the paper's §4.1 d_ε iteration. N61 already holds the cone chart OPEN. Re-adjudicate as OPEN for curved faces; the zipper (`specs/stage1_azimuth_merge_unequal_rings.md`) is the first step toward §4.1.2 and should be named as such.
-   - **N29 (§4.5.3 victim selection).** The exact-parameter reversal DETECTOR is a strengthening; the collapse-VICTIM ranking that replaced the paper's ordered "remove the next point and reconnect" (`refs/text/yang2025_hybrid_boolean.txt:746-748`) has been amended five times (N59, `yang_453_junction_protected_collapse.md` §3b–§3e) and the P0057 anchor shows it still collapsed an exact Stage-1 corner under attribution ranking. The structural remedy is N2's mesh update; until then the entry must name the victim rule as the open part.
+   - **N29 (§4.5.3 victim selection) — victim rule RESOLVED 2026-10-16 (Phase 2a: the paper's order; see the N29 amendment).** The exact-parameter reversal DETECTOR is a strengthening; the collapse-VICTIM ranking that replaced the paper's ordered "remove the next point and reconnect" (`refs/text/yang2025_hybrid_boolean.txt:746-748`) has been amended five times (N59, `yang_453_junction_protected_collapse.md` §3b–§3e) and the P0057 anchor shows it still collapsed an exact Stage-1 corner under attribution ranking. The structural remedy is N2's mesh update; until then the entry must name the victim rule as the open part.
    - **The weld band (N47, N55, N56) and its N58 repair.** A `moved×mint` weld at `TAU_MODEL·(1+scale)` manufactured the P0059 folds that inc-4c then repaired (the winding bug lived in the repair); kernel-v2's twin of N56's `subres` merged two exact junctions 3.4e-8 apart on a count tie (P0060); the model band was refuted at the rim composition layer by R0072's real 6e-8 points (2026-10-13). Rule to write into all three entries: a collapse keyed on the model band alone is forbidden; every collapse carries a carried-surface CONTAINMENT or incidence test (yang's `subres` has it; kernel-v2 KV15b gained it for P0060).
    - **N62.** "Whole-op refinement is strictly more refinement" was insufficient for P0031; the paper's local lens exists since 2026-10-10 and the entry must say so.
    - **N27.** Identity ceiling `TAU_MODEL` is the band R0072 refuted one layer over; it survives only because its population is override-onto-UNIFORM. Line references are ~200 lines stale (`:521` → `stage1_tessellate.rs:692`, `:855`).
@@ -125,7 +125,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N26 | DELEGATED (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
 | N27 | DELEGATED (B) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
 | N28 | DELEGATED (B) | Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection |
-| N29 | DELEGATED (B) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
+| N29 | DELEGATED (B) — victim rule RESOLVED 2026-10-16 (paper order) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
 | N30 | DELEGATED (B) | Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves) |
 | N31 | DELEGATED (B) | Cone-ellipse & cone-hyperbola SAME-TYPE junction routing to the triple relocation (KV16 / KV16b) |
 | N32 | DELEGATED (B) | Stage-6 output arc orientation obeys the CCW-minor input convention |
@@ -2184,6 +2184,40 @@ ellipse is bisection, not Newton-from-atan2.
 (`corner_in_band_box`, `corner_in_band_reverts_keep_true_junction`). Assay:
 **R0061** RED→GREEN driver, **R0059/R0072** joined CORRECT (class siblings
 R0063/R0095/F0085); baseline 238C/0W/53E/4U/0T.
+
+**Amendment 2026-10-16 (cleanup Phase 2a — the victim rule RESOLVED to the
+paper's ORDER).** The collapse-VICTIM ranking (`reversal_collapse_direction_ranked`,
+spec `yang_453_junction_protected_collapse.md` §3, §3c branch 6, §3d, §3e and
+the #145 / pair arms' "nearer neighbour" survivors) and its knob
+`YANG_453_RANK` are DELETED. The sweep now walks each intersection curve C
+from an endpoint and removes points in the paper's order
+(`refs/text/yang2025_hybrid_boolean.txt:746-751`, `paper_order_removal`): at
+a reversed `p_r` the next point is removed once a later point of C is known
+to resolve the reversal; "if no such next point can be found" — `p_n` is C's
+endpoint, or every later point of C stays reversed — `p_r` is removed and
+the walk resumes at `p_b`. C's ENDPOINTS (`curve_endpoint`: a curve change,
+a run end, a straight-run pair change, an untyped-chain pair change, or a
+vertex on ≥ 3 surfaces / a Stage-1 mint) are exact and never removed — that
+one definition replaces the five ranking amendments, because the paper's C
+"between the two surfaces S_A and S_B" ends where a third surface enters.
+Two implementation readings, both stated in the code: (i) the search for
+"such next point" is made BEFORE a removal is committed (a literal
+remove-then-test strips C of all its good points when `p_r` itself is the
+point out of order); (ii) a removed polyline point collapses onto its
+NEARER polyline neighbour — the polyline after removal is the paper's either
+way, and the shorter collapse is the smaller mesh motion. The DETECTORS
+(angle band; exact parameter order on shared conics; progression sign on
+untyped pair chains; the R0059 / P0036 overtake arms, which name their own
+junction survivor) and the 2·d_ε resolution gate are unchanged — the
+detector strengthening stays DELEGATED (B). Kill switches deleted with it:
+`YANG_453_PAIR` (incl. its result-changing `census` mode), `YANG_453_SPAIR`,
+`YANG_453_OVERTAKE`. Corpus (release, 8 jobs, 900 s): 357C / 0W / 12E / 5EE,
+every verdict and detail identical to canonical except R0044, a TIMEOUT
+under a loaded host whose re-run alone, after the per-pass rank read was
+hoisted out of the per-vertex endpoint test, is SUPPORTED_CORRECT in 515.5 s (canonical HEAD alone the same hour:
+510.2 s).
+Pins: `tests_unit/m5_case_iv.rs` `s453_*` (the endpoint rule and the order,
+incl. `s453_paper_order_removes_p_r_when_no_next_point_resolves`).
 
 **Deviation status:** documented strengthening deviation from the §4.5.3 literal
 method; the corridor-budget tolerance is a design decision with the provable
