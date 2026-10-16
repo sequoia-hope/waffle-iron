@@ -129,10 +129,10 @@ pub(crate) fn chart_sag_census(
 }
 
 thread_local! {
-    /// Test-only override of the `YANG_S1_CHART_SEED` gate — per THREAD, so
-    /// parallel unit tests never race on process-global env: `Some(false)`
-    /// forces the boundary-only CDT (the pre-Slice-G path), `Some(true)` the
-    /// seeded path, `None` (production) reads the env gate.
+    /// Test-only override of the chart seed — per THREAD, so parallel unit
+    /// tests never interfere: `Some(false)` forces the boundary-only CDT (the
+    /// pre-Slice-G path), `Some(true)` or `None` (production) the seeded path.
+    /// (The `YANG_S1_CHART_SEED` env gate was deleted 2026-10-16.)
     pub(crate) static CHART_SEED_OVERRIDE: std::cell::Cell<Option<bool>> =
         const { std::cell::Cell::new(None) };
 }

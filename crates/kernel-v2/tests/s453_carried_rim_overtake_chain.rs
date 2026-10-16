@@ -18,8 +18,8 @@
 //! (R0059) already applied it to a relocated junction overtaking unmoved
 //! run vertices; the carried-curve arm applies the same rule on an
 //! operand's own typed B-Rep edge, tested by the curve's exact parameter
-//! order. RED with `YANG_453_OVERTAKE=0` (the P0036 STOP, verbatim); GREEN
-//! with the arm: the cut validates, and no cap rim vertex survives inside
+//! order. Before the arm (its `YANG_453_OVERTAKE` switch was deleted
+//! 2026-10-16) the cut STOPped as P0036; with it: the cut validates, and no cap rim vertex survives inside
 //! the cutter.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};

@@ -61,17 +61,14 @@ const BAND: f64 = cad_primitives::TAU_EVAL;
 /// ruling by the same standard `validate_solid` applies to it.
 const SEAM_RULING_TOLERANCE: f64 = crate::validate::CURVED_SURFACE_DEBUG_TOLERANCE;
 
-/// Deviation N77 — component-wise seam anchoring (PASS 1C below).
-///
-/// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
-/// assay with this and the N78 gate on measured **324C / 0W / 22E / 5EE /
-/// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category
-/// moves — P0019 and P0020 → SUPPORTED_CORRECT — and zero regressions. With
-/// `YANG_SEAM_COMPONENT=0|off` canonicalization decides exactly as PASS 1 /
-/// PASS 2 always have (the kill switch every always-on rule keeps).
-fn seam_component_mode() -> bool {
-    !matches!(std::env::var("YANG_SEAM_COMPONENT"), Ok(v) if v == "0" || v == "off")
-}
+// Deviation N77 — component-wise seam anchoring (PASS 1C below).
+//
+// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
+// assay with this and the N78 gate on measured **324C / 0W / 22E / 5EE /
+// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category
+// moves — P0019 and P0020 → SUPPORTED_CORRECT — and zero regressions. Its
+// `YANG_SEAM_COMPONENT=0|off` kill switch was deleted 2026-10-16 (cleanup
+// spec §4).
 
 /// Union-find root with path halving (component = rims joined by a band).
 fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
@@ -1080,41 +1077,38 @@ fn try_recover(
         // aside for the bands PASS 1C owns; a band whose two rims are not
         // verifiably coaxial with its own axis joins nothing and keeps the
         // ordinary greedy path.
-        let component_mode = seam_component_mode();
         let mut seam_components: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         let mut in_component: Vec<bool> = vec![false; cands.len()];
-        if component_mode {
-            let mut parent: Vec<usize> = (0..chains.len()).collect();
-            for (ci, cand) in cands.iter().enumerate() {
-                let (EffCurve::Circle { normal: na, .. }, EffCurve::Circle { normal: nb, .. }) =
-                    (chains[cand.ca].curve, chains[cand.cb].curve)
-                else {
-                    continue;
-                };
-                // Both rim normals ∥ the band axis, and both rim centres on
-                // ONE axis-parallel line: that is what makes "the component's
-                // seam direction" a well-defined radial direction for every
-                // rim in it.
-                if norm3(cross3(na, cand.axis)) > BAND
-                    || norm3(cross3(nb, cand.axis)) > BAND
-                    || norm3(cross3(sub(cand.ccb, cand.cca), cand.axis)) > band
-                {
-                    continue;
-                }
-                in_component[ci] = true;
-                let (ra, rb) = (uf_find(&mut parent, cand.ca), uf_find(&mut parent, cand.cb));
-                if ra != rb {
-                    parent[ra] = rb;
-                }
+        let mut parent: Vec<usize> = (0..chains.len()).collect();
+        for (ci, cand) in cands.iter().enumerate() {
+            let (EffCurve::Circle { normal: na, .. }, EffCurve::Circle { normal: nb, .. }) =
+                (chains[cand.ca].curve, chains[cand.cb].curve)
+            else {
+                continue;
+            };
+            // Both rim normals ∥ the band axis, and both rim centres on
+            // ONE axis-parallel line: that is what makes "the component's
+            // seam direction" a well-defined radial direction for every
+            // rim in it.
+            if norm3(cross3(na, cand.axis)) > BAND
+                || norm3(cross3(nb, cand.axis)) > BAND
+                || norm3(cross3(sub(cand.ccb, cand.cca), cand.axis)) > band
+            {
+                continue;
             }
-            // `cands` is built in face-index order, so each component's first
-            // listed band is its lowest face index — the key both the
-            // component ORDER and the "first natural seam" rule below use.
-            for (ci, &joined) in in_component.iter().enumerate() {
-                if joined {
-                    let root = uf_find(&mut parent, cands[ci].ca);
-                    seam_components.entry(root).or_default().push(ci);
-                }
+            in_component[ci] = true;
+            let (ra, rb) = (uf_find(&mut parent, cand.ca), uf_find(&mut parent, cand.cb));
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+        // `cands` is built in face-index order, so each component's first
+        // listed band is its lowest face index — the key both the
+        // component ORDER and the "first natural seam" rule below use.
+        for (ci, &joined) in in_component.iter().enumerate() {
+            if joined {
+                let root = uf_find(&mut parent, cands[ci].ca);
+                seam_components.entry(root).or_default().push(ci);
             }
         }
 
@@ -1367,9 +1361,7 @@ fn try_recover(
             }
         }
 
-        // PASS 1C — COMPONENT-WISE SEAM ANCHORING (deviation N77, gated on
-        // `YANG_SEAM_COMPONENT=1|on`; `seam_components` is empty with the gate
-        // off, so this loop does not execute and nothing above it changed).
+        // PASS 1C — COMPONENT-WISE SEAM ANCHORING (deviation N77, always on).
         // One seam DIRECTION per connected component of rims-joined-by-bands,
         // chosen once and applied to every rim in it — see the rationale at
         // the union-find above.

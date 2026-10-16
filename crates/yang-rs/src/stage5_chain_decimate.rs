@@ -57,8 +57,7 @@
 //! descriptor: a `LineSegment` piece is the same line, a `SurfacePair` piece
 //! the same pair — kernel-v2 resamples both at render density.
 //!
-//! `YANG_434_DECIMATE=0|off` is the dev A/B off-knob (byte-identical
-//! emission).
+//! Always on (the `YANG_434_DECIMATE` off-knob was deleted 2026-10-16).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -67,11 +66,6 @@ use cad_primitives::Point3;
 use crate::brep::{BRepEdge, BRepFace, TessellationSource};
 use crate::geom::Curve;
 use crate::stage4_correct::paper_chain_sample_redundant;
-
-/// ALWAYS-ON; `YANG_434_DECIMATE=0|off` is the dev A/B off-knob.
-pub(crate) fn decimate_gate_enabled() -> bool {
-    !matches!(std::env::var("YANG_434_DECIMATE"), Ok(v) if v == "0" || v == "off")
-}
 
 /// Pass statistics (log line at the call site).
 #[derive(Debug, Default, Clone, Copy)]

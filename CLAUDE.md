@@ -192,7 +192,7 @@ Do NOT skip to lower-priority items because they are easier.
    pair's two faces as one partner plane — and 3b — a torus-bearing Stage-3
    edge selects at the torus owner's own chord budget — converted all six,
    the arm-on corpus then moved by exactly P0032, and the emission is
-   DEFAULT ON (`YANG_TORUS_PLANE_PAIR=0` is the off-knob); spec
+   DEFAULT ON (its off-knob deleted 2026-10-16, cleanup §4); spec
    `m5_surface_pair_curve.md` "Torus × plane" / "Increments 3a + 3b").
    P0034 CONVERTED 2026-10-11 (later) (the "tangent march" was the wrong
    remedy — the failing pair edge's endpoints were the two roots of ONE
@@ -451,7 +451,14 @@ Do NOT skip to lower-priority items because they are easier.
    phantom OUT (labels per B-Rep patch), it does not refine it away. With
    it and the self-contact guard (Phase 3) the Stage-1 arms are done until
    Phase 2 (§4.4.1 mesh updating), the cleanup's next phase.
-   **The open P-series ERROR tail is P0045, P0048, P0056, P0061**
+   **2026-10-16: cleanup Phase 2a LANDED** — the §4.5.3 sweep runs in the
+   paper's ORDER on each curve C between its endpoints (N29's victim ranking
+   deleted), every §4.3 collapse carries carried-surface CONTAINMENT (N47's
+   weld gained it — **P0048 CONVERTED**), and the Phase-0 knob policy
+   deleted 32 landed kill switches; **canonical corpus 358C / 0W / 11E / 5EE
+   / 0T over 374** (wall 1111.2 s). Next: Phase 2b (§4.4.1
+   merge-with-retriangulation).
+   **The open P-series ERROR tail is P0045, P0056, P0061**
    (seeds 4–5; P0001–P0041 CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

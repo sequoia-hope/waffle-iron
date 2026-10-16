@@ -659,10 +659,7 @@ pub fn coplanar_overlay_multi(
     // WRONG on the micro model R0071 (scale 1.9e-3, tooth features ~1e-6):
     // 941 clusters up to 3.5e-7 wide fused real geometry and the output
     // lost manifoldness — the R0091 lesson one order lower.
-    // `YANG_S0_SUBRES_FUSE=0|off` restores the legacy gate.
-    if subres_fuse_enabled() {
-        sub_resolution_contract(&mut overlay, &input_loop_verts)?;
-    }
+    sub_resolution_contract(&mut overlay, &input_loop_verts)?;
 
     let any_sliver = overlay.tris.iter().any(|t| {
         rounded_tri_disposition(
@@ -708,15 +705,6 @@ pub fn coplanar_overlay_multi(
     }
 
     Ok(overlay)
-}
-
-/// Sub-resolution fusion gate (`YANG_S0_SUBRES_FUSE`): unset = on; `0|off`
-/// = the legacy rounded-degeneracy gate only (dev A/B knob).
-fn subres_fuse_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_S0_SUBRES_FUSE").as_deref(),
-        Ok("0") | Ok("off")
-    )
 }
 
 /// Sub-resolution cluster contraction (spec `m8_overlay_fused_emission_

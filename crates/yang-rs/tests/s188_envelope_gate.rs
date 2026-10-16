@@ -18,8 +18,8 @@
 //! - every other bottom-cycle vert lies on the band-live support given by
 //!   the inc-1 classifier (ellipse where live, rim where live).
 //!
-//! Runs in its own process (integration test) so `set_var` cannot race
-//! other tests. The gate-OFF control runs FIRST, before the env is set.
+//! The rebuild is always on (its `YANG_S5_ENVELOPE_ENABLE` knob and this
+//! file's gate-OFF control were deleted 2026-10-16, cleanup spec §4).
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use yang_rs::stage5_envelope::{
@@ -305,20 +305,10 @@ fn gate_on_synthetic_free_space_envelope() {
         .iter()
         .all(|t| t.class == TripleClass::FreeSpace));
 
-    // Gate-OFF control FIRST (env not yet set): record the outcome; the
-    // corpus-level byte-identical check is the assay diff, not this test.
-    let off = boolean(&slab(), &tube(), BoolOp::Union, &backend);
-    eprintln!(
-        "[s188] gate-off result: {}",
-        match &off {
-            Ok(_) => "Ok".to_string(),
-            Err(e) => format!("Err({e:?})"),
-        }
-    );
-
-    std::env::set_var("YANG_S5_ENVELOPE_ENABLE", "1");
+    // The envelope rebuild is always on (its `YANG_S5_ENVELOPE_ENABLE`
+    // knob was deleted 2026-10-16).
     let out = boolean(&slab(), &tube(), BoolOp::Union, &backend)
-        .expect("gate-ON union must succeed (§5 inc-2 acceptance)");
+        .expect("the union must succeed (§5 inc-2 acceptance)");
 
     // The output tube face, with the fixture's EXACT surface params.
     let face = out

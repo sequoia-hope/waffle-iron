@@ -404,14 +404,11 @@ pub(crate) fn census_output_pair_chords(
 /// Gate: the restoration is ALWAYS-ON (flipped 2026-08-26 after the two
 /// blocker fixes — kernel-v2 conformal grid-aligned arc sampling for R0054
 /// and the invariant-4 debug-tiering for F0085; spec
-/// `yang_434_output_chord_refinement.md` inc-4/inc-5). `YANG_434_OUT=0`
-/// or `off` restores the mesh-polyline emission; `census` stays read-only
-/// measurement (no apply).
+/// `yang_434_output_chord_refinement.md` inc-4/inc-5). `YANG_434_OUT=census`
+/// is read-only measurement (no apply); the `0|off` kill switch was deleted
+/// 2026-10-16 (cleanup spec §4).
 pub(crate) fn restore_gate_enabled() -> bool {
-    match std::env::var("YANG_434_OUT") {
-        Ok(v) => v != "0" && v != "off" && v != "census",
-        Err(_) => true,
-    }
+    std::env::var("YANG_434_OUT").as_deref() != Ok("census")
 }
 
 #[derive(Default, Debug)]

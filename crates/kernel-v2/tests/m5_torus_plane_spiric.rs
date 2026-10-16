@@ -21,8 +21,8 @@
 //!
 //! The Stage-3 emission was GATED OFF at checkpoint 1 (2026-10-10: the
 //! arm-on corpus exposed three further planar-loop sites) and is DEFAULT ON
-//! since increments 3a + 3b landed (2026-10-11); `YANG_TORUS_PLANE_PAIR=0`
-//! is the off-knob. The first pin was RED with the emission off
+//! since increments 3a + 3b landed (2026-10-11; its `YANG_TORUS_PLANE_PAIR`
+//! off-knob was deleted 2026-10-16). The first pin was RED with the emission off
 //! (mutation-checked 2026-10-10: `SelfIntersectingBooleanOutput`), GREEN
 //! with it. The volume is pinned to
 //! a 2e8-sample Monte-Carlo over the exact membership — prism minus the

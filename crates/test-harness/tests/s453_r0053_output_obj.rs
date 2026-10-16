@@ -7,7 +7,8 @@
 //! ASSAY_CASE=R0053 S453_KEEP_OPS=k S453_OBJ_OUT=/path/out.obj cargo test -p test-harness --release \
 //!   --test s453_r0053_output_obj -- --ignored --nocapture
 //! ```
-//! Sets `YANG_453_SPAIR=1` process-wide unless `S453_PROBE_GATES=off`.
+//! (The `YANG_453_SPAIR` arm this once enabled is always on since 2026-09-03;
+//! its knob was deleted 2026-10-16.)
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,11 +24,8 @@ fn corpus_dir() -> PathBuf {
 }
 
 #[test]
-#[ignore = "sets a gate knob process-wide; run alone"]
+#[ignore = "writes an OBJ for manual inspection; run alone"]
 fn r0053_output_to_obj() {
-    if std::env::var("S453_PROBE_GATES").as_deref() != Ok("off") {
-        std::env::set_var("YANG_453_SPAIR", "1");
-    }
     let id = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "R0053".into());
     let out = std::env::var("S453_OBJ_OUT").unwrap_or_else(|_| {
         Path::new(env!("CARGO_MANIFEST_DIR"))

@@ -15,7 +15,7 @@
 //! tessellation used one shared azimuth grid); the global grid restores
 //! that conformality analytically, for every coaxial family at once.
 
-use super::sampling::{arc_grid_samples, arc_interior_samples_frac};
+use super::sampling::arc_grid_samples;
 use super::{tessellate_cone_patch, RenderMesh};
 use crate::arena::{
     BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
@@ -303,13 +303,13 @@ fn thin_coaxial_rim_strip_tessellates_without_folding() {
 /// opposing rail of the SAME strip face (whose own incident faces do not)
 /// never sees it, so the strip's ladder gains an unpaired node mid-chord
 /// of a rung that sags deeper than the strip is wide and the lift folds.
-/// The closure is the curve-sample pool (`KV2_ARC_CONFORM_CURVES`, inc-8a)
-/// completed to depth 1: a pool arc contributes its grid samples PLUS its
-/// own vertex-pool inserts, so the opposing rail conforms to the insert's
-/// azimuth. Gate OFF the fold stays a pinned LOUD wall (un-pin when the
-/// mechanism flips always-on).
+/// The fold is a pinned LOUD wall. (A gated-off closure — the curve-sample
+/// pool `KV2_ARC_CONFORM_CURVES`, inc-8a/8b, a pool arc contributing its grid
+/// samples plus its own vertex-pool inserts — was never flipped and was
+/// deleted 2026-10-16 with the cleanup spec's §4 knob policy; git history
+/// keeps it.)
 #[test]
-fn pool_curves_carry_their_vertex_inserts_across_the_strip() {
+fn a_one_sided_vertex_insert_folds_the_strip_loudly() {
     let tan_a: f64 = 3.0;
     let half_angle = tan_a.atan();
     let (v_hi, v_lo) = (18.0, 18.0 - 0.002);
@@ -415,36 +415,19 @@ fn pool_curves_carry_their_vertex_inserts_across_the_strip() {
         .solids
         .push(Some(Solid::constructed(vec![ShellId(0)])));
 
-    // Gate OFF (default): the low rim inserts at θ_V (vertex pool, always
-    // on), the high rim cannot see it — the unpaired node sits mid-chord
-    // of a rung sagging ~8× the strip width and the patch folds LOUDLY.
+    // The low rim inserts at θ_V (vertex pool), the high rim cannot see it —
+    // the unpaired node sits mid-chord of a rung sagging ~8× the strip width
+    // and the patch folds LOUDLY.
     let mut mesh = RenderMesh::default();
     let off = tessellate_cone_patch(&arena, fid, n_seg, &mut mesh);
     let off_err = format!(
         "{:?}",
-        off.expect_err("pinned wall: one-sided insert folds the strip while inc-8b is gated off")
+        off.expect_err("pinned wall: a one-sided insert folds the strip")
     );
     assert!(
         off_err.contains("folded"),
-        "the gated-off wall must be the fold tripwire, got: {off_err}"
+        "the wall must be the fold tripwire, got: {off_err}"
     );
-
-    // Gate ON: the high rim's pool carries the low rim's REAL sample set —
-    // grid samples plus its vertex insert — so the ladder pairs at θ_V.
-    std::env::set_var("KV2_ARC_CONFORM_CURVES", "1");
-    let hi_samples = arc_interior_samples_frac(&arena, HalfEdgeId(2), n_seg)
-        .expect("high-rim sampling with the curve pool");
-    assert!(
-        hi_samples
-            .iter()
-            .any(|(_, p)| ang_dist(azimuth(*p), theta_v) < 1e-9),
-        "the high rim must conform to the low rim's vertex insert at θ_V"
-    );
-    let mut mesh_on = RenderMesh::default();
-    let on = tessellate_cone_patch(&arena, fid, n_seg, &mut mesh_on);
-    std::env::remove_var("KV2_ARC_CONFORM_CURVES");
-    on.expect("inc-8b: with the insert-closed curve pool the strip must tessellate");
-    assert!(mesh_on.indices.len() >= 3, "non-empty triangulation");
 }
 
 // ------------------------------------------------- ellipse sag contract

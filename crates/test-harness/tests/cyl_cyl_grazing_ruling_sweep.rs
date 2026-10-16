@@ -1,6 +1,7 @@
 //! Measurement driver (assertion-free) for the §13 crossing-ruling class:
 //! sweep the axis offset of the `cyl_cyl_grazing_ruling_kv2` pair and print
-//! each cut's outcome. Run with `YANG_433_TANGENT_INSERT=off` for the A/B.
+//! each cut's outcome. (The `YANG_433_TANGENT_INSERT=off` A/B leg went with
+//! that knob, deleted 2026-10-16.)
 //!
 //! ```text
 //! cargo test -p test-harness --test cyl_cyl_grazing_ruling_sweep --release -- --ignored --nocapture

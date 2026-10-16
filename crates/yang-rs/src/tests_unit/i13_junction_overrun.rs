@@ -194,16 +194,15 @@ fn cone_chart_lift_lands_on_the_cone() {
 
 #[test]
 fn cone_chartability_follows_the_flipped_gate() {
-    // FLIPPED 2026-08-25: cone chartability is always-on;
-    // `YANG_441_CONE_CHART=0|off` restores the I2a Plane|Cylinder scope.
+    // FLIPPED 2026-08-25: cone chartability is always-on (the off-knob was
+    // deleted 2026-10-16).
     let cone = Surface::Cone {
         apex: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: 0.3,
     };
-    let on = crate::stage4_project::cone_chart_enabled();
-    assert_eq!(SurfaceChart::supports(&cone), on);
-    assert_eq!(SurfaceChart::new(cone).is_some(), on);
+    assert!(SurfaceChart::supports(&cone));
+    assert!(SurfaceChart::new(cone).is_some());
     // The consolidated pre-filter keeps the I2a scope for the others.
     assert!(SurfaceChart::supports(&Surface::Plane {
         normal: Vector3::new(0.0, 0.0, 1.0),

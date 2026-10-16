@@ -1,6 +1,5 @@
 //! I5-1b — §4.4.2 Stage-6 conic seam chain-merge (ALWAYS-ON since the I5-2
-//! flip 2026-08-19; `YANG_434_MERGE=0|off` is the dev A/B off-knob;
-//! spec `specs/yang_441_trim_cdt_construction.md` §4-I5-1b, task #89).
+//! flip 2026-08-19; spec `specs/yang_441_trim_cdt_construction.md` §4-I5-1b, task #89).
 //!
 //! The paper's B-Rep Boolean output restores "parameter surfaces and their
 //! boundary curves" (`refs/text/yang2025_hybrid_boolean.txt:581-605`) — the
@@ -55,18 +54,15 @@ const SWEEP_MAX: f64 = 1.8;
 /// run declines. 1e-3 rad ≫ the 1e-6 ambiguity band.
 const PIECE_SWEEP_GUARD: f64 = 1e-3;
 
-/// ALWAYS-ON since the I5-2 flip (2026-08-19; spec
-/// `yang_441_trim_cdt_construction.md` §4-I5-2). The env var is a dev A/B
-/// knob only: `YANG_434_MERGE=0|off` disables for differential debugging
-/// (the s434 instruments' gate-off legs). Flip bar met: gate-off corpus
-/// byte-identical after the recover.rs typed-rim canonicalization; gate-ON
-/// corpus category-identical to canonical except one honest conversion
-/// (F0085 ERROR→CORRECT); kernel-v2 38/38, yang-rs 75/75, test-harness
-/// 59/59 binaries green gate-ON.
-pub(crate) fn merge_gate_enabled() -> bool {
-    !matches!(std::env::var("YANG_434_MERGE"), Ok(v) if v == "0" || v == "off")
-}
-
+// ALWAYS-ON since the I5-2 flip (2026-08-19; spec
+// `yang_441_trim_cdt_construction.md` §4-I5-2). The env var is a dev A/B
+// knob only: `YANG_434_MERGE=0|off` disables for differential debugging
+// (the s434 instruments' gate-off legs). Flip bar met: gate-off corpus
+// byte-identical after the recover.rs typed-rim canonicalization; gate-ON
+// corpus category-identical to canonical except one honest conversion
+// (F0085 ERROR→CORRECT); kernel-v2 38/38, yang-rs 75/75, test-harness
+// 59/59 binaries green gate-ON. The knob was deleted 2026-10-16 (cleanup
+// spec §4, Phase 0).
 #[derive(Default, Debug)]
 pub(crate) struct MergeStats {
     pub runs_merged: usize,

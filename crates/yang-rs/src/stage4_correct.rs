@@ -2013,9 +2013,20 @@ pub(crate) fn is_relocation_coincidence(len: f64, scale: f64) -> bool {
 /// minted×minted sub-band pair is a mint-multiplicity contract violation and
 /// must stay LOUD). Survivor: the minted vertex ALWAYS — its bits are the
 /// shared cross-operand junction identity; the mint never moves (N54).
+///
+/// Cleanup Phase 2a (§4-I8 CONTAINMENT, the KV15b I1c rule): the band alone
+/// never identifies two vertices. Yang §4.3 removes a point "too close to
+/// another point on the same loop" (`:535-536`) — a redundant sample of ONE
+/// curve — so the weld requires the victim's carried surfaces
+/// ([`carried_surfaces`]) to be contained in the survivor's. When only the
+/// reverse holds the richer vertex survives (a mint is never the victim, so a
+/// mint poorer than its partner declines); when neither contains the other
+/// the pair is two DISTINCT exact points closer than the band, and both stay.
 pub(crate) fn weld_coincident_relocated(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    a: &BRep,
+    b: &BRep,
     moved: &std::collections::HashSet<u32>,
     minted: &std::collections::HashSet<u32>,
 ) -> bool {
@@ -2062,16 +2073,52 @@ pub(crate) fn weld_coincident_relocated(
                     // Survivor: the minted member if any (the mint's bits are
                     // the cross-operand junction identity); else lower index
                     // (matches every other collapse's survivor rule — both are
-                    // already exact on their curve, so no exactness ranking is
-                    // needed).
-                    pair = Some(if u_minted {
+                    // already exact on their curve).
+                    let (victim, survivor) = if u_minted {
                         (w, u) // (victim, survivor = mint)
                     } else if w_minted {
                         (u, w)
                     } else {
                         (w, u) // (victim = higher, survivor = lower)
-                    });
-                    break 'scan;
+                    };
+                    // §4-I8 containment (doc above).
+                    let sv = carried_surfaces(
+                        mesh,
+                        attribution,
+                        a,
+                        b,
+                        victim,
+                        mesh.verts[victim as usize].as_array(),
+                    );
+                    let ss = carried_surfaces(
+                        mesh,
+                        attribution,
+                        a,
+                        b,
+                        survivor,
+                        mesh.verts[survivor as usize].as_array(),
+                    );
+                    let victim_in_survivor = sv.iter().all(|x| ss.contains(x));
+                    let survivor_in_victim = ss.iter().all(|x| sv.contains(x));
+                    let chosen = if victim_in_survivor {
+                        Some((victim, survivor))
+                    } else if survivor_in_victim && !minted.contains(&survivor) {
+                        Some((survivor, victim))
+                    } else {
+                        None
+                    };
+                    if std::env::var_os("YANG_MOVED_WELD_PROBE").is_some() && chosen.is_none() {
+                        eprintln!(
+                            "[moved-weld] DECLINE {u}/{w} d={d:.3e}: carried surfaces \
+                             {} vs {}, neither contains the other",
+                            sv.len(),
+                            ss.len()
+                        );
+                    }
+                    if let Some(vs) = chosen {
+                        pair = Some(vs);
+                        break 'scan;
+                    }
                 }
             }
         }
@@ -4709,36 +4756,15 @@ fn strategy_selection_census(
     }
 }
 
-/// inc-2c-3b-1 gate (spec `specs/yang_451_corner_transit.md` §3j):
-/// the corner-transit corridor mutation. FLIPPED ALWAYS-ON (inc-3a,
-/// 2026-09-03) under the household pattern — unset/other = ON,
-/// `YANG_451_TRANSIT=0|off` = the dev A/B off-knob (the standing §4-I9 STOP
-/// is then the answer). Two-proof corpus: off byte-identical to the
-/// pre-flip canonical; on = R0011 and (with the torus chart) R0074 convert,
-/// zero other category or detail moves.
-/// §4.5.1 inc-2c-3b-12b-8 — the EMISSION apply arm: write the certified
-/// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
-/// out-of-domain relocation site and move the site to its corrected
-/// junction, instead of writing the out-of-domain solution. Reachable only
-/// inside the `YANG_451_TRIPLE_DOMAIN` + `YANG_451_TRANSIT_ANATOMY` chain.
-/// ALWAYS-ON since inc-3c (2026-09-04) under the household pattern:
-/// `YANG_451_TRANSIT_EMIT=0|off` is the dev A/B knob (census only, no
-/// write). Flip proof: with the whole chain on, the corpus moves exactly
-/// one case — R0044, ERROR `FaceId(626)` → `UNSUPPORTED(curved-profile)`,
-/// the honest Stage-1 partial-patch wall — and nothing else.
-fn transit_emit_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_451_TRANSIT_EMIT").as_deref(),
-        Ok("0") | Ok("off")
-    )
-}
-
-fn transit_apply_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_451_TRANSIT").as_deref(),
-        Ok("0") | Ok("off")
-    )
-}
+// inc-2c-3b-1 (spec `specs/yang_451_corner_transit.md` §3j): the
+// corner-transit corridor mutation is ALWAYS-ON since inc-3a (2026-09-03;
+// R0011 and, with the torus chart, R0074 converted). §4.5.1 inc-2c-3b-12b-8 —
+// the EMISSION apply arm (write the certified
+// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
+// out-of-domain relocation site and move the site to its corrected junction)
+// is ALWAYS-ON since inc-3c (2026-09-04; R0044 moved to the honest Stage-1
+// partial-patch wall). Their `YANG_451_TRANSIT` / `YANG_451_TRANSIT_EMIT`
+// off-knobs were deleted 2026-10-16 (cleanup spec §4).
 
 /// The §4-I9 two-leg detection as a quiet fire list — the SAME rule
 /// [`relocation_domain_postcondition`] STOPs on (a moved vertex crossed a
@@ -4964,9 +4990,6 @@ fn corner_transit_apply(
 ) -> Result<bool, YangError> {
     use crate::stage4_corridor as s4c;
     use crate::stage4_transit as s4t;
-    if !transit_apply_enabled() {
-        return Ok(false);
-    }
     let fires = corner_crossing_fires(mesh, attribution, a, b, entry);
     if fires.is_empty() {
         return Ok(false);
@@ -6963,8 +6986,8 @@ pub(crate) struct DomainFire {
 /// CORRECT gear cases whose many sub-chord facet creases the ladder cannot
 /// reach — R0003 42 fires, R0004, R0032, R0049, R0070 — so the certificate is
 /// a trigger and an inventory, never a wall); `stop`/`1`/`on` = the hard STOP
-/// (the A/B measurement knob); `census` = report only, no ladder;
-/// `0`/`off` = the certificate itself off.
+/// (the A/B measurement knob); `census` = report only, no ladder (the
+/// `0`/`off` certificate-off switch was deleted 2026-10-16).
 fn boundary_domain_postcondition(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -6974,9 +6997,6 @@ fn boundary_domain_postcondition(
 ) -> Result<(), YangError> {
     use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex};
     let mode = std::env::var("YANG_S45_BOUNDARY_DOMAIN").unwrap_or_default();
-    if mode == "0" || mode == "off" {
-        return Ok(());
-    }
     // `census` and the production default both REPORT (the default records
     // the count for the op-level ladder, `boolean::refine_452_domain`);
     // only `stop` turns a fire into the hard STOP here.
@@ -7111,11 +7131,7 @@ fn relocation_domain_postcondition(
     b: &BRep,
     entry: &[[f64; 3]],
 ) -> Result<(), YangError> {
-    let mode = std::env::var("YANG_S4_CARRIER_DOMAIN").unwrap_or_default();
-    if mode == "0" || mode == "off" {
-        return Ok(());
-    }
-    let census = mode == "census";
+    let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
 
     // Census-only: the FACE-level picture the §4-I10 measurements need, built
     // ONCE (one pass over the triangles) rather than per query.
@@ -8756,20 +8772,18 @@ pub(crate) fn stage4_relocate_and_correct(
     // components. Splitting a 2-valent-only mesh is a no-op, so this call is
     // inert wherever there is no line pinch.
     //
-    // ALWAYS-ON since 2026-09-13 (`YANG_EDGE_PINCH_SPLIT=0` is the off-switch;
-    // spec §0c). The adjudication that kept it off — "the boundary it produces
+    // ALWAYS-ON since 2026-09-13 (spec §0c; the `YANG_EDGE_PINCH_SPLIT`
+    // off-switch was deleted 2026-10-16). The adjudication that kept it off — "the boundary it produces
     // reads χ = 6 against the authored χ = 2" — was an ORACLE artefact, not a
     // property of the output: yang emits F0060's `A − B` as four closed
     // shells, each χ = 2, with the two tangent points as per-sheet vertex
     // copies (Mäntylä duplication, identical bits), and the assay's
     // position-welded shell count fused each pair at that point. Counting
     // shells by EDGE adjacency reads the honest 4 shells / χ = 8.
-    if crate::stage4_relocate::edge_pinch_split_enabled() {
-        let mut no_relocs: Vec<(u32, f64)> = Vec::new();
-        let splits = split_pinch_vertices(mesh, &mut no_relocs, &attribution.attributions, true);
-        if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
-            eprintln!("[edge-pinch] entry split {splits} vertex copies");
-        }
+    let mut no_relocs: Vec<(u32, f64)> = Vec::new();
+    let splits = split_pinch_vertices(mesh, &mut no_relocs, &attribution.attributions, true);
+    if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+        eprintln!("[edge-pinch] entry split {splits} vertex copies");
     }
     let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
     // Taken before the inner call, so it is the mesh exactly as Stage 4 received
@@ -8963,10 +8977,10 @@ fn stage4_relocate_and_correct_inner(
     // FLIPPED ALWAYS-ON 2026-08-22 (spec `yang_451_optimize_across_boundaries.md`
     // §11): the corpus under the gate is category-identical with EXACTLY ONE
     // explained detail delta (R0003: Stage-4 OffCurve → the pre-existing
-    // KV9-F2 developable fold it unmasks). `0`/`off` restores the
-    // abort-at-first-fire behaviour; `census` measures.
-    let s451_repair = !s451_census && s451_mode != "0" && s451_mode != "off";
-    let s451_collect = s451_census || s451_repair;
+    // KV9-F2 developable fold it unmasks); `census` measures (the `0`/`off`
+    // abort-at-first-fire kill switch was deleted 2026-10-16).
+    let s451_repair = !s451_census;
+    let s451_collect = true;
     let mut s45_failures: Vec<(u32, YangError)> = Vec::new();
 
     // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
@@ -9067,14 +9081,6 @@ fn stage4_relocate_and_correct_inner(
     // map keeps the second, and any vertex still here after the block is
     // the SAME loud STOP as before (the residue audit below the block).
     let mut vert_line_junction: BTreeMap<u32, LineReloc> = BTreeMap::new();
-    // Household knob (dev A/B only): `YANG_LINE_PAIR_CORNER=0|off` restores
-    // the pre-flip line ARM (STOP on the second record). Since 2026-10-13 it
-    // governs only this routing — the triple block itself admits by incidence
-    // count and consults no junction map.
-    let line_pair_corner_on = !matches!(
-        std::env::var("YANG_LINE_PAIR_CORNER").as_deref(),
-        Ok("0") | Ok("off")
-    );
     // M5 (Y4): per-vertex procedural surface-pair relocation data — the TWO
     // defining surfaces of a `Curve::SurfacePair` edge, carried on the curve
     // itself (no incidence scan needed). Each endpoint is Newton-projected
@@ -9771,7 +9777,7 @@ fn stage4_relocate_and_correct_inner(
             // pair here.
             Curve::SurfacePair { a, b } => {
                 // M5 torus arm (YT5): a torus-bearing pair (Stage 3 tags it
-                // with `YANG_TORUS_PAIR` on) is relocated by the (2t) torus
+                // as a `SurfacePair`) is relocated by the (2t) torus
                 // block below, which keys on the edge's surface INCIDENCE,
                 // not its curve tag — exactly as the same edge was when it
                 // carried `LineSegment`. Recording it here too would relocate
@@ -10065,7 +10071,7 @@ fn stage4_relocate_and_correct_inner(
                             let third = vert_line_junction
                                 .get(&v)
                                 .is_some_and(|second| !same_line(second, &lr));
-                            if third || !line_pair_corner_on {
+                            if third {
                                 if std::env::var_os("YANG_LRR_PROBE").is_some() {
                                     eprintln!(
                                         "YANG_LRR_SITE site=line_line_junction v={v} p={:?} \
@@ -10293,18 +10299,15 @@ fn stage4_relocate_and_correct_inner(
         // §4.5.1 inc-2c-3b-12: the crease index, built ONCE (O(edges)); the
         // per-vertex certificate only looks up its own surfaces' creases.
         // inc-3c (2026-09-04): the domain check + the emission chain are
-        // ALWAYS-ON under the household pattern — unset = act quietly,
-        // `census` = act and report every stage to stderr, `1`/`on` = act
-        // and STOP typed on a site the emission could not repair, `0`/`off`
-        // = the pre-flip path (dev A/B, byte-identical to the old default).
+        // ALWAYS-ON — unset = act quietly, `census` = act and report every
+        // stage to stderr, `1`/`on` = act and STOP typed on a site the
+        // emission could not repair (the `0`/`off` pre-flip path was deleted
+        // 2026-10-16, cleanup spec §4).
         let dom_mode = std::env::var("YANG_451_TRIPLE_DOMAIN").unwrap_or_default();
-        let dom_on = !(dom_mode == "0" || dom_mode == "off");
         let dom_stop = dom_mode == "1" || dom_mode == "on";
-        // The anatomy → emission sub-chain: on unless `0`/`off`; the knob's
-        // pre-flip role (any value = arm) survives as "set = report".
-        let anatomy_knob = std::env::var("YANG_451_TRANSIT_ANATOMY").ok();
-        let anatomy_on = !matches!(anatomy_knob.as_deref(), Some("0") | Some("off"));
-        let trace = dom_mode == "census" || (anatomy_on && anatomy_knob.is_some());
+        // The anatomy → emission sub-chain is always on; the knob's pre-flip
+        // role (any value = arm) survives as "set = report".
+        let trace = dom_mode == "census" || std::env::var_os("YANG_451_TRANSIT_ANATOMY").is_some();
         macro_rules! say {
             ($($t:tt)*) => {
                 if trace {
@@ -10312,11 +10315,7 @@ fn stage4_relocate_and_correct_inner(
                 }
             };
         }
-        let creases_by_surf = if !dom_on {
-            Vec::new()
-        } else {
-            crate::stage4_boundary_curve::creases_by_surface(&inc0)
-        };
+        let creases_by_surf = crate::stage4_boundary_curve::creases_by_surface(&inc0);
         for v in cand {
             // Admission is by INCIDENCE, not by curve-type bookkeeping
             // (2026-10-13). A vertex incident to exactly three distinct
@@ -10443,605 +10442,594 @@ fn stage4_relocate_and_correct_inner(
             // semantics, quiet); `1`/`on` STOPs typed at an unrepaired site
             // instead of letting an out-of-domain junction surface three
             // stages later as a rejected output ring on a different face.
-            if dom_on {
-                let creases =
-                    crate::stage4_boundary_curve::creases_for_surfaces(&creases_by_surf, surfs);
-                // inc-2c-3b-12b-8: set when the emission fill was WRITTEN at
-                // this site; then `proj` is the corrected junction and the
-                // STOP below does not apply.
-                let mut repaired = false;
-                if let Some((ci, fp, fq)) =
-                    crate::stage4_boundary_curve::crease_crossed_by_step(p, proj, &creases)
-                {
-                    // Census diagnostics: how far the PRE position sits from
-                    // the two surfaces forming the crossed crease, each against
-                    // its own certificate band — the discriminator between a
-                    // vertex that RIDES the crease (residual sign is noise) and
-                    // one that starts materially inside its face.
-                    let (cs0, cs1) = (creases[ci].1, creases[ci].2);
-                    let dsurf = |sf: Surface| -> (f64, f64) {
-                        (
-                            crate::stage4_boundary_curve::surface_distance_pub(sf, p)
-                                .unwrap_or(f64::NAN),
-                            crate::stage4_relocate::junction_certificate_band(p.as_array(), sf),
-                        )
-                    };
-                    let (d0, b0) = dsurf(cs0);
-                    let (d1, b1) = dsurf(cs1);
-                    let line = format!(
-                        "[s451-triple-domain] case={} v={v} rho={rho:.4e} crease={ci}/{} \
-                         d_pre={fp:.6e} d_post={fq:.6e} pre_off_own={d0:.6e}/{b0:.3e} \
-                         pre_off_other={d1:.6e}/{b1:.3e} pre={:?} post={:?} crease_curve={:?}",
-                        std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
-                        creases.len(),
-                        p.as_array(),
-                        proj.as_array(),
-                        creases[ci].0
-                    );
-                    say!("{line}");
-                    // inc-2c-3b-12b: the REPAIR solve, reported alongside the
-                    // fire so the census shows whether each out-of-domain site
-                    // has a DETERMINED transit (and at what correction) before
-                    // any of it is wired to mutate.
-                    let nbr_creases = crate::stage4_boundary_curve::creases_for_surfaces(
-                        &creases_by_surf,
-                        &[creases[ci].2],
-                    );
-                    // P0040 (2026-10-12): the solver's own neighbour-domain
-                    // postcondition cannot see the crease it just crossed —
-                    // `p_trunc` lies ON it, and an on-crease start is exempt
-                    // from the sign-change test — so the SIDE the corrected
-                    // junction lands on is certified against the B-Rep face
-                    // (`transit_lands_inside_neighbour`). A junction outside
-                    // the neighbour's own domain is the same defect one face
-                    // over, and the transit is declined: the vertex keeps its
-                    // out-of-domain position, the §4.5 postcondition records
-                    // the fire, and the §4.5.2 ladder answers it.
-                    let solved = crate::stage4_boundary_curve::solve_crease_transit(
-                        p,
-                        proj,
-                        surfs,
-                        &creases[ci],
-                        &nbr_creases,
+            let creases =
+                crate::stage4_boundary_curve::creases_for_surfaces(&creases_by_surf, surfs);
+            // inc-2c-3b-12b-8: set when the emission fill was WRITTEN at
+            // this site; then `proj` is the corrected junction and the
+            // STOP below does not apply.
+            let mut repaired = false;
+            if let Some((ci, fp, fq)) =
+                crate::stage4_boundary_curve::crease_crossed_by_step(p, proj, &creases)
+            {
+                // Census diagnostics: how far the PRE position sits from
+                // the two surfaces forming the crossed crease, each against
+                // its own certificate band — the discriminator between a
+                // vertex that RIDES the crease (residual sign is noise) and
+                // one that starts materially inside its face.
+                let (cs0, cs1) = (creases[ci].1, creases[ci].2);
+                let dsurf = |sf: Surface| -> (f64, f64) {
+                    (
+                        crate::stage4_boundary_curve::surface_distance_pub(sf, p)
+                            .unwrap_or(f64::NAN),
+                        crate::stage4_relocate::junction_certificate_band(p.as_array(), sf),
                     )
-                    .and_then(|t| {
-                        match crate::stage4_boundary_curve::transit_lands_inside_neighbour(
-                            brep_a,
-                            brep_b,
-                            t.s_nbr,
-                            &creases[ci].0,
-                            Some(creases[ci].2),
-                            t.j,
-                        ) {
-                            Some((false, d)) => {
-                                say!(
-                                    "[s451-transit-side] case={} v={v} DECLINE j={:?} s_nbr={:?} \
-                                     lands OUTSIDE the neighbour face across the crossed \
-                                     crease by {d:.6e}",
-                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
-                                    t.j.as_array(),
-                                    t.s_nbr
-                                );
-                                Err(crate::stage4_boundary_curve::CreaseTransitFailure::TransitLeavesNeighbour {
-                                    d_pre: 0.0,
-                                    d_post: d,
-                                })
-                            }
-                            Some((true, d)) => {
-                                say!(
-                                    "[s451-transit-side] case={} v={v} inside by {d:.6e}",
-                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
-                                );
-                                Ok(t)
-                            }
-                            None => {
-                                say!(
-                                    "[s451-transit-side] case={} v={v} UNDETERMINED (no B-Rep \
-                                     face on s_nbr carries the crease) — transit kept",
-                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
-                                );
-                                Ok(t)
-                            }
-                        }
-                    });
-                    match solved {
-                        Ok(t) => {
+                };
+                let (d0, b0) = dsurf(cs0);
+                let (d1, b1) = dsurf(cs1);
+                let line = format!(
+                    "[s451-triple-domain] case={} v={v} rho={rho:.4e} crease={ci}/{} \
+                     d_pre={fp:.6e} d_post={fq:.6e} pre_off_own={d0:.6e}/{b0:.3e} \
+                     pre_off_other={d1:.6e}/{b1:.3e} pre={:?} post={:?} crease_curve={:?}",
+                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                    creases.len(),
+                    p.as_array(),
+                    proj.as_array(),
+                    creases[ci].0
+                );
+                say!("{line}");
+                // inc-2c-3b-12b: the REPAIR solve, reported alongside the
+                // fire so the census shows whether each out-of-domain site
+                // has a DETERMINED transit (and at what correction) before
+                // any of it is wired to mutate.
+                let nbr_creases = crate::stage4_boundary_curve::creases_for_surfaces(
+                    &creases_by_surf,
+                    &[creases[ci].2],
+                );
+                // P0040 (2026-10-12): the solver's own neighbour-domain
+                // postcondition cannot see the crease it just crossed —
+                // `p_trunc` lies ON it, and an on-crease start is exempt
+                // from the sign-change test — so the SIDE the corrected
+                // junction lands on is certified against the B-Rep face
+                // (`transit_lands_inside_neighbour`). A junction outside
+                // the neighbour's own domain is the same defect one face
+                // over, and the transit is declined: the vertex keeps its
+                // out-of-domain position, the §4.5 postcondition records
+                // the fire, and the §4.5.2 ladder answers it.
+                let solved = crate::stage4_boundary_curve::solve_crease_transit(
+                    p,
+                    proj,
+                    surfs,
+                    &creases[ci],
+                    &nbr_creases,
+                )
+                .and_then(|t| {
+                    match crate::stage4_boundary_curve::transit_lands_inside_neighbour(
+                        brep_a,
+                        brep_b,
+                        t.s_nbr,
+                        &creases[ci].0,
+                        Some(creases[ci].2),
+                        t.j,
+                    ) {
+                        Some((false, d)) => {
                             say!(
-                                "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
-                                 s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
+                                "[s451-transit-side] case={} v={v} DECLINE j={:?} s_nbr={:?} \
+                                 lands OUTSIDE the neighbour face across the crossed \
+                                 crease by {d:.6e}",
                                 std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
-                                t.correction,
-                                t.s_nbr,
                                 t.j.as_array(),
-                                t.p_trunc.as_array(),
-                                t.q1.as_array(),
-                                t.q2.as_array(),
-                                t.q_margin
+                                t.s_nbr
                             );
-                            // inc-2c-3b-12b-1: the EMISSION-half anatomy. The
-                            // solver says where the corner belongs; this says
-                            // what the mesh has there today — the fan, its
-                            // face attribution, which one-ring neighbours are
-                            // already across the crease, and which crease edge
-                            // hosts each q-point. Measured BEFORE any of the
-                            // re-termination is designed.
-                            if anatomy_on {
-                                let case =
-                                    || std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into());
-                                match crate::stage4_boundary_curve::transit_site_anatomy(
+                            Err(crate::stage4_boundary_curve::CreaseTransitFailure::TransitLeavesNeighbour {
+                                d_pre: 0.0,
+                                d_post: d,
+                            })
+                        }
+                        Some((true, d)) => {
+                            say!(
+                                "[s451-transit-side] case={} v={v} inside by {d:.6e}",
+                                std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                            );
+                            Ok(t)
+                        }
+                        None => {
+                            say!(
+                                "[s451-transit-side] case={} v={v} UNDETERMINED (no B-Rep \
+                                 face on s_nbr carries the crease) — transit kept",
+                                std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                            );
+                            Ok(t)
+                        }
+                    }
+                });
+                match solved {
+                    Ok(t) => {
+                        say!(
+                            "[s451-transit-solve] case={} v={v} OK correction={:.6e} \
+                             s_nbr={:?} j={:?} p_trunc={:?} q1={:?} q2={:?} q_margin={:?}",
+                            std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                            t.correction,
+                            t.s_nbr,
+                            t.j.as_array(),
+                            t.p_trunc.as_array(),
+                            t.q1.as_array(),
+                            t.q2.as_array(),
+                            t.q_margin
+                        );
+                        // inc-2c-3b-12b-1: the EMISSION-half anatomy. The
+                        // solver says where the corner belongs; this says
+                        // what the mesh has there today — the fan, its
+                        // face attribution, which one-ring neighbours are
+                        // already across the crease, and which crease edge
+                        // hosts each q-point. Measured BEFORE any of the
+                        // re-termination is designed.
+                        let case = || std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into());
+                        match crate::stage4_boundary_curve::transit_site_anatomy(
+                            mesh,
+                            attribution,
+                            v,
+                            &creases[ci],
+                            fq,
+                            [t.q1, t.q2],
+                        ) {
+                            Some(an) => {
+                                say!(
+                                    "[s451-anatomy] case={} v={v} fan={} ring={} \
+                                     sides(home/on/past)={:?} fan_faces={:?} \
+                                     q_hosts={:?}",
+                                    std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into()),
+                                    an.fan.len(),
+                                    an.ring.len(),
+                                    an.sides,
+                                    an.fan_faces,
+                                    an.q_hosts
+                                );
+                                for (u, d, sd) in &an.ring {
+                                    say!("[s451-anatomy]   ring v={u} d={d:.6e} {sd:?}");
+                                }
+                                for ft in &an.fan {
+                                    say!(
+                                        "[s451-anatomy]   tri={} face={:?} other={:?} \
+                                         d_other=[{:.6e},{:.6e}]",
+                                        ft.tri,
+                                        ft.face,
+                                        ft.other,
+                                        ft.d_other[0],
+                                        ft.d_other[1]
+                                    );
+                                }
+                                // inc-2c-3b-12b-2: the CUT the crease
+                                // makes through this fan — which edges
+                                // it crosses, which two of those are
+                                // the CHAIN edges carrying the
+                                // q-points, and which crossings are
+                                // refinements of the crease's own mesh
+                                // chain. The edit the emission half
+                                // would make, before any of it mutates.
+                                let face_surface = |i: crate::InputId, f: u32| {
+                                    let br = match i {
+                                        crate::InputId::A => brep_a,
+                                        crate::InputId::B => brep_b,
+                                    };
+                                    br.faces().get(f as usize).map(|x| x.surface)
+                                };
+                                match crate::stage4_boundary_curve::transit_cut_path(
                                     mesh,
-                                    attribution,
-                                    v,
+                                    &an,
+                                    proj,
                                     &creases[ci],
-                                    fq,
-                                    [t.q1, t.q2],
+                                    &t,
+                                    &face_surface,
                                 ) {
-                                    Some(an) => {
+                                    Ok(cut) => {
                                         say!(
-                                            "[s451-anatomy] case={} v={v} fan={} ring={} \
-                                             sides(home/on/past)={:?} fan_faces={:?} \
-                                             q_hosts={:?}",
+                                            "[s451-cut] case={} v={v} OK carrier={} \
+                                         span={:.6e} q_gap={:.6e} \
+                                         thetas={:?} \
+                                         past_tris={:?} split_tris={:?} nodes={:?}",
                                             std::env::var("ASSAY_CASE")
                                                 .unwrap_or_else(|_| "-".into()),
-                                            an.fan.len(),
-                                            an.ring.len(),
-                                            an.sides,
-                                            an.fan_faces,
-                                            an.q_hosts
+                                            cut.carrier,
+                                            cut.span,
+                                            {
+                                                let (x, y) = (t.q1.as_array(), t.q2.as_array());
+                                                ((x[0] - y[0]).powi(2)
+                                                    + (x[1] - y[1]).powi(2)
+                                                    + (x[2] - y[2]).powi(2))
+                                                .sqrt()
+                                            },
+                                            cut.thetas
+                                                .iter()
+                                                .map(|x| format!("{x:.5}"))
+                                                .collect::<Vec<_>>(),
+                                            cut.past_tris,
+                                            cut.split_tris,
+                                            cut.nodes
                                         );
-                                        for (u, d, sd) in &an.ring {
-                                            say!("[s451-anatomy]   ring v={u} d={d:.6e} {sd:?}");
-                                        }
-                                        for ft in &an.fan {
-                                            say!(
-                                                "[s451-anatomy]   tri={} face={:?} other={:?} \
-                                                 d_other=[{:.6e},{:.6e}]",
-                                                ft.tri,
-                                                ft.face,
-                                                ft.other,
-                                                ft.d_other[0],
-                                                ft.d_other[1]
-                                            );
-                                        }
-                                        // inc-2c-3b-12b-2: the CUT the crease
-                                        // makes through this fan — which edges
-                                        // it crosses, which two of those are
-                                        // the CHAIN edges carrying the
-                                        // q-points, and which crossings are
-                                        // refinements of the crease's own mesh
-                                        // chain. The edit the emission half
-                                        // would make, before any of it mutates.
-                                        let face_surface = |i: crate::InputId, f: u32| {
-                                            let br = match i {
-                                                crate::InputId::A => brep_a,
-                                                crate::InputId::B => brep_b,
-                                            };
-                                            br.faces().get(f as usize).map(|x| x.surface)
-                                        };
-                                        match crate::stage4_boundary_curve::transit_cut_path(
+                                        // inc-2c-3b-12b-3: what the
+                                        // mesh must ACQUIRE for the
+                                        // corner to be representable
+                                        // — the §4.5.2 refinement, at
+                                        // the analytically determined
+                                        // place rather than as a
+                                        // density ladder. Measurement
+                                        // only; nothing mutates.
+                                        match crate::stage4_boundary_curve::transit_emission_plan(
                                             mesh,
                                             &an,
-                                            proj,
-                                            &creases[ci],
+                                            &cut,
                                             &t,
-                                            &face_surface,
+                                            &creases[ci],
                                         ) {
-                                            Ok(cut) => {
+                                            Ok(pl) => {
                                                 say!(
-                                                    "[s451-cut] case={} v={v} OK carrier={} \
-                                                 span={:.6e} q_gap={:.6e} \
-                                                 thetas={:?} \
-                                                 past_tris={:?} split_tris={:?} nodes={:?}",
+                                                    "[s451-emit] case={} v={v} OK \
+                                                     corner_deg={:.17e} \
+                                                     fan_span_deg={:.6e} \
+                                                     clear={} arc_sag={:.6e} \
+                                                     overlap={:?} edges={:?} \
+                                                     q_acquire={:?} \
+                                                     crease_acquire={:?}",
                                                     std::env::var("ASSAY_CASE")
                                                         .unwrap_or_else(|_| "-".into()),
-                                                    cut.carrier,
-                                                    cut.span,
-                                                    {
-                                                        let (x, y) =
-                                                            (t.q1.as_array(), t.q2.as_array());
-                                                        ((x[0] - y[0]).powi(2)
-                                                            + (x[1] - y[1]).powi(2)
-                                                            + (x[2] - y[2]).powi(2))
-                                                        .sqrt()
-                                                    },
-                                                    cut.thetas
-                                                        .iter()
-                                                        .map(|x| format!("{x:.5}"))
-                                                        .collect::<Vec<_>>(),
-                                                    cut.past_tris,
-                                                    cut.split_tris,
-                                                    cut.nodes
+                                                    pl.corner_deg,
+                                                    pl.fan_span_deg,
+                                                    pl.corner_clear,
+                                                    pl.arc_sag,
+                                                    pl.chain_overlap,
+                                                    pl.fan_crease_edges,
+                                                    pl.q_acquire,
+                                                    pl.crease_acquire
                                                 );
-                                                // inc-2c-3b-12b-3: what the
-                                                // mesh must ACQUIRE for the
-                                                // corner to be representable
-                                                // — the §4.5.2 refinement, at
-                                                // the analytically determined
-                                                // place rather than as a
-                                                // density ladder. Measurement
-                                                // only; nothing mutates.
+                                                // inc-2c-3b-12b-4: the
+                                                // EDIT LIST — the same
+                                                // acquisition expressed
+                                                // as vertices to mint
+                                                // and triangles to
+                                                // re-triangulate, with
+                                                // the reach OUTSIDE the
+                                                // fan measured. Still
+                                                // pure; nothing mutates.
                                                 match crate::stage4_boundary_curve::
-                                                    transit_emission_plan(
-                                                        mesh,
-                                                        &an,
-                                                        &cut,
-                                                        &t,
-                                                        &creases[ci],
+                                                    transit_emission_edits(
+                                                        mesh, &an, &cut, &pl, &t,
                                                     ) {
-                                                    Ok(pl) => {
+                                                    Ok(ed) => {
                                                         say!(
-                                                            "[s451-emit] case={} v={v} OK \
-                                                             corner_deg={:.17e} \
-                                                             fan_span_deg={:.6e} \
-                                                             clear={} arc_sag={:.6e} \
-                                                             overlap={:?} edges={:?} \
-                                                             q_acquire={:?} \
-                                                             crease_acquire={:?}",
-                                                            std::env::var("ASSAY_CASE")
-                                                                .unwrap_or_else(|_| "-".into()),
-                                                            pl.corner_deg,
-                                                            pl.fan_span_deg,
-                                                            pl.corner_clear,
-                                                            pl.arc_sag,
-                                                            pl.chain_overlap,
-                                                            pl.fan_crease_edges,
-                                                            pl.q_acquire,
-                                                            pl.crease_acquire
+                                                            "[s451-edits] case={} \
+                                                             v={v} OK site={} \
+                                                             host={:?} \
+                                                             crease_tris={:?} \
+                                                             chain_tris={:?} \
+                                                             touched={:?} \
+                                                             outside_fan={:?} \
+                                                             relabel={:?} \
+                                                             inserts={:?}",
+                                                            case(),
+                                                            ed.site,
+                                                            ed.crease_host,
+                                                            ed.crease_tris,
+                                                            ed.chain_tris,
+                                                            ed.touched,
+                                                            ed.outside_fan,
+                                                            ed.relabel,
+                                                            ed.inserts
                                                         );
-                                                        // inc-2c-3b-12b-4: the
-                                                        // EDIT LIST — the same
-                                                        // acquisition expressed
-                                                        // as vertices to mint
-                                                        // and triangles to
-                                                        // re-triangulate, with
-                                                        // the reach OUTSIDE the
-                                                        // fan measured. Still
-                                                        // pure; nothing mutates.
+                                                        // Which face
+                                                        // the reach
+                                                        // lands in: the
+                                                        // notch goes to
+                                                        // the patch on
+                                                        // the far side
+                                                        // of the shared
+                                                        // chord, so its
+                                                        // identity IS
+                                                        // the repair's
+                                                        // destination.
+                                                        for x in ed
+                                                            .outside_fan
+                                                            .iter()
+                                                            .chain(ed.relabel.iter())
+                                                        {
+                                                            say!(
+                                                                "[s451-edits]   \
+                                                                 tri={x} face={:?}",
+                                                                attribution.lookup(*x).map(
+                                                                    |a| (a.input, a.face)
+                                                                )
+                                                            );
+                                                        }
+                                                        // inc-2c-3b-12b-5: the REGION the
+                                                        // edits land in, and whether
+                                                        // applying them edge by edge —
+                                                        // the natural implementation of
+                                                        // an edit list stated per-edge —
+                                                        // composes. Still pure.
                                                         match crate::stage4_boundary_curve::
-                                                            transit_emission_edits(
-                                                                mesh, &an, &cut, &pl, &t,
+                                                            transit_emission_region(
+                                                                mesh, &ed,
                                                             ) {
-                                                            Ok(ed) => {
+                                                            Ok(rg) => {
                                                                 say!(
-                                                                    "[s451-edits] case={} \
-                                                                     v={v} OK site={} \
-                                                                     host={:?} \
-                                                                     crease_tris={:?} \
-                                                                     chain_tris={:?} \
-                                                                     touched={:?} \
-                                                                     outside_fan={:?} \
-                                                                     relabel={:?} \
-                                                                     inserts={:?}",
-                                                                    case(),
-                                                                    ed.site,
-                                                                    ed.crease_host,
-                                                                    ed.crease_tris,
-                                                                    ed.chain_tris,
-                                                                    ed.touched,
-                                                                    ed.outside_fan,
-                                                                    ed.relabel,
-                                                                    ed.inserts
+                                                                "[s451-region] case={} \
+                                                                 v={v} OK tris={:?} \
+                                                                 boundary={:?} \
+                                                                 site_on_boundary={} \
+                                                                 mints={:?} \
+                                                                 children={} \
+                                                                 coincident={:?} \
+                                                                 overfull={:?}",
+                                                                case(),
+                                                                rg.tris,
+                                                                rg.boundary,
+                                                                rg.site_on_boundary,
+                                                                rg.mints,
+                                                                rg.naive_children.len(),
+                                                                rg.coincident,
+                                                                rg.overfull
                                                                 );
-                                                                // Which face
-                                                                // the reach
-                                                                // lands in: the
-                                                                // notch goes to
-                                                                // the patch on
-                                                                // the far side
-                                                                // of the shared
-                                                                // chord, so its
-                                                                // identity IS
-                                                                // the repair's
-                                                                // destination.
-                                                                for x in ed
-                                                                    .outside_fan
-                                                                    .iter()
-                                                                    .chain(ed.relabel.iter())
-                                                                {
-                                                                    say!(
-                                                                        "[s451-edits]   \
-                                                                         tri={x} face={:?}",
-                                                                        attribution.lookup(*x).map(
-                                                                            |a| (a.input, a.face)
+                                                                // inc-2c-3b-12b-6: the
+                                                                // region spans both
+                                                                // operands, so the fill's
+                                                                // unit is the face-part —
+                                                                // if each part is a disk.
+                                                                let parts = crate::
+                                                                    stage4_boundary_curve::
+                                                                    transit_emission_parts(
+                                                                        mesh,
+                                                                        attribution,
+                                                                        &rg,
+                                                                        ed.site,
+                                                                    );
+                                                                for pt in &parts {
+                                                                    let pinch = pt
+                                                                        .boundary_closed
+                                                                        .as_ref()
+                                                                        .and_then(|b| {
+                                                                        crate::
+                                                                        stage4_boundary_curve::
+                                                                        transit_boundary_pinch(
+                                                                            &ed,
+                                                                            rg.mints,
+                                                                            b,
+                                                                            ed.site,
                                                                         )
+                                                                    });
+                                                                    say!(
+                                                                        "[s451-parts]   \
+                                                                         {:?} pinch={:?}",
+                                                                        pt, pinch
                                                                     );
                                                                 }
-                                                                // inc-2c-3b-12b-5: the REGION the
-                                                                // edits land in, and whether
-                                                                // applying them edge by edge —
-                                                                // the natural implementation of
-                                                                // an edit list stated per-edge —
-                                                                // composes. Still pure.
-                                                                match crate::stage4_boundary_curve::
-                                                                    transit_emission_region(
-                                                                        mesh, &ed,
+                                                                // inc-2c-3b-12b-7: the
+                                                                // FILL — the mutation
+                                                                // planned end to end and
+                                                                // certified against the
+                                                                // whole mesh, still not
+                                                                // written.
+                                                                let face_creases = |f: (crate::InputId, u32)| {
+                                                                    face_surface(f.0, f.1)
+                                                                        .map(|sf| {
+                                                                            crate::stage4_boundary_curve::creases_for_surfaces(
+                                                                                &creases_by_surf,
+                                                                                &[sf],
+                                                                            )
+                                                                        })
+                                                                        .unwrap_or_default()
+                                                                };
+                                                                match crate::
+                                                                    stage4_boundary_curve::
+                                                                    transit_emission_refine(
+                                                                        mesh,
+                                                                        attribution,
+                                                                        &ed,
+                                                                        &rg,
+                                                                        &parts,
+                                                                        &t,
+                                                                        &face_surface,
+                                                                        &face_creases,
+                                                                        16,
                                                                     ) {
-                                                                    Ok(rg) => {
+                                                                    Ok(rf) => {
+                                                                        let fl = &rf.fill;
                                                                         say!(
-                                                                        "[s451-region] case={} \
-                                                                         v={v} OK tris={:?} \
-                                                                         boundary={:?} \
-                                                                         site_on_boundary={} \
-                                                                         mints={:?} \
-                                                                         children={} \
-                                                                         coincident={:?} \
-                                                                         overfull={:?}",
-                                                                        case(),
-                                                                        rg.tris,
-                                                                        rg.boundary,
-                                                                        rg.site_on_boundary,
-                                                                        rg.mints,
-                                                                        rg.naive_children.len(),
-                                                                        rg.coincident,
-                                                                        rg.overfull
+                                                                            "[s451-refine] case={} v={v} rounds={} \
+                                                                             extra={}",
+                                                                            case(),
+                                                                            rf.rounds.len(),
+                                                                            rf.extra.len()
                                                                         );
-                                                                        // inc-2c-3b-12b-6: the
-                                                                        // region spans both
-                                                                        // operands, so the fill's
-                                                                        // unit is the face-part —
-                                                                        // if each part is a disk.
-                                                                        let parts = crate::
-                                                                            stage4_boundary_curve::
-                                                                            transit_emission_parts(
-                                                                                mesh,
-                                                                                attribution,
-                                                                                &rg,
-                                                                                ed.site,
-                                                                            );
-                                                                        for pt in &parts {
-                                                                            let pinch = pt
-                                                                                .boundary_closed
-                                                                                .as_ref()
-                                                                                .and_then(|b| {
-                                                                                crate::
-                                                                                stage4_boundary_curve::
-                                                                                transit_boundary_pinch(
-                                                                                    &ed,
-                                                                                    rg.mints,
-                                                                                    b,
-                                                                                    ed.site,
-                                                                                )
-                                                                            });
-                                                                            say!(
-                                                                                "[s451-parts]   \
-                                                                                 {:?} pinch={:?}",
-                                                                                pt, pinch
-                                                                            );
+                                                                        for r in &rf.rounds {
+                                                                            say!("[s451-refine]   {r:?}");
                                                                         }
-                                                                        // inc-2c-3b-12b-7: the
-                                                                        // FILL — the mutation
-                                                                        // planned end to end and
-                                                                        // certified against the
-                                                                        // whole mesh, still not
-                                                                        // written.
-                                                                        let face_creases = |f: (crate::InputId, u32)| {
-                                                                            face_surface(f.0, f.1)
-                                                                                .map(|sf| {
-                                                                                    crate::stage4_boundary_curve::creases_for_surfaces(
-                                                                                        &creases_by_surf,
-                                                                                        &[sf],
-                                                                                    )
-                                                                                })
-                                                                                .unwrap_or_default()
-                                                                        };
-                                                                        match crate::
-                                                                            stage4_boundary_curve::
-                                                                            transit_emission_refine(
+                                                                        say!(
+                                                                            "[s451-fill] case={} v={v} OK \
+                                                                             removed={:?} touched_delta={:?} \
+                                                                             own={:?} notch_face={:?} \
+                                                                             notch_surface_agrees={:?} \
+                                                                             polygons={} tris={} \
+                                                                             edge_defects={:?} opposed={} \
+                                                                             folded={} added_folds={} \
+                                                                             chord={:?} site_at={:?} \
+                                                                             mints={:?}",
+                                                                            case(),
+                                                                            fl.removed,
+                                                                            fl.touched_delta,
+                                                                            fl.own_face,
+                                                                            fl.notch_face,
+                                                                            fl.notch_surface_agrees,
+                                                                            fl.polygons.len(),
+                                                                            fl.polygons
+                                                                                .iter()
+                                                                                .map(|p| p.tris.len())
+                                                                                .sum::<usize>(),
+                                                                            fl.edge_defects,
+                                                                            fl.opposed,
+                                                                            fl.folded,
+                                                                            fl.added_folds,
+                                                                            fl.chord,
+                                                                            fl.site_at.as_array(),
+                                                                            fl.mints
+                                                                                .iter()
+                                                                                .map(|(m, p)| (*m, p.as_array()))
+                                                                                .collect::<Vec<_>>()
+                                                                        );
+                                                                        say!(
+                                                                            "[s451-fill]   lift_flips={} \
+                                                                             lift_uncertified={} lift={:?}",
+                                                                            fl.lift_flips,
+                                                                            fl.lift_uncertified,
+                                                                            fl.lift
+                                                                        );
+                                                                        say!(
+                                                                            "[s451-fill]   bite={:?} dropped={:?}",
+                                                                            fl.bite, fl.dropped
+                                                                        );
+                                                                        for p in &fl.polygons {
+                                                                            say!(
+                                                                                "[s451-fill]   face={:?} bite={} \
+                                                                                 polygon={:?} tris={:?} lift={:?}",
+                                                                                p.face, p.bite, p.polygon, p.tris, p.lift
+                                                                            );
+                                                                            let at = |u: u32| -> [f64; 3] {
+                                                                                if let Some((_, q)) =
+                                                                                    fl.mints.iter().find(|(m, _)| *m == u)
+                                                                                {
+                                                                                    q.as_array()
+                                                                                } else if u == fl.site {
+                                                                                    fl.site_at.as_array()
+                                                                                } else {
+                                                                                    mesh.verts[u as usize].as_array()
+                                                                                }
+                                                                            };
+                                                                            for tri in &p.tris {
+                                                                                say!(
+                                                                                    "[s451-fill]     tri={:?} pos={:?}",
+                                                                                    tri,
+                                                                                    [at(tri[0]), at(tri[1]), at(tri[2])]
+                                                                                );
+                                                                            }
+                                                                        }
+                                                                        // inc-2c-3b-12b-8: WRITE it. The
+                                                                        // write refuses on any unclean
+                                                                        // certificate and leaves the mesh
+                                                                        // untouched; then the standing STOP
+                                                                        // applies exactly as today.
+                                                                        match crate::stage4_boundary_curve::
+                                                                            transit_emission_write(
                                                                                 mesh,
                                                                                 attribution,
-                                                                                &ed,
-                                                                                &rg,
-                                                                                &parts,
-                                                                                &t,
-                                                                                &face_surface,
-                                                                                &face_creases,
-                                                                                16,
+                                                                                fl,
                                                                             ) {
-                                                                            Ok(rf) => {
-                                                                                let fl = &rf.fill;
+                                                                            Ok(rep) => {
                                                                                 say!(
-                                                                                    "[s451-refine] case={} v={v} rounds={} \
-                                                                                     extra={}",
-                                                                                    case(),
-                                                                                    rf.rounds.len(),
-                                                                                    rf.extra.len()
+                                                                                    "[s451-apply] case={} v={v} \
+                                                                                     WRITTEN {rep:?}",
+                                                                                    case()
                                                                                 );
-                                                                                for r in &rf.rounds {
-                                                                                    say!("[s451-refine]   {r:?}");
-                                                                                }
-                                                                                say!(
-                                                                                    "[s451-fill] case={} v={v} OK \
-                                                                                     removed={:?} touched_delta={:?} \
-                                                                                     own={:?} notch_face={:?} \
-                                                                                     notch_surface_agrees={:?} \
-                                                                                     polygons={} tris={} \
-                                                                                     edge_defects={:?} opposed={} \
-                                                                                     folded={} added_folds={} \
-                                                                                     chord={:?} site_at={:?} \
-                                                                                     mints={:?}",
-                                                                                    case(),
-                                                                                    fl.removed,
-                                                                                    fl.touched_delta,
-                                                                                    fl.own_face,
-                                                                                    fl.notch_face,
-                                                                                    fl.notch_surface_agrees,
-                                                                                    fl.polygons.len(),
-                                                                                    fl.polygons
-                                                                                        .iter()
-                                                                                        .map(|p| p.tris.len())
-                                                                                        .sum::<usize>(),
-                                                                                    fl.edge_defects,
-                                                                                    fl.opposed,
-                                                                                    fl.folded,
-                                                                                    fl.added_folds,
-                                                                                    fl.chord,
-                                                                                    fl.site_at.as_array(),
-                                                                                    fl.mints
-                                                                                        .iter()
-                                                                                        .map(|(m, p)| (*m, p.as_array()))
-                                                                                        .collect::<Vec<_>>()
-                                                                                );
-                                                                                say!(
-                                                                                    "[s451-fill]   lift_flips={} \
-                                                                                     lift_uncertified={} lift={:?}",
-                                                                                    fl.lift_flips,
-                                                                                    fl.lift_uncertified,
-                                                                                    fl.lift
-                                                                                );
-                                                                                say!(
-                                                                                    "[s451-fill]   bite={:?} dropped={:?}",
-                                                                                    fl.bite, fl.dropped
-                                                                                );
-                                                                                for p in &fl.polygons {
-                                                                                    say!(
-                                                                                        "[s451-fill]   face={:?} bite={} \
-                                                                                         polygon={:?} tris={:?} lift={:?}",
-                                                                                        p.face, p.bite, p.polygon, p.tris, p.lift
-                                                                                    );
-                                                                                    let at = |u: u32| -> [f64; 3] {
-                                                                                        if let Some((_, q)) =
-                                                                                            fl.mints.iter().find(|(m, _)| *m == u)
-                                                                                        {
-                                                                                            q.as_array()
-                                                                                        } else if u == fl.site {
-                                                                                            fl.site_at.as_array()
-                                                                                        } else {
-                                                                                            mesh.verts[u as usize].as_array()
-                                                                                        }
-                                                                                    };
-                                                                                    for tri in &p.tris {
-                                                                                        say!(
-                                                                                            "[s451-fill]     tri={:?} pos={:?}",
-                                                                                            tri,
-                                                                                            [at(tri[0]), at(tri[1]), at(tri[2])]
-                                                                                        );
-                                                                                    }
-                                                                                }
-                                                                                // inc-2c-3b-12b-8: WRITE it. The
-                                                                                // write refuses on any unclean
-                                                                                // certificate and leaves the mesh
-                                                                                // untouched; then the standing STOP
-                                                                                // applies exactly as today.
-                                                                                if transit_emit_enabled() {
-                                                                                    match crate::stage4_boundary_curve::
-                                                                                        transit_emission_write(
-                                                                                            mesh,
-                                                                                            attribution,
-                                                                                            fl,
-                                                                                        ) {
-                                                                                        Ok(rep) => {
-                                                                                            say!(
-                                                                                                "[s451-apply] case={} v={v} \
-                                                                                                 WRITTEN {rep:?}",
-                                                                                                case()
-                                                                                            );
-                                                                                            proj = fl.site_at;
-                                                                                            repaired = true;
-                                                                                        }
-                                                                                        Err(e) => say!(
-                                                                                            "[s451-apply] case={} v={v} \
-                                                                                             REFUSE {e:?} — the standing \
-                                                                                             STOP applies",
-                                                                                            case()
-                                                                                        ),
-                                                                                    }
-                                                                                }
-                                                                            }
-                                                                            Err(crate::stage4_boundary_curve::EmissionRefineFailure::CapReached {
-                                                                                iterations,
-                                                                                lift_flips,
-                                                                                rounds,
-                                                                                last,
-                                                                            }) => {
-                                                                                say!(
-                                                                                    "[s451-refine] case={} v={v} CAP iterations={iterations} \
-                                                                                     lift_flips={lift_flips} halvings={}",
-                                                                                    case(),
-                                                                                    rounds.len()
-                                                                                );
-                                                                                for r in &rounds {
-                                                                                    say!("[s451-refine]   {r:?}");
-                                                                                }
-                                                                                say!(
-                                                                                    "[s451-refine]   last lift={:?}",
-                                                                                    last.lift
-                                                                                );
-                                                                                for p in &last.polygons {
-                                                                                    say!(
-                                                                                        "[s451-refine]   face={:?} bite={} \
-                                                                                         polygon={:?} tris={:?} lift={:?}",
-                                                                                        p.face, p.bite, p.polygon, p.tris, p.lift
-                                                                                    );
-                                                                                }
+                                                                                proj = fl.site_at;
+                                                                                repaired = true;
                                                                             }
                                                                             Err(e) => say!(
-                                                                                "[s451-fill] case={} v={v} DECLINE {e:?}",
+                                                                                "[s451-apply] case={} v={v} \
+                                                                                 REFUSE {e:?} — the standing \
+                                                                                 STOP applies",
                                                                                 case()
                                                                             ),
                                                                         }
                                                                     }
+                                                                    Err(crate::stage4_boundary_curve::EmissionRefineFailure::CapReached {
+                                                                        iterations,
+                                                                        lift_flips,
+                                                                        rounds,
+                                                                        last,
+                                                                    }) => {
+                                                                        say!(
+                                                                            "[s451-refine] case={} v={v} CAP iterations={iterations} \
+                                                                             lift_flips={lift_flips} halvings={}",
+                                                                            case(),
+                                                                            rounds.len()
+                                                                        );
+                                                                        for r in &rounds {
+                                                                            say!("[s451-refine]   {r:?}");
+                                                                        }
+                                                                        say!(
+                                                                            "[s451-refine]   last lift={:?}",
+                                                                            last.lift
+                                                                        );
+                                                                        for p in &last.polygons {
+                                                                            say!(
+                                                                                "[s451-refine]   face={:?} bite={} \
+                                                                                 polygon={:?} tris={:?} lift={:?}",
+                                                                                p.face, p.bite, p.polygon, p.tris, p.lift
+                                                                            );
+                                                                        }
+                                                                    }
                                                                     Err(e) => say!(
-                                                                        "[s451-region] case={} \
-                                                                         v={v} DECLINE {e:?}",
+                                                                        "[s451-fill] case={} v={v} DECLINE {e:?}",
                                                                         case()
                                                                     ),
                                                                 }
                                                             }
                                                             Err(e) => say!(
-                                                                "[s451-edits] case={} v={v} \
-                                                                 DECLINE {e:?}",
+                                                                "[s451-region] case={} \
+                                                                 v={v} DECLINE {e:?}",
                                                                 case()
                                                             ),
                                                         }
                                                     }
                                                     Err(e) => say!(
-                                                        "[s451-emit] case={} v={v} \
+                                                        "[s451-edits] case={} v={v} \
                                                          DECLINE {e:?}",
-                                                        std::env::var("ASSAY_CASE")
-                                                            .unwrap_or_else(|_| "-".into())
+                                                        case()
                                                     ),
                                                 }
                                             }
                                             Err(e) => say!(
-                                                "[s451-cut] case={} v={v} DECLINE {e:?}",
+                                                "[s451-emit] case={} v={v} \
+                                                 DECLINE {e:?}",
                                                 std::env::var("ASSAY_CASE")
                                                     .unwrap_or_else(|_| "-".into())
                                             ),
                                         }
                                     }
-                                    None => say!(
-                                        "[s451-anatomy] case={} v={v} UNAVAILABLE",
+                                    Err(e) => say!(
+                                        "[s451-cut] case={} v={v} DECLINE {e:?}",
                                         std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
                                     ),
                                 }
                             }
-                        }
-                        Err(e) => say!(
-                            "[s451-transit-solve] case={} v={v} DECLINE {e:?}",
-                            std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
-                        ),
-                    }
-                    // The categorized corpus runner nulls each child's stderr
-                    // (`assay_kv2.rs` header), so a whole-corpus census needs a
-                    // sink that survives it. Append-only, one short line per
-                    // fire — atomic under O_APPEND at this size, so parallel
-                    // children interleave cleanly.
-                    if let Ok(path) = std::env::var("YANG_451_DOMAIN_LOG") {
-                        use std::io::Write as _;
-                        if let Ok(mut f) = std::fs::OpenOptions::new()
-                            .create(true)
-                            .append(true)
-                            .open(&path)
-                        {
-                            let _ = writeln!(f, "{line}");
+                            None => say!(
+                                "[s451-anatomy] case={} v={v} UNAVAILABLE",
+                                std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                            ),
                         }
                     }
-                    if dom_stop && !repaired {
-                        return Err(YangError::stage4_region_invalid(
-                            v,
-                            Stage4InvalidReason::RelocationCrossedCrease,
-                        ));
+                    Err(e) => say!(
+                        "[s451-transit-solve] case={} v={v} DECLINE {e:?}",
+                        std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
+                    ),
+                }
+                // The categorized corpus runner nulls each child's stderr
+                // (`assay_kv2.rs` header), so a whole-corpus census needs a
+                // sink that survives it. Append-only, one short line per
+                // fire — atomic under O_APPEND at this size, so parallel
+                // children interleave cleanly.
+                if let Ok(path) = std::env::var("YANG_451_DOMAIN_LOG") {
+                    use std::io::Write as _;
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&path)
+                    {
+                        let _ = writeln!(f, "{line}");
                     }
+                }
+                if dom_stop && !repaired {
+                    return Err(YangError::stage4_region_invalid(
+                        v,
+                        Stage4InvalidReason::RelocationCrossedCrease,
+                    ));
                 }
             }
             if std::env::var_os("YANG_RIM_JUNCTION_PROBE").is_some() {
@@ -12984,7 +12972,14 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
             if !near_mint_moved.is_empty()
-                && weld_coincident_relocated(mesh, &mut attr_vec, &near_mint_moved, &minted_verts)
+                && weld_coincident_relocated(
+                    mesh,
+                    &mut attr_vec,
+                    a,
+                    b,
+                    &near_mint_moved,
+                    &minted_verts,
+                )
             {
                 collapsed_any = true;
             }
@@ -13327,7 +13322,7 @@ fn stage4_relocate_and_correct_inner(
             );
         }
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        if weld_coincident_relocated(mesh, &mut attr_vec, &moved, &minted_verts) {
+        if weld_coincident_relocated(mesh, &mut attr_vec, a, b, &moved, &minted_verts) {
             collapsed_any = true;
         }
         attribution.attributions = attr_vec;
@@ -13936,15 +13931,11 @@ fn stage4_relocate_and_correct_inner(
     // "The placement"), where the over-2 edges are the ARRANGEMENT's. Armed
     // here too it reads the §0a certificate on a mesh Stage 4 has already
     // collapsed — P0020's two 4-valent edges are minted by §4.5.3, not handed
-    // over (deviation N78). `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` re-enables it (always-on since 2026-10-03); the
-    // VERTEX-fan arm (C0058's tangent points) is unaffected either way.
-    let pinch_splits = split_pinch_vertices(
-        mesh,
-        &mut relocations,
-        &attribution.attributions,
-        crate::stage4_relocate::edge_pinch_split_enabled()
-            && !crate::stage4_relocate::edge_pinch_entry_only(),
-    );
+    // over (deviation N78), so this late site runs the VERTEX-fan arm only
+    // (C0058's tangent points); entry-only since 2026-10-03, its
+    // `YANG_EDGE_PINCH_ENTRY_ONLY` opt-out deleted 2026-10-16.
+    let pinch_splits =
+        split_pinch_vertices(mesh, &mut relocations, &attribution.attributions, false);
     if pinch_splits > 0 {
         collapsed_any = true;
     }
@@ -14258,8 +14249,7 @@ fn stage4_relocate_and_correct_inner(
         if std::env::var_os("YANG_433_PHANTOM").is_some() {
             crate::stage4_phantom::census_case_iv_phantom(mesh, brep_a, brep_b, &inc_bc);
         }
-        // §4.3.3 Case-IV RULE-OUT (spec inc-2, ALWAYS-ON; `YANG_433_RULEOUT=0`
-        // off-knob): a CLOSED loop of A×B edges whose every corner is a refuted
+        // §4.3.3 Case-IV RULE-OUT (spec inc-2): a CLOSED loop of A×B edges whose every corner is a refuted
         // pierce claim is an intersection the surfaces do not have (the
         // paper's "no solution in one of the two parametric domains ⇒ rule
         // out Case IV", `refs/text:518-537`). Its relocated corners are
@@ -14269,17 +14259,15 @@ fn stage4_relocate_and_correct_inner(
         // is the paper's remedy for a detected local error (`:659-670`).
         // Before inc-2 the loop rode into Stage 6 and surfaced as a misnamed
         // kernel-v2 CDT ring reject (R0100 face 15).
-        if crate::stage4_phantom::ruleout_enabled() {
-            if let Some(cert) =
-                crate::stage4_phantom::certify_phantom_loops(brep_a, brep_b, &inc_bc, &mesh.verts)
-            {
-                let v = cert.loop_vertices[0];
-                return Err(YangError::stage4_region_invalid_under_resolved(
-                    v,
-                    Stage4InvalidReason::PhantomIntersectionLoop,
-                    cert.under_resolution,
-                ));
-            }
+        if let Some(cert) =
+            crate::stage4_phantom::certify_phantom_loops(brep_a, brep_b, &inc_bc, &mesh.verts)
+        {
+            let v = cert.loop_vertices[0];
+            return Err(YangError::stage4_region_invalid_under_resolved(
+                v,
+                Stage4InvalidReason::PhantomIntersectionLoop,
+                cert.under_resolution,
+            ));
         }
         if !rim_curves.is_empty() {
             // Vertices claimed by a CROSS-input curve are A×B junctions that
@@ -14319,25 +14307,6 @@ fn stage4_relocate_and_correct_inner(
                     );
                 }
                 let n = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &moves);
-                // inc-3 (spec §11): the Fig-11 point q — a vertex on the
-                // operand's own rim AND on an A×B curve — must be re-seated at
-                // the TRIPLE point, not projected onto either curve alone.
-                // Separate gate so the two classes measure independently.
-                if crate::stage4_boundary_curve::triple_point_enabled() {
-                    let tp = crate::stage4_boundary_curve::plan_triple_point_reseats(
-                        mesh,
-                        &inc_bc,
-                        &rim_curves,
-                        &cross_endpoints,
-                    );
-                    let tn = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &tp);
-                    if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
-                        eprintln!("[s4-triple-point] candidates={} reseated={tn}", tp.len());
-                        for (v, q) in &tp {
-                            eprintln!("[s4-triple-point]   v={v} -> {:?}", q.as_array());
-                        }
-                    }
-                }
                 if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
                     eprintln!(
                         "[s4-rim-snap] rim_edges={} cross_excluded={} bound={bound:.6e} moved={n}",

@@ -100,48 +100,36 @@ pub(crate) fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, S
     }
 }
 
-/// M5 torus arm (YT4) gate — ALWAYS-ON since the increment-2 flip
-/// (2026-09-22 night, spec `m5_surface_pair_curve` "Torus arm": the arm-on
-/// corpus equals the arm-off corpus except one ERROR-detail move on R0050,
-/// and both carry the R0019 conversion). Unset/other = act: torus ×
-/// {cylinder, cone, sphere, torus} intersection edges go through ssi and
-/// emit as `Curve::SurfacePair`. `YANG_TORUS_PAIR=0|off` is the dev A/B
-/// off-knob restoring the KV6d Tier-B `LineSegment` path.
-pub(crate) fn torus_pair_arm_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_TORUS_PAIR").as_deref(),
-        Ok("0") | Ok("off") | Ok("OFF") | Ok("Off")
-    )
-}
-
-/// M5 torus arm increment 3 (spec `m5_surface_pair_curve` "Torus × plane",
-/// P0032, 2026-10-10): the OBLIQUE torus × plane intersection — the spiric
-/// section, degree 4 — goes through ssi (T2) and emits as
-/// `Curve::SurfacePair { torus, plane }` like every other torus pair, so the
-/// output B-Rep carries the analytic curve on BOTH its faces and kernel-v2's
-/// render sampler refines it to the render band on the planar face too (the
-/// K8 revision). The perpendicular section (T1, circles) keeps today's
-/// `LineSegment` + torus-block path for now — recorded, not chased: a typed
-/// `Circle` there would enter the conic maps AND the torus block.
-///
-/// **DEFAULT ON since 2026-10-11** (`YANG_TORUS_PLANE_PAIR=0|off` is the
-/// A/B off-knob). Checkpoint 1 (2026-10-10 night) had it gated OFF: the
-/// arm-on corpus converted P0032 but moved six CORRECT cases — four to the
-/// Stage-0 `CoplanarFacesUnsupported` wall (no surface-pair vocabulary on a
-/// planar loop: R0026, R0050, R0059, R0085), R0077 to a Stage-3
-/// `AmbiguousCurve { 1, 0 }` (the plane-pair candidate measured at the
-/// planar `TAU_WORK`), R0025 to kernel-v2's planar ring CDT reject.
-/// Increments 3a (Stage-0 mixed admission of pair chains with exact-curve
-/// minting of their subdivided chords) and 3b (`torus_chord_tol_for_owner`)
-/// converted all six; the arm-on corpus then differed from the canonical by
-/// exactly P0032 ERROR → CORRECT — spec `m5_surface_pair_curve` "Torus ×
-/// plane", "Increments 3a + 3b".
-pub(crate) fn torus_plane_pair_arm_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_TORUS_PLANE_PAIR").as_deref(),
-        Ok("0") | Ok("off") | Ok("OFF") | Ok("Off")
-    )
-}
+// M5 torus arm (YT4) — ALWAYS-ON since the increment-2 flip
+// (2026-09-22 night, spec `m5_surface_pair_curve` "Torus arm": the arm-on
+// corpus equals the arm-off corpus except one ERROR-detail move on R0050,
+// and both carry the R0019 conversion). Unset/other = act: torus ×
+// {cylinder, cone, sphere, torus} intersection edges go through ssi and
+// emit as `Curve::SurfacePair` (the `YANG_TORUS_PAIR` off-knob restoring
+// the KV6d Tier-B `LineSegment` path was deleted 2026-10-16).
+//
+// M5 torus arm increment 3 (spec `m5_surface_pair_curve` "Torus × plane",
+// P0032, 2026-10-10): the OBLIQUE torus × plane intersection — the spiric
+// section, degree 4 — goes through ssi (T2) and emits as
+// `Curve::SurfacePair { torus, plane }` like every other torus pair, so the
+// output B-Rep carries the analytic curve on BOTH its faces and kernel-v2's
+// render sampler refines it to the render band on the planar face too (the
+// K8 revision). The perpendicular section (T1, circles) keeps today's
+// `LineSegment` + torus-block path for now — recorded, not chased: a typed
+// `Circle` there would enter the conic maps AND the torus block.
+//
+// **DEFAULT ON since 2026-10-11** (the `YANG_TORUS_PLANE_PAIR` A/B off-knob
+// was deleted 2026-10-16). Checkpoint 1 (2026-10-10 night) had it gated OFF: the
+// arm-on corpus converted P0032 but moved six CORRECT cases — four to the
+// Stage-0 `CoplanarFacesUnsupported` wall (no surface-pair vocabulary on a
+// planar loop: R0026, R0050, R0059, R0085), R0077 to a Stage-3
+// `AmbiguousCurve { 1, 0 }` (the plane-pair candidate measured at the
+// planar `TAU_WORK`), R0025 to kernel-v2's planar ring CDT reject.
+// Increments 3a (Stage-0 mixed admission of pair chains with exact-curve
+// minting of their subdivided chords) and 3b (`torus_chord_tol_for_owner`)
+// converted all six; the arm-on corpus then differed from the canonical by
+// exactly P0032 ERROR → CORRECT — spec `m5_surface_pair_curve` "Torus ×
+// plane", "Increments 3a + 3b".
 
 /// Is this torus × plane pair the PERPENDICULAR section (ssi-rs T1: the plane
 /// normal parallel to the torus axis within `TAU_MODEL`), whose curves are
@@ -1083,16 +1071,10 @@ pub(crate) fn build_intersection_curves(
         if matches!(surf0, Surface::Torus { .. }) || matches!(surf1, Surface::Torus { .. }) {
             let plane_partner =
                 matches!(surf0, Surface::Plane { .. }) || matches!(surf1, Surface::Plane { .. });
-            if !torus_pair_arm_enabled() {
-                continue;
-            }
             // Increment 3 (P0032): the OBLIQUE plane section takes the ssi
             // route too (T2 → `SurfacePair { torus, plane }`); the
             // perpendicular section (T1, circles) keeps the untyped path.
-            if plane_partner
-                && (!torus_plane_pair_arm_enabled()
-                    || torus_plane_is_perpendicular_section(surf0, surf1))
-            {
+            if plane_partner && torus_plane_is_perpendicular_section(surf0, surf1) {
                 continue;
             }
         }

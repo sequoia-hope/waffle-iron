@@ -32,7 +32,7 @@
 //! byte-identical through this step. A scan that `stage0_preprocess` would
 //! refuse (an intra-solid pair, a sub-resolution gap) is left to it.
 //!
-//! `YANG_PLANE_WELD=off|0` disables the step (dev A/B);
+//! Always on (the `YANG_PLANE_WELD` off-knob was deleted 2026-10-16);
 //! `YANG_PLANE_WELD_PROBE=1` prints every rewritten face and anchor.
 
 use cad_primitives::Point3;
@@ -40,13 +40,6 @@ use cad_primitives::Point3;
 use super::{build_plane_groups, canonical_frame, Frame};
 use crate::scan_near_coplanar;
 use crate::{BRep, BRepEdge, BRepFace, BRepVertex, Curve, InputId, Surface, Vector3, YangError};
-
-pub(crate) fn enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_PLANE_WELD").as_deref(),
-        Ok("off") | Ok("0")
-    )
-}
 
 fn probe() -> bool {
     std::env::var_os("YANG_PLANE_WELD_PROBE").is_some()

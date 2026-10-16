@@ -209,23 +209,17 @@ pub(crate) fn cone_chart_rim_demand(
 }
 
 /// Is the universal-cover unroll of a sheared bounded lateral patch on
-/// (P0038, 2026-10-12)? `YANG_S1_COVER_UNROLL=0|off` restores the
-/// single-sheet STOP for dev A/B.
+/// (P0038, 2026-10-12)? Always in production; only the test-only thread
+/// override can restore the single-sheet STOP (the `YANG_S1_COVER_UNROLL`
+/// env gate was deleted 2026-10-16).
 pub(crate) fn cover_unroll_on() -> bool {
-    if let Some(v) = COVER_UNROLL_OVERRIDE.with(|c| c.get()) {
-        return v;
-    }
-    !matches!(
-        std::env::var("YANG_S1_COVER_UNROLL").as_deref(),
-        Ok("0") | Ok("off")
-    )
+    COVER_UNROLL_OVERRIDE.with(|c| c.get()).unwrap_or(true)
 }
 
 thread_local! {
-    /// Test-only override of the `YANG_S1_COVER_UNROLL` gate — per THREAD, so
-    /// parallel unit tests never race on process-global env: `Some(false)`
-    /// forces the single-sheet STOP, `Some(true)` the cover unroll, `None`
-    /// (production) reads the env gate.
+    /// Test-only override of the cover unroll — per THREAD, so parallel unit
+    /// tests never interfere: `Some(false)` forces the single-sheet STOP,
+    /// `Some(true)` or `None` (production) the cover unroll.
     pub(crate) static COVER_UNROLL_OVERRIDE: std::cell::Cell<Option<bool>> =
         const { std::cell::Cell::new(None) };
 }

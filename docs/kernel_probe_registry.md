@@ -27,6 +27,48 @@ output** so they are auditable.
 | `YANG_SHIFT_NEUTER` | `yang-rs/src/stage1_tessellate.rs:~2582` | forces the rim sample `shift` to 0 | computed shift |
 | `YANG_NSEG_FLOOR` | `yang-rs/src/stage1_tessellate.rs:~271` | raises every rim segment count to a floor | producer-chosen `n_seg` |
 | `YANG_RIM_JUNCTION_DISABLE` | `yang-rs/src/boolean.rs:~1853` | disables the Stage-1 rim-junction insertion | insertion enabled |
+| `YANG_441_APPLY_BOOL_CAP` | `yang-rs/src/stage5_topology.rs` (`run_construct_passes`) | booleans at/above this process-order index run the I5 construct pass census-only | every boolean applies |
+| `YANG_441_APPLY_SEAM_CAP` | same | caps the total applied-seam budget | uncapped |
+
+## Kill switches of landed mechanisms: DELETED 2026-10-16
+
+Cleanup spec §4 (`specs/yang_faithful_cleanup.md`, Phase 0): a default-ON
+`0|off` kill switch is legitimate for ONE corpus run after its mechanism
+lands, then it goes with its off-branch; a gated-OFF experiment is dead code.
+Deleted on 2026-10-16 (yang-rs + kernel-v2): `YANG_433_RULEOUT`,
+`YANG_433_TANGENT_INSERT`, `YANG_434_DECIMATE`, `YANG_434_INSERT`,
+`YANG_434_MERGE`, `YANG_441_CONE_CHART`, `YANG_441_TORUS_CHART`,
+`YANG_441_FAN_OF_ONE`, `YANG_441_FOLD_MERGE`, `YANG_441_MERGE_CARRIER`,
+`YANG_441_ONCURVE_MERGE`, `YANG_451_TRANSIT`, `YANG_451_TRANSIT_EMIT`,
+`YANG_EDGE_IN_PLANE`, `YANG_EDGE_PINCH_SPLIT`, `YANG_EDGE_PINCH_ENTRY_ONLY`,
+`YANG_JUNCTION_LINE`, `YANG_JUNCTION_SLAB`, `YANG_JUNCTION_SAMPLING_ENABLE`
+(with its `edge` / `face` half modes), `YANG_LINE_PAIR_CORNER`,
+`YANG_P3B_PIERCE_ENABLE`, `YANG_PLANE_WELD`, `YANG_S0_SUBRES_FUSE`,
+`YANG_S1_CHART_REFINE`, `YANG_S1_CHART_SEED`, `YANG_S1_COVER_UNROLL`,
+`YANG_S5_ENVELOPE_ENABLE`, `YANG_TORUS_PAIR`, `YANG_TORUS_PLANE_PAIR`,
+`YANG_SEAM_COMPONENT`, `KV2_ELLIPSE_SAG`, `KV2_PATCH_LIFT_REFINE`; and the
+two gated-OFF experiments `YANG_S4_TRIPLE_POINT_ENABLE` (with
+`plan_triple_point_reseats`) and `KV2_ARC_CONFORM_CURVES` (with
+`boundary_curve_pool_samples`). The `0|off` value of these multi-valued knobs
+went too, their other modes kept: `YANG_434_OUT`, `YANG_441_RUN_ABSORB`,
+`YANG_441_GROUP_ABSORB`, `YANG_441_REHOME`, `YANG_451`,
+`YANG_451_TRIPLE_DOMAIN`, `YANG_451_TRANSIT_ANATOMY`,
+`YANG_S45_BOUNDARY_DOMAIN`, `YANG_S4_CARRIER_DOMAIN`.
+
+## Result-changing modes still read in release (OPEN)
+
+These are not print-only, so by the policy above they must become
+debug-only or go; each needs its own decision (cleanup spec §4):
+
+| Env var = value | Effect |
+|---|---|
+| `YANG_434_OUT=census` | reports the §4.4.2 restoration and does NOT apply it |
+| `YANG_441_RUN_ABSORB=census`, `YANG_441_GROUP_ABSORB=census`, `YANG_441_REHOME=census` | select and report, apply nothing |
+| `YANG_451=census` | OffCurve gates record-and-skip instead of abort, and the §4.5.1 repair is OFF |
+| `YANG_451_TRIPLE_DOMAIN=1\|on`, `YANG_S45_BOUNDARY_DOMAIN=stop\|1\|on` | turn a domain fire into a hard STOP |
+| `YANG_S4_CARRIER_DOMAIN=census` | changes FLOW (measured 2026-10-08) |
+| `YANG_441_OPEN_CONIC_PARAM` | `stage4_correct/reversal.rs` — kill switch of the open-conic parameter arm; decide with Phase 2a-ii |
+| `YANG_S1_SELF_CONTACT`, `YANG_S1_SELF_CONTACT_CHART` | the self-contact guard's switches — go with the guard (Phase 3) |
 
 kernel-v2's ~24 `KV2_*_PROBE` and cherchi-rs's `CHERCHI_*_PROBE` are all
 tracing-only (verified in the design review): each gates `eprintln!` and, in
@@ -61,3 +103,5 @@ cargo feature**, not an environment variable.
   Before 2026-07-28 it could not: a body scored SUPPORTED_CORRECT while carrying
   a loop vertex 6.9 % of a cylinder radius off its own surface. See
   `docs/TESTING.md` and roadmap §0.0 item 6.
+
+**Deleted 2026-10-16 (Phase 2a-i, the §4.5.3 sweep in the paper's order):** `YANG_453_RANK` (with the victim ranking), `YANG_453_PAIR` (kill switch and its result-changing `census` mode), `YANG_453_SPAIR`, `YANG_453_OVERTAKE` — the arms they switched are always on.

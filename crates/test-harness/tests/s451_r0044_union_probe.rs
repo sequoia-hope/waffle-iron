@@ -43,12 +43,12 @@ fn r0044_union_only_under_the_gate_set() {
     if gates_on {
         // R0044's minimal converting set (measured 2026-09-03): the corridor
         // arm, the §4.5.3 surface-pair arm, and the emission write inside
-        // its census chain.
-        std::env::set_var("YANG_451_TRANSIT", "1");
-        std::env::set_var("YANG_453_SPAIR", "1");
+        // its census chain. The corridor arm and the emission write are
+        // always on (their `YANG_451_TRANSIT` / `YANG_451_TRANSIT_EMIT`
+        // knobs were deleted 2026-10-16, as was the §4.5.3 surface-pair
+        // arm's `YANG_453_SPAIR`); the census chain is reporting.
         std::env::set_var("YANG_451_TRIPLE_DOMAIN", "census");
         std::env::set_var("YANG_451_TRANSIT_ANATOMY", "1");
-        std::env::set_var("YANG_451_TRANSIT_EMIT", "1");
     }
     let d = corpus_dir();
     let waffle: serde_json::Value =

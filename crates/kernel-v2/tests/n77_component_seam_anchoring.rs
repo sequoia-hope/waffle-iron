@@ -3,9 +3,10 @@
 //!
 //! Deviation `docs/yang_deviations.md` N77; ledger `docs/yang_tail_triage.md`
 //! (P0019 row). ALWAYS-ON since 2026-10-03 (corpus 324C/0W/22E/5EE/0T over
-//! 351, two moves, zero regressions); `YANG_SEAM_COMPONENT=0|off` is the kill
-//! switch, under which `recover.rs` decides exactly as PASS 1 / PASS 2
-//! always have — the RED half of every pin below runs under it.
+//! 351, two moves, zero regressions). Its `YANG_SEAM_COMPONENT=0|off` kill
+//! switch — and with it the RED (greedy-order) half of each pin below — was
+//! deleted 2026-10-16 with the cleanup spec's §4 knob policy; the GREEN halves
+//! stay as the pins.
 //!
 //! `recover.rs` canonicalizes a cylinder/cone face whose two loops are both
 //! closed circle rims into the 4-edge `[rim, seam, rim, seam]` lateral — the
@@ -71,35 +72,6 @@ use kernel_v2::construct::{extrude, revolve};
 use kernel_v2::{
     boolean_op, tessellate, validate_solid, BrepArena, KernelV2Error, Profile, RenderMesh, SolidId,
 };
-
-/// P0019's wall, verbatim.
-const KV6C_ANNULAR_WALL: &str = "cone face with inner loops is outside the KV6c vocabulary";
-
-/// `YANG_SEAM_COMPONENT` is process-global, so each test below holds this lock
-/// for its WHOLE body — the gate-OFF half included, which is why it cannot be
-/// folded into the `Gate` guard: the other test must not switch the gate on
-/// underneath a RED phase.
-static GATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn serialize() -> std::sync::MutexGuard<'static, ()> {
-    let g = GATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    // The rule is on by default; the RED half needs the kill switch.
-    std::env::set_var("YANG_SEAM_COMPONENT", "0");
-    g
-}
-
-struct Gate;
-impl Gate {
-    fn on() -> Self {
-        std::env::remove_var("YANG_SEAM_COMPONENT");
-        Gate
-    }
-}
-impl Drop for Gate {
-    fn drop(&mut self) {
-        std::env::set_var("YANG_SEAM_COMPONENT", "0");
-    }
-}
 
 /// A closed 4-edge profile, EVERY edge oblique to the axis (so every revolved
 /// band is a CONE), strictly on the +radial side of it (so the full turn is a
@@ -232,31 +204,15 @@ fn barrel_exact_volume() -> f64 {
     (8.0 / 3.0) * pi - pi * (0.75 * 0.1 + 0.005 + 0.001 / 12.0)
 }
 
-/// RED→GREEN. Four cone bands sharing rims in a run: PASS 1 pairs faces 0 and
-/// 2 and pins four rim anchors, face 1 then arrives with BOTH of its rims
-/// fixed |Δaz| = 2.51327412287182916e-1 rad apart and keeps the annular form,
-/// and the assembler raises P0019's wall verbatim. With one azimuth per rim
+/// Four cone bands sharing rims in a run: under the old greedy order PASS 1
+/// paired faces 0 and 2 and pinned four rim anchors, face 1 then arrived with
+/// BOTH of its rims fixed |Δaz| = 2.51327412287182916e-1 rad apart and kept
+/// the annular form, and the assembler raised P0019's wall ("cone face with
+/// inner loops is outside the KV6c vocabulary"). With one azimuth per rim
 /// component every band is seamed and the solid assembles.
 #[test]
 fn a_rim_run_that_defeats_the_greedy_order_converts_under_component_anchoring() {
-    let _serialized = serialize();
-    // RED: the greedy order leaves an annular cone band.
-    let err = end_shave(&ring_profile()).expect_err(
-        "without component anchoring the interleaved rim run must leave a cone \
-         band ANNULAR — if this now succeeds the greedy order was changed and \
-         the pin below no longer proves anything",
-    );
-    let text = format!("{err:?}");
-    assert!(
-        text.contains(KV6C_ANNULAR_WALL),
-        "the greedy order must fail with P0019's own wall, not something else; got {text}"
-    );
-
-    // GREEN: one seam azimuth per component.
-    let on = {
-        let _g = Gate::on();
-        end_shave(&ring_profile()).expect("component anchoring must seam every band")
-    };
+    let on = end_shave(&ring_profile()).expect("component anchoring must seam every band");
     // Every band seamed ⇒ no cone face carries an inner loop. The lathe has no
     // planar face except the shaved annular cap, whose inner rim is the one
     // ring the solid is allowed to have.
@@ -283,30 +239,13 @@ fn a_rim_run_that_defeats_the_greedy_order_converts_under_component_anchoring() 
     );
 }
 
-/// The no-regression half: a rim CHAIN the greedy order already handles must
-/// still produce the SAME SOLID with the component rule on. Not bitwise — the
-/// component rule picks a different representational seam azimuth, so minted
-/// feet move by construction — but the census and the geometry must not.
+/// The no-regression half: a rim CHAIN the greedy order already handled must
+/// still produce the same solid under the component rule (measured equal in
+/// census and volume against the greedy order when the rule landed).
 #[test]
 fn a_rim_chain_the_greedy_order_already_handles_keeps_its_solid() {
-    let _serialized = serialize();
-    let off = end_shave(&barrel_profile()).expect("the barrel assembles without the gate");
-    let on = {
-        let _g = Gate::on();
-        end_shave(&barrel_profile()).expect("the barrel assembles with the gate")
-    };
-    assert_eq!(
-        (off.vertices, off.edges, off.faces, off.rings),
-        (on.vertices, on.edges, on.faces, on.rings),
-        "the barrel's topology census moved with the gate: V/E/F/R {:?} -> {:?}",
-        (off.vertices, off.edges, off.faces, off.rings),
-        (on.vertices, on.edges, on.faces, on.rings)
-    );
-    let (vo, vn) = (render_volume(&off.mesh), render_volume(&on.mesh));
-    assert!(
-        (vo - vn).abs() <= 1e-9 * vo.max(1.0),
-        "the barrel's volume moved with the gate: {vo:.17e} -> {vn:.17e}"
-    );
+    let on = end_shave(&barrel_profile()).expect("the barrel assembles");
+    let vn = render_volume(&on.mesh);
     let exact = barrel_exact_volume();
     assert!(
         vn <= exact && vn >= exact * 0.97,

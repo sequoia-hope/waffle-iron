@@ -72,61 +72,24 @@ pub struct FoldMergeSite {
     pub chord_t: f64,
 }
 
-/// Select every [`FoldMergeSite`] over a patch-cycle set — the threshold-free
-/// selector for the §4.4.1 Fig-11 merge.
-///
-/// A corner `(a, b, c)` qualifies iff ALL of:
-/// 1. `b` did NOT move across Stage 4 (`post == pre`) — a relocated vertex sits
-///    on an exact analytic curve and is never merged away (that would discard
-///    the certificate), and a Stage-4-MINTED vertex (no `pre` entry) has no
-///    "was it overrun" question to ask;
-/// 2. `b` sat INSIDE the chord of its own neighbours before and lies OUTSIDE it
-///    after — the chord-order-inversion certificate, which is exactly the
-///    `class=MINTED_BY_S4` verdict the loop-simplicity census reports. A
-///    sign/interval test on a ratio: no band, no angle, scale-free;
-/// 3. the END it overran (`a` when `t < 0`, `c` when `t > 1`) DID move — that
-///    relocation is what carried the boundary across `b`. An inversion between
-///    two unmoved vertices is inherited geometry and is left alone.
-///
-/// `pre` is the `S4_PRE_POS` map. It — not the `relocations` vector — is the
-/// correct "was it relocated?" oracle: `relocations` carries conic `(vertex, t)`
-/// retags only, so the implicit-pair and junction arms move vertices without
-/// appearing in it. Measured 2026-08-19: on R0074/R0085/R0095/R0025 the vector
-/// is EMPTY while 59–83 vertices per loop moved, so a `relocations`-keyed
-/// condition 3 rejects every inversion in the family.
-///
-/// Ambiguity is dropped, never guessed: a victim claimed by two different
-/// survivors is excluded. Deterministic — `BTreeMap` iteration only.
-/// I13c — the on-curve TERMINAL-overrun arm of the Fig-11 merge selector
-/// (and the driver's construct/fold-merge alternation). **FLIPPED ALWAYS-ON
-/// 2026-08-25** with the I13 corpus proofs (see
-/// `stage4_project::cone_chart_enabled`). `YANG_441_ONCURVE_MERGE=0|off` is
-/// the dev A/B off-knob.
-pub(crate) fn oncurve_merge_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_ONCURVE_MERGE"), Ok(v) if v == "0" || v == "off")
-}
-
 /// I13d — the run-level junction-absorption arm (`YANG_441_RUN_ABSORB`).
 /// **FLIPPED ALWAYS-ON 2026-08-25** (same day as landing) with the corpus
 /// proofs: gate-off default corpus BIT-IDENTICAL to the committed baseline;
 /// gate-on corpus CATEGORY-IDENTICAL — 271C/0W/36E/1EE/0T with exactly ONE
 /// explained detail row (R0003 advances face 467 → 517, the I13e
-/// interlocked-pair wall). `YANG_441_RUN_ABSORB=0|off` is the dev A/B
-/// off-knob; `census` selects and reports at the fold-merge fixed points
-/// without applying.
+/// interlocked-pair wall). `YANG_441_RUN_ABSORB=census` selects and reports
+/// at the fold-merge fixed points without applying (its `0|off` kill switch
+/// was deleted 2026-10-16, cleanup spec §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunAbsorbMode {
-    Off,
     Census,
     On,
 }
 
 pub(crate) fn run_absorb_mode() -> RunAbsorbMode {
     match std::env::var("YANG_441_RUN_ABSORB") {
-        Err(_) => RunAbsorbMode::On,
-        Ok(v) if v == "0" || v == "off" => RunAbsorbMode::Off,
         Ok(v) if v == "census" => RunAbsorbMode::Census,
-        Ok(_) => RunAbsorbMode::On,
+        _ => RunAbsorbMode::On,
     }
 }
 
@@ -137,24 +100,21 @@ pub(crate) fn run_absorb_mode() -> RunAbsorbMode {
 /// tree); gate-on corpus CATEGORY-IDENTICAL — 271C/0W/36E/1EE/0T with
 /// exactly ONE explained detail row (R0003 advances face 517 → 577, off
 /// the ring-CDT wall and into the pre-existing KV9-F2 fold family that
-/// R0017 already fails on independently). `YANG_441_GROUP_ABSORB=0|off` is
-/// the dev A/B off-knob; `census` selects and reports groups at the run
-/// arm's fixed point without applying. The arm sits strictly downstream of
+/// R0017 already fails on independently). `YANG_441_GROUP_ABSORB=census`
+/// selects and reports groups at the run arm's fixed point without applying
+/// (its `0|off` kill switch was deleted 2026-10-16). The arm sits strictly downstream of
 /// the I13d per-site loop: it only sees sites whose per-site repair the
 /// holders already refused.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum GroupAbsorbMode {
-    Off,
     Census,
     On,
 }
 
 pub(crate) fn group_absorb_mode() -> GroupAbsorbMode {
     match std::env::var("YANG_441_GROUP_ABSORB") {
-        Err(_) => GroupAbsorbMode::On,
-        Ok(v) if v == "0" || v == "off" => GroupAbsorbMode::Off,
         Ok(v) if v == "census" => GroupAbsorbMode::Census,
-        Ok(_) => GroupAbsorbMode::On,
+        _ => GroupAbsorbMode::On,
     }
 }
 
@@ -325,7 +285,7 @@ pub struct FoldMergeCensus {
     pub survivor_still: usize,
     /// Victims dropped as ambiguous (two survivors claim them).
     pub ambiguous: usize,
-    /// I13c (gated `YANG_441_ONCURVE_MERGE`): of
+    /// I13c (always on): of
     /// [`Self::apex_moved_on_curve`], corners certified as a TERMINAL
     /// overrun on their shared curve — the apex's relocation carried it past
     /// the seam run's terminal junction in curve parameter — and proposed as
@@ -334,12 +294,37 @@ pub struct FoldMergeCensus {
     pub oncurve_sites: usize,
 }
 
-/// As [`fold_merge_sites`], with the per-condition rejection census.
-/// `curves` is the `intersection_curves` map, keys canonicalized `(min, max)`.
-/// The KEYS drive the census's on/off-curve split as before; the VALUES feed
-/// only the gated I13c terminal-overrun arm (`YANG_441_ONCURVE_MERGE`) —
-/// with the gate off, selection is byte-identical to the key-set-only
-/// selector. May be empty.
+/// Select every [`FoldMergeSite`] over a patch-cycle set — the threshold-free
+/// selector for the §4.4.1 Fig-11 merge.
+///
+/// A corner `(a, b, c)` qualifies iff ALL of:
+/// 1. `b` did NOT move across Stage 4 (`post == pre`) — a relocated vertex sits
+///    on an exact analytic curve and is never merged away (that would discard
+///    the certificate), and a Stage-4-MINTED vertex (no `pre` entry) has no
+///    "was it overrun" question to ask;
+/// 2. `b` sat INSIDE the chord of its own neighbours before and lies OUTSIDE it
+///    after — the chord-order-inversion certificate, which is exactly the
+///    `class=MINTED_BY_S4` verdict the loop-simplicity census reports. A
+///    sign/interval test on a ratio: no band, no angle, scale-free;
+/// 3. the END it overran (`a` when `t < 0`, `c` when `t > 1`) DID move — that
+///    relocation is what carried the boundary across `b`. An inversion between
+///    two unmoved vertices is inherited geometry and is left alone.
+///
+/// `pre` is the `S4_PRE_POS` map. It — not the `relocations` vector — is the
+/// correct "was it relocated?" oracle: `relocations` carries conic `(vertex, t)`
+/// retags only, so the implicit-pair and junction arms move vertices without
+/// appearing in it. Measured 2026-08-19: on R0074/R0085/R0095/R0025 the vector
+/// is EMPTY while 59–83 vertices per loop moved, so a `relocations`-keyed
+/// condition 3 rejects every inversion in the family.
+///
+/// Ambiguity is dropped, never guessed: a victim claimed by two different
+/// survivors is excluded. Deterministic — `BTreeMap` iteration only.
+///
+/// Returns the sites with the per-condition rejection census. `curves` is the
+/// `intersection_curves` map, keys canonicalized `(min, max)`. The KEYS drive
+/// the census's on/off-curve split; the VALUES feed the I13c on-curve
+/// TERMINAL-overrun arm (ALWAYS-ON since 2026-08-25, the I13 corpus proofs).
+/// May be empty.
 pub fn fold_merge_sites_censused<'a>(
     cycles: impl IntoIterator<Item = &'a [u32]>,
     pre: &HashMap<u32, [f64; 3]>,
@@ -395,17 +380,15 @@ pub fn fold_merge_sites_censused<'a>(
                         // authority refuses this shape by its endpoint
                         // guard. Shares `claimed` so cross-arm duplicates
                         // and ambiguity resolve in one place.
-                        if oncurve_merge_enabled() {
-                            if let Some(s) = oncurve_terminal_overrun(curves, cyc, i, t, post) {
-                                census.oncurve_sites += 1;
-                                match claimed.get(&b) {
-                                    Some(&(s0, _)) if s0 != s => {
-                                        ambiguous.insert(b);
-                                    }
-                                    Some(_) => {}
-                                    None => {
-                                        claimed.insert(b, (s, t));
-                                    }
+                        if let Some(s) = oncurve_terminal_overrun(curves, cyc, i, t, post) {
+                            census.oncurve_sites += 1;
+                            match claimed.get(&b) {
+                                Some(&(s0, _)) if s0 != s => {
+                                    ambiguous.insert(b);
+                                }
+                                Some(_) => {}
+                                None => {
+                                    claimed.insert(b, (s, t));
                                 }
                             }
                         }
@@ -1021,10 +1004,8 @@ mod tests {
         );
     }
 
-    /// Gate pin (FLIPPED 2026-08-25): the arm is always-on — the certified
-    /// corner yields exactly one site by default; the off-knob
-    /// (`YANG_441_ONCURVE_MERGE=0|off`) restores the still-apex-only
-    /// selector, byte-identically.
+    /// Arm pin (always-on since 2026-08-25): the certified corner yields
+    /// exactly one site.
     #[test]
     fn oncurve_arm_follows_the_flipped_gate() {
         let cyc = vec![0u32, 1, 2, 3, 4];
@@ -1048,14 +1029,9 @@ mod tests {
         let curves = curve_map(&[(1, 2), (2, 3)]);
         let (sites, census) = fold_merge_sites_censused([cyc.as_slice()], &pre, &post, &curves);
         assert_eq!(census.apex_moved_on_curve, 1, "the corner IS censused");
-        if oncurve_merge_enabled() {
-            assert_eq!(census.oncurve_sites, 1, "the always-on arm proposes it");
-            assert_eq!(sites.len(), 1, "{sites:?}");
-            assert_eq!((sites[0].victim, sites[0].survivor), (2, 3));
-        } else {
-            assert_eq!(census.oncurve_sites, 0, "off-knob: arm never proposes");
-            assert!(sites.is_empty(), "{sites:?}");
-        }
+        assert_eq!(census.oncurve_sites, 1, "the always-on arm proposes it");
+        assert_eq!(sites.len(), 1, "{sites:?}");
+        assert_eq!((sites[0].victim, sites[0].survivor), (2, 3));
     }
 
     /// A healthy convex cycle has every corner inside its own chord — the

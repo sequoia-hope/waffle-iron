@@ -21,8 +21,8 @@
 //!
 //! * [`census_case_iv_phantom`] reports every claim, its roots, and the
 //!   verdict — READ-ONLY, print-only, gated on `YANG_433_PHANTOM` (any value).
-//! * [`certify_phantom_loops`] (inc-2, ALWAYS-ON; `YANG_433_RULEOUT=0|off`
-//!   is the dev A/B off-knob) lifts the per-claim verdict to the LOOP: a
+//! * [`certify_phantom_loops`] (inc-2, ALWAYS-ON) lifts the per-claim
+//!   verdict to the LOOP: a
 //!   connected component of A×B intersection edges whose EVERY vertex is a
 //!   refuted claim, closed within itself (no cross edge leaves the refuted
 //!   set) and cyclic (every vertex of degree ≥ 2, size ≥ 3), is a phantom
@@ -593,16 +593,6 @@ pub(crate) struct PhantomLoopCertificate {
     /// it stops clipping the wedge. `None` when no claim admits the closed
     /// form (the ladder then runs its default rungs).
     pub under_resolution: Option<f64>,
-}
-
-/// §4.3.3 rule-out gate (inc-2). ALWAYS-ON; `YANG_433_RULEOUT=0|off` is the
-/// dev A/B off-knob (the pre-inc-2 behaviour: the phantom loop rides into
-/// Stage 6 and surfaces as a misnamed CDT ring reject one crate later).
-pub(crate) fn ruleout_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_433_RULEOUT").as_deref(),
-        Ok("0") | Ok("off")
-    )
 }
 
 /// The loop-level certificate over the post-relocation incidence (see the

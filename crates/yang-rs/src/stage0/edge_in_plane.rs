@@ -46,7 +46,8 @@
 //! endpoints, X endpoints within the margin of F's boundary, collinear
 //! contact with a loop edge, curved-bounded or non-planar F.
 //!
-//! `YANG_EDGE_IN_PLANE=off|0` disables both arms (dev A/B);
+//! Both arms always on (the `YANG_EDGE_IN_PLANE` off-knob was deleted
+//! 2026-10-16);
 //! `YANG_EDGE_IN_PLANE_PROBE=1` prints every identification, contact, decline
 //! and the census of gaps in the would-be STOP window `(band/100, band]`.
 
@@ -57,14 +58,6 @@ use cad_primitives::{Point3, TAU_MODEL, TAU_WORK};
 use crate::scan_near_coplanar;
 use crate::stage1_tessellate::FaceConstraints;
 use crate::{ortho_basis, BRep, BRepVertex, Curve, InputId, Surface, YangError};
-
-/// Both arms on unless `YANG_EDGE_IN_PLANE=off|0`.
-pub(crate) fn enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_EDGE_IN_PLANE").as_deref(),
-        Ok("off") | Ok("0")
-    )
-}
 
 fn probe() -> bool {
     std::env::var_os("YANG_EDGE_IN_PLANE_PROBE").is_some()

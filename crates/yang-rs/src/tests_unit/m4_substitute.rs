@@ -390,9 +390,9 @@ pub(crate) fn edge_pinch_sheets_refuses_an_unattributed_triangle() {
     assert!(edge_pinch_sheets(&mesh, &attribution, 0, 1, &star, &local).is_none());
 }
 
-/// The split itself stays OFF by default: with `YANG_EDGE_PINCH_SPLIT` unset
-/// (the state every other test and the whole corpus runs in) the 4-valent edge
-/// makes `split_pinch_vertices` leave the vertex alone, exactly as before.
+/// With the EDGE arm not armed (`edge = false`, the late in-Stage-4 site,
+/// which runs the vertex-fan arm only) the 4-valent edge makes
+/// `split_pinch_vertices` leave the vertex alone.
 #[test]
 pub(crate) fn split_pinch_vertices_leaves_the_edge_pinch_untouched_by_default() {
     let (mut mesh, _, _) = edge_pinch_fixture();

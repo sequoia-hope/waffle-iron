@@ -70,63 +70,17 @@ thread_local! {
     > = const { std::cell::RefCell::new(None) };
 }
 
-/// Is the [`S4_PRE_POS`] pre-position oracle wanted this run?
-///
-/// TWO consumers: the `YANG_S5_FOLD_PROBE` diagnostic columns and the Fig-11
-/// merge pass. They must share ONE predicate, because the
-/// map is captured at one site, RE-KEYED at four compaction sites, and read at
-/// several more — enabling the capture without the re-keys would leave a
-/// consumer reading indices that name different vertices, which is worse than
-/// having no map at all (every column still populated, just wrong). That is the
-/// `probe_remap_pre_pos` contract; this function is what keeps the two gates
-/// from drifting apart.
-fn s4_pre_pos_enabled() -> bool {
-    std::env::var_os("YANG_S5_FOLD_PROBE").is_some() || fold_merge_enabled()
-}
-
-/// Is the §4.4.1 Fig-11 merge pass ([`run_fold_merge_passes`]) on?
-///
-/// **ALWAYS-ON since the I6 flip (2026-08-19d, spec §4-I6);
-/// `YANG_441_FOLD_MERGE=0|off` is the dev A/B off-knob.** Flip bar: gate-off
-/// byte-identical by construction (every line of the pass is inside this
-/// predicate), the rewrite tier green with the pass on, and a gate-ON corpus of
-/// 265C/0W/43E/1EE/0T — two honest conversions (F0045, R0090) and zero other
-/// category or detail deltas.
-///
-/// Its selector reads [`S4_PRE_POS`], so this is the SECOND consumer of
-/// [`s4_pre_pos_enabled`] — and the only non-diagnostic one. The map is
-/// production input to a repair here, not a probe column, which is why the
-/// capture and all four re-keys must follow the same predicate.
-fn fold_merge_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_FOLD_MERGE"), Ok(v) if v == "0" || v == "off")
-}
-
-/// Is the §4-I8 FAN-OF-ONE rebuild on — the victim carrying a SINGLE triangle
-/// in a holder patch, where the merge DELETES that triangle rather than
-/// re-triangulating a 2-vertex link?
-///
-/// **ALWAYS-ON since 2026-08-20** — `YANG_441_FAN_OF_ONE=0|off` is the dev A/B
-/// off-knob, which restores the pre-flip loud refusal. Flip bar: the full corpus
-/// with this and [`merge_carrier_guard_enabled`] on measured BYTE-IDENTICAL to
-/// the banked 265C/0W/43E/1EE/0T — zero category and zero detail deltas over all
-/// 312 cases — so the repair costs nothing and stops declining a configuration
-/// whose answer is known.
-fn fan_of_one_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_FAN_OF_ONE"), Ok(v) if v == "0" || v == "off")
-}
-
-/// Is the §4-I8 carrier-containment precondition on the Fig-11 merge enforced?
-///
-/// **ALWAYS-ON since 2026-08-20** — `YANG_441_MERGE_CARRIER=0|off` is the dev
-/// A/B off-knob. Flip bar: byte-identical corpus (see [`fan_of_one_enabled`]),
-/// and the guard is a P10 safety net — gated off it protects nothing. It refuses
-/// 7 sites over R0011/R0044/R0074/R0085 that today decline only by accident (a
-/// small holder happens not to contain the survivor) and would otherwise merge a
-/// model CORNER into a curve junction, and it refuses ZERO of the merges F0045
-/// and R0090 rely on.
-fn merge_carrier_guard_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_MERGE_CARRIER"), Ok(v) if v == "0" || v == "off")
-}
+// The [`S4_PRE_POS`] pre-position map is captured on every run: the §4.4.1
+// Fig-11 merge pass ([`run_fold_merge_passes`], ALWAYS-ON since the I6 flip,
+// 2026-08-19d, spec §4-I6) reads it as production input, and the
+// `YANG_S5_FOLD_PROBE` diagnostic columns read the same map. It is captured at
+// one site, RE-KEYED at four compaction sites, and read at several more — the
+// `probe_remap_pre_pos` contract. The §4-I8 fan-of-one rebuild and the §4-I8
+// carrier-containment guard on that merge are ALWAYS-ON since 2026-08-20
+// (byte-identical corpus; the guard is a P10 safety net refusing 7 sites over
+// R0011/R0044/R0074/R0085 that would otherwise merge a model CORNER into a curve
+// junction). Their `YANG_441_FOLD_MERGE` / `YANG_441_FAN_OF_ONE` /
+// `YANG_441_MERGE_CARRIER` off-knobs were deleted 2026-10-16 (cleanup spec §4).
 
 /// Is the pre-position map wanted for REPORTING (as opposed to being wanted at
 /// all)? The map's `YANG_S5_MOVED_SET` / `YANG_S5_REMAP` lines are probe output;
@@ -145,9 +99,6 @@ fn s4_pre_pos_diagnostic() -> bool {
 /// name different vertices in the emitted loops, which is worse than having no
 /// map: every column would still be populated, just wrong.
 fn probe_remap_pre_pos(site: &str, remap: Option<&Vec<Option<u32>>>) {
-    if !s4_pre_pos_enabled() {
-        return;
-    }
     let Some(remap) = remap else { return };
     S4_PRE_POS.with(|c| {
         let mut slot = c.borrow_mut();
@@ -618,7 +569,6 @@ macro_rules! c441_log {
 /// - **Degeneration ⇒ loud refusal**: a holder cycle dropping below 3 vertices,
 ///   or a patch declining its rebuild, blocks the victims that pulled it in and
 ///   the pass retries without them.
-/// - Gate `YANG_441_FOLD_MERGE`. Gate-off does not read or write anything.
 fn run_fold_merge_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -714,44 +664,41 @@ fn run_fold_merge_passes(
                 probe_merge_site(mesh, attribution, a, b, &patches, site);
             }
         }
-        if merge_carrier_guard_enabled() {
-            // §4-I8 — CARRIER CONTAINMENT. A merge IDENTIFIES two positions, so
-            // it is authority-preserving exactly when the victim lies on nothing
-            // the survivor is off: `carried(victim) ⊆ carried(survivor)`. Then
-            // the victim is a plain sample and the survivor is the richer point
-            // on the same carriers (Fig-11's p and q — measured on F0045:
-            // victim {B:0, B:2} ⊂ survivor {A:2, B:0, B:2}, and on R0090
-            // likewise). If instead the victim carries a surface the survivor
-            // is OFF, the two are DISTINCT model points and no merge can join
-            // them: merging would evict a face-loop vertex off a surface it
-            // lies on — the eviction KV15b I1b already forbids for the
-            // sub-resolution collapse, here applied to the Fig-11 merge.
-            //
-            // Measured 2026-08-20 over the ring-reject family: R0011
-            // {B:1, B:180, B:181} vs {A:2, B:1, B:181} (victim 3.43 off A:2,
-            // survivor 0.42 off B:180), R0074 and R0085 the same shape —
-            // equal-size sets that differ, i.e. a model CORNER and a curve
-            // junction 5–7 local units apart. A count-only richness test calls
-            // those a TIE; containment names them for what they are.
-            sites.retain(|site| {
-                let off =
-                    carrier_lost_by_merge(mesh, attribution, a, b, site.victim, site.survivor);
-                match off {
-                    None => true,
-                    Some(surf) => {
-                        c441_log!(
-                            "[s4-fold-merge] pass={pass}: NOT-A-MERGE v{} -> v{} — the victim \
-                             carries {surf:?}, which the survivor is off: two DISTINCT model \
-                             points, not Fig-11's p and q",
-                            site.victim,
-                            site.survivor,
-                        );
-                        blocked.insert(site.victim);
-                        false
-                    }
+        // §4-I8 — CARRIER CONTAINMENT. A merge IDENTIFIES two positions, so
+        // it is authority-preserving exactly when the victim lies on nothing
+        // the survivor is off: `carried(victim) ⊆ carried(survivor)`. Then
+        // the victim is a plain sample and the survivor is the richer point
+        // on the same carriers (Fig-11's p and q — measured on F0045:
+        // victim {B:0, B:2} ⊂ survivor {A:2, B:0, B:2}, and on R0090
+        // likewise). If instead the victim carries a surface the survivor
+        // is OFF, the two are DISTINCT model points and no merge can join
+        // them: merging would evict a face-loop vertex off a surface it
+        // lies on — the eviction KV15b I1b already forbids for the
+        // sub-resolution collapse, here applied to the Fig-11 merge.
+        //
+        // Measured 2026-08-20 over the ring-reject family: R0011
+        // {B:1, B:180, B:181} vs {A:2, B:1, B:181} (victim 3.43 off A:2,
+        // survivor 0.42 off B:180), R0074 and R0085 the same shape —
+        // equal-size sets that differ, i.e. a model CORNER and a curve
+        // junction 5–7 local units apart. A count-only richness test calls
+        // those a TIE; containment names them for what they are.
+        sites.retain(|site| {
+            let off = carrier_lost_by_merge(mesh, attribution, a, b, site.victim, site.survivor);
+            match off {
+                None => true,
+                Some(surf) => {
+                    c441_log!(
+                        "[s4-fold-merge] pass={pass}: NOT-A-MERGE v{} -> v{} — the victim \
+                         carries {surf:?}, which the survivor is off: two DISTINCT model \
+                         points, not Fig-11's p and q",
+                        site.victim,
+                        site.survivor,
+                    );
+                    blocked.insert(site.victim);
+                    false
                 }
-            });
-        }
+            }
+        });
         c441_log!(
             "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
              apex_moved={} (on_curve={} oncurve_sites={}) apex_minted={} survivor_still={} \
@@ -807,14 +754,7 @@ fn run_fold_merge_passes(
             let mut plan = Vec::with_capacity(holders.len());
             let mut declined = None;
             for &h in &holders {
-                match rebuild_merge_fan(
-                    mesh,
-                    h,
-                    &patches[h],
-                    site.victim,
-                    site.survivor,
-                    fan_of_one_enabled(),
-                ) {
+                match rebuild_merge_fan(mesh, h, &patches[h], site.victim, site.survivor, true) {
                     Ok(r) => plan.push(r),
                     Err(e) => {
                         c441_log!(
@@ -1383,9 +1323,6 @@ fn run_absorption_attempt(
     };
     use crate::stage4_fold_risk::{run_absorption_sites, RunAbsorptionSite};
     let mode = run_absorb_mode();
-    if mode == RunAbsorbMode::Off {
-        return None;
-    }
     // Position-keyed anchor probe: `YANG_441_RUN_PROBE_AT=x,y,z` dumps the
     // cycle neighbourhood of the mesh vertex nearest that position at this
     // fixed point — for walking BACK from a downstream artifact (a rejected
@@ -1620,9 +1557,6 @@ fn run_absorption_attempt(
     // the interference group: one region rebuild per holder, one closure
     // edge per site.
     let gmode = group_absorb_mode();
-    if gmode == GroupAbsorbMode::Off {
-        return None;
-    }
     // Candidates: this pass's still-certified sites — their per-site repair
     // is what was refused, so `blocked` membership is expected, but a group
     // already refused stays refused (`group_blocked`, the livelock guard)
@@ -1800,7 +1734,7 @@ fn rehome_attempt(
         RehomeDecline, RehomeMode,
     };
     let mode = rehome_mode();
-    if mode == RehomeMode::Off || cands.is_empty() {
+    if cands.is_empty() {
         return None;
     }
     let mut would_apply = 0usize;
@@ -3155,27 +3089,29 @@ fn run_construct_passes(
     // runaway backstop (a seam pricing above it declines to reorder-only,
     // censused; the shipped coarse chain is the pre-I5 status quo).
     const I5_INSERT_CAP: u64 = 4096;
-    // ALWAYS-ON since the I5-2 flip (2026-08-19, spec §4-I5-2);
-    // `YANG_434_INSERT=0|off` is the dev A/B off-knob (the s434
-    // instruments' gate-off legs).
-    let insert_enabled =
-        !matches!(std::env::var("YANG_434_INSERT"), Ok(v) if v == "0" || v == "off");
-    // I5-1 orphan floor: appended on-curve vertices below this index are
+    // The §4.3.4 insert is ALWAYS-ON since the I5-2 flip (2026-08-19, spec
+    // §4-I5-2). I5-1 orphan floor: appended on-curve vertices below this index are
     // referenced by applied rebuilds (or predate the pass); anything above
     // it at an exit path was appended for a seam whose batch never applied
     // and is truncated (appends are always a contiguous unreferenced tail
     // until a batch applies; the floor is re-snapshotted after each applied
-    // batch's compact). Inert when the insert gate is off.
+    // batch's compact).
     let mut verts_floor = mesh.verts.len();
 
     // Bisection probes (env-gated, deterministic): cap which BOOLEANS may
     // apply (process-order index) and the TOTAL applied-seam budget. For
     // localizing a gate-ON regression to one boolean / one seam prefix;
-    // census still runs in full either way.
+    // census still runs in full either way. They PERTURB a result, so they
+    // are debug-build adversary knobs only (cleanup spec §4 class 1): a
+    // release build never reads them.
     static BOOL_INDEX: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
     let bool_idx = BOOL_INDEX.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let env_cap =
-        |name: &str| -> Option<usize> { std::env::var(name).ok().and_then(|v| v.parse().ok()) };
+    let env_cap = |name: &str| -> Option<usize> {
+        if !cfg!(debug_assertions) {
+            return None;
+        }
+        std::env::var(name).ok().and_then(|v| v.parse().ok())
+    };
     let apply_enabled = env_cap("YANG_441_APPLY_BOOL_CAP").is_none_or(|c| bool_idx < c);
     let seam_budget = env_cap("YANG_441_APPLY_SEAM_CAP");
     if !apply_enabled {
@@ -3231,7 +3167,7 @@ fn run_construct_passes(
             ReorderConic {
                 ordered: Vec<u32>,
             },
-            // I5-1 (gated `YANG_434_INSERT`): the §4.3.4-refined chain —
+            // I5-1 (always on): the §4.3.4-refined chain —
             // `ordered` with the paper's midpoint samples interleaved as
             // freshly appended on-curve vertices, shared by both owners.
             RefineConic {
@@ -3249,7 +3185,7 @@ fn run_construct_passes(
         for (gi, g) in groups.iter().enumerate() {
             let (pi, qi) = g.pair;
             // I2a: Plane AND Cylinder owners rebuild single-sided (interior
-            // carry + θ-unwrap); I13a adds Cone behind `YANG_441_CONE_CHART`;
+            // carry + θ-unwrap); I13a adds Cone;
             // Sphere/Torus stay a loud skip.
             let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
             if !chartable(&patches[pi].surface) || !chartable(&patches[qi].surface) {
@@ -3348,28 +3284,24 @@ fn run_construct_passes(
                 // need densification. A decline (no closed-form param, or
                 // pricing above the insert cap) falls back to the shipped
                 // reorder-only behavior, logged.
-                let refinement = if insert_enabled {
-                    match crate::stage4_construct::refine_conic_chain(
-                        &mesh.verts,
-                        &ordered,
-                        &g.curve,
-                        u32::try_from(mesh.verts.len()).expect("mesh vertex count fits u32"),
-                        I5_INSERT_CAP,
-                    ) {
-                        Some((pts, refined)) if !pts.is_empty() => Some((pts, refined)),
-                        Some(_) => None, // already paper-dense — plain I2b
-                        None => {
-                            c441_log!(
-                                "[s4-construct] pass={pass} seam={gi}: REFINE DECLINED \
-                                 (patches {pi}+{qi}, {} verts — no param or over the \
-                                 {I5_INSERT_CAP} insert cap) — reorder only",
-                                ordered.len()
-                            );
-                            None
-                        }
+                let refinement = match crate::stage4_construct::refine_conic_chain(
+                    &mesh.verts,
+                    &ordered,
+                    &g.curve,
+                    u32::try_from(mesh.verts.len()).expect("mesh vertex count fits u32"),
+                    I5_INSERT_CAP,
+                ) {
+                    Some((pts, refined)) if !pts.is_empty() => Some((pts, refined)),
+                    Some(_) => None, // already paper-dense — plain I2b
+                    None => {
+                        c441_log!(
+                            "[s4-construct] pass={pass} seam={gi}: REFINE DECLINED \
+                             (patches {pi}+{qi}, {} verts — no param or over the \
+                             {I5_INSERT_CAP} insert cap) — reorder only",
+                            ordered.len()
+                        );
+                        None
                     }
-                } else {
-                    None
                 };
                 if let Some((pts, refined)) = refinement {
                     if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
@@ -4090,9 +4022,8 @@ fn run_construct_passes(
     // its appended on-curve vertices as a contiguous unreferenced tail
     // above the floor — drop them so no orphan vertex outlives the pass.
     // A truncation, not a compact: indices at or below the floor are
-    // untouched, so `infos`/`intersection_curves` stay valid. Inert when
-    // the insert gate is off (nothing is ever appended).
-    if insert_enabled && mesh.verts.len() > verts_floor {
+    // untouched, so `infos`/`intersection_curves` stay valid.
+    if mesh.verts.len() > verts_floor {
         c441_log!(
             "[s4-construct] I5 cleanup: dropping {} unapplied on-curve inserts",
             mesh.verts.len() - verts_floor
@@ -4680,10 +4611,9 @@ pub(crate) fn reconstruct_topology_stage4(
         );
         probe_record_incidence(&incidence, &intersection_curves);
     }
-    // Positional snapshot for the S4_MOVED oracle (env-gated; the clone is not
-    // taken on the production path).
-    let s4_probe = s4_pre_pos_enabled();
-    let verts_pre: Option<Vec<Point3>> = if s4_probe && has_conic {
+    // Positional snapshot: the pre-Stage-4 position map the Fig-11 merge
+    // pass reads (and the S4_MOVED oracle prints).
+    let verts_pre: Option<Vec<Point3>> = if has_conic {
         Some(mesh.verts.clone())
     } else {
         None
@@ -4770,29 +4700,27 @@ pub(crate) fn reconstruct_topology_stage4(
         // renumber. `collapse_vertex` itself never touches `mesh.verts` (it
         // rewrites triangle indices and drops degenerate tris), so indices are
         // still 1:1 with `verts_pre` at this point even when `collapsed`.
-        if s4_probe {
-            if let Some(pre) = &verts_pre {
-                let map: std::collections::HashMap<u32, [f64; 3]> = pre
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| (i as u32, p.as_array()))
-                    .collect();
-                let n_moved = pre
-                    .iter()
-                    .zip(mesh.verts.iter())
-                    .filter(|(p, q)| p.as_array() != q.as_array())
-                    .count();
-                if s4_pre_pos_diagnostic() {
-                    eprintln!(
-                        "YANG_S5_MOVED_SET n_moved={n_moved} n_verts={} collapsed={collapsed} \
-                         (pre-Stage-4 positions, re-keyed through every compaction)",
-                        pre.len(),
-                    );
-                }
-                S4_PRE_POS.with(|c| *c.borrow_mut() = Some(map));
-            } else if s4_pre_pos_diagnostic() {
-                eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
+        if let Some(pre) = &verts_pre {
+            let map: std::collections::HashMap<u32, [f64; 3]> = pre
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i as u32, p.as_array()))
+                .collect();
+            let n_moved = pre
+                .iter()
+                .zip(mesh.verts.iter())
+                .filter(|(p, q)| p.as_array() != q.as_array())
+                .count();
+            if s4_pre_pos_diagnostic() {
+                eprintln!(
+                    "YANG_S5_MOVED_SET n_moved={n_moved} n_verts={} collapsed={collapsed} \
+                     (pre-Stage-4 positions, re-keyed through every compaction)",
+                    pre.len(),
+                );
             }
+            S4_PRE_POS.with(|c| *c.borrow_mut() = Some(map));
+        } else if s4_pre_pos_diagnostic() {
+            eprintln!("YANG_S5_MOVED_SET UNAVAILABLE (Stage 4 not entered)");
         }
         if collapsed {
             // PR-YR11: drop the vertices the collapse left unreferenced (and
@@ -4825,7 +4753,7 @@ pub(crate) fn reconstruct_topology_stage4(
         // per-wall-class flip census is satisfied for every class at once.
         // The historical `YANG_441_CONSTRUCT` env var now only re-enables
         // the pass's diagnostic chatter (`c441_verbose`).
-        // I13c alternation (gated `YANG_441_ONCURVE_MERGE`): the construct
+        // I13c alternation (always on): the construct
         // pass's ReorderConic and the Fig-11 merge repair INTERLEAVED defects
         // on the same chains — a reorder is refused while a terminal-overrun
         // vertex mis-roots the seam (`SeamEndpointsReordered`, R0003: 496
@@ -4851,26 +4779,18 @@ pub(crate) fn reconstruct_topology_stage4(
             // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the
             // relocation overran. Placed AFTER the construct pass so it sees
             // the final cycles (a collapsed/refined seam changes which
-            // vertices are on a boundary at all), and so a gate-off run is
-            // byte-identical.
-            let m_applied = if fold_merge_enabled() {
-                run_fold_merge_passes(
-                    mesh,
-                    attribution,
-                    a,
-                    b,
-                    &mut infos,
-                    &mut intersection_curves,
-                    &mut relocations,
-                )?
-            } else {
-                0
-            };
+            // vertices are on a boundary at all).
+            let m_applied = run_fold_merge_passes(
+                mesh,
+                attribution,
+                a,
+                b,
+                &mut infos,
+                &mut intersection_curves,
+                &mut relocations,
+            )?;
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
-            }
-            if !crate::stage4_fold_risk::oncurve_merge_enabled() {
-                break; // today's single sequence — the alternation is gated
             }
             let _ = c_applied; // consumed by this round's own fold-merge
             if m_applied == 0 {
@@ -5282,20 +5202,18 @@ pub(crate) fn emit_topology(
     // inc-5 (spec §10.8): notch seal patches to emit as STANDALONE
     // cavity-sense faces after the main per-info emission.
     let mut env_extra_faces: Vec<crate::stage5_envelope::ExtraFace> = Vec::new();
-    if crate::stage5_envelope::envelope_gate_enabled() {
-        if let Some(rw) = crate::stage5_envelope::envelope_prepass(
-            mesh,
-            infos,
-            &subdivided_cycles,
-            intersection_curves,
-            op,
-        )? {
-            for (i, cyc) in rw.cycles {
-                subdivided_cycles[i] = cyc;
-            }
-            env_overrides = rw.curve_overrides;
-            env_extra_faces = rw.extra_faces;
+    if let Some(rw) = crate::stage5_envelope::envelope_prepass(
+        mesh,
+        infos,
+        &subdivided_cycles,
+        intersection_curves,
+        op,
+    )? {
+        for (i, cyc) in rw.cycles {
+            subdivided_cycles[i] = cyc;
         }
+        env_overrides = rw.curve_overrides;
+        env_extra_faces = rw.extra_faces;
     }
     for (info_index, info) in infos.iter().enumerate() {
         let cycles = &subdivided_cycles[info_index];
@@ -6799,59 +6717,55 @@ pub(crate) fn emit_topology(
             st.declined_midpoint
         );
     }
-    // I5-1b (ALWAYS-ON since the I5-2 flip; `YANG_434_MERGE=0|off` is the
-    // dev off-knob; spec §4-I5-1b/§4-I5-2): coalesce per-segment
+    // I5-1b (ALWAYS-ON since the I5-2 flip; spec §4-I5-1b/§4-I5-2):
+    // coalesce per-segment
     // conic seam runs into single analytic arc edges — the paper's §4.4.2
     // B-Rep output shape ("surfaces and their boundary curves"). Certifying
-    // and self-declining; gate-off touches nothing.
-    if crate::stage5_seam_merge::merge_gate_enabled() {
-        let st = crate::stage5_seam_merge::merge_conic_seam_runs(
-            &mesh.verts,
-            &mut edges,
-            &mut faces,
-            &mut sources,
-        );
-        c441_log!(
-            "[s6-merge] runs={} elided={} edges {}->{} declines: offcurve={} \
-             nonmono={} short={} param={} sweep={} disc_loops={}",
-            st.runs_merged,
-            st.verts_elided,
-            st.edges_before,
-            st.edges_after,
-            st.declined_offcurve,
-            st.declined_nonmonotone,
-            st.declined_short,
-            st.declined_param,
-            st.declined_sweep,
-            st.skipped_discontinuous_loops
-        );
-    }
-    // §4.3.4 chain decimation (ALWAYS-ON; `YANG_434_DECIMATE=0|off` is the
-    // dev off-knob; spec `yang_434_output_chord_refinement.md` "Stage-5
+    // and self-declining.
+    let st = crate::stage5_seam_merge::merge_conic_seam_runs(
+        &mesh.verts,
+        &mut edges,
+        &mut faces,
+        &mut sources,
+    );
+    c441_log!(
+        "[s6-merge] runs={} elided={} edges {}->{} declines: offcurve={} \
+         nonmono={} short={} param={} sweep={} disc_loops={}",
+        st.runs_merged,
+        st.verts_elided,
+        st.edges_before,
+        st.edges_after,
+        st.declined_offcurve,
+        st.declined_nonmonotone,
+        st.declined_short,
+        st.declined_param,
+        st.declined_sweep,
+        st.skipped_discontinuous_loops
+    );
+    // §4.3.4 chain decimation (ALWAYS-ON; spec
+    // `yang_434_output_chord_refinement.md` "Stage-5
     // chain decimation", R0085 2026-09-22): drop the interior vertices of
     // LineSegment / SurfacePair INTERSECTION runs that the paper's own
     // refinement acceptance (h/l/α) calls redundant — the arrangement's
     // grazing-mesh density never reaches the output B-Rep as edge
     // endpoints. Twin-conformant per canonical chain; declines to the
     // per-segment status quo.
-    if crate::stage5_chain_decimate::decimate_gate_enabled() {
-        let st = crate::stage5_chain_decimate::decimate_intersection_runs(
-            &mesh.verts,
-            &mut edges,
-            &mut faces,
-            &mut sources,
-            intersection_curves,
-        );
-        c441_log!(
-            "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
-            st.runs_decimated,
-            st.verts_dropped,
-            st.edges_before,
-            st.edges_after,
-            st.declined_floor,
-            st.skipped_discontinuous_loops
-        );
-    }
+    let st = crate::stage5_chain_decimate::decimate_intersection_runs(
+        &mesh.verts,
+        &mut edges,
+        &mut faces,
+        &mut sources,
+        intersection_curves,
+    );
+    c441_log!(
+        "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
+        st.runs_decimated,
+        st.verts_dropped,
+        st.edges_before,
+        st.edges_after,
+        st.declined_floor,
+        st.skipped_discontinuous_loops
+    );
     // Output-chord census (`YANG_434_OUT=census`, read-only, apply off;
     // spec `yang_434_output_chord_refinement.md` inc-1): every untyped
     // seam chord's owner class, depth, and carried input-circle match —

@@ -2661,8 +2661,8 @@ pub(crate) fn census_conic_seam_density(
     Some(out)
 }
 
-/// I5-1 — the §4.3.4 refinement itself (spec §4-I5; gated by the caller on
-/// `YANG_434_INSERT`): run the paper's midpoint recursion over an ordered
+/// I5-1 — the §4.3.4 refinement itself (spec §4-I5; always on): run the
+/// paper's midpoint recursion over an ordered
 /// open conic chain, producing the on-curve points to insert and the
 /// refined chain.
 ///
@@ -4499,12 +4499,13 @@ mod tests {
         }
     }
 
-    /// §4.5.1 inc-2c-3b-3 — the fan-local Torus chart (`YANG_441_TORUS_CHART`,
-    /// default OFF). The window straddles BOTH seams (θ = π azimuth AND φ = π
+    /// §4.5.1 inc-2c-3b-3 — the fan-local Torus chart (always on since
+    /// inc-3a). The window straddles BOTH seams (θ = π azimuth AND φ = π
     /// tube angle), so raw `atan2` coordinates jump a full turn between chain
     /// neighbours in each coordinate — the double chain-unwrap is what makes
-    /// the CDT boundary simple. Knob off, the refusal is today's typed
-    /// `NonPlanarPatch` (byte-identical default, the R0074 wall).
+    /// the CDT boundary simple. (The knob-off half — the pre-flip R0074
+    /// `NonPlanarPatch` wall — went with the `YANG_441_TORUS_CHART` knob,
+    /// deleted 2026-10-16.)
     #[test]
     fn refill_fan_hole_torus_chart_double_unwraps_across_both_seams() {
         let (major, minor) = (10.0, 2.0);
@@ -4551,16 +4552,6 @@ mod tests {
         // closing the hole where the phantom sat — same footprint, same
         // density, so the like-for-like budget is satisfiable.
         let polygon = [0u32, 1, 2, 3, 5];
-        // Knob off (the dev A/B off-knob since the inc-3a flip): the chart
-        // does not exist — the holder's refusal is exactly the pre-flip
-        // R0074 wall.
-        std::env::set_var("YANG_441_TORUS_CHART", "0");
-        match refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris) {
-            Err(ConstructError::NonPlanarPatch { .. }) => {}
-            other => panic!("knob-off torus refill must refuse NonPlanarPatch, got {other:?}"),
-        }
-        // Knob on (the default).
-        std::env::set_var("YANG_441_TORUS_CHART", "1");
         let fill = refill_fan_hole(&mesh, 0, &patch, &polygon, &r.old_tris).expect("torus fill");
         assert_eq!(fill.len(), 3, "pentagon fills with three triangles");
         assert!(

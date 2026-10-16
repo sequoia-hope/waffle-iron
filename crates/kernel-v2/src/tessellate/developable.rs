@@ -1751,10 +1751,6 @@ fn tessellate_developable_patch(
     // past where any real fold survives. A triangle that still inverts there
     // is chart-degenerate, and more bisection cannot help it.
     let du_floor = w_limit / 4096.0;
-    let lift_refine = !matches!(
-        std::env::var("KV2_PATCH_LIFT_REFINE").as_deref(),
-        Ok("0") | Ok("off")
-    );
     while let Some(seed) = work.pop_front() {
         let du = max_du(wtris[seed], &wnodes);
         // Facet limit for this triangle: the render facet width, or its
@@ -1766,8 +1762,8 @@ fn tessellate_developable_patch(
         } else {
             w_limit
         };
-        let chord_or_fold = du > limit
-            || (lift_refine && du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes));
+        let chord_or_fold =
+            du > limit || (du > du_floor && lift_inverts(wtris[seed], &wnodes, &nodes));
         let coplanar = if chord_or_fold {
             None
         } else {

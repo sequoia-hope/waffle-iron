@@ -1,7 +1,7 @@
 //! I5-2 adjudication (a) — C0117 anchor (spec `yang_441_trim_cdt_construction.md`
 //! §4-I5-1b): TYPED-RIM canonicalization in `recover.rs`.
 //!
-//! With the I5-1b Stage-6 seam chain-merge on (`YANG_434_MERGE`), yang emits
+//! With the I5-1b Stage-6 seam chain-merge (always on), yang emits
 //! a closed seam rim as analytic ARCS whose split vertices are chosen per
 //! rim, so the two rims of one lateral share no azimuth. `recover.rs`'s
 //! canonical `[rim, seam, rim, seam]` pairing used to REQUIRE an existing
@@ -20,30 +20,11 @@
 //! (the constructor's own convention for a holed profile), else the face's
 //! own deterministic rim-a vertex, and MINT the exact on-circle foot on the
 //! rim(s) lacking a vertex there. Pass 1 (existing aligned pairs) is
-//! untouched — gate-off outputs are byte-identical.
-//!
-//! The merge gate is process-global; every test here serialises on one
-//! mutex and sets/clears the env var itself.
+//! untouched. (The `YANG_434_MERGE` off-knob and this file's gate-off
+//! control were deleted 2026-10-16 with the cleanup spec's §4 knob policy.)
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{boolean_op, extrude, tessellate, BrepArena, Curve, Profile, Surface};
-use std::sync::{Mutex, MutexGuard};
-
-static GATE: Mutex<()> = Mutex::new(());
-
-fn merge_on() -> MutexGuard<'static, ()> {
-    let g = GATE.lock().unwrap_or_else(|e| e.into_inner());
-    std::env::set_var("YANG_434_MERGE", "1");
-    g
-}
-
-fn merge_off() -> MutexGuard<'static, ()> {
-    let g = GATE.lock().unwrap_or_else(|e| e.into_inner());
-    // The merge is ALWAYS-ON since the I5-2 flip; "0" is the dev off-knob.
-    std::env::set_var("YANG_434_MERGE", "0");
-    g
-}
-
 fn cyl_rot(a: &mut BrepArena, r: f64, z: (f64, f64), rot_deg: f64) -> kernel_v2::SolidId {
     let (s, c) = rot_deg.to_radians().sin_cos();
     let p = Profile::circle(
@@ -135,7 +116,6 @@ fn assert_canonical_in_phase(arena: &BrepArena, s: kernel_v2::SolidId, r_in: f64
 /// (then `SelfIntersectingBooleanOutput` with an arbitrary seam azimuth).
 #[test]
 fn merged_thin_coaxial_tube_canonicalizes_in_phase() {
-    let _g = merge_on();
     let mut arena = BrepArena::new();
     let s = tube(&mut arena, 0.4999, 0.0).expect("merged 1e-4 tube assembles");
     assert_canonical_in_phase(&arena, s, 0.4999);
@@ -150,7 +130,6 @@ fn merged_thin_coaxial_tube_canonicalizes_in_phase() {
 /// Sub-sagitta gaps across the band: all render, all canonical.
 #[test]
 fn merged_tube_gap_sweep() {
-    let _g = merge_on();
     for r_in in [0.499, 0.4995, 0.4999, 0.49999] {
         let mut arena = BrepArena::new();
         let s = tube(&mut arena, r_in, 0.0)
@@ -165,7 +144,6 @@ fn merged_tube_gap_sweep() {
 /// coaxial reference), not to the tool's frame.
 #[test]
 fn merged_tube_rotated_tool_locks_to_coaxial_reference() {
-    let _g = merge_on();
     let mut arena = BrepArena::new();
     let s = tube(&mut arena, 0.4999, 30.0).expect("merged rotated-tool tube assembles");
     assert_canonical_in_phase(&arena, s, 0.4999);
@@ -176,7 +154,6 @@ fn merged_tube_rotated_tool_locks_to_coaxial_reference() {
 /// rounding, not band, level.
 #[test]
 fn minted_seam_foot_is_on_circle() {
-    let _g = merge_on();
     let mut arena = BrepArena::new();
     let s = tube(&mut arena, 0.4999, 0.0).expect("assembles");
     let lats = laterals(&arena, s);
@@ -201,16 +178,4 @@ fn minted_seam_foot_is_on_circle() {
         }
     }
     assert!(checked >= 8 && lats.len() == 2);
-}
-
-/// Gate-off control: the same tube through the mesh-granular path stays
-/// canonical and in phase (pass 1, byte-identical to before this change).
-#[test]
-fn gate_off_tube_control() {
-    let _g = merge_off();
-    let mut arena = BrepArena::new();
-    let s = tube(&mut arena, 0.4999, 0.0).expect("gate-off tube assembles");
-    assert_canonical_in_phase(&arena, s, 0.4999);
-    let m = tessellate(&arena, s).expect("renders");
-    assert_eq!(m.indices.len() / 3, 568);
 }

@@ -523,15 +523,6 @@ pub(crate) fn census_unconsumed_surfaces(
 // inc-3 — the Fig-11 point q as a TRIPLE POINT (spec §11)
 // =========================================================================
 
-/// Gate for the inc-3 triple-point re-seat. Separate from the inc-2 gate so the
-/// two classes can be measured independently; default OFF.
-pub(crate) fn triple_point_enabled() -> bool {
-    matches!(
-        std::env::var("YANG_S4_TRIPLE_POINT_ENABLE").as_deref(),
-        Ok("1") | Ok("on")
-    )
-}
-
 /// Closed-form `Circle ∩ Plane`, returning the root NEAREST `current`.
 ///
 /// With `C = (c, n̂, r)`, an orthonormal in-plane basis `(û, v̂)` and the plane
@@ -612,75 +603,6 @@ pub(crate) fn satisfies_all_surfaces(q: Point3, surfaces: &[Surface]) -> bool {
             None => false,
         }
     })
-}
-
-/// Plan the inc-3 triple-point re-seats (spec §11).
-///
-/// Selection — a vertex that is ALL of: an endpoint of a CLAIMED own-rim edge
-/// (so its rim circle is known); EXCLUDED from inc-2 as a cross-input endpoint
-/// (i.e. it is a Fig-11 q, not the `v6` class); and incident to exactly ONE
-/// distinct other-operand surface, that surface being a `Plane`. Anything else
-/// is skipped, never approximated.
-///
-/// Acceptance is the §11 certificate — q must satisfy all three surfaces — not
-/// a displacement band, because this class's displacement is provably not
-/// chord-bounded.
-pub(crate) fn plan_triple_point_reseats(
-    mesh: &Mesh,
-    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
-    rim_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
-    cross_curve_endpoints: &std::collections::BTreeSet<u32>,
-) -> Vec<(u32, Point3)> {
-    let mut moves: std::collections::BTreeMap<u32, Point3> = std::collections::BTreeMap::new();
-    for (&(s, e), circle) in rim_curves {
-        let Some(rim_entries) = incidence.get(&(s, e)) else {
-            continue;
-        };
-        if rim_entries.len() != 2 {
-            continue;
-        }
-        let owner = rim_entries[0].0;
-        let rim_surfs = [rim_entries[0].1, rim_entries[1].1];
-        for v in [s, e] {
-            // Only the Fig-11 q class: inc-2 already owns the rest.
-            if !cross_curve_endpoints.contains(&v) || moves.contains_key(&v) {
-                continue;
-            }
-            let Some(&p) = mesh.verts.get(v as usize) else {
-                continue;
-            };
-            // The OTHER operand's distinct surfaces at this vertex.
-            let mut others: Vec<Surface> = Vec::new();
-            for (&(s2, e2), entries) in incidence {
-                if s2 != v && e2 != v {
-                    continue;
-                }
-                for &(i, sf) in entries {
-                    if i != owner && !others.contains(&sf) {
-                        others.push(sf);
-                    }
-                }
-            }
-            let [other] = others[..] else { continue };
-            let Surface::Plane { normal, d } = other else {
-                continue;
-            };
-            let Some(q) = circle_plane_nearest_root(circle, normal, d, p) else {
-                continue;
-            };
-            if !satisfies_all_surfaces(q, &[rim_surfs[0], rim_surfs[1], other]) {
-                continue;
-            }
-            let (pa, qa) = (p.as_array(), q.as_array());
-            let disp =
-                ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
-                    .sqrt();
-            if disp > TAU_WORK {
-                moves.insert(v, q);
-            }
-        }
-    }
-    moves.into_iter().collect()
 }
 
 // ---------------------------------------------------------------------------

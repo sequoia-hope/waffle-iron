@@ -1065,11 +1065,7 @@ fn boolean_once(
     // Stage-0 cross-pair face are Stage 0's and stay put; operands with no
     // such vertex are byte-identical (no rebuild). Arm 2 (the shared-segment
     // mesh conformity) rides the P3a override rebuild below.
-    let identified: Option<(BRep, BRep)> = if stage0::edge_in_plane::enabled() {
-        stage0::edge_in_plane::identify_vertices(a, b)?
-    } else {
-        None
-    };
+    let identified: Option<(BRep, BRep)> = stage0::edge_in_plane::identify_vertices(a, b)?;
     let (a, b): (&BRep, &BRep) = match &identified {
         Some((na, nb)) => (na, nb),
         None => (a, b),
@@ -1082,11 +1078,7 @@ fn boolean_once(
     // (uniform rim samples, opposite-rim images) lands on the same plane
     // the overlay lifts its vertices onto. Bit-exact coplanar operands are
     // byte-identical (no rebuild).
-    let welded: Option<(BRep, BRep)> = if stage0::plane_weld::enabled() {
-        stage0::plane_weld::weld_coplanar_planes(a, b)?
-    } else {
-        None
-    };
+    let welded: Option<(BRep, BRep)> = stage0::plane_weld::weld_coplanar_planes(a, b)?;
     let (a, b): (&BRep, &BRep) = match &welded {
         Some((na, nb)) => (na, nb),
         None => (a, b),
@@ -1129,40 +1121,32 @@ fn boolean_once(
     // C0043, the same internal tangency with COPLANAR caps, whose caps the
     // disc∩disc builder can now classify as a TOUCHING containment and
     // emit identically (a shared fan + a pinched crescent) instead of
-    // leaving a lens to the arrangement. `YANG_433_TANGENT_INSERT=off|0`
-    // disables it together with the point arm (dev A/B).
-    let generator_boosted: Option<(BRep, BRep)> = if matches!(
-        std::env::var("YANG_433_TANGENT_INSERT").as_deref(),
-        Ok("off") | Ok("0")
-    ) {
+    // leaving a lens to the arrangement.
+    let boost = tangent_generator_rim_overrides(a, b);
+    let generator_boosted: Option<(BRep, BRep)> = if boost.is_empty() {
         None
     } else {
-        let boost = tangent_generator_rim_overrides(a, b);
-        if boost.is_empty() {
-            None
-        } else {
-            for p in boost
-                .rim_a
-                .values()
-                .chain(boost.rim_b.values())
-                .chain(boost.face_a.values())
-                .chain(boost.face_b.values())
-                .flatten()
-            {
-                minted_junction_keys
-                    .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
-                    .or_insert(MintProvenance {
-                        owner_planes: [MintTrimPlane::default(); 2],
-                    });
-            }
-            // §13: the crossing arm's rim-density demand and the §13.2
-            // oblique-frame interior splices ride along as STANDING state
-            // (stored, so Stage 0's and §4.5.2's rebuilds keep them).
-            Some((
-                a.rebuilt_with_overrides_at_least(&boost.rim_a, &boost.face_a, boost.min_rim_n)?,
-                b.rebuilt_with_overrides_at_least(&boost.rim_b, &boost.face_b, boost.min_rim_n)?,
-            ))
+        for p in boost
+            .rim_a
+            .values()
+            .chain(boost.rim_b.values())
+            .chain(boost.face_a.values())
+            .chain(boost.face_b.values())
+            .flatten()
+        {
+            minted_junction_keys
+                .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                .or_insert(MintProvenance {
+                    owner_planes: [MintTrimPlane::default(); 2],
+                });
         }
+        // §13: the crossing arm's rim-density demand and the §13.2
+        // oblique-frame interior splices ride along as STANDING state
+        // (stored, so Stage 0's and §4.5.2's rebuilds keep them).
+        Some((
+            a.rebuilt_with_overrides_at_least(&boost.rim_a, &boost.face_a, boost.min_rim_n)?,
+            b.rebuilt_with_overrides_at_least(&boost.rim_b, &boost.face_b, boost.min_rim_n)?,
+        ))
     };
     let (a, b): (&BRep, &BRep) = match &generator_boosted {
         Some((ba, bb)) => (ba, bb),
@@ -1298,41 +1282,19 @@ fn boolean_once(
     // and insert it by identity into the owner's edge polylines AND the
     // pierced partner face's CDT, so the two operands' Stage-1 meshes share
     // the junction vertex bit-exactly (no near-dup mint downstream).
-    // `YANG_JUNCTION_SAMPLING_ENABLE=off|0` disables it purely as a dev A/B
-    // knob (compliance-ledger measurement, the `weld_enabled` pattern);
-    // `=edge|face` select one insertion half (dev diagnostics). Unset =
-    // production default = fully on.
+    // (Its `YANG_JUNCTION_SAMPLING_ENABLE` off / half-insertion knob was
+    // deleted 2026-10-16, cleanup spec §4.)
     // SCOPE GATE mirrors the rim-junction insertion above: no Stage-0
     // interaction (the re-tessellation paths do not thread these overrides
     // — the M8 incr-15 pass-through trap) and no rim-junction rebuild (a
     // second from-topology rebuild would DROP the first rebuild's inserted
     // rim samples; overrides do not compose across rebuilds yet). A skipped
     // pair is a missed mint = status quo, never worse.
-    let p3a_disabled = matches!(
-        std::env::var("YANG_JUNCTION_SAMPLING_ENABLE").as_deref(),
-        Ok("off") | Ok("0")
-    );
-    let p3a_sampled: Option<(BRep, BRep)> = if !p3a_disabled
-        && stage0.is_none()
+    let p3a_sampled: Option<(BRep, BRep)> = if stage0.is_none()
         && cyl_pairs.is_empty()
         && junction_boosted.is_none()
     {
         let mut jo = junction_stage1_overrides(a, b);
-        // Diagnostic sub-modes for the gate value (dev measurement, spec §4
-        // increment-2 iteration): `edge` = owner-side polyline insertion
-        // only, `face` = partner-side interior insertion only. Any other
-        // value = both halves (the full junction contract).
-        match std::env::var("YANG_JUNCTION_SAMPLING_ENABLE").as_deref() {
-            Ok("edge") => {
-                jo.face_a.clear();
-                jo.face_b.clear();
-            }
-            Ok("face") => {
-                jo.edge_a.clear();
-                jo.edge_b.clear();
-            }
-            _ => {}
-        }
         // §4.5.5 one dimension down, arm 2 (spec
         // `yang_455_edge_in_plane_conformity.md`): the sub-segments of an
         // edge lying in a partner planar face become identically-sampled
@@ -1341,11 +1303,7 @@ fn boolean_once(
         // inside sub-segments as interior CONSTRAINTS of the face's CDT.
         // Same scope gate and same rebuild as the P3a mints; empty when no
         // edge lies in a partner face (the byte-identical identity).
-        let eip = if stage0::edge_in_plane::enabled() {
-            stage0::edge_in_plane::conformity_overrides(a, b)
-        } else {
-            stage0::edge_in_plane::EdgeInPlaneOverrides::default()
-        };
+        let eip = stage0::edge_in_plane::conformity_overrides(a, b);
         if !eip.is_empty() {
             for (into, from) in [
                 (&mut jo.edge_a, &eip.edge_a),
@@ -1452,7 +1410,7 @@ fn boolean_once(
             ))
         }
     } else {
-        if !p3a_disabled && std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
+        if std::env::var_os("YANG_JUNCTION_MINT_PROBE").is_some() {
             eprintln!(
                 "[p3a-wire] SKIP stage0={} cyl_pairs={} rim_junction={}",
                 stage0.is_some(),

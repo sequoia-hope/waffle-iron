@@ -31,7 +31,7 @@ use cad_primitives::{Point2, Point3};
 ///   patch that STRADDLES the `θ = ±π` seam must be unwrapped by the caller
 ///   before CDT (the projected boundary would otherwise self-cross); `lift`
 ///   itself is seam-agnostic.
-/// * `Cone` (I13a, always-on; `YANG_441_CONE_CHART=0|off` dev knob): param =
+/// * `Cone` (I13a, always-on): param =
 ///   `(θ, z)` with `z` the
 ///   axial station FROM THE APEX and radius `z·tan(α)` — the same single-nappe
 ///   `v ≥ 0` convention `stage4_dt::d_of_t` certifies, in the same
@@ -82,29 +82,15 @@ pub(crate) enum SurfaceChart {
     },
 }
 
-/// I13a — the Cone chart (and with it, cone-owner rebuilds in the
-/// construct/fold-merge/corner-merge/rim-trim passes). **FLIPPED ALWAYS-ON
-/// 2026-08-25** after the corpus proofs (default corpus bit-identical
-/// pre-flip; gated corpus category-identical, 271C/0W/36E/1EE, two explained
-/// detail rows: R0003 advances 437→467, R0004's ring-CDT wall clears).
-/// `YANG_441_CONE_CHART=0|off` is the dev A/B off-knob.
-pub(crate) fn cone_chart_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_CONE_CHART"), Ok(v) if v == "0" || v == "off")
-}
-
-/// §4.5.1 inc-2c-3b-3 — the Torus chart for FAN-LOCAL windows
-/// ([`SurfaceChart::new_local`] holders only). FLIPPED ALWAYS-ON (inc-3a,
-/// 2026-09-03) under the household pattern, exactly like the I13a cone
-/// chart: unset/other = ON, `YANG_441_TORUS_CHART=0|off` = the dev A/B
-/// off-knob (every holder then keeps the pre-flip typed refusal). The
-/// R0074 far-fan refill is the naming case; the knob is inert without the
-/// corridor arm (`YANG_451_TRANSIT`).
-pub(crate) fn torus_chart_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_441_TORUS_CHART").as_deref(),
-        Ok("0") | Ok("off")
-    )
-}
+// I13a — the Cone chart (and with it, cone-owner rebuilds in the
+// construct/fold-merge/corner-merge/rim-trim passes) is ALWAYS-ON since
+// 2026-08-25 (corpus category-identical, 271C/0W/36E/1EE, two explained
+// detail rows: R0003 advances 437→467, R0004's ring-CDT wall clears).
+// §4.5.1 inc-2c-3b-3 — the Torus chart for FAN-LOCAL windows
+// ([`SurfaceChart::new_local`] holders only) is ALWAYS-ON since inc-3a
+// (2026-09-03; the R0074 far-fan refill is the naming case). Their
+// `YANG_441_CONE_CHART` / `YANG_441_TORUS_CHART` off-knobs were deleted
+// 2026-10-16 (cleanup spec §4).
 
 impl SurfaceChart {
     /// Build a chart for `surface`, or `None` for a surface type Phase B does
@@ -142,7 +128,7 @@ impl SurfaceChart {
                 apex,
                 axis_dir,
                 half_angle,
-            } if cone_chart_enabled() => {
+            } => {
                 let (e1v, e2v) = ortho_basis(axis_dir);
                 Some(SurfaceChart::Cone {
                     apex: apex.as_array(),
@@ -152,12 +138,12 @@ impl SurfaceChart {
                     tan_half: half_angle.tan(),
                 })
             }
-            Surface::Sphere { .. } | Surface::Cone { .. } | Surface::Torus { .. } => None,
+            Surface::Sphere { .. } | Surface::Torus { .. } => None,
         }
     }
 
     /// §4.5.1 inc-2c-3b-3 — the FAN-LOCAL chart: everything [`new`](Self::new)
-    /// charts, plus (under [`torus_chart_enabled`]) a ring Torus. Valid ONLY
+    /// charts, plus a ring Torus. Valid ONLY
     /// for a simply-connected local window that wraps neither period — a fan
     /// hole's link polygon, never a whole patch boundary cycle — and the
     /// caller owns the chain-unwrap of BOTH coordinates (θ and φ are each
@@ -172,9 +158,6 @@ impl SurfaceChart {
             minor_radius,
         } = surface
         {
-            if !torus_chart_enabled() {
-                return None;
-            }
             let finite = center.as_array().iter().all(|c| c.is_finite())
                 && axis_dir.as_array().iter().all(|c| c.is_finite())
                 && major_radius.is_finite()
@@ -205,11 +188,10 @@ impl SurfaceChart {
     /// The chartability pre-filter — the ONE capability test every construct /
     /// fold-merge / corner-merge / rim-trim holder gate consults (previously
     /// five hand-copied `matches!(Plane | Cylinder)` sites). `true` exactly
-    /// when [`new`](Self::new) would return `Some`, gate state included.
+    /// when [`new`](Self::new) would return `Some`.
     pub(crate) fn supports(s: &Surface) -> bool {
         match s {
-            Surface::Plane { .. } | Surface::Cylinder { .. } => true,
-            Surface::Cone { .. } => cone_chart_enabled(),
+            Surface::Plane { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => true,
             Surface::Sphere { .. } | Surface::Torus { .. } => false,
         }
     }
@@ -677,17 +659,13 @@ mod tests {
             radius: 1.0
         })
         .is_none());
-        // I13a (always-on since 2026-08-25): the cone IS charted now; the
-        // off-knob (`YANG_441_CONE_CHART=0|off`) restores `None`.
-        assert_eq!(
-            SurfaceChart::new(Surface::Cone {
-                apex: Point3::new(0.0, 0.0, 0.0),
-                axis_dir: Vector3::new(0.0, 0.0, 1.0),
-                half_angle: 0.5
-            })
-            .is_some(),
-            cone_chart_enabled()
-        );
+        // I13a (always-on since 2026-08-25): the cone IS charted.
+        assert!(SurfaceChart::new(Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle: 0.5
+        })
+        .is_some());
         assert!(SurfaceChart::new(Surface::Torus {
             center: Point3::new(0.0, 0.0, 0.0),
             axis_dir: Vector3::new(0.0, 0.0, 1.0),
@@ -701,8 +679,8 @@ mod tests {
     /// `stage4_dt::eval_uv` §2 embedding (the like-for-like d(T) budget
     /// projects through the chart and certifies through `d_of_t`, so the two
     /// conventions must be one), and round-trips on-surface points. Built
-    /// directly (env-free — the `YANG_441_TORUS_CHART` knob gates only
-    /// [`SurfaceChart::new_local`], covered by the construct-side fixture).
+    /// directly (the fan-local [`SurfaceChart::new_local`] torus path is
+    /// covered by the construct-side fixture).
     #[test]
     fn torus_chart_matches_the_pinned_dt_embedding_and_round_trips() {
         let axis = Vector3::new(0.3, -0.2, 0.9);

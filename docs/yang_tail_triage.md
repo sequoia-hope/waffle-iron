@@ -43,6 +43,34 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-16 (Phase 2a-ii + Phase-0 knobs) — every §4.3 collapse carries CONTAINMENT; 32 kill switches deleted; **P0048 CONVERTED; corpus 358C / 0W / 11E / 5EE / 0T over 374**
+
+Two changes, one run (release, 8 jobs, 900 s, wall 1111.2 s). (a) The Phase-0
+knob policy (`specs/yang_faithful_cleanup.md` §4): the kill switches of 32
+landed mechanisms and two gated-off experiments deleted with their
+off-branches (net ≈ −775 lines; `docs/kernel_probe_registry.md`) — by
+construction byte-identical. (b) The N47 coincident relocated-vertex weld
+(`weld_coincident_relocated`) gains §4-I8 CONTAINMENT, the rule `subres`
+(N56) and kernel-v2's KV15b already carry: the band alone never identifies
+two vertices; the victim's carried surfaces must be contained in the
+survivor's (the richer one survives; a mint is never the victim), and two
+points neither of whose sets contains the other are two DISTINCT exact
+points, both kept. Yang §4.3 removes a point "too close to another point on
+the same loop" (`:535-536`) — a redundant sample of ONE curve.
+
+Versus the Phase 2a-i run: **P0048 ERROR → SUPPORTED_CORRECT** and R0044
+TIMEOUT → CORRECT (the 2a-i loaded-host TIMEOUT; the hoisted rank read is
+in this build), nothing else moved, no detail drift. Attribution
+(`YANG_MOVED_WELD_PROBE`, replay of `P0048.waffle`): the weld DECLINES two
+pairs — `0/1` at 4.96e-8 (three surfaces each, neither set containing the
+other) and `0/56` at 7.54e-8 (2 vs 3, not contained) — exactly the P0060
+shape at the Stage-4 weld instead of the KV15b collapse; with containment
+forced off (a temporary uncommitted switch) the replay returns P0048's
+committed STOP, `output ellipse-arc endpoint does not lie on its ellipse`.
+N55's `subfeature` merge is unchanged: its criterion is `TAU_WORK·(1+scale)`
+— numerical IDENTITY, under which both positions lie on every surface either
+carries, so containment holds by construction.
+
 ## 2026-10-16 (Phase 2a-i) — the §4.5.3 sweep takes the paper's ORDER; the victim ranking DELETED; **corpus 357C / 0W / 12E / 5EE / 0T, no case moved**
 
 Cleanup Phase 2a, first half (`specs/yang_faithful_cleanup.md`; ledger N29
@@ -1381,7 +1409,7 @@ promotion is ≥ 1.4e3 ×. Scale: judged at ×1e-3 and ×1e3 through a rescaled
 | **P0045** | #88, min 7→3 `convex4:boss circle:rev convex3:boss` | 3 | auto-union `TessellationFailed "torus patch UV-CDT failed …"` | P0003's text on P0030's recipe shape, with a prism that TOUCHES the torus (so the whole-shell passthrough does not apply); same text on the lineage (FaceId 21) | same / same |
 | **P0046** | #108, min 6→4 `convex4:boss convex7:rev convex3:cut circle:boss` | 4 | auto-union `ring rejected by CDT` | a FOURTH locus of the P0002 / P0013 / P0036 text (lineage FaceId 1394) | same / same |
 | **P0047** | #159, min 8→4 `star7(0.66):boss circle:cut convex4:rev-cut circle:cut` | 4 | `boolean_subtract` `ring rejected by CDT` | a 32-point hole-free planar ring at scale 1.7e-4 (`cdt_err=TriangulationFailed outer_len=32`), the same ring on the lineage (FaceId 210) | same / same |
-| **P0048** | #158, min 5→3 `convex4:boss convex6:boss circle:boss` | 3 | auto-union `malformed B-Rep topology: face 2: interior junction (…) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)` | `stage1_tessellate.rs` inc-4e splice: a Stage-1 junction mint landing at a cylinder-grid CORNER; same point to 3 digits on the lineage. **Index 139** (`convex4:boss ×3 circle:cut`, subtract, scale 2e-3, 1.4e3 × floor, same class at ×1e-3, CORRECT at ×1e3) raises the same return and is NOT promoted separately | same / CORRECT |
+| ~~**P0048**~~ CONVERTED 2026-10-16 (Phase 2a-ii) | #158, min 5→3 `convex4:boss convex6:boss circle:boss` | 3 | auto-union `malformed B-Rep topology: face 2: interior junction (…) is within the weld band of 2 distinct grid edges — ambiguous edge-split (consumed postcondition)` | `stage1_tessellate.rs` inc-4e splice: a Stage-1 junction mint landing at a cylinder-grid CORNER; same point to 3 digits on the lineage. **Index 139** (`convex4:boss ×3 circle:cut`, subtract, scale 2e-3, 1.4e3 × floor, same class at ×1e-3, CORRECT at ×1e3) raises the same return and is NOT promoted separately | same / CORRECT |
 | ~~**P0049**~~ CONVERTED 2026-10-14 (Phase 1f, T6) | #175, min 7→3 `convex4:boss circle:cut nonconvex9:rev-cut` | 3 | `boolean_subtract SelfIntersectingBooleanOutput { 31 × 34, penetrations: 3 }` | two PLANAR faces (the lineage: 67 × 71, 12 penetrations, the same triangle pair to 3 digits). Not P0021's cylinder × cylinder nor P0031's cylinder × plane | same / same |
 | **P0050** | #193, min 5→4 `convex4:boss circle:rev circle:sym gear22:∪` | 4 | explicit-Union `ring rejected by CDT` | a FIFTH locus (lineage FaceId 1156), a 22-tooth gear | CORRECT / same |
 | ~~**P0051**~~ CONVERTED 2026-10-15 (retirement 2) | #188, min 7→4 `convex8:boss convex4:− circle:cut circle:boss` | 4 | auto-union `Stage-1 chart triangulation of face 14 cannot meet the face's chord budget after 4 domain-grid round(s) (worst interior edge 1.765× the budget)` | a NEW text: the seeded chart path's domain-grid refinement converges 1.77× over budget | stops earlier / same |

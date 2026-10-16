@@ -450,15 +450,6 @@ pub(crate) fn relocate_onto_implicit_triple(
 /// triple Newton is rank-deficient there and STOPs before any gate); or the
 /// third surface's normal is undefined at `q`.
 pub(crate) fn junction_line_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Option<f64> {
-    // Measurement gate (the gated-increment convention): `YANG_JUNCTION_LINE=0`
-    // (or `off`) restores the surface-pair corridor at every caller,
-    // byte-identical to the pre-2026-09-11 behaviour.
-    if matches!(
-        std::env::var("YANG_JUNCTION_LINE").as_deref(),
-        Ok("0") | Ok("off")
-    ) {
-        return None;
-    }
     let mut planes: Vec<[f64; 3]> = Vec::with_capacity(2);
     let mut third: Option<Surface> = None;
     for s in surfs {
@@ -515,19 +506,13 @@ pub(crate) fn junction_line_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Opti
 /// line corridor is never below the curve corridor measured against a
 /// carrier. `None` (the caller keeps its metric, byte-identical): the vertex
 /// is off the line, the carrier count is not two, or a normal is undefined
-/// at `q`. Shares the `YANG_JUNCTION_LINE=0|off` measurement gate.
+/// at `q`.
 pub(crate) fn junction_line_curve_divergence(
     line: (Point3, Vector3),
     p: [f64; 3],
     surfs: [Surface; 3],
     q: [f64; 3],
 ) -> Option<f64> {
-    if matches!(
-        std::env::var("YANG_JUNCTION_LINE").as_deref(),
-        Ok("0") | Ok("off")
-    ) {
-        return None;
-    }
     let (point, dir) = line;
     let l = normalize3(dir.as_array());
     if !(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).is_finite() {
@@ -599,14 +584,8 @@ pub(crate) fn junction_line_curve_divergence(
 /// `None` (the caller keeps its metric, byte-identical): a normal is
 /// undefined at `q`, or the three normals are rank-deficient to
 /// `MIN_FEATURE_SIZE` (the triple Newton is singular there and STOPs before
-/// any gate). Measurement gate `YANG_JUNCTION_SLAB=0|off`.
+/// any gate).
 pub(crate) fn junction_slab_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Option<f64> {
-    if matches!(
-        std::env::var("YANG_JUNCTION_SLAB").as_deref(),
-        Ok("0") | Ok("off")
-    ) {
-        return None;
-    }
     let mut n = [[0.0f64; 3]; 3];
     for (k, s) in surfs.into_iter().enumerate() {
         let (_, nk) = surface_value_and_normal(s, q)?;
@@ -2155,44 +2134,33 @@ pub(crate) fn remove_doubled_membranes(
     removed
 }
 
-/// Is the EDGE-pinch extension of [`split_pinch_vertices`] armed? ON by
-/// default since 2026-09-13 (spec `yang_tangency_pinch_split.md` §0c —
-/// F0060 converts once the assay oracle counts shells by edge adjacency);
-/// `YANG_EDGE_PINCH_SPLIT=0` is the off-switch for A/B measurement.
-pub(crate) fn edge_pinch_split_enabled() -> bool {
-    std::env::var("YANG_EDGE_PINCH_SPLIT").as_deref() != Ok("0")
-}
-
-/// Is the edge-pinch arm restricted to its SPEC'D placement — Stage-4 ENTRY
-/// only (`YANG_EDGE_PINCH_ENTRY_ONLY=1|on`)?
-///
-/// `specs/yang_tangency_pinch_split.md` fixes the placement twice, by
-/// measurement: §0a.3 "**Therefore the split must run at Stage-4 ENTRY, before
-/// the §4.4.1(b) merge**" (the merge destroys the `2 × A + 2 × B` evidence the
-/// certificate needs), and §0b "**The placement.** It must run at Stage-4
-/// ENTRY. Run at the existing (4a2) site it is inert on F0060". The code arms
-/// it at BOTH sites, and the late one is not inert everywhere: P0020's mesh is
-/// MANIFOLD at `s4-entry` and at `after-reloc` (0 over-2 edges, measured
-/// 2026-10-03 with the four-way `YANG_NM_EDGE_PROBE` bisect of this region) —
-/// its two 4-valent edges are MINTED inside Stage 4 by §4.5.3's
-/// reversed-intersection edge collapse, so the §0a certificate is read on a
-/// mesh the arrangement never produced. The certificate's premise ("the exact
-/// mesh boolean hands it over, which is the honest output for a line-pinched
-/// solid" — §0a.1) does not hold there, and splitting anyway cuts a zero-width
-/// SLIT into an output face, which Stage 6 emits and the next boolean's Stage-1
-/// chart refuses (`Stage1SelfTouchingLoop`). Deviation **N78**.
-///
-/// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
-/// assay with this and the N77 gate on measured **324C / 0W / 22E / 5EE /
-/// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category moves
-/// (P0019, P0020 → SUPPORTED_CORRECT), zero regressions. Opt out with
-/// `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` (re-enables the second, in-Stage-4 site).
-pub(crate) fn edge_pinch_entry_only() -> bool {
-    !matches!(
-        std::env::var("YANG_EDGE_PINCH_ENTRY_ONLY").as_deref(),
-        Ok("0") | Ok("off")
-    )
-}
+// The EDGE-pinch extension of [`split_pinch_vertices`] is ON since 2026-09-13
+// (spec `yang_tangency_pinch_split.md` §0c — F0060 converts once the assay
+// oracle counts shells by edge adjacency), and runs at its SPEC'D placement,
+// Stage-4 ENTRY only.
+//
+// `specs/yang_tangency_pinch_split.md` fixes the placement twice, by
+// measurement: §0a.3 "**Therefore the split must run at Stage-4 ENTRY, before
+// the §4.4.1(b) merge**" (the merge destroys the `2 × A + 2 × B` evidence the
+// certificate needs), and §0b "**The placement.** It must run at Stage-4
+// ENTRY. Run at the existing (4a2) site it is inert on F0060". The code arms
+// it at BOTH sites, and the late one is not inert everywhere: P0020's mesh is
+// MANIFOLD at `s4-entry` and at `after-reloc` (0 over-2 edges, measured
+// 2026-10-03 with the four-way `YANG_NM_EDGE_PROBE` bisect of this region) —
+// its two 4-valent edges are MINTED inside Stage 4 by §4.5.3's
+// reversed-intersection edge collapse, so the §0a certificate is read on a
+// mesh the arrangement never produced. The certificate's premise ("the exact
+// mesh boolean hands it over, which is the honest output for a line-pinched
+// solid" — §0a.1) does not hold there, and splitting anyway cuts a zero-width
+// SLIT into an output face, which Stage 6 emits and the next boolean's Stage-1
+// chart refuses (`Stage1SelfTouchingLoop`). Deviation **N78**.
+//
+// **ALWAYS-ON since 2026-10-03 (night UTC).** The full release categorized
+// assay with this and the N77 gate on measured **324C / 0W / 22E / 5EE /
+// 0T over 351** (8 jobs, 900 s; wall 1129.6 s): exactly two category moves
+// (P0019, P0020 → SUPPORTED_CORRECT), zero regressions. The
+// `YANG_EDGE_PINCH_SPLIT` / `YANG_EDGE_PINCH_ENTRY_ONLY` knobs were deleted
+// 2026-10-16 (cleanup spec §4).
 
 /// EDGE-PINCH per-sheet pairing (spec `yang_tangency_pinch_split.md` §0a).
 ///

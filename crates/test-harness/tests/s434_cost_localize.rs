@@ -3,8 +3,10 @@
 //!
 //! The gate-ON assay times out F0047/F0048/F0059 (>300s CPU) while the
 //! in-process model build alone takes ~8s — so the cost lives DOWNSTREAM of
-//! the boolean. This runner replays a case gate-off then gate-ON and times
-//! every phase the assay's `replay_case` pays, separately:
+//! the boolean. This runner replays a case and times every phase the
+//! assay's `replay_case` pays, separately (the gate-off leg went with the
+//! `YANG_434_INSERT` / `YANG_434_MERGE` off-knobs, deleted 2026-10-16 —
+//! cleanup spec §4; the insert and the merge are always on):
 //!
 //!   load → B-Rep topology counts (per feature output: does Stage 6 emit one
 //!   B-Rep edge per refined seam segment?) → render tessellation → each mesh
@@ -17,7 +19,7 @@
 //! Findings are recorded in the spec (§4-I5), where the localization
 //! decision lives.
 //!
-//! Run (single-threaded — the gate env var is process-global):
+//! Run:
 //!
 //! ```text
 //! cargo test -p test-harness --test s434_cost_localize --release \
@@ -28,10 +30,6 @@
 //! 1227s gate-ON on F0059 (98% of the leg) vs 1.00s gate-off — once that
 //! number is on record, the skip lets the OTHER phases of further cases be
 //! measured in seconds instead of ~20min each.
-//!
-//! `S434_COST_MERGE=1` additionally sets `YANG_434_MERGE` on the gate-ON
-//! leg (I5-1b, spec §4-I5-1b): the ON leg then measures insert+merge
-//! together — the configuration the I5 flip decision needs.
 
 use std::fs;
 use std::path::PathBuf;
@@ -64,28 +62,8 @@ fn timed<T>(case: &str, tag: &str, label: &str, f: impl FnOnce() -> T) -> T {
 /// One full assay-shaped replay with per-phase timing. Mirrors
 /// `assay_kv2::replay_case` phase-for-phase (same tolerances, same oracle
 /// set, same composition call) so the timings attribute the assay's budget.
-fn run_leg(case_id: &str, gate_on: bool) {
-    let with_merge = std::env::var_os("S434_COST_MERGE").is_some();
-    let tag = if gate_on {
-        if with_merge {
-            "ON+merge"
-        } else {
-            "ON"
-        }
-    } else {
-        "off"
-    };
-    if gate_on {
-        std::env::set_var("YANG_434_INSERT", "1");
-        if with_merge {
-            std::env::set_var("YANG_434_MERGE", "1");
-        }
-    } else {
-        // Both gates are ALWAYS-ON since the I5-2 flip (2026-08-19); the
-        // off leg drives the dev A/B knobs explicitly.
-        std::env::set_var("YANG_434_INSERT", "0");
-        std::env::set_var("YANG_434_MERGE", "0");
-    }
+fn run_leg(case_id: &str) {
+    let tag = "on";
     eprintln!("[s434-cost] ---- {case_id} gate {tag} ----");
     let leg_start = Instant::now();
 
@@ -301,12 +279,7 @@ fn localize_with_timeout(case_id: &str, timeout: Duration) {
     let id = case_id.to_string();
     let worker = id.clone();
     let handle = std::thread::spawn(move || {
-        run_leg(&worker, false);
-        run_leg(&worker, true);
-        // Both gates are ALWAYS-ON since the I5-2 flip (2026-08-19); the
-        // off leg drives the dev A/B knobs explicitly.
-        std::env::set_var("YANG_434_INSERT", "0");
-        std::env::set_var("YANG_434_MERGE", "0");
+        run_leg(&worker);
         let _ = tx.send(());
     });
     match rx.recv_timeout(timeout) {

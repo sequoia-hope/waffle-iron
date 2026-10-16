@@ -123,7 +123,7 @@ mod stage5_loop_simplicity;
 // #188 inc-1: §3.2 envelope-resolution primitives (exact switch-point
 // solver + §7.6 op-resolved band classifier), UNWIRED — de-risked on the
 // F0082 pinned fixture (`tests_unit/s188_envelope.rs`); inc-2 wires them
-// into `emit_topology` behind `YANG_S5_ENVELOPE_ENABLE`.
+// into `emit_topology` (always on since the #188 flip).
 mod stage5_chain_decimate;
 pub mod stage5_envelope;
 mod stage5_output_refine;

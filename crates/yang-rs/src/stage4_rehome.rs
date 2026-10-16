@@ -148,23 +148,20 @@ pub(crate) enum RehomeDecline {
 /// re-homing + junction-layer hole re-fill resolve f903's ring-CDT, the
 /// boolean completes, and every oracle passes under the adjudicated
 /// genus-aware expectation: 3 shells, main shell genus 2, χ = 2).
-/// `YANG_441_REHOME=0|off` is the dev A/B off-knob; `census` runs the
-/// full certificate chain (plan → inversion re-verify → rim recognition
-/// → material gate → fan planning → flip guard) and REPORTS, applying
-/// nothing.
+/// `YANG_441_REHOME=census` runs the full certificate chain (plan →
+/// inversion re-verify → rim recognition → material gate → fan planning →
+/// flip guard) and REPORTS, applying nothing (its `0|off` kill switch was
+/// deleted 2026-10-16, cleanup spec §4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RehomeMode {
-    Off,
     Census,
     On,
 }
 
 pub(crate) fn rehome_mode() -> RehomeMode {
     match std::env::var("YANG_441_REHOME") {
-        Err(_) => RehomeMode::On,
-        Ok(v) if v == "0" || v == "off" => RehomeMode::Off,
         Ok(v) if v == "census" => RehomeMode::Census,
-        Ok(_) => RehomeMode::On,
+        _ => RehomeMode::On,
     }
 }
 

@@ -363,9 +363,7 @@ const CHART_REFINE_ROUNDS: usize = 4;
 /// shared-N design: every rim of the solid re-samples together, the way the
 /// paper's uniform 2× refinement does), at most [`CHART_REFINE_ROUNDS`]
 /// times; a crossing with no demand, or one whose demand the pass already
-/// met, is returned as-is (loud). `YANG_S1_CHART_REFINE=0` disables the
-/// retry (dev A/B — the pre-flip behaviour with the typed error in place of
-/// the CDT failure).
+/// met, is returned as-is (loud).
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn stage1_tessellate_inner_overrides(
     verts: &[BRepVertex],
@@ -378,10 +376,6 @@ pub(crate) fn stage1_tessellate_inner_overrides(
     face_refine: &FaceRefine,
     min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
-    let refine_on = !matches!(
-        std::env::var("YANG_S1_CHART_REFINE").as_deref(),
-        Ok("0") | Ok("off")
-    );
     // Stage-1 operand self-contact guard (`self_contact.rs`, spec
     // `yang_stage1_self_contact_guard`): every completed pass is scanned with
     // the arrangement's own exact tri–tri classification; a contact between
@@ -417,7 +411,7 @@ pub(crate) fn stage1_tessellate_inner_overrides(
                 face,
                 crossings,
                 demand_n,
-            }) if refine_on => {
+            }) => {
                 let cur = n_used.unwrap_or(0);
                 match demand_n {
                     Some(n) if n > cur && round < CHART_REFINE_ROUNDS => {
@@ -3943,12 +3937,9 @@ pub(crate) fn tessellate_lateral_holed_cdt(
         LateralKind::Cylinder { radius } => cylinder_seed_step(radius, chart_budget),
         LateralKind::Cone { .. } => None,
     };
-    // Measurement gate (never production): `YANG_S1_CHART_SEED=0` restores
-    // the boundary-only CDT byte-for-byte.
-    let seed_enabled = seed.is_some()
-        && CHART_SEED_OVERRIDE
-            .with(|c| c.get())
-            .unwrap_or_else(|| std::env::var("YANG_S1_CHART_SEED").as_deref() != Ok("0"));
+    // The test-only thread override can restore the boundary-only CDT (the
+    // red half of the Slice-G pin); production always seeds.
+    let seed_enabled = seed.is_some() && CHART_SEED_OVERRIDE.with(|c| c.get()).unwrap_or(true);
     let probe_on = std::env::var_os("YANG_S1_CHART_PROBE").is_some();
     let log_path = std::env::var_os("YANG_S1_CHART_LOG");
     let theta_of = |verts: &[Point3], g: u32| -> f64 {

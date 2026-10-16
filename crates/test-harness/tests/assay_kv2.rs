@@ -883,8 +883,9 @@ fn smoke_corpus_boundary_categories() {
         // procedural `SurfacePair` edge — R0019's cylinder × cone pair chains
         // (M5 cone-pair producer) were never swept, so the Stage-4 fold
         // vertices that kernel-v2's CDT ring-reject refused (FaceId 651)
-        // survived; swept, the ring is simple. A/B: `YANG_453_SPAIR=0`
-        // restores the ERROR (289.4 s), 314 s CORRECT with the sweep.
+        // survived; swept, the ring is simple. Measured A/B (its
+        // `YANG_453_SPAIR` switch, deleted 2026-10-16): ERROR (289.4 s)
+        // without the arm, 314 s CORRECT with it.
         // NOT pinned here: at 314–324 s release it is far beyond this gate's
         // 120 s CPU budget (the pin added 2026-09-22 night read TIMEOUT and
         // went red in CI the same day); the categorized corpus
@@ -2140,8 +2141,12 @@ fn smoke_corpus_boundary_categories() {
         // the weld band of 2 distinct grid edges — ambiguous edge-split`: a
         // junction mint at a cylinder-grid CORNER (smallest segment 117 ×
         // MIN_FEATURE_SIZE; seed-4 index 139 is the same site on a subtract).
-        // ×1e-3 keeps the class, ×1e3 reads CORRECT.
-        ("P0048", Category::Error),
+        // ×1e-3 keeps the class, ×1e3 reads CORRECT. CONVERTED 2026-10-16
+        // (cleanup Phase 2a-ii): the N47 coincident weld had joined two
+        // DISTINCT exact junctions 5e-8 apart (three surfaces each, neither
+        // set containing the other); with §4-I8 containment both stay and
+        // the op completes.
+        ("P0048", Category::SupportedCorrect),
         // P0049 (3 ops) ⇒ `boolean_subtract` `SelfIntersectingBooleanOutput`
         // on two PLANAR faces (31 × 34, 3 penetrations). Same class at ×1e-3
         // and ×1e3. CONVERTED 2026-10-14 (Phase 1f): the §4.3 near-miss

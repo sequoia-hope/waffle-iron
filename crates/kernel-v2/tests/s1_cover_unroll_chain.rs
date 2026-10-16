@@ -16,9 +16,9 @@
 //!
 //! An embedded disc bounded by a null-homotopic loop lifts homeomorphically
 //! to the cylinder's universal cover, so the loop's unwrapped polyline is a
-//! simple chart polygon and the CDT runs there. RED with
-//! `YANG_S1_COVER_UNROLL=0` (the P0038 STOP, verbatim); GREEN with the arm:
-//! the cut validates.
+//! simple chart polygon and the CDT runs there. RED without the arm (the
+//! P0038 STOP, verbatim — the `YANG_S1_COVER_UNROLL` knob that showed it was
+//! deleted 2026-10-16); GREEN with the arm: the cut validates.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{boolean_op, extrude, tessellate, validate_solid, BrepArena, Profile, RenderMesh};

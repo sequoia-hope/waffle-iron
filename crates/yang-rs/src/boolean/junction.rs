@@ -1,7 +1,6 @@
 //! P3a #146 conformal junction sampling — the pierce-point primitive
 //! (increment 1a) and the Stage-1 override builder the increment-2 wiring
-//! feeds into `boolean()` behind `YANG_JUNCTION_SAMPLING_ENABLE`
-//! (spec `specs/yang_146_conformal_junction_sampling.md` §3.2/§4).
+//! feeds into `boolean()` (always on; spec `specs/yang_146_conformal_junction_sampling.md` §3.2/§4).
 //!
 //! Wiring scope (fail-closed — a missed mint is status quo, never
 //! worse, spec §6):
@@ -249,17 +248,9 @@ fn owner_trim_planes(
 /// tangential to the partner surface (the #137 route), never a mint.
 const TRANSVERSALITY_MIN: f64 = 1e-9;
 
-/// P3b curved-partner pierce arms (spec `yang_169_p3b_curved_partner_pierce.md`)
-/// are ALWAYS-ON in production since inc-5. `YANG_P3B_PIERCE_ENABLE=off|0`
-/// disables them purely as a dev A/B knob (compliance-ledger measurement,
-/// the `YANG_JUNCTION_SAMPLING_ENABLE` / `weld_enabled` pattern). Unset =
-/// production default = on.
-fn p3b_pierce_enabled() -> bool {
-    !matches!(
-        std::env::var("YANG_P3B_PIERCE_ENABLE").as_deref(),
-        Ok("off") | Ok("0")
-    )
-}
+// P3b curved-partner pierce arms (spec `yang_169_p3b_curved_partner_pierce.md`)
+// are ALWAYS-ON in production since inc-5 (the `YANG_P3B_PIERCE_ENABLE`
+// off-knob was deleted 2026-10-16, cleanup spec §4).
 
 /// All transversal pierce points of each operand's geometric `LineSegment`
 /// edges through the OTHER operand's bounded planar faces.
@@ -412,20 +403,15 @@ pub(crate) fn junction_pierce_points(
                 // P3b inc-3 (spec `yang_169_p3b_curved_partner_pierce.md`
                 // §5, ALWAYS-ON since inc-5): canonical-tube CYLINDER
                 // partners join the pierce scope — the F0082 ellipse×wall
-                // corner class. `YANG_P3B_PIERCE_ENABLE=off|0` disables the
-                // arm purely as a dev A/B knob (compliance-ledger
-                // measurement, the P3a inc-3 pattern); with the arm off the
-                // enumeration is byte-identical to the pre-P3b pipeline.
-                if p3b_pierce_enabled() {
-                    pierces.extend(
-                        line_edge_cylinder_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
-                            .into_iter()
-                            .map(|mut pp| {
-                                pp.owner_planes = owner_planes;
-                                pp
-                            }),
-                    );
-                }
+                // corner class.
+                pierces.extend(
+                    line_edge_cylinder_face_pierce(p0, p1, *s1, *s2, f_idx as u32, f, y)
+                        .into_iter()
+                        .map(|mut pp| {
+                            pp.owner_planes = owner_planes;
+                            pp
+                        }),
+                );
             }
             if pierces.is_empty() {
                 continue;
@@ -436,74 +422,72 @@ pub(crate) fn junction_pierce_points(
             }
         }
         // P3b inc-4d-3 (spec §7): FULL-CIRCLE RIM owners join the pierce
-        // scope behind the same knob — the F0082 cap-rim×wall corner class
-        // (J2). ALWAYS-ON since inc-5; `=off|0` disables (dev A/B only).
-        if p3b_pierce_enabled() {
-            // Group rim copies by undirected circle geometry + seam bits
-            // (the conformality-by-identity fan-out, circle edition).
-            type RimGroup = (Vec<u32>, Vec<Surface>);
-            let mut rim_groups: BTreeMap<([u64; 3], u64, [u64; 3]), RimGroup> = BTreeMap::new();
-            for f in x.faces() {
-                for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
-                    let e = &x.edges()[ei as usize];
-                    let Curve::Circle { center, radius, .. } = e.curve else {
-                        continue;
-                    };
-                    if e.start != e.end {
-                        continue; // arc rims: a later widening (fail closed)
-                    }
-                    let key = (
-                        kb(center),
-                        radius.to_bits(),
-                        kb(x.vertices()[e.start as usize].point),
-                    );
-                    let g = rim_groups.entry(key).or_default();
-                    if !g.0.contains(&ei) {
-                        g.0.push(ei);
-                    }
-                    if !g.1.contains(&f.surface) {
-                        g.1.push(f.surface);
-                    }
-                }
-            }
-            for (copies, surfs) in rim_groups.values() {
-                // Canonical rim vocabulary: exactly two distinct incident
-                // surfaces (the cap and the lateral) — anything else is a
-                // border/defective incidence, fail closed.
-                let [s1, s2] = surfs.as_slice() else {
+        // scope — the F0082 cap-rim×wall corner class (J2). ALWAYS-ON since
+        // inc-5.
+        // Group rim copies by undirected circle geometry + seam bits
+        // (the conformality-by-identity fan-out, circle edition).
+        type RimGroup = (Vec<u32>, Vec<Surface>);
+        let mut rim_groups: BTreeMap<([u64; 3], u64, [u64; 3]), RimGroup> = BTreeMap::new();
+        for f in x.faces() {
+            for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+                let e = &x.edges()[ei as usize];
+                let Curve::Circle { center, radius, .. } = e.curve else {
                     continue;
                 };
-                let e = &x.edges()[copies[0] as usize];
-                let Curve::Circle {
+                if e.start != e.end {
+                    continue; // arc rims: a later widening (fail closed)
+                }
+                let key = (
+                    kb(center),
+                    radius.to_bits(),
+                    kb(x.vertices()[e.start as usize].point),
+                );
+                let g = rim_groups.entry(key).or_default();
+                if !g.0.contains(&ei) {
+                    g.0.push(ei);
+                }
+                if !g.1.contains(&f.surface) {
+                    g.1.push(f.surface);
+                }
+            }
+        }
+        for (copies, surfs) in rim_groups.values() {
+            // Canonical rim vocabulary: exactly two distinct incident
+            // surfaces (the cap and the lateral) — anything else is a
+            // border/defective incidence, fail closed.
+            let [s1, s2] = surfs.as_slice() else {
+                continue;
+            };
+            let e = &x.edges()[copies[0] as usize];
+            let Curve::Circle {
+                center,
+                normal,
+                radius,
+            } = e.curve
+            else {
+                unreachable!("grouped on circles above");
+            };
+            let seam = x.vertices()[e.start as usize].point;
+            let mut pierces: Vec<PiercePoint> = Vec::new();
+            for (f_idx, f) in y.faces().iter().enumerate() {
+                pierces.extend(circle_edge_plane_face_pierce(
                     center,
                     normal,
                     radius,
-                } = e.curve
-                else {
-                    unreachable!("grouped on circles above");
-                };
-                let seam = x.vertices()[e.start as usize].point;
-                let mut pierces: Vec<PiercePoint> = Vec::new();
-                for (f_idx, f) in y.faces().iter().enumerate() {
-                    pierces.extend(circle_edge_plane_face_pierce(
-                        center,
-                        normal,
-                        radius,
-                        seam,
-                        *s1,
-                        *s2,
-                        f_idx as u32,
-                        f,
-                        y,
-                    ));
-                }
-                if pierces.is_empty() {
-                    continue;
-                }
-                pierces.sort_by(|u, v| u.t.total_cmp(&v.t));
-                for &ei in copies {
-                    out.insert((input, ei), pierces.clone());
-                }
+                    seam,
+                    *s1,
+                    *s2,
+                    f_idx as u32,
+                    f,
+                    y,
+                ));
+            }
+            if pierces.is_empty() {
+                continue;
+            }
+            pierces.sort_by(|u, v| u.t.total_cmp(&v.t));
+            for &ei in copies {
+                out.insert((input, ei), pierces.clone());
             }
         }
     }
@@ -606,8 +590,7 @@ fn p3b_cylinder_pierce_probe(
 /// surfaces are `s1`/`s2`) through the bounded CANONICAL-TUBE cylinder face
 /// `f` of operand `y` — up to TWO per edge×face (both quadratic roots are
 /// genuine crossings, unlike the planar arm's single root). Wired into
-/// `junction_pierce_points` at increment 3; ALWAYS-ON since inc-5
-/// (`YANG_P3B_PIERCE_ENABLE=off|0` = dev A/B disable).
+/// `junction_pierce_points` at increment 3; ALWAYS-ON since inc-5.
 ///
 /// Gates mirror `line_edge_plane_face_pierce` one-for-one — every margin is
 /// the existing derived vocabulary, fail-closed (a missed mint = status quo):
@@ -820,8 +803,7 @@ fn plane_face_contains_with_margin(
 /// seam = the rim's own B-Rep vertex; incident owner surfaces `s1`/`s2`)
 /// through the bounded ALL-LINE planar face `f` of operand `y` — up to TWO
 /// per rim×face (both circle∩plane roots are genuine crossings). Wired into
-/// `junction_pierce_points` at inc-4d-3; ALWAYS-ON since inc-5
-/// (`YANG_P3B_PIERCE_ENABLE=off|0` = dev A/B disable).
+/// `junction_pierce_points` at inc-4d-3; ALWAYS-ON since inc-5.
 ///
 /// Gates mirror the line arms one-for-one — every margin is the existing
 /// derived vocabulary, fail-closed (a missed mint = status quo):
@@ -1362,54 +1344,47 @@ pub(crate) fn junction_stage1_overrides(a: &BRep, b: &BRep) -> JunctionStage1Ove
     // ALWAYS-ON since 2026-09-13 (the flip measurement: corpus 287C → **289C**
     // / 0W / 16E / 4EE / 0T + 3 U, exactly TWO category moves — C0058 and
     // F0058, both ERROR → SUPPORTED_CORRECT — and ZERO detail moves, so no
-    // CORRECT case sees a different mesh). `YANG_433_TANGENT_INSERT=off|0` is
-    // the dev A/B disable, the `YANG_JUNCTION_SAMPLING_ENABLE` pattern.
-    if !matches!(
-        std::env::var("YANG_433_TANGENT_INSERT").as_deref(),
-        Ok("off") | Ok("0")
-    ) {
-        let (ta, tb) = crate::boolean::tangent_point_face_overrides(a, b);
-        // Band dedup against everything this builder already minted on the
-        // same face: a tangent point within the model band of an existing
-        // mint is the SAME junction reached two ways — keep the first (fail
-        // closed; a double mint is the sub-weld near-dup class).
-        let merge = |dst: &mut BTreeMap<u32, Vec<Point3>>, src: BTreeMap<u32, Vec<Point3>>| {
-            for (fi, pts) in src {
-                let entry = dst.entry(fi).or_default();
-                for p in pts {
-                    let pa = p.as_array();
-                    let collides = entry.iter().any(|q| {
-                        let qa = q.as_array();
-                        let scale = pa
-                            .iter()
-                            .chain(qa.iter())
-                            .fold(0.0f64, |m, &c| m.max(c.abs()));
-                        let band = cad_primitives::TAU_MODEL * (1.0 + scale);
-                        let d2 = (pa[0] - qa[0]).powi(2)
-                            + (pa[1] - qa[1]).powi(2)
-                            + (pa[2] - qa[2]).powi(2);
-                        d2 < band * band
-                    });
-                    if collides {
-                        if std::env::var_os("YANG_TANGENT_INSERT_PROBE").is_some() {
-                            eprintln!(
-                                "[tangent-insert] face {fi} DROP {pa:?}: within the model band                                  of an existing junction mint"
-                            );
-                        }
-                        continue;
+    // CORRECT case sees a different mesh).
+    let (ta, tb) = crate::boolean::tangent_point_face_overrides(a, b);
+    // Band dedup against everything this builder already minted on the
+    // same face: a tangent point within the model band of an existing
+    // mint is the SAME junction reached two ways — keep the first (fail
+    // closed; a double mint is the sub-weld near-dup class).
+    let merge = |dst: &mut BTreeMap<u32, Vec<Point3>>, src: BTreeMap<u32, Vec<Point3>>| {
+        for (fi, pts) in src {
+            let entry = dst.entry(fi).or_default();
+            for p in pts {
+                let pa = p.as_array();
+                let collides = entry.iter().any(|q| {
+                    let qa = q.as_array();
+                    let scale = pa
+                        .iter()
+                        .chain(qa.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs()));
+                    let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+                    let d2 =
+                        (pa[0] - qa[0]).powi(2) + (pa[1] - qa[1]).powi(2) + (pa[2] - qa[2]).powi(2);
+                    d2 < band * band
+                });
+                if collides {
+                    if std::env::var_os("YANG_TANGENT_INSERT_PROBE").is_some() {
+                        eprintln!(
+                            "[tangent-insert] face {fi} DROP {pa:?}: within the model band                                  of an existing junction mint"
+                        );
                     }
-                    entry.push(p);
+                    continue;
                 }
-                if dst.get(&fi).is_some_and(Vec::is_empty) {
-                    dst.remove(&fi);
-                }
+                entry.push(p);
             }
-        };
-        merge(&mut out.face_a, ta.face);
-        merge(&mut out.face_b, tb.face);
-        merge(&mut out.rim_a, ta.rim);
-        merge(&mut out.rim_b, tb.rim);
-    }
+            if dst.get(&fi).is_some_and(Vec::is_empty) {
+                dst.remove(&fi);
+            }
+        }
+    };
+    merge(&mut out.face_a, ta.face);
+    merge(&mut out.face_b, tb.face);
+    merge(&mut out.rim_a, ta.rim);
+    merge(&mut out.rim_b, tb.rim);
     out
 }
 

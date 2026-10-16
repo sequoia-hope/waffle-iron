@@ -5,7 +5,7 @@
 //!
 //! UNWIRED (the stage4_update / N-137.1 idiom): nothing in the production
 //! pipeline calls this module yet. inc-2 wires it into `emit_topology`
-//! behind `YANG_S5_ENVELOPE_ENABLE`; this increment de-risks the pure
+//! (always on since the #188 flip); this increment de-risks the pure
 //! geometry on the F0082 pinned fixture (`tests_unit/s188_envelope.rs`).
 //!
 //! Vocabulary (cylinder × plane × plane — the F0082 class):
@@ -718,8 +718,7 @@ pub fn classify_bands(
 
 // ===========================================================================
 // inc-2 — §3.3 gated loop rebuild (spec §5 inc-2; wiring of the §3.2
-// primitives into `emit_topology`'s curved branch behind
-// `YANG_S5_ENVELOPE_ENABLE`).
+// primitives into `emit_topology`'s curved branch; always on).
 //
 // The rebuild is pure boundary SELECTION over EXISTING output vertices
 // (inc-0 §7.4: every junction the correct loop needs is already minted):
@@ -735,16 +734,12 @@ pub fn classify_bands(
 use crate::{non_manifold_at, Curve, Mesh, PatchInfo, YangError};
 use std::collections::BTreeMap;
 
-/// #188 flip (spec §11, the P3a inc-3 / P3b inc-5 idiom): the §3.3
-/// boundary-envelope rebuild — owner selection, notch seal faces (§10.8),
-/// band-conic chord typing (§10.9) — is ALWAYS-ON in production. The env
-/// var is a dev A/B knob only: `YANG_S5_ENVELOPE_ENABLE=0|off` disables
-/// for differential debugging. Flip bar met 2026-07-22: gate-ON corpus
-/// ledger 312/312 category-identical (252C/0W/55E), sidecar parity 18/18,
-/// rewrite tier green.
-pub(crate) fn envelope_gate_enabled() -> bool {
-    !matches!(std::env::var("YANG_S5_ENVELOPE_ENABLE"), Ok(v) if v == "0" || v == "off")
-}
+// #188 flip (spec §11, the P3a inc-3 / P3b inc-5 idiom): the §3.3
+// boundary-envelope rebuild — owner selection, notch seal faces (§10.8),
+// band-conic chord typing (§10.9) — is ALWAYS-ON in production (flip bar
+// met 2026-07-22: gate-ON corpus ledger 312/312 category-identical
+// (252C/0W/55E), sidecar parity 18/18, rewrite tier green; the
+// `YANG_S5_ENVELOPE_ENABLE` off-knob was deleted 2026-10-16).
 
 /// Read-only forensics for the gated rebuild (`YANG_S5_ENVELOPE_PROBE`):
 /// prints fire/bail/commit decisions so inc-3 corpus triage can tell WHY a
