@@ -492,9 +492,13 @@ Do NOT skip to lower-priority items because they are easier.
    19E / 5EE / 0T** (wall 870.3 s), R0044 CORRECT in 469 s, zero drift.
    Time a slow case with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1`
    (`ASSAY_JOBS=1 … single_case`: the subprocess runner nulls stderr)
-   before designing for its cost. M-1 (§4.5.2 locality) is still next: its
-   region is the whole operand on R0044, and the §4.5.3 sweep runs a
-   whole-mesh Phase A per removal.
+   before designing for its cost. **M-1's region (L1) LANDED the same day**
+   (`specs/yang_452_cp_region.md`: collected T1 failures and every T2 fire
+   name the faces their C_p span traverses; corpus unchanged, active on
+   four of seven worklist cases). The loud-ceiling worklist survives the
+   paper's region at density 8 — its open mechanism is the §4.5.1
+   boundary class (matrix M-2 / M-3, ledger N90 / N91); L2 (N84, collect
+   every T1) is the region's remaining half.
    **The open ERROR tail is P0005, P0015, P0020, P0029, P0045, P0056,
    P0061, R0049, R0070, F0064, F0067**
    (seeds 4–5; P0001–P0041 otherwise CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
