@@ -145,6 +145,10 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
   quadratic cherchi-rs Stage 2 (ledger N95, RESOLVED); what remains is the
   §4.5.3 sweep's whole-mesh Phase A per removal and a region that covers
   the whole operand (a planar cap's one-ring is every flank).
+  *Region (third gap), L1 2026-10-17:* collected T1 failures and every T2
+  fire now name the faces their C_p span traverses
+  (`specs/yang_452_cp_region.md`); the first-fire T1 returns (N84) still
+  name one vertex.
 - **M-2. §4.5.1 for interior points is half built.** *Ledger N90.* Remove, midpoint and
   project are live for cone+plane and torus pairs only. Truncation at C_b,
   continuation on S1 and the q1/q2 solve are absent; `max_in_domain_step`

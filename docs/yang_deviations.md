@@ -5030,7 +5030,15 @@ spent 75 % of each run in a quadratic detection port (N95, RESOLVED the same
 day: R0044 1194 s → 612 s alone, CORRECT in the corpus), and Stage 4 spends
 most of the rest in the §4.5.3 sweep's per-removal whole-mesh Phase A. The
 locality gap itself stands: R0044's region is EVERY face of the gear, because
-a planar cap traversed by C_p has every flank in its one-ring. The loop has no direct yang-rs pin for its adoption and ceiling
+a planar cap traversed by C_p has every flank in its one-ring — which is the
+paper's rule read literally, so the deviation is the region's SOURCE, not
+its breadth. **L1 LANDED 2026-10-17** (`specs/yang_452_cp_region.md`): the
+collected OffCurve failures and every boundary-domain fire name the faces
+their C_p span traverses (`stage4_correct::IsectGraph::cp_span`, along the
+intersection polyline to the nearest successfully optimized points);
+corpus 350C unchanged, the walk measured active on four of the seven
+loud-ceiling cases (R0070: 149 of 215 regions grew). Open: L2 (N84, every
+T1 collected) and the splice (L3, deferred — §5 of that spec). The loop has no direct yang-rs pin for its adoption and ceiling
 behaviour (only kernel-v2's `s452_domain_lens_corner.rs`,
 `s451_transit_neighbour_side_chain.rs` and
 `s4_ellipse_pair_corner_chain.rs`; matrix `s451 F8`). The 2026-10-14 State

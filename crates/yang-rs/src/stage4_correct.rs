@@ -187,6 +187,59 @@ fn s451_stop(
     }
 }
 
+/// §4.5 trigger T1 for COLLECTED failures (spec `yang_452_cp_region.md` §3):
+/// one site per distinct failed vertex, naming the faces its C_p span
+/// traverses — the run "cannot converge to a distance of 0" from the first
+/// failure to the nearest successfully optimized points either way. The
+/// vantage is the census's: every non-failed vertex is relocated, so `good`
+/// is `vertex_converged` minus the failed set minus §4-I9's domain-endpoint
+/// crossers. The STOP returned is unchanged (the first error).
+fn record_collected_spans(
+    mesh: &Mesh,
+    attribution: &[Option<TriangleAttribution>],
+    a: &BRep,
+    b: &BRep,
+    entry: &[[f64; 3]],
+    failures: &[(u32, YangError)],
+) {
+    let patches = build_patch_map(mesh, attribution);
+    let adj = build_live_adjacency(mesh);
+    let graph = IsectGraph::new(mesh, attribution);
+    let failed: std::collections::BTreeSet<u32> = failures.iter().map(|&(v, _)| v).collect();
+    let good = |w: u32| -> bool {
+        !failed.contains(&w)
+            && vertex_converged(mesh, &patches, a, b, w)
+            && !vertex_crossed_domain_endpoint(mesh, attribution, a, b, &adj, entry, w)
+    };
+    let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    for (v, err) in failures {
+        if !seen.insert(*v) || (*v as usize) >= mesh.verts.len() {
+            continue;
+        }
+        let (members, bounds, capped) = graph.cp_span(*v, &good);
+        if std::env::var_os("YANG_452_PROBE").is_some() {
+            eprintln!(
+                "[cp-span] T1 v{v} members={} bounds={:?}{} faces at v {} → span {}",
+                members.len(),
+                bounds.iter().take(4).collect::<Vec<_>>(),
+                if capped { " capped" } else { "" },
+                patches.get(v).map_or(0, |f| f.len()),
+                cp_span_faces(&patches, &members, &bounds).len()
+            );
+        }
+        crate::boolean::failures::record(crate::boolean::failures::FailureSite {
+            trigger: crate::boolean::failures::FailureTrigger::RelocationDiverged,
+            faces: cp_span_faces(&patches, &members, &bounds),
+            detail: format!(
+                "v{v} C_p span: {} failing point(s), bounds {:?}{} — {err}",
+                members.len(),
+                bounds.iter().take(6).collect::<Vec<_>>(),
+                if capped { " (capped)" } else { "" }
+            ),
+        });
+    }
+}
+
 /// §4.5.1 inc-1: the post-sweep selector census at the paper's vantage —
 /// every non-failed vertex is relocated, so "successfully optimized" is
 /// finally well-posed. Per recorded failure (deduped by vertex, sweep
@@ -4160,6 +4213,104 @@ pub(crate) fn compact_unreferenced_verts(
 /// Vertex → the `(input, face)` patches its incident attributed triangles carry.
 /// Built once per census; every predicate below reads it instead of rescanning
 /// the triangle list, so a whole-mesh census is O(V·deg) and not O(V·T).
+/// The intersection polyline of the kept submesh as a graph: an edge is an
+/// intersection edge when its live triangles carry BOTH inputs (one triangle
+/// per operand on the kept submesh; a Stage-0 overlap boundary qualifies, as
+/// the paper's "overlap boundaries become intersection curves"). Built once
+/// per vantage and walked by [`IsectGraph::cp_span`].
+pub(crate) struct IsectGraph {
+    adj: std::collections::BTreeMap<u32, Vec<u32>>,
+}
+
+/// Most vertices one C_p walk visits (a run where nothing converges stays
+/// bounded; the cap is reported).
+const CP_SPAN_CAP: usize = 512;
+
+impl IsectGraph {
+    pub(crate) fn new(mesh: &Mesh, attribution: &[Option<TriangleAttribution>]) -> Self {
+        let mut sides: std::collections::BTreeMap<(u32, u32), (bool, bool)> =
+            std::collections::BTreeMap::new();
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            let Some(Some(att)) = attribution.get(ti) else {
+                continue;
+            };
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let (u, w) = (tri[i], tri[j]);
+                if u == w {
+                    continue;
+                }
+                let e = sides.entry((u.min(w), u.max(w))).or_default();
+                match att.input {
+                    InputId::A => e.0 = true,
+                    InputId::B => e.1 = true,
+                }
+            }
+        }
+        let mut adj: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+        for (&(u, w), &(ha, hb)) in &sides {
+            if ha && hb {
+                adj.entry(u).or_default().push(w);
+                adj.entry(w).or_default().push(u);
+            }
+        }
+        IsectGraph { adj }
+    }
+
+    /// Yang §4.5.2's erroneous region around the failing point `v` (spec
+    /// `yang_452_cp_region.md` §3): breadth-first along intersection edges
+    /// through vertices that are not `good` (not "successfully optimized"),
+    /// stopping at `good` ones. Returns `(members, bounds, capped)` — the
+    /// members are C_p's failing points (`v` first), the bounds are p_f, p_b
+    /// (more than two where the span passes a corner).
+    pub(crate) fn cp_span(
+        &self,
+        v: u32,
+        good: &dyn Fn(u32) -> bool,
+    ) -> (Vec<u32>, std::collections::BTreeSet<u32>, bool) {
+        let mut members: Vec<u32> = vec![v];
+        let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::from([v]);
+        let mut bounds: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let mut queue: std::collections::VecDeque<u32> = std::collections::VecDeque::from([v]);
+        let mut capped = false;
+        while let Some(u) = queue.pop_front() {
+            for &w in self.adj.get(&u).map(Vec::as_slice).unwrap_or(&[]) {
+                if !seen.insert(w) {
+                    continue;
+                }
+                if good(w) {
+                    bounds.insert(w);
+                } else if members.len() >= CP_SPAN_CAP {
+                    capped = true;
+                } else {
+                    members.push(w);
+                    queue.push_back(w);
+                }
+            }
+        }
+        (members, bounds, capped)
+    }
+}
+
+/// The faces at every member and bound of a C_p span — "the surfaces
+/// traversed by C_p" (Yang §4.5.2), in `(input, face)` order.
+fn cp_span_faces(
+    patches: &std::collections::BTreeMap<u32, std::collections::BTreeSet<(InputId, u32)>>,
+    members: &[u32],
+    bounds: &std::collections::BTreeSet<u32>,
+) -> Vec<(InputId, u32)> {
+    let mut out: std::collections::BTreeSet<(bool, u32)> = std::collections::BTreeSet::new();
+    for w in members.iter().chain(bounds.iter()) {
+        if let Some(fs) = patches.get(w) {
+            for &(input, face) in fs {
+                out.insert((matches!(input, InputId::B), face));
+            }
+        }
+    }
+    out.into_iter()
+        .map(|(is_b, f)| (if is_b { InputId::B } else { InputId::A }, f))
+        .collect()
+}
+
 fn build_patch_map(
     mesh: &Mesh,
     attribution: &[Option<TriangleAttribution>],
@@ -7069,9 +7220,36 @@ fn boundary_domain_postcondition(
         }
     }
     // §4.5 trigger T2 (`boolean::failures`, spec `yang_452_refinement_loop.md`
-    // §3): every fire is a failure site with the faces it already names;
-    // the one refinement loop reads them from there.
-    crate::boolean::failures::record_domain_fires(&records);
+    // §3): every fire is a failure site naming the surfaces C_p traverses —
+    // the span from the fire along the intersection polyline to the nearest
+    // successfully optimized points (spec `yang_452_cp_region.md` §3; a fire
+    // vertex lies ON its extended surfaces, so the fire set is excluded
+    // from `good` explicitly). The one refinement loop reads them from there.
+    if !records.is_empty() {
+        let graph = IsectGraph::new(mesh, &attribution.attributions);
+        let fired: std::collections::BTreeSet<u32> = records.iter().map(|r| r.v).collect();
+        let good = |w: u32| !fired.contains(&w) && vertex_converged(mesh, &patches, a, b, w);
+        let mut spanned = records.clone();
+        for r in &mut spanned {
+            let (members, bounds, capped) = graph.cp_span(r.v, &good);
+            let span = cp_span_faces(&patches, &members, &bounds);
+            if std::env::var_os("YANG_452_PROBE").is_some() {
+                eprintln!(
+                    "[cp-span] T2 v{} members={} bounds={:?}{} faces {} → {}",
+                    r.v,
+                    members.len(),
+                    bounds.iter().take(4).collect::<Vec<_>>(),
+                    if capped { " capped" } else { "" },
+                    r.incident.len(),
+                    span.len()
+                );
+            }
+            if !span.is_empty() {
+                r.incident = span;
+            }
+        }
+        crate::boolean::failures::record_domain_fires(&spanned);
+    }
     if fires.is_empty() {
         return Ok(());
     }
@@ -12749,6 +12927,14 @@ fn stage4_relocate_and_correct_inner(
                     s45_failures.clear();
                 }
                 Err(()) => {
+                    record_collected_spans(
+                        mesh,
+                        &attribution.attributions,
+                        brep_a,
+                        brep_b,
+                        &s4_entry_pos,
+                        &s45_failures,
+                    );
                     let (_, first) = s45_failures.swap_remove(0);
                     return Err(first);
                 }
@@ -12760,6 +12946,14 @@ fn stage4_relocate_and_correct_inner(
                 brep_a,
                 brep_b,
                 &curves0,
+                &s4_entry_pos,
+                &s45_failures,
+            );
+            record_collected_spans(
+                mesh,
+                &attribution.attributions,
+                brep_a,
+                brep_b,
                 &s4_entry_pos,
                 &s45_failures,
             );

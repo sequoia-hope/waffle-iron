@@ -332,3 +332,52 @@ fn an_unresolved_reversal_names_the_faces_at_both_points() {
     assert_eq!(rec[0].faces, vec![(InputId::A, 3), (InputId::B, 7)]);
     failures::reset();
 }
+
+/// An intersection polyline 0–1–2–3–4–5 along x: above it A's triangles
+/// (A:1 under vertices 0..3, A:2 from 3 on), below it B:5's. Only the
+/// polyline edges carry both inputs.
+fn polyline_strip() -> (Mesh, TriangleAttributionMap) {
+    let mut verts = Vec::new();
+    for i in 0..6 {
+        verts.push(Point3::new(i as f64, 0.0, 0.0)); // 0..6: the polyline
+    }
+    for i in 0..5 {
+        verts.push(Point3::new(i as f64 + 0.5, 1.0, 0.0)); // 6..11: above
+    }
+    for i in 0..5 {
+        verts.push(Point3::new(i as f64 + 0.5, -1.0, 0.0)); // 11..16: below
+    }
+    let mut tris = Vec::new();
+    let mut at = Vec::new();
+    for i in 0..5u32 {
+        tris.push([i, i + 1, 6 + i]);
+        at.push(Some((InputId::A, if i < 3 { 1 } else { 2 })));
+        tris.push([i + 1, i, 11 + i]);
+        at.push(Some((InputId::B, 5)));
+    }
+    (Mesh::new(verts, tris), attr(&at))
+}
+
+/// Spec `yang_452_cp_region.md` §3: the C_p walk runs along the
+/// intersection polyline through failing points and stops at the
+/// successfully optimized ones, which bound it; its faces are every face at
+/// a member or a bound.
+#[test]
+fn the_cp_span_walks_the_polyline_to_the_converged_bounds() {
+    use crate::stage4_correct::IsectGraph;
+    let (mesh, at) = polyline_strip();
+    let graph = IsectGraph::new(&mesh, &at.attributions);
+    // Points 1..=4 failed; 0 and 5 converged.
+    let good = |w: u32| w == 0 || w == 5;
+    let (members, bounds, capped) = graph.cp_span(2, &good);
+    let members: BTreeSet<u32> = members.into_iter().collect();
+    assert_eq!(members, BTreeSet::from([1, 2, 3, 4]));
+    assert_eq!(bounds, BTreeSet::from([0, 5]));
+    assert!(!capped);
+    // A lone failure is bounded by its two polyline neighbours, and the
+    // walk never leaves the polyline (vertex 7, above, is not reached).
+    let lone = |w: u32| w != 3;
+    let (members, bounds, _) = graph.cp_span(3, &lone);
+    assert_eq!(members, vec![3]);
+    assert_eq!(bounds, BTreeSet::from([2, 4]));
+}
