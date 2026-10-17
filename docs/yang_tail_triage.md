@@ -43,6 +43,37 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-17 (Stage-2 complexity) — cherchi-rs detection and input prep at the reference's complexity (ledger N95); **corpus 350C / 0W / 19E / 5EE / 0T over 374, R0044 TIMEOUT → CORRECT, zero drift**
+
+Measuring R0044's cost before designing §4.5.2 locality (matrix M-1) found
+that the whole-op recompute was not what cost: `YANG_STAGE_TIME_PROBE=1`
+(new, `boolean.rs` + `[s4-lap]` in Stage 4) and `CHERCHI_TIME_PROBE=1` (new,
+`[cherchi-time]` / `[cherchi-lap]`) put 75 % of every run in cherchi-rs
+Stage 2 — an O(n²) broad phase, every neighbour pair of the 100k-triangle
+gear reported and re-certified in rationals (the reference reports only
+`INTERSECT`, cinolib `ignore_if_valid_complex`), and two O(n²) linear
+interners in input prep. All four now match the reference (N95).
+
+| R0044 op 1 | Stage 2 before | after |
+|---|---|---|
+| natural, 100k tris | 39.2 s (detection 26.7 s, 604,277 pairs) | 3.0 s (detection 0.22 s, 542 pairs) |
+| ×4 rung, 399k | 161 s | 33 s → interners (merge 4.85 s, dedup 22.9 s) removed |
+| ×8 rung, 796k | 652.8 s | 162.7 s before the interners |
+
+Two corpus runs (release, 8 jobs, 900 s): detection alone 350C / 0W / 19E /
+5EE / 0T, wall 925.0 s, exactly one move (R0044 TIMEOUT → CORRECT, 664.5
+s); with the interners the same score, wall 870.3 s, zero moves and zero
+drift against the first, R0044 469.0 s. The yang-rs, kernel-v2 and
+cherchi-rs suites and the sidecar parity oracles (`r0046_patch_label_parity`,
+`stage0_operand_inputcheck`) pass.
+
+**What is left on R0044** (natural run, 100k triangles; ×4 rung 396k): Stage
+4 ≈ 20 s / 76 s, of which the §4.5.3 sweep is 22.0 s / 62.9 s — one
+whole-mesh `compute_phase_a` per removal (0.17 s / 0.66 s each, ~100
+removals). And the §4.5.2 region is every face of the gear (a planar cap
+traversed by C_p has every flank in its one-ring), so each rung refines the
+whole operand. Both are M-1 work (N62 OPEN).
+
 ## 2026-10-17 (F-2, F-3) — the §4.4.1 crossing refusal and the §4.5.3 exits name faces; **corpus 349C / 0W / 19E / 5EE / 1T over 374**
 
 Compliance matrix F-2 and F-3 (`docs/audits/yang_2025_audit.md`): two places

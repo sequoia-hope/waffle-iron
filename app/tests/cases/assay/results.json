@@ -2,7 +2,7 @@
   "errored": 19,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 349,
+  "passed": 350,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 900s CPU (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0044",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

@@ -4735,6 +4735,7 @@ pub(crate) fn reconstruct_topology_stage4(
             minted_junction_keys,
             edge_provenance,
         )?;
+        crate::stage4_correct::s4_lap("s4-wrapper-returned", mesh);
         relocations = relocs;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them

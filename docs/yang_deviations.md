@@ -194,6 +194,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
+| N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -5023,7 +5024,13 @@ STOP vertex and reaches the rest one ring per iteration, if at all. The
 whole-op recompute was graded "strictly more refinement" when DELEGATED;
 under A15.7 that rationale is unsigned, and the loud-ceiling worklist
 (`docs/yang_tail_triage.md` §"the loud ceiling") is where locality is to be
-measured. The loop has no direct yang-rs pin for its adoption and ceiling
+measured. **Measured 2026-10-17 on R0044 (the whole-op recompute's
+first cost customer):** the cost was NOT the recompute's breadth — Stage 2
+spent 75 % of each run in a quadratic detection port (N95, RESOLVED the same
+day: R0044 1194 s → 612 s alone, CORRECT in the corpus), and Stage 4 spends
+most of the rest in the §4.5.3 sweep's per-removal whole-mesh Phase A. The
+locality gap itself stands: R0044's region is EVERY face of the gear, because
+a planar cap traversed by C_p has every flank in its one-ring. The loop has no direct yang-rs pin for its adoption and ceiling
 behaviour (only kernel-v2's `s452_domain_lens_corner.rs`,
 `s451_transit_neighbour_side_chain.rs` and
 `s4_ellipse_pair_corner_chain.rs`; matrix `s451 F8`). The 2026-10-14 State
@@ -6653,3 +6660,70 @@ DELEGATED. Matrix 4.4.2 rows, `s44 F7`.
 
 **State: PROPOSED** (found 2026-10-16; awaits a prose sign-off request with
 D14 — A15.7).
+
+## N95 — cherchi-rs Stage-2 detection and input prep: the reference's complexity, not a quadratic port (matrix M-1 cost, R0044)
+
+**Reference.** Cherchi 2020 `arrangements/code/intersection_classification.cpp:47-94`
+`find_intersections`: an octree over the triangle AABBs, and per leaf pair
+`t0->intersects_triangle(t1->v, /*ignore_if_valid_complex=*/true)` — cinolib's
+`triangle_triangle_intersect_3d` returns `DO_NOT_INTERSECT`,
+`SIMPLICIAL_COMPLEX` (coincident, or meeting exactly at a shared vertex /
+edge) or `INTERSECT`, and only `INTERSECT` is a pair. Input prep
+(`processing.cpp:67-119`, `booleans.cpp:179-313`) dedups vertices and
+triangles through hash maps.
+
+**Implementation (until 2026-10-17).** `detect_intersecting_pairs` iterated
+every `(i, j)` with an AABB pre-test (the module's own "deviation #20 — no
+spatial index … not on critical path for the meshes Yang-rs will
+produce"), and reported every non-`Disjoint` pair, so every neighbour of a
+closed input mesh was a candidate; each such pair asks `orient3d` of a
+shared vertex against the other triangle's plane — exactly 0.0 — and N24's
+zero tier re-certifies each zero in rationals. `merge_duplicated_vertices`
+and `remove_degenerate_and_duplicated_triangles` interned through linear
+scans. Measured on assay R0044 (a 68-triangle cutter against a
+100,348-triangle revolved gear; `CHERCHI_TIME_PROBE=1`): 604,277 candidate
+pairs of which 824 cross-input, detection 26.7 s of a 39.2 s Stage 2; at the
+§4.5.2 ×4 rung (398,716 triangles) detection 104.5 s, vertex merge 4.85 s,
+triangle dedup 22.9 s; at ×8 (795,644) Stage 2 was 652.8 s. R0044 was
+CORRECT alone in 1194 s CPU and a TIMEOUT in the corpus (2026-10-17, F-2).
+
+**Fix.** The broad phase is the crate's deterministic AABB octree
+(`aabb_tree::AabbTree`, the cinolib-octree equivalent that already served
+BL2 and the improper-contact census); the reference's shared-sub-simplex
+branch is ported as `intersection_detection::shared_simplex_verdict` (vertex
+identity = the soup's merged vertex index, which is the reference's
+`vec_equals_3d` after `merge_duplicated_vertices`; a coplanar opposite edge
+in the shared-vertex branch defers to the full test, so the set reported is
+never smaller than the reference's); both interners are hash maps with the
+former equality (`f64 ==`: ±0 one key, NaN never merged). Pins:
+`tree_broad_phase_matches_brute`, `closed_mesh_alone_reports_no_pairs`,
+`shared_simplex_overlaps_are_still_reported`,
+`valid_complex_skip_leaves_every_arrangement_identical` (seven fixtures
+including cross-input shared faces, edges and corners — the arrangement is
+byte-identical with and without the skip; the classifier's own cpp:460
+early return already gave such pairs no geometry),
+`prep_hash_interners_match_the_linear_ones`; four detection pins that
+asserted the full test's neighbour pairs now assert the reference verdict
+and keep the full test's answer under `without_valid_complex_skip`. After:
+R0044's natural Stage 2 39.2 → 3.0 s (542 candidate pairs, detection
+0.22 s), the ×4 rung 161 → 33 s, the ×8 rung 653 → 163 s before the
+interners.
+
+**Corpus.** Detection alone: 350C / 0W / 19E / 5EE / 0T over 374 (release,
+8 jobs, 900 s; wall 925.0 s) — versus 349C / 1T exactly ONE move, R0044
+TIMEOUT → SUPPORTED_CORRECT (664.5 s), zero detail drift. With the
+interners: 350C / 0W / 19E / 5EE / 0T (wall 870.3 s, the lowest since the
+loop landed — 1111.2 s on 2026-10-16), zero moves and zero drift against
+the detection-only run, R0044 469.0 s (triage §"2026-10-17 (Stage-2
+complexity)").
+
+**What this is not.** Not §4.5.2 locality (N62 / matrix M-1 stay OPEN): the
+loop still recomputes the whole op, and R0044's region still covers every
+face of the gear (a planar cap's one-ring is every flank). It removes the
+cost that made the whole-op recompute look like the locality gap. The next
+cost on the same case is Stage 4's §4.5.3 sweep: one whole-mesh
+`compute_phase_a` per removal — 22.0 s of the natural run's Stage 4 at
+100k triangles and 62.9 s of 76 s at 396k (`YANG_STAGE_TIME_PROBE=1`,
+`[s4-lap]`).
+
+**State: RESOLVED** (2026-10-17).

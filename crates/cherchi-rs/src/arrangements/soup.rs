@@ -192,10 +192,14 @@ pub enum ArrangementError {
 /// remapping each triangle's three indices to the deduped global ids.
 ///
 /// Port of `processing.cpp:67-119` (serial branch). The C++
-/// `flat_hash_map<array<double,3>, uint>` is realized here as a small linear
-/// interner over the deduped vertex list (no `f64: Eq`/`Hash`). Only vertices
-/// referenced by some triangle survive (matches C++, which iterates `in_tris`).
-/// Coordinates are bit-exact (post-scale, no tolerance).
+/// `flat_hash_map<array<double,3>, uint>` is realized as a hash map keyed by
+/// the coordinates' bits under `f64 ==` semantics (±0 one key; a NaN
+/// coordinate never matches, so such a vertex is never interned) — the
+/// equality the former linear interner used, O(V) instead of its O(V²)
+/// (measured 2026-10-17: 4.85 s on a 400k-triangle operand, yang matrix
+/// M-1). Only vertices referenced by some triangle survive (matches C++,
+/// which iterates `in_tris`). Coordinates are bit-exact (post-scale, no
+/// tolerance).
 pub fn merge_duplicated_vertices(
     coords: &[f64],
     tris: &[[u32; 3]],
@@ -210,14 +214,28 @@ pub fn merge_duplicated_vertices(
     // `remap[old_slot] = Some(new_id)` once seen; lazily filled.
     let mut remap: Vec<Option<u32>> = vec![None; n_in];
 
-    let intern = |verts: &mut Vec<Point3>, p: Point3| -> u32 {
-        // Bit-exact linear interner over the deduped list (matches the C++
-        // exact-array hash map, minus the hash).
-        if let Some(i) = verts.iter().position(|&q| q == p) {
-            return i as u32;
+    // `f64 ==` key: +0.0 and -0.0 compare equal, so they share a key; a NaN
+    // equals nothing, so it gets no key.
+    let key_of = |p: Point3| -> Option<[u64; 3]> {
+        let c = p.as_array();
+        if c.iter().any(|x| x.is_nan()) {
+            return None;
+        }
+        Some(c.map(|x| if x == 0.0 { 0u64 } else { x.to_bits() }))
+    };
+    let mut index: std::collections::HashMap<[u64; 3], u32> =
+        std::collections::HashMap::with_capacity(n_in);
+    let mut intern = |verts: &mut Vec<Point3>, p: Point3| -> u32 {
+        let key = key_of(p);
+        if let Some(i) = key.and_then(|k| index.get(&k)) {
+            return *i;
         }
         verts.push(p);
-        (verts.len() - 1) as u32
+        let id = (verts.len() - 1) as u32;
+        if let Some(k) = key {
+            index.insert(k, id);
+        }
+        id
     };
 
     let mut remapped: Vec<[u32; 3]> = Vec::with_capacity(tris.len());
@@ -308,8 +326,11 @@ pub fn remove_degenerate_and_duplicated_triangles(
     // inputs' coincident triangles into one survivor here, so its provenance is
     // multi-valued. Indices are in the input (concatenated A++B) triangle space.
     let mut kept_source: Vec<Vec<u32>> = Vec::new();
-    // Sorted-vertex key → output index of the first occurrence.
-    let mut seen: Vec<([u32; 3], usize)> = Vec::new();
+    // Sorted-vertex key → output index of the first occurrence (a hash map;
+    // the former linear `Vec` scan was O(T²) — 22.9 s on a 400k-triangle
+    // operand, measured 2026-10-17, yang matrix M-1).
+    let mut seen: std::collections::HashMap<[u32; 3], usize> =
+        std::collections::HashMap::with_capacity(tris.len());
 
     for (ti, tri) in tris.iter().enumerate() {
         let v0 = verts[tri[0] as usize];
@@ -323,7 +344,7 @@ pub fn remove_degenerate_and_duplicated_triangles(
         key.sort_unstable();
         let label = labels.get(ti).cloned().unwrap_or_default();
 
-        if let Some(&(_, out_idx)) = seen.iter().find(|(k, _)| *k == key) {
+        if let Some(&out_idx) = seen.get(&key) {
             // Duplicate: OR-merge its label into the survivor (sorted-unique)
             // and record the restoration info (booleans.cpp:233-247).
             or_merge_label(&mut kept_labels[out_idx], &label);
@@ -338,7 +359,7 @@ pub fn remove_degenerate_and_duplicated_triangles(
             kept_tris.push(*tri);
             kept_labels.push(sorted_unique_label(&label));
             kept_source.push(vec![ti as u32]);
-            seen.push((key, out_idx));
+            seen.insert(key, out_idx);
         }
     }
 
@@ -701,6 +722,17 @@ pub fn mesh_arrangement(
         });
     }
 
+    // Phase laps (print-only, env-gated `CHERCHI_TIME_PROBE`): each step's
+    // share of an arrangement on a large operand (yang matrix M-1).
+    let mut lap_t = std::env::var_os("CHERCHI_TIME_PROBE").map(|_| std::time::Instant::now()); // wasm-ok: env-gated probe (CHERCHI_TIME_PROBE), never set in wasm
+    let mut lap = |tag: &str| {
+        if let Some(t) = lap_t.as_mut() {
+            let now = std::time::Instant::now(); // wasm-ok: env-gated probe (CHERCHI_TIME_PROBE), never set in wasm
+            eprintln!("[cherchi-lap]   {tag} {:.2}s", (now - *t).as_secs_f64());
+            *t = now;
+        }
+    };
+
     // 1. (Removed at PR-CR-M7c.) The pre-M7c FFI-stub refusal and `init_fpu`
     //    FPU-mode setup are gone: the clean-room native predicates are pure
     //    Rust — always available, no FPU rounding-mode requirement.
@@ -713,6 +745,7 @@ pub fn mesh_arrangement(
 
     // 3. Merge duplicated input vertices (prep).
     let (verts, remapped_tris) = merge_duplicated_vertices(&sc, tris);
+    lap("scale+merge_vertices");
 
     // 4. Remove degenerate / duplicate input triangles (prep, labels
     //    OR-merged, duplicates recorded for the in/out restoration below).
@@ -726,14 +759,35 @@ pub fn mesh_arrangement(
     // 5. Build the global soup. `from_soup` takes ONE plane; the per-triangle
     //    submeshes get their own correct plane (step 9), so any plane works for
     //    the global container.
+    lap("remove_degenerate");
     let soup =
         FastTrimesh::from_soup(&verts, &kept_tris, Plane::XY).map_err(ArrangementError::Input)?;
+    lap("from_soup");
 
-    // 6. Detect candidate intersecting pairs (CR13).
+    // Phase timer (print-only, env-gated `CHERCHI_TIME_PROBE`).
+    let t_probe = std::env::var_os("CHERCHI_TIME_PROBE").map(|_| std::time::Instant::now()); // wasm-ok: env-gated probe (CHERCHI_TIME_PROBE), never set in wasm
+                                                                                             // 6. Detect candidate intersecting pairs (CR13).
     let pairs = detect_intersecting_pairs(&soup);
+    let t_detect = t_probe.map(|t| t.elapsed().as_secs_f64());
 
     // 7. Classify each pair (AR1). Coplanar / degenerate → loud Err.
     let classified = classify_all(&soup, &pairs);
+    if let (Some(t), Some(det)) = (t_probe, t_detect) {
+        let n_a_cross = pairs
+            .iter()
+            .filter(|&&(x, y)| kept_labels[x as usize] != kept_labels[y as usize])
+            .count();
+        let n_int = classified
+            .iter()
+            .filter(|(_, c)| !matches!(c, PairClassification::Disjoint))
+            .count();
+        eprintln!(
+            "[cherchi-time]   soup tris={} candidate pairs={} (cross-input {n_a_cross}) intersecting={n_int} detect={det:.2}s classify={:.2}s",
+            kept_tris.len(),
+            pairs.len(),
+            t.elapsed().as_secs_f64() - det
+        );
+    }
     for ((ta, tb), classification) in &classified {
         match classification {
             PairClassification::Deferred(reason) => match reason {
@@ -775,6 +829,7 @@ pub fn mesh_arrangement(
     //    `group_constraint_segments` resolves endpoints by the same geometric
     //    keying. A pair resolving to >2 geometric endpoints is loud (the C++
     //    final_check assert), never a silently dropped segment.
+    lap("detect+classify");
     let (mut points, mut buckets) = group_intersection_points(&soup, &classified);
     let mut segments_per_tri = group_constraint_segments(&soup, &classified, &points).map_err(
         |ConstraintSegmentError::TooManyGeometricEndpoints { ta, tb, count }| {
@@ -824,6 +879,7 @@ pub fn mesh_arrangement(
     let mut pocket_registry = VisitedPocketRegistry::new();
     let mut pocket_pos: BTreeMap<BTreeSet<u32>, Vec<usize>> = BTreeMap::new();
 
+    lap("group+coplanar");
     // 9. Per base triangle: fast path (pass-through) or split + enforce.
     for t in 0..soup.num_tris() {
         let bucket = &buckets[t as usize];
@@ -1025,6 +1081,7 @@ pub fn mesh_arrangement(
         }
     }
 
+    lap("per-triangle emit");
     // 10. Append the 5 jolly points at the tail.
     let jolly = jolly_points(m);
     globals.verts.extend_from_slice(&jolly);
@@ -1050,6 +1107,7 @@ pub fn mesh_arrangement(
         arr_in_labels[d.t_off].retain(|id| !d.label.contains(id));
     }
 
+    lap("jolly+restore");
     // 12. Return the assembled soup.
     if std::env::var_os("CHERCHI_XEDGE_PROBE").is_some() {
         eprintln!(
@@ -1543,6 +1601,123 @@ mod tests {
     /// Input: 4 vertex slots where slot 3 == slot 0 exactly. Two triangles:
     /// [0,1,2] and [3,1,2] (== [0,1,2] after merge). Expect 3 surviving verts;
     /// both tris remap to indices over {0,1,2} with slot-3 → 0.
+    /// The hash-map interners are the former linear ones exactly: same
+    /// deduped vertex list (first-seen order, ±0 merged, NaN never merged),
+    /// same remap, same kept triangles / labels / duplicates / provenance —
+    /// on a soup with many repeated coordinates, signed zeros and duplicate
+    /// triangles under every rotation and reflection of their indices.
+    #[test]
+    fn prep_hash_interners_match_the_linear_ones() {
+        fn merge_linear(coords: &[f64], tris: &[[u32; 3]]) -> (Vec<Point3>, Vec<[u32; 3]>) {
+            let at = |i: u32| {
+                let i = i as usize;
+                Point3::new(coords[3 * i], coords[3 * i + 1], coords[3 * i + 2])
+            };
+            let mut verts: Vec<Point3> = Vec::new();
+            let mut remap: Vec<Option<u32>> = vec![None; coords.len() / 3];
+            let mut out = Vec::new();
+            for t in tris {
+                let mut o = [0u32; 3];
+                for (k, &v) in t.iter().enumerate() {
+                    o[k] = match remap[v as usize] {
+                        Some(id) => id,
+                        None => {
+                            let p = at(v);
+                            let id = match verts.iter().position(|&q| q == p) {
+                                Some(i) => i as u32,
+                                None => {
+                                    verts.push(p);
+                                    (verts.len() - 1) as u32
+                                }
+                            };
+                            remap[v as usize] = Some(id);
+                            id
+                        }
+                    };
+                }
+                out.push(o);
+            }
+            (verts, out)
+        }
+        let mut s: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = |m: u64| {
+            s = s
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (s >> 33) % m
+        };
+        // A small value alphabet so coordinates repeat often; ±0 both appear.
+        let alphabet = [0.0, -0.0, 1.0, -1.0, 0.5, 2.0];
+        let mut coords = Vec::new();
+        for _ in 0..600 {
+            for _ in 0..3 {
+                coords.push(alphabet[next(alphabet.len() as u64) as usize]);
+            }
+        }
+        let mut tris: Vec<[u32; 3]> = Vec::new();
+        for _ in 0..900 {
+            let t = [next(600) as u32, next(600) as u32, next(600) as u32];
+            tris.push(t);
+            match next(4) {
+                0 => tris.push([t[1], t[2], t[0]]),
+                1 => tris.push([t[2], t[1], t[0]]),
+                _ => {}
+            }
+        }
+        let (v_hash, r_hash) = merge_duplicated_vertices(&coords, &tris);
+        let (v_lin, r_lin) = merge_linear(&coords, &tris);
+        assert_eq!(r_hash, r_lin);
+        assert_eq!(v_hash.len(), v_lin.len());
+        for (p, q) in v_hash.iter().zip(&v_lin) {
+            assert_eq!(
+                p.as_array().map(f64::to_bits),
+                q.as_array().map(f64::to_bits)
+            );
+        }
+        // Triangles: the hash `seen` against a linear first-occurrence scan.
+        let labels: Vec<Label> = (0..r_hash.len())
+            .map(|k| vec![if k % 3 == 0 { B } else { A }])
+            .collect();
+        let (kt, kl, dupl, ks) =
+            remove_degenerate_and_duplicated_triangles(&v_hash, &r_hash, &labels);
+        let mut seen: Vec<[u32; 3]> = Vec::new();
+        let mut expect_kept: Vec<[u32; 3]> = Vec::new();
+        let mut expect_src: Vec<Vec<u32>> = Vec::new();
+        for (ti, t) in r_hash.iter().enumerate() {
+            let (a, b, c) = (
+                v_hash[t[0] as usize],
+                v_hash[t[1] as usize],
+                v_hash[t[2] as usize],
+            );
+            if crate::predicates::points_are_collinear_3d(a, b, c) {
+                continue;
+            }
+            let mut key = *t;
+            key.sort_unstable();
+            match seen.iter().position(|k| *k == key) {
+                Some(i) => expect_src[i].push(ti as u32),
+                None => {
+                    seen.push(key);
+                    expect_kept.push(*t);
+                    expect_src.push(vec![ti as u32]);
+                }
+            }
+        }
+        assert_eq!(kt, expect_kept);
+        assert_eq!(ks, expect_src);
+        assert_eq!(kl.len(), kt.len());
+        assert_eq!(
+            dupl.len(),
+            expect_src.iter().map(|s| s.len() - 1).sum::<usize>(),
+            "one restoration record per dropped duplicate"
+        );
+        assert!(
+            dupl.len() > 50,
+            "the soup must exercise duplicates: {}",
+            dupl.len()
+        );
+    }
+
     #[test]
     fn prep_merge_duplicated_vertices_collapses_and_remaps() {
         // slots: 0=(0,0,0) 1=(1,0,0) 2=(0,1,0) 3=(0,0,0) duplicate of 0.
@@ -1729,6 +1904,37 @@ mod tests {
             "a disjoint pair mints no intersection edges (got {})",
             soup.intersection_edges.len()
         );
+    }
+
+    /// The reference's shared-sub-simplex skip at detection (cinolib
+    /// `ignore_if_valid_complex`, `intersection_detection::shared_simplex_verdict`)
+    /// drops only pairs that carry no arrangement geometry: every arrangement
+    /// is byte-identical with and without it — crossing boxes, boxes sharing
+    /// a whole face, an edge, a corner (cross-input shared sub-simplices,
+    /// the Stage-0 identified-vertex shape), a partially overlapping
+    /// coplanar face, a tetra through a box.
+    #[test]
+    fn valid_complex_skip_leaves_every_arrangement_identical() {
+        let fixtures = vec![
+            concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(1.0, 1.0, 1.0, 2.0, B)),
+            concat(cube(0.0, 0.0, 0.0, 1.0, A), cube(1.0, 0.0, 0.0, 1.0, B)),
+            concat(cube(0.0, 0.0, 0.0, 1.0, A), cube(1.0, 1.0, 0.0, 1.0, B)),
+            concat(cube(0.0, 0.0, 0.0, 1.0, A), cube(1.0, 1.0, 1.0, 1.0, B)),
+            concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(2.0, 1.0, 1.0, 2.0, B)),
+            concat(cube(0.0, 0.0, 0.0, 2.0, A), tetra(0.5, 0.5, 0.5, 2.5, B)),
+            concat(cube(0.0, 0.0, 0.0, 2.0, A), tetra(0.0, 0.0, 0.0, 1.0, B)),
+        ];
+        for (k, (coords, tris, labels)) in fixtures.into_iter().enumerate() {
+            let with_skip = format!("{:?}", mesh_arrangement(&coords, &tris, &labels));
+            let without =
+                crate::arrangements::intersection_detection::without_valid_complex_skip(|| {
+                    format!("{:?}", mesh_arrangement(&coords, &tris, &labels))
+                });
+            assert!(
+                with_skip == without,
+                "fixture {k}: the skip changed the arrangement"
+            );
+        }
     }
 
     /// Interpenetrating boxes A = [0,2]³, B = [1,3]³: the harvested set is the

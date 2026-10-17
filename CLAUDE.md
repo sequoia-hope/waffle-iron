@@ -484,8 +484,17 @@ Do NOT skip to lower-priority items because they are easier.
    `specs/yang_442_classify_after_update.md`). A §4.4.1 patch whose cycles
    cross in its chart and every §4.5.3 exit now name the faces C_p
    traverses (triggers T3, T7). **Canonical corpus 349C / 0W / 19E / 5EE /
-   1T** — R0044 is CORRECT alone in 1194 s, past the 900 s budget: the cost
-   of the whole-op recompute (matrix M-1), the next work item.
+   1T** — R0044 is CORRECT alone in 1194 s, past the 900 s budget.
+   **Measured the same day: the cost was cherchi-rs Stage 2, not the
+   recompute** — an O(n²) broad phase, every neighbour pair reported (the
+   reference reports only `INTERSECT`) and two O(n²) interners; all now at
+   the reference's complexity (ledger N95): **canonical corpus 350C / 0W /
+   19E / 5EE / 0T** (wall 870.3 s), R0044 CORRECT in 469 s, zero drift.
+   Time a slow case with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1`
+   (`ASSAY_JOBS=1 … single_case`: the subprocess runner nulls stderr)
+   before designing for its cost. M-1 (§4.5.2 locality) is still next: its
+   region is the whole operand on R0044, and the §4.5.3 sweep runs a
+   whole-mesh Phase A per removal.
    **The open ERROR tail is P0005, P0015, P0020, P0029, P0045, P0056,
    P0061, R0049, R0070, F0064, F0067**
    (seeds 4–5; P0001–P0041 otherwise CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness

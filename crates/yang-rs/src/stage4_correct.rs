@@ -8930,6 +8930,7 @@ fn stage4_relocate_and_correct_inner(
     // use these).
     let (brep_a, brep_b) = (a, b);
 
+    s4_lap("s4-entry", mesh);
     balance_census(mesh, "s4-entry");
 
     // §4-I9: positions as Stage 4 found them, for the relocation-domain
@@ -9006,6 +9007,7 @@ fn stage4_relocate_and_correct_inner(
     // position-keyed provenance is valid here — this is the classification
     // the relocation maps are built from (spec inc-2).
     let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b, edge_provenance)?;
+    s4_lap("phase-a", mesh);
 
     // Provenance-vouched vertices (spec inc-2 §3c): endpoints of a
     // producer-confirmed intersection edge. Their curve assignment is
@@ -13056,6 +13058,7 @@ fn stage4_relocate_and_correct_inner(
         nonmanifold_edge_census_attrs("after-fan-retriangulation", mesh, &attr_vec);
     }
     fold_probe("post", mesh, &attr_vec, &probe_minted_verts);
+    s4_lap("before-453-sweep", mesh);
     let sweep_result = sweep_reversed_intersections(
         mesh,
         &mut attr_vec,
@@ -13335,9 +13338,11 @@ fn stage4_relocate_and_correct_inner(
     // Phase 2b (spec `yang_441_phase2b_patch_update.md`): the §4.4.1
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
+    s4_lap("before-441-update", mesh);
     if crate::stage4_construct::update_patches(mesh, attribution, a, b) > 0 {
         collapsed_any = true;
     }
+    s4_lap("441-update", mesh);
 
     // Twin-scan probe (read-only, env-gated `YANG_TWIN_SCAN`): dump every
     // sub-feature-floor mesh edge surviving the §4.4.1(b) merge, with
@@ -14336,18 +14341,22 @@ fn stage4_relocate_and_correct_inner(
     // corner-transit corridor mutation — repairs the §4-I9 corner-crosser
     // fires when every certificate holds; any refusal leaves the mesh
     // untouched and the postcondition STOP below fires exactly as today.
+    s4_lap("before-transit", mesh);
     corner_transit_apply(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+    s4_lap("transit", mesh);
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The
     // caller resolves the output-edge index; relocations referencing a
     // now-absent vertex are simply not emitted (the caller guards the index).
     relocation_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+    s4_lap("relocation-domain", mesh);
     // Yang §4.5 boundary-point domain certificate (spec
     // `specs/yang_45_boundary_point_domain_certificate.md`): a relocated
     // model-edge crossing whose exact root left its face across a crease is
     // §4.5.2's own trigger — raised here, typed, instead of surfacing as a
     // stray output edge the render tessellator declines (P0003).
     boundary_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+    s4_lap("boundary-domain", mesh);
 
     Ok((relocations, collapsed_any))
 }
@@ -14469,11 +14478,36 @@ pub(crate) fn coincident_vertex_census(tag: &str, mesh: &crate::Mesh) {
     }
 }
 
+thread_local! {
+    static S4_LAP: std::cell::Cell<Option<std::time::Instant>> = const { std::cell::Cell::new(None) }; // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+}
+
+/// Print-only Stage-4 lap timer behind `YANG_STAGE_TIME_PROBE` (matrix M-1:
+/// which Stage-4 pass scales with the mesh rather than the curve). Each call
+/// prints the time since the previous lap; `tag == "s4-entry"` restarts.
+pub(crate) fn s4_lap(tag: &str, mesh: &crate::Mesh) {
+    if std::env::var_os("YANG_STAGE_TIME_PROBE").is_none() {
+        return;
+    }
+    let now = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+    let prev = S4_LAP.with(|c| c.replace(Some(now)));
+    if tag != "s4-entry" {
+        if let Some(prev) = prev {
+            eprintln!(
+                "[s4-lap] {tag} {:.2}s (tris={})",
+                (now - prev).as_secs_f64(),
+                mesh.tris.len()
+            );
+        }
+    }
+}
+
 pub(crate) fn nonmanifold_edge_census(
     tag: &str,
     mesh: &crate::Mesh,
     attribution: &TriangleAttributionMap,
 ) {
+    s4_lap(tag, mesh);
     if std::env::var_os("YANG_NM_EDGE_PROBE").is_none() {
         return;
     }

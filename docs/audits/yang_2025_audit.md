@@ -141,6 +141,10 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
     surfaces traversed by C_p".
 
   N62 is RESOLVED, and its text dropped the first gap. (`s451 F3`, `F4`.)
+  *Cost, measured 2026-10-17 (R0044):* the first gap's cost was mostly a
+  quadratic cherchi-rs Stage 2 (ledger N95, RESOLVED); what remains is the
+  §4.5.3 sweep's whole-mesh Phase A per removal and a region that covers
+  the whole operand (a planar cap's one-ring is every flank).
 - **M-2. §4.5.1 for interior points is half built.** *Ledger N90.* Remove, midpoint and
   project are live for cone+plane and torus pairs only. Truncation at C_b,
   continuation on S1 and the q1/q2 solve are absent; `max_in_domain_step`

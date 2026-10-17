@@ -769,6 +769,7 @@ fn refine_loop(
                     br.refined_by(reg, k)
                 }
             };
+        let mut lt = StageTimer::new();
         let (na, nb) = match (refined(&ra, &reg_a), refined(&rb, &reg_b)) {
             (Ok(x), Ok(y)) => (x, y),
             (Err(e), _) | (_, Err(e)) => {
@@ -780,8 +781,12 @@ fn refine_loop(
         };
         ra = na;
         rb = nb;
+        StageTimer::mark(&mut lt, "s1_refine");
         let out = boolean_once(&ra, &rb, op, backend);
+        StageTimer::mark(&mut lt, "run");
         f = failures::failures(&out);
+        StageTimer::mark(&mut lt, "failures");
+        StageTimer::report(&mut lt, &format!("loop iter {iter} k={k}"));
         if probe {
             let fa: Vec<(u32, u32)> = ra.face_refine().iter().map(|(&x, &y)| (x, y)).collect();
             let fb: Vec<(u32, u32)> = rb.face_refine().iter().map(|(&x, &y)| (x, y)).collect();
@@ -871,7 +876,10 @@ pub fn boolean(
     let natural = boolean_once(a, b, op, backend);
     // The §4.5 failure set of the natural run, read NOW: any further run
     // (the rim×plane retry below, the loop's own) resets the record.
+    let mut nt = StageTimer::new();
     let natural_failures = failures::failures(&natural);
+    StageTimer::mark(&mut nt, "failures");
+    StageTimer::report(&mut nt, "natural");
     // Cost probe (print-only, env-gated; `specs/yang_452_refinement_loop.md`
     // §10 step 4): time the §4.5.4 illegal-intersection census on the natural
     // output — the quantity that decides whether T3 can run on every result.
@@ -974,11 +982,68 @@ pub fn boolean(
     }
 }
 
+/// Print-only phase timer behind `YANG_STAGE_TIME_PROBE` (matrix M-1: where
+/// a whole-op §4.5.2 re-run spends its time). `None` when the probe is off,
+/// so production pays one env read per run.
+struct StageTimer {
+    start: std::time::Instant, // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+    last: std::time::Instant, // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+    marks: Vec<(&'static str, f64)>,
+}
+
+impl StageTimer {
+    fn new() -> Option<Self> {
+        std::env::var_os("YANG_STAGE_TIME_PROBE").map(|_| {
+            let now = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+            StageTimer {
+                start: now,
+                last: now,
+                marks: Vec::new(),
+            }
+        })
+    }
+    fn mark(t: &mut Option<Self>, name: &'static str) {
+        if let Some(t) = t {
+            let now = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_STAGE_TIME_PROBE), never set in wasm
+            t.marks.push((name, (now - t.last).as_secs_f64()));
+            t.last = now;
+        }
+    }
+    fn report(t: &mut Option<Self>, tag: &str) {
+        if let Some(t) = t {
+            let total = t.start.elapsed().as_secs_f64();
+            let parts: Vec<String> = t.marks.iter().map(|(n, s)| format!("{n}={s:.2}")).collect();
+            eprintln!("[stage-time] {tag} total={total:.2}s {}", parts.join(" "));
+        }
+    }
+}
+
 fn boolean_once(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
+) -> Result<BRep, YangError> {
+    let mut timer = StageTimer::new();
+    let out = boolean_once_timed(a, b, op, backend, &mut timer);
+    StageTimer::report(
+        &mut timer,
+        &format!(
+            "op={op:?} tris a={} b={} {}",
+            a.as_mesh().tris.len(),
+            b.as_mesh().tris.len(),
+            if out.is_ok() { "emitted" } else { "STOPped" }
+        ),
+    );
+    out
+}
+
+fn boolean_once_timed(
+    a: &BRep,
+    b: &BRep,
+    op: BoolOp,
+    backend: &dyn MeshBoolean,
+    timer: &mut Option<StageTimer>,
 ) -> Result<BRep, YangError> {
     // §4.5 failure sites of THIS run (`boolean::failures`, spec
     // `yang_452_refinement_loop.md` §3): forget the previous run's.
@@ -1830,10 +1895,12 @@ fn boolean_once(
         }
     }
 
+    StageTimer::mark(timer, "pre_s2");
     // (1) Stage 2: full labeled arrangement.
     let la = backend
         .labeled_arrangement(mesh_a, mesh_b)
         .map_err(YangError::MeshBooleanFailed)?;
+    StageTimer::mark(timer, "s2");
 
     // (2) I6 weld: the C++ producer does NOT always weld coincident vertices
     // (it can emit two distinct indices at bit-identical coordinates — a
@@ -3021,6 +3088,7 @@ fn boolean_once(
     // the attribution in lockstep — so both are passed by `&mut` and the
     // tessellation sources come back from `reconstruct_topology`.
     let mut kept_submesh = kept_submesh;
+    StageTimer::mark(timer, "keep_resolve");
     let (vertices, edges, faces, sources, face_attribution) = reconstruct_topology_stage4(
         &mut kept_submesh,
         &mut triangle_attribution,
@@ -3031,6 +3099,7 @@ fn boolean_once(
         &edge_provenance,
     )?;
 
+    StageTimer::mark(timer, "s4_emit");
     let tessellation = TessellationMap { sources };
 
     let mut out = BRep {

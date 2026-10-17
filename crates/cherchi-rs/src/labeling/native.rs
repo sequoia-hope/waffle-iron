@@ -124,11 +124,29 @@ pub fn native_labeled_arrangement(
     let mut labels = vec![vec![InputId(0)]; a.tris.len()];
     labels.extend(std::iter::repeat_n(vec![InputId(1)], b.tris.len()));
 
+    // Phase timer (print-only, env-gated `CHERCHI_TIME_PROBE`): where Stage 2
+    // spends its time on a large operand (yang matrix M-1).
+    let t_probe = std::env::var_os("CHERCHI_TIME_PROBE").map(|_| std::time::Instant::now()); // wasm-ok: env-gated probe (CHERCHI_TIME_PROBE), never set in wasm
+    let lap = |t: &Option<std::time::Instant>| t.map(|t| t.elapsed().as_secs_f64());
     // Arrangement (AR3b) → patches (BL1) → in/out (BL2), each loud.
     let soup =
         mesh_arrangement(&coords, &tris, &labels).map_err(NativeBooleanError::Arrangement)?;
+    let t_arr = lap(&t_probe);
     let patches = compute_all_patches(&soup).map_err(NativeBooleanError::Patches)?;
+    let t_pat = lap(&t_probe);
     let inner = compute_inside_out(&soup, &patches).map_err(NativeBooleanError::InsideOut)?;
+    let t_io = lap(&t_probe);
+    if let (Some(arr), Some(pat), Some(io)) = (t_arr, t_pat, t_io) {
+        eprintln!(
+            "[cherchi-time] tris a={} b={} soup={} patches={} arrangement={arr:.2}s patches={:.2}s inside_out={:.2}s",
+            a.tris.len(),
+            b.tris.len(),
+            soup.tris.len(),
+            inner.len(),
+            pat - arr,
+            io - pat
+        );
+    }
 
     // Per-triangle labels: surface = the soup label (canonicalized sorted),
     // patch = the BL1 patch id, inside[t][k] = the triangle's patch's inner
@@ -166,6 +184,9 @@ pub fn native_labeled_arrangement(
     }
 
     let (mesh, remap) = arrangement_mesh_with_remap(&soup)?;
+    if let (Some(io), Some(now)) = (t_io, lap(&t_probe)) {
+        eprintln!("[cherchi-time]   labels+mesh={:.2}s", now - io);
+    }
     let (out_verts, out_tris) = (mesh.verts, mesh.tris);
 
     vert_provenance_probe(&soup, &remap, &out_verts, a, b);
