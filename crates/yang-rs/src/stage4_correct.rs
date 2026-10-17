@@ -4524,7 +4524,7 @@ fn vertex_crossed_domain_endpoint(
 
 /// §4.5's SECOND selector clause, measured: *"we only use the first strategy
 /// in cases where the failure points are bounded by two successfully optimized
-/// points **on the same surface**"* (`refs/text/yang2025_hybrid_boolean.txt:740-744`).
+/// points **on the same surface**"* (`refs/text/yang2025_hybrid_boolean.txt:651-657`).
 ///
 /// Walks the intersection curve outward from `v` along every branch to the
 /// nearest vertex `good` accepts, then reports whether all such bounds share a
@@ -4667,7 +4667,7 @@ fn selector_clause2_walk(
 
 /// §4-I10 (d) — the paper's §4.5 STRATEGY SELECTOR, measured.
 ///
-/// Yang 2025 §4.5 (`refs/text/yang2025_hybrid_boolean.txt:740-744`): *"we only
+/// Yang 2025 §4.5 (`refs/text/yang2025_hybrid_boolean.txt:651-657`): *"we only
 /// use the first strategy in cases where the failure points are bounded by two
 /// successfully optimized points **on the same surface**. For other cases, we
 /// apply the second strategy"* — §4.5.1 "optimize across boundaries" versus
@@ -6965,7 +6965,7 @@ pub(crate) struct DomainFire {
 /// (spec `specs/yang_45_boundary_point_domain_certificate.md`).
 ///
 /// The paper collects "the point pairs that cannot converge to a distance of
-/// 0 within their domains" (`refs/text/yang2025_hybrid_boolean.txt:648-651`)
+/// 0 within their domains" (`refs/text/yang2025_hybrid_boolean.txt:656-659`)
 /// and sends the boundary points among them — one operand's model edge
 /// gliding across the other's face (Fig. 13's exclusion from §4.5.1) — to
 /// §4.5.2 local refinement. The relocation arms solve such a vertex exactly
@@ -6980,12 +6980,12 @@ pub(crate) struct DomainFire {
 /// fire and is adopted: SUPPORTED_CORRECT.
 ///
 /// Gate `YANG_S45_BOUNDARY_DOMAIN`: unset = **ON** — the fires are RECORDED
-/// (`boundary_domain_fires`) and the op-level driver runs the §4.5.2 ladder,
-/// adopting a rung that emits a watertight 2-manifold body with NO fire and
-/// otherwise keeping the natural output (spec §7: the hard wall converts
-/// CORRECT gear cases whose many sub-chord facet creases the ladder cannot
-/// reach — R0003 42 fires, R0004, R0032, R0049, R0070 — so the certificate is
-/// a trigger and an inventory, never a wall); `stop`/`1`/`on` = the hard STOP
+/// (`boundary_domain_fires`, trigger T2 of `boolean::failures`) and
+/// `boolean::refine_loop` refines the faces they name; a run is adopted only
+/// with an EMPTY failure set, and fires the loop cannot clear STOP as
+/// `RefinementExhausted` (the loud ceiling, 2026-10-16, ledger N66 — before
+/// it the natural output was kept, and R0049 / R0070 shipped with fires the
+/// loop could not reach); `stop`/`1`/`on` = the hard STOP
 /// (the A/B measurement knob); `census` = report only, no ladder (the
 /// `0`/`off` certificate-off switch was deleted 2026-10-16).
 fn boundary_domain_postcondition(

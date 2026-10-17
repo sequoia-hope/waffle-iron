@@ -67,13 +67,13 @@ edge-in-plane, overlay) is the paper's own pre-discretization step.
 
 | pass | file | stands in for | fate |
 |---|---|---|---|
-| `weld_coincident_relocated` (N47) | stage4_correct.rs:2797 | §4.3 "remove a point if it is too close to another point on the same loop" (`:535-536`) | keep as §4.3; the criterion gains carried-surface CONTAINMENT (Phase 2a) |
-| `collapse_subresolution_intersection_segments` (N56) | :4634 | §4.3 same | same (already has the incidence-richer survivor rule) |
-| `collapse_subtauwork_mesh_edges` | :4799 | §4.4.1(b) "merge p with q" | fold into the §4.4.1 merge-with-retriangulation (Phase 2b) |
-| `repair_fan_cluster` (inc-4c, N58) | :3343 | §4.4.1 "the triangulation is updated accordingly" — the paper never produces the fold this repairs, because it retriangulates AS it merges | replace by merge-with-retriangulation (Phase 2b) |
-| `merge_same_plane_patches` | :1329 | §4.4.2 patch segmentation + §4.5.5 | review in Phase 2c |
+| `weld_coincident_relocated` (N47) | stage4_correct.rs:2025 | §4.3 "remove a point if it is too close to another point on the same loop" (`:535-536`) | keep as §4.3; the criterion gains carried-surface CONTAINMENT (Phase 2a) |
+| `collapse_subresolution_intersection_segments` (N56) | :3818 | §4.3 same | same (already has the incidence-richer survivor rule) |
+| `collapse_subtauwork_mesh_edges` | :3983 | §4.4.1(b) "merge p with q" | fold into the §4.4.1 merge-with-retriangulation (Phase 2b) |
+| `repair_fan_cluster` (inc-4c, N58) | :2609 | §4.4.1 "the triangulation is updated accordingly" — the paper never produces the fold this repairs, because it retriangulates AS it merges | replace by merge-with-retriangulation (Phase 2b) |
+| `merge_same_plane_patches` | :1339 | §4.4.2 patch segmentation + §4.5.5 | review in Phase 2c |
 | `replan_degenerate_cylinder_patches`, `remesh_nonmanifold_patches`, `weld_f32_render_twins` | gated OFF, no production caller | banked experiments | **deleted Phase 0** (git history keeps them; Phase 2 builds from the paper) |
-| §4.5.3 sweep victim RANKING (N29 §3b–§3e) | stage4_correct/reversal.rs | §4.5.3 "remove its next point and reconnect … repetitively … if no such next point can be found, remove p_r and restart from p_b" (`:727-732`) — an ORDERED removal, no ranking | replace the rank by the paper's order (Phase 2a) |
+| §4.5.3 sweep victim RANKING (N29 §3b–§3e) | stage4_correct/reversal.rs | §4.5.3 "remove its next point and reconnect … repetitively … if no such next point can be found, remove p_r and restart from p_b" (`:746-751`) — an ORDERED removal, no ranking | replace the rank by the paper's order (Phase 2a) |
 | `merge_conic_seam_runs`, `decimate_intersection_runs` (N58 addendum) | stage5_seam_merge.rs, stage5_chain_decimate.rs | §4.3.4 acceptance test applied at the output | keep (paper criterion); re-site into §4.4.1 when it exists (Phase 2c) |
 
 ### 2c. Stage 1 itself (N5, N61)
@@ -81,6 +81,19 @@ edge-in-plane, overlay) is the paper's own pre-discretization step.
 | dispatch | stands in for | fate |
 |---|---|---|
 | uniform cylinder tube, cone frustum, chart CDT, universal cover (P0038), azimuth zipper (P0044) | §4.1 "triangulate the rectangular u-v domain until reaching d_ε", §4.1.2 "discretize each surface patch independently … re-sample the boundary curves, and reconstruct the triangulation around the boundaries [by CDT]" (`:397-410`) | ONE parameter-domain CDT per face at the Theorem-A chord bound; the zipper is the first step (Phase 3) |
+
+### 2d. Substitutes the compliance matrix found (2026-10-17)
+
+The paper-ordered matrix (`docs/audits/yang_2025_audit.md`) found four
+substitutes this table did not list; ledgered as N82, N86, N87, N88. They
+retire under the same rule as 2a–2c.
+
+| substitute | entry point | stands in for | fate |
+|---|---|---|---|
+| Stage-1 exact junction mints (N82): rim-junction insertion, P3a conformal sampling, tangent boost | `boolean.rs` `boolean_once` (the "Increment 2" block, P3a #146, the boost), `boolean/rim_junction.rs` `rim_junction_overrides` | §4.4.1 junction identification AFTER optimization (`:546-571`) | retire into the §4.4.1 update (Phase 2) |
+| Stage-0 Fig-11 mesh updating (N86) | `stage0/reloc.rs` (~2.4k production lines: cavity relocation, Lawson flips, Fig-11(a) split / slide, Fig-11(b) backtrack) | §4.3 + §4.4.1 applied to overlay mints before Stage 1 | retire into the one §4.4.1 update (Phase 2); the §4.5.5 overlay itself stays |
+| crease and corner transits (N87) | `stage4_boundary_curve.rs` `solve_crease_transit`, `stage4_correct.rs` `corner_transit_apply` / `stage4_transit.rs` | §4.5.2 — the paper sends boundary and corner points there (`:635-657`, Fig. 13); §4.5.1 is for interior points | retire into the loop once its locality lands (Phase 1, N62 reopened); was listed under §5 "not touched" |
+| Stage-1 cross-patch folds (N88): cylinder-pair phantom fold, thin-band rim fold, chart-crossing re-run, P0008 planar-neighbour chord split | `stage1_tessellate.rs` (`cyl_pair_phantom_n`, `face_rim_pair_phantom_n`, `CHART_REFINE_ROUNDS`), `planar_neighbor_chords.rs` | §4.1 "discretize each patch independently" (`:397-402`) + the d_ε certificate | fold into the §4.1 certificate (Phase 3) |
 
 ## 3. Phases and acceptance
 
@@ -108,7 +121,7 @@ that converts no new case still ships (roadmap §0.1). A substitute that
 - [x] **1e (2026-10-14):** the §4.5.4 census on a shared AABB octree (`cherchi_rs::aabb_tree`; `TriOctree` a wrapper); measured affordable on every result (≤ 1.5 s on the largest op); **and measured that every improper pair on CORRECT outputs is a transversal chord crossing of the un-retriangulated Stage-4 mesh** ⇒ the mesh census is a record until Phase 2, and 1c's output-level trigger is T3b (two faces' exact boundary curves crossing on one surface).
 - [x] **1b (2026-10-14):** the failure-site RECORD `boolean::failures` — T1/T2/T4 recorded where detected with their faces, T3 scanned on an emitted body, `failures()` / `region()` (faces + one ring by shared vertex); pinned in `tests_unit/s452_failure_sites.rs`; record-only, byte-identical.
 - [x] **1a (2026-10-14):** the refinement UNIT — `BRep::face_refine` / `refined_at` (density ×2 per face, rims at `N·k`, bounds at `d_ε/k²`, standing across rebuilds, honored by Stage 0's ring readers), pinned in `tests_unit/s452_face_refine.rs`; byte-identical (no production reader until 1c).
-1. Generalize the P0031 lens into the paper's loop: a Stage-4 failure certificate names the faces it traversed; those faces and their one-ring re-discretize at d_ε/2 (then /4 … to the ceiling, `:650-652`); the op re-runs. Spec: **`specs/yang_452_refinement_loop.md`** (one trigger set T1–T5 including §4.5.4 illegal intersections, per-FACE chord factors, regions = named faces + one ring, adoption = empty failure set).
+1. Generalize the P0031 lens into the paper's loop: a Stage-4 failure certificate names the faces it traversed; those faces and their one-ring re-discretize at d_ε/2 (then /4 … to the ceiling, `:667-668`); the op re-runs. Spec: **`specs/yang_452_refinement_loop.md`** (one trigger set T1–T5 including §4.5.4 illegal intersections, per-FACE chord factors, regions = named faces + one ring, adoption = empty failure set).
 - [x] **1f (2026-10-14):** T6, the §4.3 near-miss check — `shell_contact::contact_pairs` (disjoint coarse pairs whose exact surfaces CROSS deeper than the model band at size-matched leaves; exact / tangent-plane `surface_deviation`) + `failures::joined_triangle_pairs` / `RingCapture` (the arrangement's intersection edges read back to their parent triangles; the one-ring capture runs first) + `failures::missed_intersection_sites`, recorded after Stage 2. **P0049 CONVERTED; R0023 UNSUPPORTED → ERROR (anchored, open); corpus 351C / 0W / 18E / 5EE / 0T over 374, wall 1035.9 s** (`docs/yang_tail_triage.md` §"2026-10-14 (Phase 1f)"). Kernel-v2's P0021 default-path pin asserts the fused body. **Arms-off run (same day): 349C / 0W / 20E — P0044 and P0047 still fail and T6 refines nothing on them:** their meshes met and the arrangement joined them; the defect is a MIS-joined intersection whose output kernel-v2 rejects while yang-rs's failure set is empty. Step 2 (arm retirement) now waits on a yang-side trigger for that invalid output region (anchors: P0044's cylinder patch with ≠ 1 material-CCW loop, P0047's CDT-rejected ring).
 - [x] **1g (2026-10-14):** T3c, the output-level §4.5.4 check WITHIN one face (`failures::output_loop_crossings`: loops read on their exact curves in the face's chart — plane, unrolled cylinder — must not cross and must wind with the material side), and the rim × plane retry may no longer adopt a body with output-level sites. Corpus arms ON 351C / 0W / 18E / 5EE / 0T (wall 1040.5 s); **arms OFF the same 351C** — P0044 and P0047 convert through T3c + the loop. The §4.3.3 cluster (wedge, pierce dip, segment-face graze, edge graze) protects nothing on the corpus: step 2 starts.
 - [x] **Step 2, first retirement (2026-10-14):** the §4.3.3 cluster DELETED with its kill switch (net −1,376 lines); corpus 351C / 0W / 18E / 5EE / 0T, identical to the arms-off measurement. Remaining arms: cylinder graze / pinch (`YANG_172_EXTENT`), rim × plane graze (`YANG_195_LOCAL`, now gated by T3b + T3c at adoption), self-contact guard (Phase 3). **Cylinder graze / pinch measured OFF the same day: 352C / 17E — protects P0034 only (its `SurfacePair` edge bridges two curve branches, a T3c named gap) and blocks C0118 and P0051; retirable once T3c reads `SurfacePair` edges** (`docs/yang_tail_triage.md` §"2026-10-14 (measurement)"). **T3c reads them since 2026-10-15: arm OFF 353C / 16E** (P0034 holds, C0118 and P0051 convert) — retirement next.
@@ -117,8 +130,11 @@ that converts no new case still ships (roadmap §0.1). A substitute that
 1f. **T6, the §4.3 near-miss check** (`yang_452_refinement_loop.md` §3 "T6"): measured 2026-10-14 with the edge-graze cluster off, the loop recovers every protected case but P0044 and P0047, and on those the loop never ran — the class is a mesh that MISSES an intersection, which no trigger sees. The paper detects it after the arrangement ("if the two meshes do not intersect but are within d_ε … Newton", `:525-530`); T6 is that detection in closed form (`ssi_rs::intersect` on the two faces' surfaces, `shell_contact::triangle_distance` as the within-d_ε census), naming both faces for the loop. The arms are its Stage-1 prediction and retire after it.
 2. Retire arms cheapest first — wedge, pierce dip, segment-face graze, edge graze, rim-plane graze, cylinder pinch, cylinder graze — one per corpus run, **after 1f**. For each: arm OFF, corpus; every previously protected case recovers through the loop or the loop is fixed; then delete the arm, its knob, its pins' off-arms (pins keep their on-arm as a §4.5.2 pin).
 3. Record the wall-time cost honestly: the loop re-runs the arrangement where an arm used to pre-empt it.
+- [x] **The loud ceiling (2026-10-16, user sign-off; matrix F-1):** the loop adopts only an EMPTY failure set; surviving failures STOP as `YangError::RefinementExhausted` (ledger N66 amendment). Corpus 358C → 350C, eight recorded failures that used to ship — the worklist for the items below.
+4. **Reopened by the compliance matrix (2026-10-17).** N62 is OPEN again: (a) §4.5.2 locality — compute the intersections only in the refined regions and splice the curve between p_f and p_b, not a whole-op re-run (M-1); (b) the region is the surfaces traversed by C_p, not the faces at the STOP vertex (M-1); (c) record-and-continue at Stage 4's ~50 first-fire returns (N84, O-5); (d) a refused §4.4.1 patch records a site (matrix F-2) and a §4.5.3 failure names faces (F-3); (e) §4.5.1 for interior points (N90, M-2). (d) first — small, and each is a known failure leaving without a refinable site.
 
 ### Phase 2 — §4.4.1 mesh updating (N2 → RESOLVED)
+- **Prerequisite found 2026-10-16 (N80, matrix O-1): classification runs before §4.3 and §4.4.1.** The paper trims and updates BOTH meshes and then classifies (`:574-578`); we keep the op's triangles at Stage 2 and update the kept submesh. 2b builds §4.4.1 on that submesh, so a design spec for the paper's order is due before 2b widens further — a pipeline restructure, not an increment. C0117's phantom (2a's Case-IV row), r_A = r_B = r on two meshes and the three §4.4.1 sites (N81) trace to it.
 - 2a. §4.5.3 by the paper's order (remove-next-and-reconnect, restart from p_b); every §4.3 collapse carries containment or incidence; N29/N47/N55/N56 amended, N29's victim ranking deleted.
   - [x] **2a-i (2026-10-16): the §4.5.3 sweep takes the paper's ORDER.** `reversal_collapse_direction_ranked` and `YANG_453_RANK` deleted (with the `YANG_453_PAIR` / `_SPAIR` / `_OVERTAKE` kill switches): the sweep walks each curve C from an endpoint (`curve_endpoint` — curve / pair change, run end, ≥ 3 surfaces or a Stage-1 mint — the one definition that replaces the five ranking amendments §3–§3e), and `paper_order_removal` removes `p_n` once a later point of C resolves the reversal, else `p_r` (`:746-751`). Detectors and the 2·d_ε gate unchanged. Corpus 357C / 0W / 12E / 5EE, identical but R0044 (a loaded-host TIMEOUT; alone 515.5 s vs 510.2 s at HEAD once the per-vertex rank read is hoisted per pass). N29's victim rule RESOLVED.
   - [x] **2a-ii (2026-10-16): every §4.3 collapse carries CONTAINMENT.** N47's `weld_coincident_relocated` gains §4-I8 (`carried_surfaces` victim ⊆ survivor; the richer survives; neither ⇒ two distinct points, both kept) — **P0048 CONVERTED** (two triple junctions 4.96e-8 apart had been welded); N56 `subres` had it (KV15b I1c); N55's identity criterion satisfies it by construction. Measured together with the Phase-0 knob deletion: corpus **358C / 0W / 11E / 5EE / 0T**, P0048 the one move, attributed by `YANG_MOVED_WELD_PROBE` and a forced-off replay. Next: 2b, merge-with-retriangulation.
@@ -144,9 +160,12 @@ A knob is one of three things, and each has one rule:
 cherchi-rs Stage 2 (parity-tested against the C++ reference), closed-form
 SSI (A15.1), kernel-v2's B-Rep and Euler operators, the analytic-only
 scope (D14), Stage-0 §4.5.5 and its n-ary extension (one honest customer,
-R0023), the §4.3.3 tangent-point mint, the §4.5.1 corner transit and the
+R0023) — its overlay, not the Fig-11 relocation subsystem in
+`stage0/reloc.rs`, which is §2d — the §4.3.3 tangent-point mint, the
 incidence-count triple gate, the §4.4.2 boundary restoration and its
-§4.3.4 acceptance test.
+§4.3.4 acceptance test. (Until 2026-10-17 this list also named the §4.5.1
+corner transit; the compliance matrix found it is §4.5.1 applied to the
+class the paper sends to §4.5.2 — N87, now in §2d.)
 
 ## 6. Ledger
 

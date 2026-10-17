@@ -57,7 +57,7 @@
 //! borrow, justified by its own census.
 //!
 //! Before wiring either one, the paper's own selection predicate must be
-//! measured (`:740-744` — first strategy only when the failure points are
+//! measured (`:651-657` — first strategy only when the failure points are
 //! bounded by two successfully optimized points ON THE SAME SURFACE; otherwise
 //! §4.5.2). See `specs/yang_441_trim_cdt_construction.md` §4-I10 (d).
 //!

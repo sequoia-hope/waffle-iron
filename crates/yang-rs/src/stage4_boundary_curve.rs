@@ -1116,9 +1116,9 @@ pub(crate) fn on_crease(p: Point3, s0: Surface, s1: Surface) -> bool {
 // ---------------------------------------------------------------------------
 //
 // §4.5 collects "the point pairs that cannot converge to a distance of 0
-// WITHIN THEIR DOMAINS" (`refs/text/yang2025_hybrid_boolean.txt:648-651`) and
+// WITHIN THEIR DOMAINS" (`refs/text/yang2025_hybrid_boolean.txt:656-659`) and
 // §4.5.1 excludes from its own remedy "the boundary points that glide along
-// the boundary curves" (`:637-651`, Fig. 13) — a mesh vertex that is one
+// the boundary curves" (`:635-657`, Fig. 13) — a mesh vertex that is one
 // operand's MODEL EDGE crossing the other operand's face. The relocation arms
 // solve such a vertex exactly (a line × torus root, a circle × plane root) on
 // the EXTENDED surfaces; the solution can lie past a crease that bounds the

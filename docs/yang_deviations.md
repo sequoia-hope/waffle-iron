@@ -36,10 +36,12 @@ The user, 2026-10-14, on the batch below: *"sometimes Opus would ask questions I
    - **The thirty-eight unledgered conversions** P0025–P0062 (less the open tail) of 2026-10-08 → 2026-10-14. Each needs either an entry (where it changed a mechanism this ledger owns: §4.5.3 sweep, §4.5.2 ladder, §4.3.3 guard arms, Stage-1 rim sampling, Stage-0 edge-in-plane, kernel-v2 collapses) or a "faithful, no deviation" line in the triage ledger with the paper cite. The triage ledger's per-case sections already hold the mechanism and the spec; the missing piece is the cross-reference to the entry whose rule they amended.
 5. **Fine as they stand** (same audit): N33 (its conservative AABB was the correct mechanism and fixed P0041), N17 (one honest customer, R0023), N7 (see point 1), the Cherchi arrangement entries N13–N24 (no customer since N69).
 6. **Phase 0 landed 2026-10-14**: 11 gated-off experiment knobs and the dead machinery behind them deleted (net −7,216 lines, 71 tests on deleted code; N2 update, N50 note), the P2 pre-commit check live, the catch-up table below written. Corpus proof in `docs/yang_tail_triage.md` §"2026-10-14 (Phase 0)".
-7. **Phase 1 landed 2026-10-14 (1a, 1b, 1e, 1c)**: the §4.5.2 refinement UNIT (`BRep::face_refine`), the failure-site RECORD (`boolean::failures`, T1/T2/T4 where detected, T4 again on the emitted body, T3b output-level curve crossings), the census on a shared AABB octree (and the measurement that every improper pair on CORRECT outputs is an un-retriangulated chord crossing — T3 waits for Phase 2), and the ONE loop `boolean::refine_loop` replacing both whole-op ladders and the lens (N62 → RESOLVED). First loop corpus: P0046 / P0050 / P0052 / P0062 ERROR → CORRECT, zero regressions. **Phase 1f landed 2026-10-14**: T6, the §4.3 near-miss check (`:525-530`), as a loop trigger — a pair of disjoint mesh triangles whose exact surfaces cross deeper than the model band, joined by the arrangement nowhere in their one-rings. Faithful in mechanism; the "Newton" the paper names is N7's closed-form substitution (exact signed distances on refined surface pieces), PERMANENT on N7's own basis. P0049 ERROR → CORRECT; R0023 UNSUPPORTED → ERROR one op earlier (kernel-v2 refuses a refined cap segment face — open); corpus 351C / 0W / 18E / 5EE / 0T over 374. Next: the arms-off corpus run, then the nine Stage-1 arms retire one per corpus run (`specs/yang_452_refinement_loop.md` §7) — the arms are T6's Stage-1 prediction and T6 is now the detection they stand in for. **T3c landed the same day**: the output-level §4.5.4 check WITHIN one face (a face's loops, read on their exact curves in its chart, must not cross and must wind with its material side) — faithful, `:752-758`; with it the §4.3.3 arm cluster (substitutes, N5 family) protects no corpus case (arms off: 351C, identical to arms on), and the rim × plane retry (a substitute) may no longer adopt a body carrying an output-level site. **The cluster was DELETED the same day** (cleanup step 2's first retirement; corpus 351C, identical to arms off) — four N5-family substitutes retired. 2026-10-15: T3c reads `SurfacePair` edges (a chord bridging two branches of the pair curve is an illegal output — faithful, §4.5.4); the cylinder-pair graze / pinch arm (a substitute) then protects nothing (arm off 353C) — **DELETED 2026-10-15 with its N75 extent ladder** (N75's mechanism retired: T6 + the loop fuse P0021), C0118 and P0051 converting; the loop now re-refines a region whose refined run STOPs without naming a face (faithful, `:650-652`). **The rim × plane graze arm and its detect-then-refine retry (substitutes, the #195 family) DELETED 2026-10-15** — corpus 357C / 0W / 12E / 5EE / 0T, zero regressions — once three faithful pieces landed: (a) a §4.4.3 watertightness failure ALWAYS names faces — the Stage-4 gate's Euler condition (an impossible-χ shell's over-covered edges) as T4, every Stage-5/6 `NonManifoldOutput` raise as T5 with the input face whose patch it was walking or emitting (a scoped context read only when the run ends in that error), so no reassembly STOP is faceless where the code knows its patch (§4.5.2 `:659-668`, "the parametric surfaces associated with the erroneous regions"); (b) T3c reads every output face's EDGES, chart or not (the §4.5.4 edge-validity half needs no chart); (c) the pair / triple relocation Newtons' evaluation-precision floor reads each surface's ANCHOR, `8·ε·max(|x|, |anchor|)`, in yang-rs and kernel-v2 alike — a reachability correction of the 2026-07-28 kind (the residual is measured from the apex / centre, so it rounds there), NOT a band widening: R0032's converged torus × cone point (apex 8.4e3 away) oscillated at 4e-13 against the seed-only 3e-13. P0029 / P0017 / P0020 / R0032 (the arm's customers) hold through the loop; P0042 / P0043 (the floor) and P0053 / P0055 (T5 faces) CONVERT. Same day: Stage 3's `SsiRefinementFailed` — the paper's own Case-IV "solving failure" (§4.3 `:528-532`) — names the faces on its edge (T1), faithful; the Case-IV phantom boost (`phantom_min_rim_segments`, a substitute) measured OFF protects C0117 and F0088, F0088 now recovering through the loop and C0117 waiting for Phase 2 (the paper RULES OUT a phantom rather than refining it away — its labels are per patch; ours are per arrangement cell, the N2 gap).
+7. **Phase 1 landed 2026-10-14 (1a, 1b, 1e, 1c)**: the §4.5.2 refinement UNIT (`BRep::face_refine`), the failure-site RECORD (`boolean::failures`, T1/T2/T4 where detected, T4 again on the emitted body, T3b output-level curve crossings), the census on a shared AABB octree (and the measurement that every improper pair on CORRECT outputs is an un-retriangulated chord crossing — T3 waits for Phase 2), and the ONE loop `boolean::refine_loop` replacing both whole-op ladders and the lens (N62 → RESOLVED). First loop corpus: P0046 / P0050 / P0052 / P0062 ERROR → CORRECT, zero regressions. **Phase 1f landed 2026-10-14**: T6, the §4.3 near-miss check (`:525-530`), as a loop trigger — a pair of disjoint mesh triangles whose exact surfaces cross deeper than the model band, joined by the arrangement nowhere in their one-rings. Faithful in mechanism; the "Newton" the paper names is N7's closed-form substitution (exact signed distances on refined surface pieces), PERMANENT on N7's own basis. P0049 ERROR → CORRECT; R0023 UNSUPPORTED → ERROR one op earlier (kernel-v2 refuses a refined cap segment face — open); corpus 351C / 0W / 18E / 5EE / 0T over 374. Next: the arms-off corpus run, then the nine Stage-1 arms retire one per corpus run (`specs/yang_452_refinement_loop.md` §7) — the arms are T6's Stage-1 prediction and T6 is now the detection they stand in for. **T3c landed the same day**: the output-level §4.5.4 check WITHIN one face (a face's loops, read on their exact curves in its chart, must not cross and must wind with its material side) — faithful, `:752-758`; with it the §4.3.3 arm cluster (substitutes, N5 family) protects no corpus case (arms off: 351C, identical to arms on), and the rim × plane retry (a substitute) may no longer adopt a body carrying an output-level site. **The cluster was DELETED the same day** (cleanup step 2's first retirement; corpus 351C, identical to arms off) — four N5-family substitutes retired. 2026-10-15: T3c reads `SurfacePair` edges (a chord bridging two branches of the pair curve is an illegal output — faithful, §4.5.4); the cylinder-pair graze / pinch arm (a substitute) then protects nothing (arm off 353C) — **DELETED 2026-10-15 with its N75 extent ladder** (N75's mechanism retired: T6 + the loop fuse P0021), C0118 and P0051 converting; the loop now re-refines a region whose refined run STOPs without naming a face (faithful, `:667-668`). **The rim × plane graze arm and its detect-then-refine retry (substitutes, the #195 family) DELETED 2026-10-15** — corpus 357C / 0W / 12E / 5EE / 0T, zero regressions — once three faithful pieces landed: (a) a §4.4.3 watertightness failure ALWAYS names faces — the Stage-4 gate's Euler condition (an impossible-χ shell's over-covered edges) as T4, every Stage-5/6 `NonManifoldOutput` raise as T5 with the input face whose patch it was walking or emitting (a scoped context read only when the run ends in that error), so no reassembly STOP is faceless where the code knows its patch (§4.5.2 `:659-668`, "the parametric surfaces associated with the erroneous regions"); (b) T3c reads every output face's EDGES, chart or not (the §4.5.4 edge-validity half needs no chart); (c) the pair / triple relocation Newtons' evaluation-precision floor reads each surface's ANCHOR, `8·ε·max(|x|, |anchor|)`, in yang-rs and kernel-v2 alike — a reachability correction of the 2026-07-28 kind (the residual is measured from the apex / centre, so it rounds there), NOT a band widening: R0032's converged torus × cone point (apex 8.4e3 away) oscillated at 4e-13 against the seed-only 3e-13. P0029 / P0017 / P0020 / R0032 (the arm's customers) hold through the loop; P0042 / P0043 (the floor) and P0053 / P0055 (T5 faces) CONVERT. Same day: Stage 3's `SsiRefinementFailed` — the paper's own Case-IV "solving failure" (§4.3 `:528-532`) — names the faces on its edge (T1), faithful; the Case-IV phantom boost (`phantom_min_rim_segments`, a substitute) measured OFF protects C0117 and F0088, F0088 now recovering through the loop and C0117 waiting for Phase 2 (the paper RULES OUT a phantom rather than refining it away — its labels are per patch; ours are per arrangement cell, the N2 gap).
 8. **The cleanup's plan of record is `specs/yang_faithful_cleanup.md`** (2026-10-14, user: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*): the substitution table (nine Stage-1 arms → §4.5.2; eight Stage-4 passes → §4.4.1/§4.3/§4.5.3), the phases, the knob policy, and the acceptance metric — REMOVAL with the corpus held, never a score.
 9. **Phase 0's knob item landed 2026-10-16** (cleanup spec §4): the default-ON `0|off` kill switches of thirty-two landed mechanisms (Stage 0 edge-in-plane and plane weld, the §4.3.3 rule-out and tangent insert, the §4.3.4 insert / merge / decimation, the §4.4.1 cone / torus charts, Fig-11 fold merge, fan-of-one, carrier guard and on-curve merge, the §4.5.1 transit and emission, the edge-pinch split and its entry-only placement (N78), the junction line / slab metrics, P3a / P3b junction sampling, the overlay sub-resolution fusion (N26), the Stage-1 chart refine / seed / cover unroll, the #188 envelope, the M5 torus pairs, N77's component seam anchoring, and kernel-v2's ellipse sag and patch lift refine) are deleted with their off-branches, and the two gated-OFF experiments still in the tree (`YANG_S4_TRIPLE_POINT_ENABLE`, `KV2_ARC_CONFORM_CURVES`) with their code. No entry's mechanism changes — every deleted branch was the dead "off" leg of a mechanism its entry already records as always-on; the index rows of N77 and N78, which named their kill switches, now say the switch is deleted. Nine result-changing `census` / `stop` modes are listed OPEN in `docs/kernel_probe_registry.md`; the §4.5.3 switches went with Phase 2a-i (same day). Corpus proof: measured together with Phase 2a-ii, 358C / 0W / 11E / 5EE / 0T, the one move (P0048) attributed to 2a-ii's containment by probe and forced-off replay (`docs/yang_tail_triage.md` §"2026-10-16 (Phase 2a-ii + Phase-0 knobs)").
 10. **Phase 2a landed 2026-10-16.** (i) The §4.5.3 sweep runs in the paper's ORDER on each curve C between its endpoints — N29's victim ranking deleted, its victim rule RESOLVED (N29 amendment); corpus unchanged. (ii) Every §4.3 collapse carries carried-surface CONTAINMENT — N47's weld gained it (N56 `subres` had it; N55 is identity) — **P0048 CONVERTED**, corpus 358C / 0W / 11E / 5EE / 0T. Next: Phase 2b, §4.4.1 merge-with-retriangulation (N2, N58). Phase 2b increment 0 (same day, print-only census, `specs/yang_441_phase2b_patch_update.md` §6): the paper's per-patch re-CDT already succeeds on 85 % of intersected patches at the planned site; refusals are θ-wrapping cylinder bands (105 cases), d(T) budget (31), chart crossings / degenerate input (36 + 38), torus / sphere charts (22). **Increment 1 (same day): the per-patch update is LIVE** — every intersected patch the rebuild accepts is re-triangulated before the repairs, with the directed-boundary postcondition (N2 update); corpus 358C, zero moves, 14,983 patches rebuilt. Increment 2 measurements (same day, spec §8): the unzip + membrane repairs OFF move F0067 / P0005 / R0059 / R0072 (DegenerateTriangle on patches the update refuses — bands, d(T) budget, chart crossings); a periodic BAND chart cuts `ThetaUnwrap` 396 → 7 but regresses F0064 / F0067 through a later triangulation-dependent pass (parked on branch `phase2b-band-chart`); the plan postcondition is strengthened to full local validity (no repeated vertex, no doubled directed edge), corpus unchanged 358C. **The band chart then LANDED the same day** once its two exposed latent defects were fixed in their own code: `rebuild_patch_planar` oriented by area vector (noise on a closed band — now by boundary), and the construct pass applied seam batches that changed their outer boundary (now refused); and the rebuild's d(T) budget was the replaced triangles' max (a relocated band certified 0.86 on a unit cylinder and a secant rebuild shaved 7 % volume — the corner-in-band pin) — now `min(old max, d_ε)`, the paper's bound; corpus 358C, no move, `ThetaUnwrap` 392 → 7, `ChordDegradation` 1,741 → 2,312 (spec §9).
+11. **The loud ceiling landed 2026-10-16** (user sign-off "yes, stop loudly at the ceiling"; N66 amendment): the §4.5.2 loop adopts only an EMPTY failure set, surviving failures STOP as `RefinementExhausted`; corpus 358C → 350C, eight recorded failures that used to ship.
+12. **The compliance-matrix catch-up landed 2026-10-17** (`docs/audits/yang_2025_audit.md`, built 2026-10-16 by walking the paper in order): fifteen new entries N80–N94 (§"Compliance-matrix catch-up" at the end of this file — the classify-before-update ORDER N80 is the deepest); N62 and N68 reopened OPEN; N2, N4, N7 amended; N70 and N79 added to the index; the P0040 catch-up row's "faithful" withdrawn (N87). The debt count went 47 → 64 — debt that existed and was not counted, not new debt.
 
 ### Catch-up ledger — the conversions of 2026-10-08 → 10-14 and the entries they amended
 
@@ -47,8 +49,8 @@ Written 2026-10-14 under the directive. Each row names the mechanism the convers
 
 | case(s) | mechanism changed | entry amended / verdict | paper |
 |---|---|---|---|
-| P0025, P0027, incidence gate (10-08, 10-13) | Stage-4 triple-corner admission: junction-map enumeration → three distinct incident surfaces | **faithful** — §4.5.1 "s is a corner point where more than two surfaces meet" (`:689-692`); N30/N31 closed forms unchanged | §4.5.1 |
-| P0028 (10-08) | §4.5.3 collapse victim ranks by incidence (§3d) | **N29 amended** — the ranking itself is the deviation; paper's order is remove-next-and-reconnect (`:727-732`) | §4.5.3 |
+| P0025, P0027, incidence gate (10-08, 10-13) | Stage-4 triple-corner admission: junction-map enumeration → three distinct incident surfaces | **faithful** — §4.5.1 "s is a corner point where more than two surfaces meet" (`:639-640`); N30/N31 closed forms unchanged | §4.5.1 |
+| P0028 (10-08) | §4.5.3 collapse victim ranks by incidence (§3d) | **N29 amended** — the ranking itself is the deviation; paper's order is remove-next-and-reconnect (`:746-748`) | §4.5.3 |
 | P0029 (10-09) | #195 arm pays sub-render demands locally (apex-centred rim samples) | **substitute** for §4.5.2 local refinement (N5 family) | §4.5.2 |
 | P0030 (10-10) | untouched-shell passthrough (`shell_contact_census`, set algebra on whole shells) | **N33 extended** — §4.3.1's 2d_ε check refined by §4.1 subdivision certifies untouched shells; outside the paper's interacting scope, as N33 | §4.3.1 |
 | P0031 (10-10) | §4.5.2 LOCAL form: apex-centred lens on the faces a certificate names, then the ladder | **N62 amended → the paper's local form exists**; the lens is the seed of Phase 1 | §4.5.2 `:659-680` |
@@ -59,8 +61,8 @@ Written 2026-10-14 under the directive. Each row names the mechanism the convers
 | P0036 (10-12) | §4.5.3 carried-curve overtake arm (exact parameter order) | **N29 amended** (second detector arm; faithful in direction, N29's posture) | §4.5.3 |
 | P0037 (10-12) | self-contact guard halves the cylinder CHART bound | **substitute** for §4.1 d_ε certificate (N5/N61) | §4.1 |
 | P0038 (10-12) | universal-cover chart for a sheared lateral | **N5/N61 amended** — a chart choice inside "discretize each patch independently" (`:397-402`); folds into Phase 3 | §4.1.2 |
-| P0039 (10-12) | §4.5.2 STOP ladder runs to the ceiling | **N62/N67 amended — faithful**: "repeated if optimization failure persists" (`:650-652`) | §4.5.2 |
-| P0040 + generalization (10-12/13) | §4.5.1 transit certifies the landing side; a crease's divider is its OTHER surface for every planar conic | **faithful** — §4.5.1 step rescaling onto the boundary curve (`:664-676`) | §4.5.1 |
+| P0039 (10-12) | §4.5.2 STOP ladder runs to the ceiling | **N62/N67 amended — faithful**: "repeated if optimization failure persists" (`:667-668`) | §4.5.2 |
+| P0040 + generalization (10-12/13) | §4.5.1 transit certifies the landing side; a crease's divider is its OTHER surface for every planar conic | ~~**faithful**~~ — §4.5.1 step rescaling onto the boundary curve (`:680-686`). **Withdrawn 2026-10-17 (N87):** the transit applies that step to a boundary / corner point, the class the paper sends to §4.5.2 (`:635-657`) | §4.5.1 |
 | P0041 (10-12) | kernel-v2 body splitter clusters by orientation + containment | kernel-v2 — **no yang deviation**; adopted N33's conservative AABB | — |
 | seed-5 adjudication (10-13) | harness: exact chain composes Subtract/Intersect; `NonManifoldVertex` names its vertex | harness + kernel-v2 diagnostics — **no deviation** | — |
 | P0060 (10-13) | kernel-v2 KV15b sub-resolution collapse applies §4-I8 CONTAINMENT | **N56's kernel-v2 sibling amended** — the containment criterion is now mandatory for every collapse (directive §4) | §4.3 `:535-536` |
@@ -69,7 +71,7 @@ Written 2026-10-14 under the directive. Each row names the mechanism the convers
 | P0044, P0054, P0058 (10-13) | wedge arm cuts at surface roots; azimuth-merge ZIPPER; one rim sample per model-scale request; `merge_rim_points` TAU_WORK twins | **substitute** (wedge arm, N5 family); **N5 amended** (the zipper is the first §4.1.2 step); **N27 amended** (sample dedup at the composition layer; the model band refuted by R0072 at that layer) | §4.1.2, §4.3 |
 | P0046, P0050, P0052, P0062 (10-14) | the ONE §4.5.2 loop `boolean::refine_loop` replaces both whole-op ladders and the lens | **N62 RESOLVED** — faithful, "refine … and repeat" (`:650-680`) | §4.5.2 |
 | P0049 (10-14) | §4.3 near-miss check T6 as a §4.5.2 loop trigger (`shell_contact::contact_pairs`, `failures::missed_intersection_sites`) | **faithful** — the paper's detection after the arrangement; its Newton is **N7**'s closed-form substitution; it is the mechanism the Stage-1 arms (**substitutes**, N5 family) stand in for | §4.3 `:525-530`, §4.5.2 |
-| C0118, P0051 (10-15) | T3c reads `SurfacePair` edges; cylinder-pair graze / pinch arm + N75 ladder DELETED; a faceless refined STOP re-refines its region | **faithful** (§4.5.4 `:752-758`, §4.5.2 `:650-652`); **N75 retired** | §4.5.2, §4.5.4 |
+| C0118, P0051 (10-15) | T3c reads `SurfacePair` edges; cylinder-pair graze / pinch arm + N75 ladder DELETED; a faceless refined STOP re-refines its region | **faithful** (§4.5.4 `:752-758`, §4.5.2 `:667-668`); **N75 retired** | §4.5.2, §4.5.4 |
 | P0042, P0043 (10-15) | pair / triple relocation Newton floor `8·ε·max(|x|, |anchor|)` (yang-rs + kernel-v2) | **faithful** — evaluation-precision reachability, the 2026-07-28 correction's own rule; no band widened | §4.3 |
 | P0053, P0055 (10-15) | a Stage-5/6 `NonManifoldOutput` raise names its patch's input face (T5); the Stage-4 Euler failure names its over-covered edges' faces (T4); rim × plane arm + retry DELETED | **faithful** — §4.5.2 refines "the parametric surfaces associated with the erroneous regions" (`:659-668`); the #195 substitute retired | §4.5.2, §4.4.3 |
 
@@ -159,14 +161,15 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
 | N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
-| N62 | RESOLVED 2026-10-14 (Phase 1c: the one per-face §4.5.2 loop) | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
+| N62 | **OPEN — reopened 2026-10-17** (matrix M-1: whole-op recompute, region from the site not C_p, no splice); the loop itself landed 2026-10-14 (Phase 1c), its ceiling LOUD 2026-10-16 | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
 | N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right. **EXTENDED 2026-10-02 (SI5 C5b)**: the same skip in the TRIPLE arm (torus + two partners) for an operand's own vertex where the torus is tangent to either partner — every fillet CORNER is one (torus G1 to the cylinder it rounds + the third face), and the first boolean on an ingested fillet STOPped there (`LocalRefinementRequired`, `relocate_onto_implicit_triple` None); a tangency ON an intersection curve stays the loud STOP |
 | N64 | PROPOSED (extension, 2026-09-27, P0001; paper silent; awaiting a prose sign-off request — A15.7) | §4.5.5 is applied one dimension DOWN: an edge (or vertex) of one operand within the #178 coincidence line of a partner planar face is identified onto the plane and its sub-segments inside the face become identically-sampled shared mesh edges (crossings minted into every copy of both crossed edges, inside endpoints as interior Steiner points, the sub-segment as an interior CDT constraint). The paper's §4.5.5 addresses coplanar FACE pairs only; its stated rationale (discretization does not maintain coplanarity) and remedy (identical sampling on the shared part) are what the arm implements |
 | N65 | RESOLVED (2026-09-27, P0002) | The §4.3.3 Case-IV per-claim verdict judged the EDGE ("any exact root inside the segment" ⇒ valid) instead of the vertex's OWN solution; a line × quadric solve with one in-segment root and one beyond the edge passed the vertex sitting on the far root, the phantom loop stayed MIXED and rode into Stage 6 as `ring rejected by CDT`. Now the vertex's own root (the nearest) is judged, per the paper's "no solution in one of the two parametric domains" — a statement about the solution, not the edge (spec `yang_433_case_iv_corner_phantom.md` §9) |
-| N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7). **Amended 2026-10-16 (user sign-off): the ceiling is LOUD** — the loop adopts only an empty failure set; surviving failures STOP as `RefinementExhausted` (corpus 358C → 350C, eight recorded failures that used to ship) |
+| N66 | RESOLVED (2026-09-28, P0003) | Stage-4 relocation of a BOUNDARY point (one operand's model edge crossing the other's face) accepted any exact root of the extended surfaces — a circle × plane root past the plane face's edge, a line × torus root past the torus face's rim — and nothing asked whether the solution lay within the face's domain (§4.5: "cannot converge to a distance of 0 WITHIN THEIR DOMAINS"); the phantom junctions rode into Stage 6 as a stray edge the render tessellator declined. Now `boundary_domain_postcondition` (creases from the operand's B-Rep edges, a divider plane + extent per crease, the §3t sign test) records the fires and the op-level §4.5.2 ladder (`refine_452_domain`, deleted 2026-10-14 — now `boolean::refine_loop`) adopts a fire-free rung, else the natural output stands and the fires are inventoried — a hard STOP would convert five CORRECT gear cases the ladder cannot reach (spec `yang_45_boundary_point_domain_certificate.md` §7). **Amended 2026-10-16 (user sign-off): the ceiling is LOUD** — the loop adopts only an empty failure set; surviving failures STOP as `RefinementExhausted` (corpus 358C → 350C, eight recorded failures that used to ship) |
 | N67 | RESOLVED (2026-10-03, P0015) | The §4.5.2 op-level ladder treated its UNDER-RESOLUTION certificate as a futility PROOF: a demand past `REFINE_452_MAX_FACTOR` yielded an EMPTY rung list, so the op ran no refinement at all and its Stage-4 STOP stood by construction. The paper's loop skips no rung on a prediction — "The above procedures are repeated if optimization failure persists. The algorithm is guaranteed to terminate since the mesh intersections converge to the spline surface intersections under refinement" (`refs/text/yang2025_hybrid_boolean.txt:665-670`, §4.5). Measured on P0015: demand 159.37, and the op CONVERGES at `d_ε/32` (0 unpaired, 0 improper) while the certificate still read 9.96 — the inequality `d_ε/f < |d_far(q)|` is SUFFICIENT for placing that corner, never NECESSARY for a watertight output, and the re-measured demand is exactly `demand / f` (the corner clearance is refinement-invariant), so it carries no new information per rung. The ceiling now BOUNDS the ladder instead of vetoing it: a demand outside the budget runs the whole budget `[2, 4, 8, 16, 32, 64]` under the unchanged Q3 guard shell (spec `specs/yang_452_local_refinement.md` §10). The skip of rungs below an IN-budget demand is untouched and recorded as open in §10.5 |
-| N68 | RESOLVED (2026-10-03 late night, P0013: the LOCAL-form §4.3.3 density guard is always-on; corpus 318C/0W/13E/5EE/0T over 336, one move, zero regressions — `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
+| N68 | **OPEN** (index corrected 2026-10-17, matrix L-1: the density guard that had resolved it was deleted 2026-10-14; the rule-out still acts only on closed components; P0013 converts through the §4.5.2 loop) | The §4.3.3 Case-IV rule-out only fires on a CLOSED component of refuted corners, so a phantom BUMP on a REAL intersection curve is never ruled out — the paper rules out per SOLUTION, not per loop. Two sub-gaps feed it: a claim whose shared edge is CURVED is declined outright (`CURVED-EDGE`, no verdict either way), and the §4.5.2 under-resolution demand is dropped whenever the clearance bound floors at 0 — which the 65-sample Lipschitz slack `len/128` guarantees for a short land on a long edge (P0013: a 9.2807e-6 land on a 5.1769e-3 edge). P1 fixed the clearance exactly (cylinders); the rule-out's loop shape and the guard's default-off state remain |
 | N69 | **RESOLVED** (corpus-proven 2026-10-03 late evening UTC: 322C/0W/9E/5EE/0T over 336, one move, zero regressions; P0023/P0024: graze-aware §5 ray selection LANDED always-on with the kill switch `CHERCHI_GRAZE_AWARE_RAY=0`; corpus NOT re-measured — the `full_corpus_categorized` flip proof is OWED, see the dated section below) | Cherchi 2022 §5 in/out classification picks the FIRST non-border explicit patch vertex and casts a +X ray, and never checks that the ray crosses the other input TRANSVERSALLY. When the origin sits on a shared edge the ray runs ALONG an edge of the other operand — its line is the intersection of two of that operand's face planes, so it is coplanar with both and crosses neither — and the degenerate vertex/edge ring resolution (`perturbRayAndFindIntersTri`) counts exactly ONE hit where a graze must count 0 or 2. The nearest-hit orientation then reads "entering" and the whole patch is labeled INSIDE the other input. Measured 2026-10-03 on two 10 mm cubes meeting along one edge, flush in the third axis: `Intersect` returns a copy of operand A (volume 1.0000000000000002e-6 m³, A's own) and `Union` returns one operand, dropping the other — a SILENT WRONG, no STOP, in 2 of 3 orientations (the third's ray misses the other operand and is correct). NOT a port divergence: the C++ reference `mesh_booleans` was run on the same two meshes and emitted byte-identical labels (`0 | 1 | 0` for all 12 of A's triangles) and the same operand-copy output, so cherchi-rs is in exact parity and the METHOD has no answer here. The paper's own remedy shape exists one branch over — the rational fallback already retries axes when "all three axis rays graze input geometry exactly" — but the f64 explicit branch, which is what production takes, has no graze test and no retry. Remediation: reject a candidate ray that is coplanar with any candidate triangle of another label it meets, and try the next origin/axis (exact, and byte-neutral on every non-grazing input). **LANDED 2026-10-03 late** as an always-on rule with the `CHERCHI_GRAZE_AWARE_RAY=0` kill switch: all three orientations of the fixture now return the HONEST answers (`Intersect` ⇒ `EmptyBooleanResult`, `Union` ⇒ `InvalidBooleanOutput("an undirected output edge is not used by exactly two directed edges")`) and the containment net stays silent. The corpus was NOT re-measured in the landing session (a `full_corpus_categorized` run was already in flight) — the flip proof is OWED |
+| N70 | RESOLVED (2026-10-03, P0014) | The arrangement's LPI pencil at a near-on-plane operand vertex had no reconciliation (row added 2026-10-17; it had been missing from this index) |
 | N71 | RESOLVED (2026-10-03, P0017/P0018) | kernel-v2's developable-patch material-CCW postcondition (`validate_cylinder_patch` / `validate_cone_patch`) measured its chart winding on a VERTICES-ONLY shoelace — every boundary edge replaced by its chart CHORD. A loop's winding is a property of its boundary CURVES: the planar arm has always known this (`geom::planar_loop_signed_area` adds each arc's exact circular-segment area to the chord polygon's), and §4.1's parametric-domain triangulation is defined on the domain bounded by the curves' images, not their chords. A patch whose boundary curve bulges further across the chart than the patch is wide therefore read the OPPOSITE sign and the kernel rejected its OWN correct output. Measured on P0018's `FaceId(27)`: an oblique plane∩cylinder ellipse arc whose chart image `h(θ) = 349.0216 − 221.2497·cos(θ − 0.42957)` dips to 127.77 at θ = 0.4296 while BOTH its endpoints and the whole 7-chord return polyline sit at 143.79–147.87 — chord shoelace −4.575 (a hole) against a canonical-chart +18.305 (material); on P0017's cone sliver, −6.723e-7 against +7.175e-8 (the chord polygon also overstates the area ~9×). Both arms now append each boundary curve's chart image via `tessellate::sampling` (`arc_interior_samples_frac`, `ellipse_interior_samples`, `hyperbola_interior_samples`, `surface_pair_edge_samples`) at the canonical chord density `RENDER_CHORD_TOLERANCE_REL` — the same polygon the render CDT triangulates (crate hard rule 5, one engine). Net winding, the band/apex-cap `mean_h` rules and every other tier are untouched (`mean_h` still reads loop VERTICES only). The quartic `SurfacePair` chart image has no closed form, so unlike the planar arm this is the canonical chart polygon rather than an exact integral — the exact closed forms for the conic arms (`h(θ)` sinusoidal on a cylinder, `τ(θ) = D/(n·â + tanα·B·cos(θ−φ))` on a cone) are the open refinement |
 | N73 | RESOLVED (2026-10-03, P0019) | `from_yang_brep`'s full-circle sense derivation (`n_for`) admitted only two witnesses — a planar cap use, or `derive_curved`'s leaving-edge reading, whose surface match listed `Cylinder` and `Torus` only. A **cone** fell into its `_ => return None` and could never be read at all; and a band in the ANNULAR form (outer loop = one rim, inner loop = the other — how yang emits a surviving untouched lathe band, the seam being representation gauge, not boundary) has no edge leaving the anchor for that reading to use. So a lathe body with no planar cap anywhere — P0019's genus-1 ring of FIVE cone bands, from a non-convex profile revolved about an external axis — STOPped with `InvalidBooleanOutput("full-circle edge sense is underivable …")`, the wall R0004 once hit. §4.4.2 gives each boundary curve its sense from the patch it bounds (`refs/text/yang2025_hybrid_boolean.txt:574-605`, the `d_ε` contract at `:447-451`), with no planar neighbour anywhere in it; and the rule was already stated and ENFORCED twice in-repo — `validate_cone_face` and `validate_cylinder_face`, word for word ("each rim's traversal axis points TOWARD the opposite rim for an outward (solid) band", AWAY on a cavity wall) — and is the same law the SI5 STEP ingest derives a rim's traversal from (`specs/step_import_si5_exact_analytic_ingestion.md`, "Which way a rim circle is traversed is derived, never read"). It needs only the face's own two rim centres, which the annular form supplies as readily as the seamed one. `derive_axis_band` now reads it from the face's WHOLE rim inventory (either loop), appended to `n_for`'s ladder AFTER both existing readings so the increment is purely additive. Declines loudly on ≥3 rims, a rim axis disagreeing with the face axis, coplanar rim planes, and the single-rim APEX cone form (whose rule is "toward the apex" and has no producer here yet); the SPHERE deliberately keeps no arm, since `validate_sphere_face` is topology-agnostic and states no rim rule to propagate. Pins `crates/kernel-v2/tests/p0019_cone_rim_sense.rs`, mutation-checked both ways. P0019 itself is HALF-converted: it now stops one stage later on `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }`, because `recover.rs` anchors seam feet greedily per face and these five rims form a CYCLE — faces 0 and 2 reach PASS 2 with both anchors pinned 15° (π/12, one lattice step) apart and keep the annular form. The remedy is the SI5 spec's own: anchor per CONNECTED COMPONENT of rims-joined-by-bands, one azimuth per component. Tracked in the P0019 row of `docs/yang_tail_triage.md`; it moves minted seam feet corpus-wide, so it needs a full-corpus proof in its own cycle |
 | N72 | RESOLVED (2026-10-03, P0016) | Stage 1 sizes every curved chart against ONE operand-level chord budget (`stage1_tessellate`'s `operand_chord_budget` = `curved_chord_bound`, else `ellipse_rim_chord_bound`), whose own comment names it "the operand's chord budget **as Stage 3/4 read it back**". Only the CYLINDER arms read it back (Stage 3 `chord_tol_for_curved_owner`, with the KV14 ellipse/hyperbola and M5 K11 surface-pair rungs; Stage 4 `input_curved_chord_bound`). BOTH CONE arms — Stage-3 `cone_chord_tol_for_owner` and Stage-4 `cone_chord_budget_from_owner` — instead demanded a `Curve::Circle` rim and called its absence a "producer fault", so a cone PATCH re-entering from a prior boolean, bounded by conic chains alone, STOPped on a band the operand demonstrably carried. P0016 measured it: the cone-owning operand's edge census was 2 ellipses + 6 hyperbolas + 10 segments, ZERO circles, and the Stage-3 STOP read `AmbiguousCurve { candidates: 0, matched: 0 }` — not an ambiguity (`ssi_rs::intersect` was never reached) and not §4.3.3's Case IV either, which is a disposition for a solve that RAN ("if there is no solution in one of the two parametric domains …", `refs/text/yang2025_hybrid_boolean.txt:518-537`). Fixing the Stage-3 arm alone moved the STOP one stage down to the Stage-4 twin (`LocalRefinementRequired`, probe site `cone_ellipse_budget`), where the §4.5.2 ladder could not help — `d_ε/2` and `d_ε/4` took the operand 20 → 20 → 22 triangles, because a missing band is not a resolution problem. Both arms now delegate to one single source, `owner_stage1_chord_budget`; the per-band N38 bound still wins wherever a rim Circle exists (every circle-rimmed cone case byte-identical, the multi-band gear revolve included) and the loud producer fault survives for an owner with no curved rim at all. Pins `crates/yang-rs/src/tests_unit/n71_cone_band_readback.rs`; `YANG_S3_AMBIG_PROBE` extended to all four producers of that one error text, without which a `{0,0}` cannot be localized at all |
@@ -175,10 +178,26 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N76 | RESOLVED (2026-10-03 night, P0017) | A boolean OUTPUT face loop could traverse ONE `SurfacePair` intersection curve TWICE, and nothing detected it. kernel-v2's render CDT then refused the chart ring one crate later, blaming itself (`ring rejected by CDT (degenerate/self-intersecting)`) for geometry the loop had declared. Measured on P0017's `FaceId(28)`, a cone sliver: its loop is `Arc(136) + SurfacePair(137) + SurfacePair(138)` where 137 and 138 carry the SAME `{Cylinder r = 8.322345964738464e-4 axis +ŷ, Cone α = 0.8757228702119423 axis +x̂}` pair, field for field. On the cone's upper nappe that pair curve is a single-valued graph `h₊(θ)` — substituting the cone's own `(θ, h)` parametrization into the cylinder gives `(A + h)² + (B + h·tanα·cos(θ − φ))² = R²`, whose other root sits at `h₋ ≈ −7.03e-4`, the FAR nappe, 1.06e-3 away — and the two half-edges' spans are `[0.1420979, 0.2999498]` and `[0, 0.2999498]`: the second CONTAINS the first. The excursion `node3 → node5 → node3` is a ZERO-WIDTH spur pointing OUT of the material (`h₊(θ) − h_arc` has EXACT zeros at both of the rim arc's endpoints and dips to −5.0010e-7 between them, so the face's material region is the LENS between rim and curve, chart area ≈ 7.3e-8 — independently confirming N71's `+7.175427296555491e-8` sign). NOT a chord artifact: all nine ring points lie on the cone to machine precision (cone residual 0, −1.08e-19, at worst 6.93e-16) and the arc's chart image is exactly straight, so the ring's four proper self-crossings (`1–2 × 7–8`, `3–4 × 6–7`, `3–4 × 7–8`, `4–5 × 6–7`) are in the declared geometry and NO density removes them — measured in debug, forced rim N = 35 passes, N = 50 fails DIFFERENTLY (`reassembled output would be non-2-manifold`), N = 66/71/100/200 pass: a resolution lottery, not a convergence, so no §4.5.2 ladder may be driven off it. The crate already removed the STRAIGHT twin of this shape — `BRep::normalized_without_backtrack_spikes` (task #146, F0064) merges a consecutive `LineSegment` pair that is collinear AND reverses — but only on the INPUT operands, and its collinearity has to be MEASURED because `Curve::LineSegment`'s `PartialEq` is kind-only. A curved pair needs neither: `e1.curve == e2.curve` on a `SurfacePair` already means ONE curve, and the curve's tangent at the shared vertex is exact, `T = n̂_a × n̂_b` from `surface_distance_and_normal` (the same unit normals `relocate_onto_implicit_pair` Newtons on; `|n̂_a × n̂_b|² = sin²θ` is that operator's own `det`, reused with its `MIN_FEATURE_SIZE²` rank floor — no new constant). Two arcs of one smooth curve leaving `v` take either OPPOSITE tangent directions (a plain split, kept) or the SAME one (a double cover, merged), so the discriminant is the sign of `((v−a)·T)·((b−v)·T)`; measured at P0017's node 5 the two chord cosines are 0.998741 and 0.995439. `BRep::normalize_output_curve_backtracks` runs at the end of `boolean_once` on every path, rewriting LOOPS and the EDGE table only (the mesh, tessellation map and both attribution maps are the boolean's result, not a tessellation of this topology). Both covering uses merge to the same undirected edge — `FaceId(28)`'s loop and the cut cylinder's `LoopId(30)`, which carries the mirror spur — and twin pairing in `from_yang_brep` is keyed on `(vertex pair, CurveKey)`, never on edge index, so the output stays boundary-conformal. `FaceId(28)` becomes the exactly-correct two-edge LENS; `from_yang_brep`'s existing `lens_bigon` arm admits it (two non-`Seg` edges on DISTINCT curves), and the three mirrored developable `loop with fewer than 3 edges` walls (`tessellate/developable.rs`, `validate/faces.rs`, `validate/faces/cone.rs` — moved together so no twin is silenced) go to `< 2`, which N71 is what made measurable there (a bigon's vertices-only shoelace is identically 0; its canonical chart polygon is not). Fails closed at a tangency, on an axis, on an off-tangent chord, and when the pair IS the whole loop. Pins: `crates/yang-rs/src/brep.rs` `n76_curve_backtrack_tests` (five — the double cover with its measured cosines, the plain split that must NOT merge, the loop-level merge to the lens plus its fixpoint, the two fail-closed arms, the whole-loop spur) and the end-to-end `crates/test-harness/tests/n76_output_curve_backtrack.rs`, mutation-checked: with the predicate neutered it fails with the verbatim `TessellationFailed { face: FaceId(28), reason: "ring rejected by CDT (degenerate/self-intersecting)" }` and so does N71's cone pin. **Residue:** the rule is scoped to `Curve::SurfacePair`. `LineSegment` is out by construction (its `PartialEq` cannot establish one curve — that is the straight rule's own job) and the conic variants (`Circle`, `Ellipse`, `Parabola`, `Hyperbola`), whose `PartialEq` WOULD establish it and whose tangents are closed-form, have no measured customer; a doubled conic edge in one loop is the open extension |
 | N77 | RESOLVED (2026-10-03 night, P0019; always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351, two moves, zero regressions — its `YANG_SEAM_COMPONENT=0|off` kill switch deleted 2026-10-16; **amended 2026-10-05**: PASS 1C had dropped the F11 rule — a minted foot now takes its reused band-neighbour's EXACT azimuth; the two off-corpus pins it had turned red, F11's tube and the gear ∪ flange, are green again — see the section's Amendment) |on` — the `full_corpus_categorized` proof and the flip to always-on-with-a-kill-switch are OWED (it moves minted seam feet, hence render phase, for every canonical band with a rim-sharing neighbour) | `recover.rs` canonicalizes a two-closed-rim cylinder/cone face into the 4-edge `[rim, seam, rim, seam]` lateral — the only two-rim form `validate_cone_face` / `validate_cylinder_face` accept — in two GREEDY PER-FACE passes in face-index order, and PASS 2 deliberately never moves an anchor an earlier face pinned. So a band reaching PASS 2 with BOTH rims already pinned at different azimuths takes the arc fallback and the face stays ANNULAR (outer loop = one rim, inner loop = the other), and the assembler refuses its own output. Nothing in the greedy order prevents that: it fires whenever the faces that DO pair INTERLEAVE with the ones that do not along a run of rim-sharing bands. Measured on P0019 (a genus-1 ring of FIVE cone bands, no planar cap anywhere): faces 1/3/4 pair at |Δaz| = 0 and pin all five rim anchors, faces 0 and 2 then see |Δaz| = 2.61799387799148686e-1 rad = **π/12 exactly**, one whole Stage-1 lattice step and not noise, and the subtract STOPs with `CurvedGeometryMismatch { face: FaceId(17), reason: "cone face with inner loops is outside the KV6c vocabulary" }` — N73's cone-rim sense derivation unmasked. The remedy is the rule the OTHER copy of this machinery already states, SI5's STEP ingest (`specs/step_import_si5_exact_analytic_ingestion.md`, "Alignment is not pairwise"): two bands sharing a full-circle rim are NECESSARILY coaxial, a shared full circle being each surface's own rim, so the constraint is per CONNECTED COMPONENT of rims-joined-by-bands — one anchor direction per component, a component with two *pinned* rims whose directions disagree being a refusal. Admissible because a closed edge's anchor is pure representation gauge (Stroud's fake edge): sliding it along its own circle changes no boundary point, and §4.4.2 restores a face from the surfaces and curves it bounds, never from a seam's phase (`refs/text/yang2025_hybrid_boolean.txt:574-605`). PASS 1C unions the rim chains of every band whose rims are verifiably coaxial with its own axis (both normals ∥ axis, both centres on one axis-parallel line; a band failing the check joins nothing and keeps the greedy path), then per component fixes ONE seam DIRECTION — a frame-free unit radial vector, not an azimuth, because the bands of one component may report their axis with EITHER sign (P0019's five cones alternate ±ẑ) — from, in order, a PINNED rim, an already-anchored COAXIAL lateral (keeping PASS 2's C0117 phase coherence), the component's FIRST NATURAL SEAM (the lowest-face-index band with an azimuth-aligned retained pair, so a band PASS 1 would have paired keeps its own feet exactly), else that scan's smallest-|Δaz| vertex; anchors every rim there (existing vertex within `band`, else the exact minted `c + r·dir`); and VERIFIES each band's two feet are one ruling to the validator's own `cyl-seam-not-ruling` bound 1e-12 (F11), a band that still disagrees being refused to the arc fallback — recovery has no error channel by design (P9), so that refusal is loud one layer down where `validate_*_face` names the face, and `KV2_RECOVER_PROBE` prints the offset and component either way. On P0019 all five bands seam at offsets 0, 3.642e-17, 3.642e-17, 2.888e-17, 1.272e-17 and the case lands SUPPORTED_CORRECT in 0.3 s; oracles adjudicated by the exact-membership lattice (components 2, boundary_chi 2 = the ring's 0 plus a χ-2 body, two bodies; 1024-cell two-phase mean 1.2168660e0 vs the kernel's 1.214852e0 = rel −1.66e-3), `euler_target` hand-adjudicated to **0** (the χ oracle reads the MAIN body only and Main IS the genus-1 ring: V 355 − E 1065 + F 710 = 0), `derived_meta` cleared. Pins `crates/kernel-v2/tests/n77_component_seam_anchoring.rs` — a 4-band all-oblique external-axis ring (RED→GREEN, the verbatim wall off, one ring and the closed-form Pappus volume on) and the barrel washer (a rim CHAIN: same V/E/F/R census and volume to 1e-9, deliberately NOT bitwise, since the component rule picks a different representational azimuth and minted feet DO move) — mutation-checked both ways. Recorded on the way: `yang_rs::BRep::new` REFUSES the annular band as INPUT ("cone periodic strip (2 encircling rims) not yet supported") while Stage 5 EMITS it; with component anchoring on every band reaching kernel-v2 is seamed, so that asymmetry has no customer left |
 | N78 | RESOLVED (2026-10-03 night, P0020; the edge-pinch arm reads its §0a certificate at Stage-4 ENTRY only, always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351 — its `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` kill switch deleted 2026-10-16; the §4.5.3 collapse still minting an over-2 edge is its second remediation, no customer) | the edge-pinch split ran at a second site where the pinch was Stage 4's own (§N78 below) |
+| N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
+| N80 | OPEN (2026-10-16, matrix O-1) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-578`) |
+| N81 | OPEN (2026-10-16, matrix O-2) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
+| N82 | OPEN (2026-10-16, matrix O-3) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent boost), before the arrangement |
+| N83 | OPEN (2026-10-16, matrix O-4) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops |
+| N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
+| N85 | OPEN (2026-10-16, matrix U-1) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
+| N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
+| N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
+| N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
+| N89 | OPEN (2026-10-16, matrix U-5) | Eight smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N90 | OPEN (2026-10-16, matrix M-2) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
+| N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
+| N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
+| N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
+| N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count: 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-17): 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -438,14 +457,42 @@ gate on it) as the alternative route if the eager flip regresses again.
 **State:** OPEN — remediation tracked (spec §4 P3/P2). Layer 3 is fixed for
 cylinders; layers 1 and 2 stand.
 
+**State (2026-10-17): OPEN** (compliance matrix L-1). The status index had
+carried RESOLVED since 2026-10-03 (the LOCAL-form §4.3.3 density guard
+always-on), while this body said OPEN. That guard was DELETED on 2026-10-14
+with the §4.3.3 arm cluster (cleanup Phase 1: T3c detection and the §4.5.2
+loop in its place); P0013 stays CORRECT through the loop (triage
+§"2026-10-14"). Layers 1 and 2 stand: the Case-IV rule-out
+(`stage4_phantom.rs:600` `certify_phantom_loops`) still acts only on a
+CLOSED, cyclic, all-refuted component, and a claim on a curved edge is still
+`ClaimVerdict::CurvedEdge`. The paper RULES OUT a phantom (`:529-531`); the
+loop refines it away. The faithful rule-out depends on N80 (classification
+after optimization).
+
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**Amendment (2026-10-17, compliance matrix L-5 / M-5 / F-2).** Three
+corrections to the update below. (1) It claimed "redundant / near-boundary
+interior removal"; the rebuild removes a curved interior point only when it
+is exactly collinear with a boundary segment (`stage4_construct.rs:568`,
+1e-9 relative), and spec 2b §3's chart-distance-below-d_ε removal is not
+built. (2) The Fig. 11(c) empty-loop insert (`:559-560`, `:564-567`) is
+MISSING: its one implementation was deleted in Phase 0 as "subsumed by d(T)
+seeding", but that seeding fires only on curved `ChordDegradation`; loop
+interiors are covered only because the Stage-2 arrangement already
+triangulates them. (3) A refused patch is SILENT — `update_patches`
+`continue`s on every refusal and maps an `apply_rebuild_batch` error to 0 —
+where spec 2b §3 says a refusal records a §4.5.2 failure site (matrix F-2,
+the next fix). WHERE the update runs (on the kept submesh, after
+classification) is N80; that it runs in three places is N81.
 
 **Update (2026-10-16) — the per-patch re-CDT is LIVE (cleanup Phase 2b
 increment 1, spec `specs/yang_441_phase2b_patch_update.md`).** After the §4.3
 dedups and before every Stage-4 repair, each patch an intersection edge bounds
 is re-triangulated in its surface's chart against its own cycles
 (`stage4_construct::update_patches` → `rebuild_patch_planar`: CDT with the
-cycles as constraints, redundant / near-boundary interior removal, the d(T)
+cycles as constraints, exactly-collinear interior removal (see the
+2026-10-17 amendment), the d(T)
 budget — §4.4.1 `:546-571` steps 2, 3 and 5; step 1, r_A = r_B = r, is the
 relocation already live). Postcondition: the rebuilt patch's DIRECTED
 boundary equals the replaced triangles' (the paper's "maps boundary curves
@@ -1036,8 +1083,8 @@ Deliberate divergences with recorded rationale. Sub-groups: signed (N7 only, on 
 
 **State:** PERMANENT — signed off (in-entry sign-off, 2026-06-02; mirrors the N1 rationale the user approved 2026-05-28).
 
-**Code location:** `crates/yang-rs/src/lib.rs:1316-1550` (`surface_to_quadric`,
-`ssi_curve_to_curve`, intersection-edge selection via `curve_contains_point`);
+**Code location:** `crates/yang-rs/src/stage3_ssi.rs` (`surface_to_quadric` `:56`,
+`ssi_curve_to_curve` `:218`, intersection-edge selection via `curve_contains_point` `:296`);
 prompt `specs/yang_pr_yr9_stage3_ssi.md`.
 
 **Paper section:** §4.3 (521-593) — Newton (§4.3.1) / geometric (§4.3.2) /
@@ -1056,11 +1103,25 @@ Documented in the PR-YR9 spec; recorded here for ledger completeness.
 **Sign-off:** *signed off* — sound in-scope substitution, mirroring the N1
 rationale.
 
+**Amendment (2026-10-17, compliance matrix M-8 / M-3).** Two corrections.
+(1) "§4.3.4 curvature-based polyline refinement … not implemented" is
+stale: §4.3.4 (`:576-592`) is PARTIAL — `stage4_construct.rs:2777`
+`refine_conic_chain` applies the paper's h / l / α test to periodic conics
+(Circle, Ellipse) only; Hyperbola, Parabola and `SurfacePair` chains are
+never refined; above `I5_INSERT_CAP` = 4096 the pass stops; and it steps the
+curve's own parameter where the paper optimizes from the two surfaces'
+parameter midpoints (equivalent on an exact conic, not on a `SurfacePair`).
+(2) The signature covers the closed-form SUBSTITUTION. Its consequences at
+tangency — the pair Newton refusing exactly the tangent points the paper
+reserves Newton for, and no small-loop tracing — are not covered by it and
+are OPEN as **N91**. The §4.2.3 (u,v) coordinates closed form makes
+unnecessary (N4 amendment) are covered by it.
+
 ### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
-**Code location:** planar Newell fan `crates/yang-rs/src/lib.rs:531-563` (1:1, no
+**Code location:** planar Newell fan `crates/yang-rs/src/stage1_tessellate.rs:2183-2223` (1:1, no
 `d_ε` iteration, no CDT); cylinder analytic rim rings (no u-v CDT).
 
 **Paper section:** §4.1 (298-322), §4.1.2 (404-407).
@@ -1080,7 +1141,7 @@ scope).
 **Update (2026-10-14, cleanup Phase 1a — `specs/yang_452_refinement_loop.md`
 §5).** Stage 1 gains the paper's refinement UNIT as a standing per-face map:
 `BRep::face_refine` (face → density multiplier `k`, "the mesh density
-increases by 2×" per iteration, `:365-366`), consumed by every rim ring
+increases by 2×" per iteration, `:375-376`), consumed by every rim ring
 (`n_seg · k` over the finer incident face), the cylinder chart, the torus
 patch and the sphere (`d_ε / k²`), and honored by Stage 0's ring readers.
 `BRep::refined_at(faces)` is the §4.5.2 primitive the one refinement loop
@@ -1094,9 +1155,10 @@ band between two rims of different `k` is the azimuth zipper's.
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
-**Code location:** `crates/yang-rs/src/lib.rs` planar dispatch arm
-(`tessellate_planar_cdt_face` + `planar_outer_loop_is_nonconvex`);
-`crates/cherchi-rs/src/triangulation/mod.rs` (`cdt_polygon_with_holes`,
+**Code location:** `crates/yang-rs/src/stage1_tessellate.rs` planar dispatch arm
+(`:2126`; `tessellate_planar_cdt_face` `:2789` + `planar_outer_loop_is_nonconvex`, renamed
+`planar_outer_loop_fan_unsafe` by PR-YR27 2026-06-10, `stage1_tessellate/loop_geometry.rs:145`);
+`crates/cherchi-rs/src/triangulation/mod.rs` (`cdt_polygon_with_holes` `:102`,
 backed by `spade` v2). Prompt/spec `specs/yang_pr_nc1_nonconvex_cdt.md`.
 
 **Paper section:** §4.1.2 (404-407, CDT) — the §4.4.1 D1-class concern (plain
@@ -1125,9 +1187,9 @@ chord error, so no `d_ε` densification is warranted).
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
-**Code location:** `crates/yang-rs/src/lib.rs` `build_intersection_curves`
-(the on-both-surfaces gate before `ssi_rs::intersect`); the mis-attribution
-source is `compute_phase_a` (`lib.rs:3279-3289`). Spec
+**Code location:** `crates/yang-rs/src/stage3_ssi.rs` `build_intersection_curves`
+(`:768`; the on-both-surfaces gate `:905-923`, before `ssi_rs::intersect`); the mis-attribution
+source is `compute_phase_a` (`stage4_correct.rs:1176`; the incidence push `:1229-1240`). Spec
 `specs/yr18_intersection_edge_attribution.md`.
 
 **Paper section:** §4.2 / §5.5 (intersection-edge identification) — the paper
@@ -1196,9 +1258,9 @@ fallback (sidecar parity byte-identical). Yang §4.2.3 is the paper anchor.
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
-**Code location:** `crates/yang-rs/src/lib.rs` — `curve_contains_point` (the
-`Circle` arm, plus its caller `build_intersection_curves` threading
-`source_radius`) and `stage4_relocate_and_correct` (the `vert_circle`
+**Code location:** `crates/yang-rs/src/stage3_ssi.rs` — `curve_contains_point` (`:296`; the
+`Circle` arm, plus its caller `build_intersection_curves` `:768` threading
+`source_radius`) and `stage4_correct.rs` `stage4_relocate_and_correct` (`:8726`; the `vert_circle`
 relocation guard, split into per-component axial/radial bands). Spec
 `specs/yr19_sphere_chord_band.md`. Cross-reference **N10** (PR-YR18, the
 on-both-surfaces gate that cleared the cylinder mass but only partially cleared
@@ -1254,8 +1316,8 @@ durable target for intersection-edge identification generally.
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.
 
-**Code location:** `crates/yang-rs/src/lib.rs` — the **non-degenerate** branch of
-Stage-6 geometric face resolution (the centroid-membership counter). Spec
+**Code location:** `crates/yang-rs/src/boolean.rs` — the **non-degenerate** branch of
+Stage-6 geometric face resolution (the centroid-membership counter; `boolean_once`, PR-YR20 tie-break `:2922`). Spec
 `specs/yr20_face_resolution_tiered_tiebreak.md`. Refines **N4** (face provenance
 via centroid proximity, not the §4.2.3 barycentric implicit map).
 
@@ -2003,10 +2065,10 @@ partitioning. No sign-off required.
 
 **Where:** `crates/yang-rs/src/coplanar_overlay.rs` — published `fused`
 map (`:190`), step-6 emission gate (`:604`), `CollinearSliver` trigger
-(`:634-638`), `fused_emission_repair` call (`:651`) and def (`:696`), loud
-`RoundingCollapse` fallback (`:671-673`), eligibility ceiling `tau2` (`:708-710`),
-candidate sort by exact squared length (`:769`), ceiling test `if len2 >= &tau2`
-(`:772`), survivor selection (`:778-786`), exact link/fold validity gate (`:797`+).
+(`:664-670`), `fused_emission_repair` call (`:674`) and def (`:923`), loud
+`RoundingCollapse` fallback (`:695-697`), eligibility ceiling `tau2` (`:935-937`),
+candidate sort by exact squared length (`:995`), ceiling test `if len2 >= &tau2`
+(`:999`), survivor selection (`:1006-1012`), exact link/fold validity gate (`:1021`+).
 
 **Mechanism:** at the overlay's f64 emission gate, when a triangle of three
 distinct EXACT vertices rounds to a degenerate/collinear f64 image
@@ -2031,7 +2093,7 @@ not Yang sections.
 
 **Tolerance decision (design choice, logged):** the fusion eligibility CEILING is
 `TAU_MODEL` (`1e-7`, `crates/cad-primitives/src/lib.rs:23`), applied squared
-(`tau2`, `coplanar_overlay.rs:708-710`). This is deliberately a fail-closed
+(`tau2`, `coplanar_overlay.rs:935-937`). This is deliberately a fail-closed
 ceiling on what MAY fuse, NOT a trigger (the trigger is exact f64 degeneracy) and
 NOT `MIN_FEATURE_SIZE` (the R0091 revert lesson). Sign-off rationale: fusing only
 sub-`TAU_MODEL` exact separations cannot merge a real feature.
@@ -2044,7 +2106,7 @@ sub-`TAU_MODEL` exact separations cannot merge a real feature.
 `yr25_coplanar_overlay.rs::rounding_stress_subresolution_sliver_fuses`. Assay:
 F0067/C0048/R0053 leave the `RoundingCollapse` wall for their next honest wall
 (C0048 → the kernel-v2 rim-override refusal that N27 retires; C0048 remains
-`Unsupported(CoplanarBoolean)` pinned at `assay_kv2.rs:1169`). F0067/R0053 have no
+`Unsupported(CoplanarBoolean)` pinned at `assay_kv2.rs:1169` — **superseded:** C0048 converted in the M8 campaign and is pinned `SupportedCorrect` at `assay_kv2.rs:1232`, noted 2026-10-17). F0067/R0053 have no
 explicit assay pin (anchor unverified — flagged in 2026-07-12 catch-up).
 
 **Deviation status:** faithful §4.5.5 with a documented fail-closed tolerance
@@ -2055,14 +2117,14 @@ ceiling. Design decision, no separate sign-off.
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage1_tessellate.rs` —
-`stage1_tessellate_with_rim_overrides` (`:81`), `stage1_tessellate_inner` (`:118`),
-`inserted_rims` set (`:126`). Full-rim site: `uni_step`/`merge_tol` (`:521-522`),
-coincidence test (`:564-565`), seam (k=0) B-Rep guard (`:567-580`), same-slot /
-already-merged conflict (`:582-590`), TAU_MODEL identity check `d2 >= tau*tau`
-(`:604-615`), MERGE bit-replace `slots[k_slot] = (…, RimSlot::Override(pt))`
-(`:622`). Arc-chain site: `uni_step`/`merge_tol` (`:358-359`), `k_near` (`:395-396`),
-endpoint/seam refusal (`:406`), same-slot conflict (`:419`), identity ceiling
-(`:434`), real-scale refusal (`:436`).
+`stage1_tessellate_with_rim_overrides` (`:91`), `stage1_tessellate_inner` (`:330`),
+`inserted_rims` set (`:525`). Full-rim site: `uni_step`/`merge_tol` (`:966-967`),
+coincidence test (`:1009-1010`), seam (k=0) B-Rep guard (`:1012-1026`), same-slot /
+already-merged handling (`:1051-1081`), TAU_MODEL identity check `d2 >= tau*tau`
+(`:1038-1050`), MERGE bit-replace `slots[k_slot] = (…, RimSlot::Override(pt))`
+(`:1086`). Arc-chain site: `uni_step`/`merge_tol` (`:803-804`), `k_near` (`:840-841`),
+endpoint/seam refusal (`:843-855`), same-slot conflict (`:859-867`), identity ceiling
+(`:880`), real-scale refusal (`:881`).
 
 **Mechanism:** a rim-crossing override point (the fused boundary point from N26)
 that angularly COINCIDES with an interior uniform rim Steiner sample (slot k≠0)
@@ -2082,19 +2144,20 @@ authoritative). Applies at both the full-circle rim and arc-chain sites.
 body's rim sampling for the two meshes to stay identical. Faithful.
 
 **Tolerance decisions (design choice, logged):** angular trigger
-`merge_tol = uni_step * 1.0e-6` (`:359`, `:522`) — the pre-existing coincidence
+`merge_tol = uni_step * 1.0e-6` (`:804`, `:967`) — the pre-existing coincidence
 band; identity ceiling = `TAU_MODEL` (`1e-7`), compared as squared 3D distance
-`d2 >= tau*tau` (`:604`/`:614`, arc `:434`). No new constant; both from the
+`d2 >= tau*tau` (`:1038`/`:1042`, arc `:880`). No new constant; both from the
 centralized policy. Same fail-closed rationale as N26.
 
 **Oracles:** `crates/yang-rs/src/tests_unit/boolean_functional.rs` —
-`rim_override_ulp_twin_merges_onto_uniform_sample` (`:687`: ring length unchanged,
+`rim_override_ulp_twin_merges_onto_uniform_sample` (`:697`: ring length unchanged,
 twin bits present, displaced bits gone, edge NOT in inserted set, closed
-2-manifold), `rim_override_bit_exact_uniform_merge_is_byte_identical` (`:731`),
-`rim_override_real_scale_uniform_coincidence_stays_loud` (`:757`), plus existing
+2-manifold), `rim_override_bit_exact_uniform_merge_is_byte_identical` (`:741`),
+`rim_override_real_scale_uniform_coincidence_stays_loud` (`:767`), plus existing
 `rim_override_empty_is_byte_identical` / `rim_override_inserts_into_both_rims_no_t_junction`.
 Assay: C0048 (shared driver with N26) still `Unsupported(CoplanarBoolean)` — the
-wall keeps moving downstream one honest step at a time.
+wall keeps moving downstream one honest step at a time. (Superseded: C0048 is
+`SupportedCorrect` since the M8 campaign, `assay_kv2.rs:1232`; noted 2026-10-17.)
 
 **Deviation status:** faithful §4.5.5; design decision. No sign-off required.
 
@@ -2148,15 +2211,15 @@ UNSUPPORTED(revolve) verdict and now surfaces the pre-existing CDT wall.
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
-**Where:** `crates/yang-rs/src/stage4_correct.rs` —
-`sweep_reversed_intersections` (`:3402`, call `:2978`), param-order test
-`d1 * d2 < 0.0` (`:3567` in-sweep, `:3785` in `shared_conic_reversed`),
-`conic_param_deltas` wrap closure (`:3788-3816`), `mixed_cycle_shared_conic`
-(`:3824`), `conics_equal_up_to_normal_sign` (`:3705`), `is_reversed` (`:3968`),
-`reversal_collapse_direction` (`:3894`). Near-tangent ellipse arm:
-`project_onto_ellipse_via_cylinder` (call `:2082`, def `stage4_relocate.rs:789`),
-`project_onto_ellipse_nearest` (call `:2101`, def `stage4_relocate.rs:865`),
-`ellipse_residual` (def `stage4_relocate.rs:1266`, used `:2058`).
+**Where:** `crates/yang-rs/src/stage4_correct/reversal.rs` (extracted 2026-07-13) —
+`sweep_reversed_intersections` (`:18`, call `stage4_correct.rs:13059`), param-order test
+`d1 * d2 < 0.0` (`:369` in-sweep `site_reversed`, `:1106` in the test-only `conic_param_reversed`),
+`conic_param_deltas` (`:1116`), `mixed_cycle_shared_conic`
+(`:1178`), `conics_equal_up_to_normal_sign` (`:965`), `is_reversed` (`:1341`),
+`reversal_collapse_direction` (DELETED 2026-10-16, Phase 2a-i; now `paper_order_removal` `:407`). Near-tangent ellipse arm:
+`project_onto_ellipse_via_cylinder` (call `stage4_correct.rs:11459`, def `stage4_relocate.rs:1362`),
+`project_onto_ellipse_nearest` (calls `stage4_correct.rs:11434`, `:11523`, def `stage4_relocate.rs:1443`),
+`ellipse_residual` (def `stage4_relocate.rs:1960`, used `stage4_correct.rs:11410`).
 
 **Mechanism:** in a MIXED boundary cycle (solid edges + conic chain), a site `p_r`
 whose two incident edges carry the SAME conic (Circle/Ellipse, identity up to
@@ -2184,11 +2247,11 @@ resolution-limited approximation.
 **Tolerance decisions (design choice, logged — the "2·d_ε/sinθ corridor budget"):**
 the near-tangency relocation corridor budget `2·gate/sinθ` is the acceptance band
 for a relocated point's move, first-order from the 1/sinθ distance-to-curve
-amplification of a near-tangent surface pair. It appears at ~5 sites in
-`stage4_correct.rs`: `:1782` (pp-planes∩cylinder junction, `2·d_eps/sin_theta`),
-`:2032` (coplanar circle∩circle corner), `:2128` (single-ellipse relocation,
-`2·gate/sin_theta`), `:2286` (line metric `2·d_eps/grad`), and the `:2529-2533`
-residual gate. The `2·d_ε` collapse gate is at `:3625`/`:3630`. These are labeled
+amplification of a near-tangent surface pair. It appeared at ~5 sites in
+`stage4_correct.rs`, extracted 2026-07-12 (F8) into the one helper `tangent_plane_corridor` (`stage4_correct.rs:21`),
+called at `:2253`, `:10405`, `:11384`, `:11552` (single-ellipse relocation,
+`2·gate/sin_theta`), `:11704` (line metric `2·d_eps/grad`), `:12226` and `:12639`.
+The `2·d_ε` collapse gate is at `stage4_correct/reversal.rs:286`/`:291`. These are labeled
 in-code as "the torus-block metric — NOT a tolerance widening": the budget is the
 provable first-order bound on how far an exact junction can lie from the
 inscribed-mesh estimate, not an accept-anything slack. `ellipse_residual` is a
@@ -2293,13 +2356,13 @@ unverified — flagged in 2026-07-12 catch-up).
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_correct.rs` — `vert_cone_ellipse` map
-(`:761`, built `:1272`), `vert_cone_hyperbola` map (`:769`, built `:1092`),
-`same_type_junction` set (`:778`), KV16b second-descriptor detection (`:1290`,
-diff check `:1296`, `same_type_junction.insert(v)` `:1303`), triple-relocation
-trigger `if n_maps < 2 && !same_type_junction.contains(&v)` (`:1739`),
-`relocate_onto_implicit_triple` call (`:1756`). `crates/yang-rs/src/stage4_relocate.rs`
-— `relocate_onto_implicit_triple` (`:251`), `ConeEllipseReloc` (`:1026`),
-`cone_ellipse_residual` (`:1210`), `ConeHyperbolaReloc` (`:1076`).
+(`:9044`, built `:9701`), `vert_cone_hyperbola` map (`:9052`, built `:9468`),
+`same_type_junction` set (`:9061`), KV16b second-descriptor detection (`:9671`,
+diff check `:9677`, `same_type_junction.insert(v)` `:9678`), triple-relocation
+trigger `if n_maps < 2 && !same_type_junction.contains(&v)` (DELETED 2026-10-13, f73635d9 — the block now admits by incidence count, `if surfs.len() != 3` `:10338`),
+`relocate_onto_implicit_triple` call (`:10345`). `crates/yang-rs/src/stage4_relocate.rs`
+— `relocate_onto_implicit_triple` (`:367`), `ConeEllipseReloc` (`:1701`),
+`cone_ellipse_residual` (`:1904`), `ConeHyperbolaReloc` (`:1751`).
 
 **Mechanism:** a vertex at the junction of TWO conic sections of ONE cone cut by
 two different planes gets both curves' Stage-4 scan arms calling
@@ -2322,21 +2385,22 @@ respect every constraint.
 **Tolerance decisions (design choices, logged):** two constants live in
 `relocate_onto_implicit_triple`/its certificate and are the honest homes for two
 of the catch-up's flagged tolerance decisions:
-- **8εL junction exactness certificate** — `stage4_relocate.rs:95`
-  (`junction_certificate_band`, def `:70`): `TAU_WORK.max(8.0 * f64::EPSILON * l)`
+- **8εL junction exactness certificate** — `stage4_relocate.rs:121`
+  (`junction_certificate_band`, def `:96`): `TAU_WORK.max(8.0 * f64::EPSILON * l)`
   with `l = mag3(p) + refmag`. Doc-comment frames it as "exact to evaluation
   precision," NOT a tolerance widening — the strongest property float arithmetic
   can express (P9-clean).
-- **1e-13.max(8εL) Newton work floor** — `stage4_relocate.rs:268`:
-  `let tau = 1e-13_f64.max(8.0 * f64::EPSILON * l);`. The verbatim comment
-  (`:258-266`) admits the intent honestly: the absolute 1e-13 floor is sub-ULP at
+- **1e-13.max(8εL) Newton work floor** — `stage4_relocate.rs:268` when written:
+  `let tau = 1e-13_f64.max(8.0 * f64::EPSILON * l);` [now `:384-387`, per surface since 2026-10-15:
+  `TORUS_RELOC_WORK_FLOOR.max(8.0 * f64::EPSILON * l.max(surface_anchor_magnitude(s)))`, the 1e-13 named at `:147`]. The verbatim comment
+  (`:258-266`; now `:374-381`) admits the intent honestly: the absolute 1e-13 floor is sub-ULP at
   coordinate magnitude ~4000 (the R0017 corpus scale) and could never converge
   there, so it takes the max with the same 8εL term as the certificate — and
   **"at unit scale 8εL ≈ 5e-15 < 1e-13, so the shipped torus-block behavior is
   byte-identical."** Logged as such: a scale-aware floor chosen to preserve
   existing torus-block byte output while unblocking the large-coordinate class.
   The sibling `relocate_onto_implicit_pair` uses a flat `1e-13` (`:212`, no 8εL
-  max).
+  max). [Stale: the pair (`stage4_relocate.rs:285`) now takes the same anchored 8εL max, `:315-318`.]
 
 Same-type identity is an EXACT field comparison (apex/axis_dir/half_angle/plane_n/
 plane_d), never a tolerance.
@@ -2357,8 +2421,8 @@ are logged design decisions with the byte-identical rationale above.
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage5_topology.rs` — `orient_directed_curve`
-(def `:301`, called at both push sites `:425` and `:628`), `emit_topology`
-(`:361`), ambiguity-band posture comment (`:299`).
+(def `:5090`, called at the push sites `:5319`, `:6071` and `:6642`), `emit_topology`
+(`:5150`), ambiguity-band posture comment (`:5088-5089`).
 
 **Mechanism:** `emit_topology` created one directed edge copy per face loop but
 copied the intersection curve (stored normal included) verbatim from the
@@ -2380,12 +2444,12 @@ internal I/O-convention fix (yang output = valid yang input), not a paper method
 change.
 
 **Tolerance decisions:** a `1e-6`-of-π arc-minor ambiguity band (`stage5_topology.rs`
-near `:299`/`:301`); mirrors the kernel-v2 `boolean.rs` directional-normal twin
+near `:5088`/`:5104`); mirrors the kernel-v2 `boolean.rs` directional-normal twin
 convention. No geometry is moved.
 
 **Oracles:** `crates/yang-rs/tests/stage6_arc_orientation.rs`
 (`output_arc_edges_satisfy_ccw_minor_convention` `:209` RED→GREEN,
-`pocket_operand_reenters_plain_boolean` `:270`). No assay case ID — the driver is
+`pocket_operand_reenters_plain_boolean` `:293`). No assay case ID — the driver is
 yang-DIRECT chained booleans (production re-enters via kernel-v2 which re-derives);
 per-case output is byte-identical.
 
@@ -3629,7 +3693,7 @@ crossing.
 
 **Status:** OPEN. NOT signed off.
 
-**Code location:** `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
+**Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); the live analog is the five-variant `Surface` enum, `crates/yang-rs/src/geom.rs:37` and `crates/kernel-v2/src/arena.rs:245`] `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
 
 **Paper section:** Yang §4.1 + §4.1.1 NURBS-to-Bézier conversion (`yang2025:330-395`).
 
@@ -3895,6 +3959,16 @@ No longer a deviation. **Sign-off:** resolved.
 ### N4 — Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping
 
 **State:** RESOLVED (2026-07-07, task #53) — per-triangle provenance is the sole production path; geometric attribution survives only for the documented lineage-less contract (dev sidecar oracle / `from_mesh`).
+
+**Amendment (2026-10-17, compliance matrix L-4, row 3-07).** RESOLVED covers
+face IDENTITY only. The §4.2.3 half — approximate parameter coordinates on
+every intersection vertex, the initial values of §4.3's Newton
+(`refs/text/yang2025_hybrid_boolean.txt:510-520`, `:539-541`) — was not
+built: intersection vertices are tagged `TessellationSource::Intersection`
+and carry no (u,v) (`brep.rs:287`), and the pair Newton is seeded at the
+arrangement vertex's 3D position (matrix 4.3-05). Under N7 (closed-form
+exact SSI on implicit analytic surfaces) nothing is seeded in parameter
+space, so the absence is part of N7's substitution and is recorded there.
 
 **Code location:** `crates/yang-rs/src/lib.rs` (~1794-1798) — pick the unique
 labeled-solid face plane within `TAU_WORK` of the kept triangle's centroid.
@@ -4192,7 +4266,7 @@ The 24 Case D missing triangles are presumably the ones spade chose differently 
 
 **Status:** OPEN. NOT signed off.
 
-**Code location:** `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.
+**Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); this path no longer exists] `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.
 
 **Paper section:** Yang §4.2.2 Theorem 4.1 (`yang2025:457-480`).
 
@@ -4916,7 +4990,29 @@ torus∩wall∩wall corners exact), no oscillation between failure kinds, and
 no tangency anywhere on the pair (the x = 1.45 wall crosses the torus at
 ≥ 14.8°). §6.7's re-open criterion, met.
 
-**State:** RESOLVED 2026-10-14 (faithful cleanup Phase 1c, `specs/yang_452_refinement_loop.md` §6): the whole-op ladders are DELETED; `boolean::refine_loop` refines the FACES every failure names plus one ring (`failures::region`) by the paper's step (density ×2 per face, `BRep::refined_by`; the under-resolution certificate names the first rung, `density_for_demand`) and re-runs until the failure set is empty, stopping when the set comes back identical twice (the paper's convergence argument, negated). The apex-centred lens of P0031 (the local form landed 2026-10-10) is subsumed: its faces are the region's faces, refined uniformly. Corpus: triage §"2026-10-14 (Phase 1c)". Pre-2026-10-14 State line follows for the record. **State:** DELEGATED (re-graded 2026-10-14; A15.7 — never signed; the paper's LOCAL form landed 2026-10-10 for P0031, spec `yang_45_boundary_point_domain_certificate.md` §8) — formerly PERMANENT (deliberate; the local splice is an efficiency
+**State (2026-10-17): OPEN — reopened by the compliance matrix (M-1, L-2).**
+The loop is faithful in its trigger and its step (refine, repeat until the
+failure set is empty; the ceiling is LOUD since 2026-10-16, N66 amendment).
+Two of §4.5.2's locality clauses are not built, and the RESOLVED text below
+silently dropped the first. (1) The refined op is recomputed WHOLE
+(`boolean.rs:783`, `boolean_once` on the refined operands); the paper
+computes "the intersections between the meshes only in the refined regions"
+and replaces the original curve by "the curve bounded by" p_f and p_b
+(`:661-671`) — no p_f / p_b identification, no splice. (2) The region is the
+faces at the failure SITE plus one ring (`boolean/failures.rs:1315`
+`region`), not "those traversed by C_p" plus one ring: C_p is never walked,
+so a long erroneous span crossing several faces refines the faces at its
+STOP vertex and reaches the rest one ring per iteration, if at all. The
+whole-op recompute was graded "strictly more refinement" when DELEGATED;
+under A15.7 that rationale is unsigned, and the loud-ceiling worklist
+(`docs/yang_tail_triage.md` §"the loud ceiling") is where locality is to be
+measured. The loop has no direct yang-rs pin for its adoption and ceiling
+behaviour (only kernel-v2's `s452_domain_lens_corner.rs`,
+`s451_transit_neighbour_side_chain.rs` and
+`s4_ellipse_pair_corner_chain.rs`; matrix `s451 F8`). The 2026-10-14 State
+follows for the record.
+
+**State (2026-10-14):** RESOLVED 2026-10-14 (faithful cleanup Phase 1c, `specs/yang_452_refinement_loop.md` §6): the whole-op ladders are DELETED; `boolean::refine_loop` refines the FACES every failure names plus one ring (`failures::region`) by the paper's step (density ×2 per face, `BRep::refined_by`; the under-resolution certificate names the first rung, `density_for_demand`) and re-runs until the failure set is empty, stopping when the set comes back identical twice (the paper's convergence argument, negated). The apex-centred lens of P0031 (the local form landed 2026-10-10) is subsumed: its faces are the region's faces, refined uniformly. Corpus: triage §"2026-10-14 (Phase 1c)". Pre-2026-10-14 State line follows for the record. **State:** DELEGATED (re-graded 2026-10-14; A15.7 — never signed; the paper's LOCAL form landed 2026-10-10 for P0031, spec `yang_45_boundary_point_domain_certificate.md` §8) — formerly PERMANENT (deliberate; the local splice is an efficiency
 increment with no correctness customer). Live successor of the HISTORICAL D4.
 
 ### N64 — §4.5.5 applied one dimension down: edge-in-plane identification + conformity (2026-09-27, P0001)
@@ -5033,7 +5129,7 @@ and the loop's adoption of "the first watertight refined body" were our
 choice, and the paper-ordered matrix (`docs/audits/yang_2025_audit.md`
 F-1) found they let a body the pipeline had itself certified as failing
 ship. **User sign-off 2026-10-16, in prose: "yes, stop loudly at the
-ceiling".** `refine_loop` (`boolean.rs`) now adopts only a run whose
+ceiling".** `refine_loop` (`boolean.rs:626`) now adopts only a run whose
 failure set is EMPTY; a natural body whose failures survive the loop
 becomes `YangError::RefinementExhausted { sites, summary }`, and a natural
 STOP stands. The STOP's detail names the trigger counts and the first
@@ -5063,12 +5159,12 @@ failure site the loop could not clear (the §4.5.2 locality gaps, matrix
 M-1, and the §4.5.1 interior half, M-2, are the paper mechanisms they
 point at).
 
-**Paper:** §4.5 (`refs/text/yang2025_hybrid_boolean.txt:648-651`): "we
+**Paper:** §4.5 (`refs/text/yang2025_hybrid_boolean.txt:656-659`): "we
 collect the point pairs that cannot converge to a distance of 0 within
-their domains"; §4.5.1 (`:637-651`, Fig. 13) excludes "the boundary points
+their domains"; §4.5.1 (`:635-657`, Fig. 13) excludes "the boundary points
 that glide along the boundary curves" from the first strategy — "for other
 cases, we apply the second strategy", §4.5.2 local refinement; §4.5.1's
-own words for the defect (`:672-676`): "a full step length that takes the
+own words for the defect (`:680-683`): "a full step length that takes the
 point to a position p1 outside the surface S2 where the point is initially
 located".
 
@@ -5076,7 +5172,7 @@ located".
 crossing the other operand's face is relocated to the exact root of
 (edge curve ∩ face surface) — the seeded triple Newton for a line × torus
 (`relocate_onto_implicit_triple`), the nearest closed-form root for a
-circle × plane (`circle_plane_nearest_root`) — on the EXTENDED surfaces,
+circle × plane (`circle_plane_nearest_root`, `stage4_boundary_curve.rs:536`) — on the EXTENDED surfaces,
 with a displacement corridor as the only acceptance. No arm asked whether
 the root lies on the bounded face. P0003: B's end-cap rim crossing A's
 lateral face landed 9.9e-4 above the boss's top cap (past the lateral
@@ -5088,17 +5184,17 @@ creases of cylinder/cone pairs only) could see either. `YANG_CHORD_REFINE`
 2×/4×/8×/16× all SUPPORTED_CORRECT — a resolution deficit with its trigger
 missing.
 
-**Fix:** `boundary_domain_postcondition` (`stage4_correct.rs`) at the end of
+**Fix:** `boundary_domain_postcondition` (`stage4_correct.rs:6991`) at the end of
 Stage 4, for every moved vertex against every face its attributed triangles
 carry: the face's creases come from the operand's B-Rep EDGES
-(`CreaseIndex::build` — line creases between planes and torus × plane rims
+(`CreaseIndex::build`, `stage4_boundary_curve.rs:1190` — line creases between planes and torus × plane rims
 included, which the surface-pair reconstruction could not name), each with a
-DIVIDER plane and an EXTENT (`crease_divider`); the certificate
-(`boundary_crease_crossed`) is the §3t sign test plus the extent test (the
+DIVIDER plane and an EXTENT (`crease_divider`, `:1287`); the certificate
+(`boundary_crease_crossed`, `:1375`) is the §3t sign test plus the extent test (the
 step's crossing of the divider must lie on the crease within the step's own
 length + band — the line vocabulary is safe on a non-convex face, the circle
 vocabulary safe on a torus whose cap plane cuts the tube twice). The fires are
-RECORDED and the op-level ladder (`refine_452_domain`) re-runs the op at
+RECORDED and the op-level ladder (`refine_452_domain` — DELETED 2026-10-14, Phase 1c; now `boolean::refine_loop`, `boolean.rs:626`, see the amendment above) re-runs the op at
 d_ε/2, d_ε/4, adopting a rung that emits watertight with NO fire — P0003
 converges at d_ε/2; otherwise the natural output stands and the fires are
 inventoried (`YANG_S45_BOUNDARY_DOMAIN_LOG`). The hard STOP (`stop` mode)
@@ -6132,8 +6228,9 @@ checked: a classifier that returns a constant area fails three of the five.
 
 ## N79 — Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (`error_oct4.waffle`)
 
-**State: RESOLVED (2026-10-04). `stage0::plane_weld` — always-on, kill switch
-`YANG_PLANE_WELD=off`, spec `specs/yang_455_coplanar_plane_weld.md`. Corpus
+**State: RESOLVED (2026-10-04). `stage0::plane_weld` — always-on (its kill
+switch `YANG_PLANE_WELD` was deleted 2026-10-16, cleanup Phase 0's knob
+item), spec `specs/yang_455_coplanar_plane_weld.md`. Corpus
 run recorded in the roadmap status header.**
 
 **Paper.** Yang §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:717-731`)
@@ -6206,3 +6303,328 @@ ghost face ranges carried the engine's exact plane). `render_view.rs` now
 emits the engine's f64 plane for every planar face range and the UI takes
 it; pinned by `app/tests/gui/face-sketch-exact-plane.spec.js` (spec §7). The
 kernel weld stays — imported STEP carries the same class.
+
+## Compliance-matrix catch-up (2026-10-16/17) — N80–N94
+
+The paper-ordered compliance matrix (`docs/audits/yang_2025_audit.md`,
+2026-10-16) walked §3–§4 one procedural statement at a time and found
+deviations no entry recorded. They are entered here under the P2 rule, one
+entry per matrix finding (O = order, U = unledgered substitute, M = missing
+mechanism). Each is **OPEN** unless it says otherwise: none was signed, and
+none is fixed by being written down. Paper cites are lines of
+`refs/text/yang2025_hybrid_boolean.txt`; code cites are at `633cd879`
+(function names are the stable part). Matrix rows are named in each entry;
+the rows' ledger column now carries the id.
+
+### N80 — Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement (matrix O-1)
+
+**Paper.** §4.4.2 (`:574-578`, right column): "After trimming the meshes
+using the intersection curves, we directly apply a standard inside/outside
+classification step [Cherchi et al. 2022] to identify the triangles that
+need to be retained." The order is §4.3 optimize the intersection points →
+§4.4.1 trim and update BOTH meshes (r_A = r_B = r) → classify. §3 / Fig. 2e
+(`:318-321`) classifies per mesh PATCH.
+
+**Implementation.** Stage 2 (`cherchi_rs`, the exact labeled arrangement)
+computes Cherchi 2022's labels with the arrangement; `boolean_once` keeps
+the op's triangles at step (3) (`boolean.rs:2135` `la.keep_set(op)`),
+compacts the kept submesh, and only then runs §4.3 relocation and the
+§4.4.1 update (`stage4_construct::update_patches`) on that ONE submesh.
+Classification is per arrangement CELL, not per patch.
+
+**Consequences.** (1) "r_A = r_B = r" cannot be two meshes sharing one
+point: after the keep the two operands' triangles along a curve are one
+mesh's two sides of a seam, and the rule becomes "relocate the shared seam
+vertex" — equivalent only while the seam stays shared. (2) A relocation
+that should change which triangles are kept cannot: the keep has happened.
+The §4.3.3 Case-IV rule-out (a phantom overlap the optimization proves
+absent) is the paper mechanism this order disables — the structural reason
+behind C0117 (cleanup §2a) and N68. (3) Every repair pass downstream of
+Stage 4 operates on a classified submesh the paper never has.
+
+**Ledger state before this entry.** N2's "trusts the sidecar-trimmed mesh"
+described the order without recording it as a deviation.
+
+**Remediation.** A design spec (classify after the update) before cleanup
+Phase 2b widens further — a pipeline restructure, not an increment; N81's
+three §4.4.1 sites and N68 depend on it. Matrix: pipeline-order section
+steps 4–6, `s44 F1`, `s43 F2`.
+
+**State: OPEN** (found 2026-10-16; remediation: the O-1 design spec).
+
+### N81 — Within Stage 4 the §4.3 point removals and the Case-IV rule-out run after §4.5.3 and §4.4.1, and §4.4.1 runs in three places (matrix O-2)
+
+**Paper.** §4.3.3 (`:527-536`): point removal and the Case-IV rule-out are
+part of optimization, before trimming. §4.4.1 (`:546-571`) is one update.
+
+**Implementation.** The §4.3 close-point removals and the Case-IV rule-out
+(`stage4_correct.rs:14274`, `:12975`; `stage5_topology.rs:4925`) run after
+the §4.5.3 sweep and after `update_patches`. §4.4.1 itself happens in three
+places: `update_patches`, the construct / fold-merge alternation
+(`stage5_topology.rs:4808`), and the Stage-5 seam merge and decimation.
+
+**Remediation.** Folds into N80's spec and cleanup Phase 2b (one update,
+after the paper's §4.3). **State: OPEN** (found 2026-10-16).
+
+### N82 — Exact junction vertices are minted at Stage 1, before the arrangement (matrix O-3)
+
+**Paper.** §4.4.1 (`:546-571`) identifies the vertices where intersection
+curves meet boundary curves AFTER optimization; §4.1 discretizes each patch
+from its own boundary (`:397-402`).
+
+**Implementation.** Three Stage-1 producers insert exact junction points as
+rim samples before Stage 2: the rim-junction insertion (`boolean.rs:1197`
+"Increment 2", `boolean/rim_junction.rs` `rim_junction_overrides`), the P3a
+conformal junction sampling (`boolean.rs:1091`) and the tangent boost
+(`boolean.rs:1104`). They appear only as an N2 "partial remediation" bullet
+and are absent from the cleanup's substitution table.
+
+**Remediation.** Cleanup §2 gains rows for the three; each retires into the
+§4.4.1 update once it identifies the junctions itself. **State: OPEN**
+(found 2026-10-16).
+
+### N83 — §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh, and skips cone, sphere and torus charts (matrix O-4)
+
+**Paper.** §4.5.4 (`:752-758`): detect "new intersections that may arise
+during mesh updating" and refine locally.
+
+**Implementation.** The mesh census `boolean/failures.rs:589`
+`illegal_intersection_sites` is test-only (its comment: T3 becomes the
+trigger when Phase 2 makes the Stage-4 mesh valid). Production detection is
+T3b `output_curve_crossings` and T3c `output_loop_crossings` on the emitted
+body. T3c skips cone, sphere and torus charts and axis-wrapping cylinder
+loops; T3b skips planar faces, straight edges and `SurfacePair` edges (their
+docs name the gaps).
+
+**Remediation.** The mesh census becomes the trigger when cleanup Phase 2b
+leaves the updated mesh valid (spec `yang_452_refinement_loop.md` §3); the
+coverage gaps are named follow-ups. Matrix 4.5.4-02, -03. **State: OPEN**
+(found 2026-10-16).
+
+### N84 — Failure collection stops at the first fire (matrix O-5)
+
+**Paper.** §4.5 (`:656-659`): "we collect the point pairs" that fail, then
+refine the regions they name.
+
+**Implementation.** Only the OffCurve gates record and continue
+(`stage4_correct.rs:174-185`). About fifty `LocalRefinementRequired` returns
+and the §4-I9 STOP end Stage 4 at the first fire, so one run names one
+vertex's faces and the loop learns the rest one iteration at a time.
+
+**Remediation.** Record-and-continue at each return site (a Phase-1
+follow-up of `specs/yang_452_refinement_loop.md`). **State: OPEN** (found
+2026-10-16).
+
+### N85 — d_ε is scaled per operand by its circle-RIM bounding box, not the model's (matrix U-1)
+
+**Paper.** §4.1 (`:391-395`): "select d_ε as … 10⁻²·d relative to the
+diagonal length d of the AABB of the B-Rep model".
+
+**Implementation.** `CHORD_BASE = 1e-2` is the paper's
+(`normals_chord_bounds.rs:124`); the scale is not. `curved_chord_bound`
+(`normals_chord_bounds.rs:234`) takes the AABB of the operand's CIRCLE RIMS,
+min-folded with each cone's own bound; sphere uses 2r√3, torus R + r,
+ellipse the major radius; all-planar operands get `None`. A large box with a
+small hole is discretized at the hole's scale. D11 (HISTORICAL) describes
+the deleted legacy combined-AABB rule; N72 names the operand budget without
+recording how it departs from the paper.
+
+**Remediation.** Move the base to the model AABB, measured on the corpus
+(a STRICTER-or-looser change per case, so a full run). Matrix 4.1-18,
+`s41 F1`. **State: OPEN** (found 2026-10-16).
+
+### N86 — Stage 0 carries its own Fig-11 mesh-updating subsystem (matrix U-2)
+
+**Paper.** §4.5.5 (`:717-731`) produces identical meshes on the shared
+trimmed surface; mesh updating is §4.4.1 (`:546-571`), once.
+
+**Implementation.** `stage0/reloc.rs` holds about 2.4k production lines
+(lines 1–2394 before its test modules): star-cavity carving and ear-clip
+repair, minted-vertex and region relocation, Lawson flips, the Fig-11(a)
+split and slide and the Fig-11(b) backtrack merge
+(`relocate_minted_vertex`, `relocate_minted_region`, `fig11_split_cavity`,
+`fig11_slide_splice`), driven from `stage0/mod.rs`. It is a second §4.3 +
+§4.4.1 applied to overlay mints before Stage 1. No entry recorded it,
+cleanup §5 declares Stage 0 "not touched", and the debt count did not see
+it.
+
+**Remediation.** Cleanup §2 gains a Stage-0 row; the subsystem retires into
+the one §4.4.1 update once the overlay mints are relocated there. **State:
+OPEN** (found 2026-10-16).
+
+### N87 — The crease and corner transits apply §4.5.1 to the boundary and corner points the paper sends to §4.5.2 (matrix U-3)
+
+**Paper.** §4.5.1 (`:635-657`, Fig. 13): strategy 1 (optimize across the
+boundary) is for points bounded by two successfully optimized points on the
+same surface; at a corner s "where more than two surfaces meet" (`:639-640`)
+gliding points "may lead to topology errors", so "for other cases, we apply
+the second strategy" (`:653-657`) — §4.5.2 refinement.
+
+**Implementation.** `solve_crease_transit` (`stage4_boundary_curve.rs:1560`,
+from the Stage-4 triple block `stage4_correct.rs:10498`) truncates at C_b and
+re-solves the triple on the neighbour; `corner_transit_apply`
+(`stage4_correct.rs:4984`, `stage4_transit.rs` `classify` / `walk_corridor`)
+transits ACROSS the model corner — "Yang Fig-13(c)'s declined case, made
+deterministic" (`stage4_transit.rs:20-23`). Both run before any bound test,
+so §4.5.1's selector is bypassed (matrix 4.5.1-13), and the transit's
+emission refinement (`transit_emission_refine`, `stage4_boundary_curve.rs:4788`)
+uses a lift-flip criterion, not §4.3.4's (4.5.1-08). The catch-up row for
+P0040 graded the transit "faithful — §4.5.1"; that grade is withdrawn by
+this entry (row amended). Cleanup §5 lists the corner transit as untouched.
+
+**Remediation.** These absorb cases the paper's §4.5.2 handles; retire them
+into the loop once its locality (N62, matrix M-1) lands, one per corpus run.
+Matrix 4.5.1-05, -08, -10, -13, `s451 F1`. **State: OPEN** (found
+2026-10-16).
+
+### N88 — Stage-1 folds across patches break "discretize each patch independently" (matrix U-4)
+
+**Paper.** §4.1 (`:397-402`): "discretize each surface patch independently
+without considering its neighbors"; §4.1.2 triangulates the u-v domain first
+(`:404-405`).
+
+**Implementation.** Four Stage-1 mechanisms read other patches: the
+intra-solid cylinder-pair phantom fold (`stage1_tessellate.rs:636-664`,
+`boolean/rim_junction.rs` `cyl_pair_phantom_n`), the thin-band rim fold
+(`:665-700`, `face_rim_pair_phantom_n`), the chart-crossing re-run
+(`CHART_REFINE_ROUNDS`, `stage1_tessellate/chart_crossing.rs`
+`chart_polygon_crossings`) and the P0008 planar-neighbour chord split
+(`stage1_tessellate/planar_neighbor_chords.rs` `split_planar_neighbor_chords`).
+The first two appeared only in a cleanup §2a footnote, the last two nowhere.
+
+**Remediation.** N5 family — cleanup Phase 3 (the §4.1 d_ε certificate and
+§4.1.2 domain triangulation). Matrix 4.1-19, `s41 F3`. **State: OPEN**
+(found 2026-10-16).
+
+### N89 — Smaller unledgered divergences (matrix U-5)
+
+Each is OPEN, each small; recorded together so none is invisible.
+
+1. **`collapse_subtauwork_mesh_edges`** (`stage4_correct.rs:3983`, the #194
+   collapse) merges ANY mesh edge shorter than `TAU_WORK·(1 + scale)` —
+   closest paper statement §4.4.1(b) merge (`:560-566`). Remediation: the
+   §4.4.1 update's merge. (matrix §4.3 "code with no paper row", `s43 F6`.)
+2. **The T6 detection floor** `2·max(TAU_MODEL, scale·TAU_WORK)`
+   (`shell_contact.rs:316`, `:463-476`): a site needs both leaves to cross
+   the other's exact surface by more than the band, so tangencies and
+   sub-band loops are never sites (§4.2 `:499-501` seeds both; see N91). The
+   Fig. 7 caption's "d_ε = 0.05d" AABB expansion (`:425-431`) is replaced by
+   per-triangle exact deviation (low weight). Matrix 4.2-05, 4.2-10.
+3. **Parabola and Hyperbola curves are never reversal-tested.**
+   `mixed_cycle_shared_conic` (`stage4_correct/reversal.rs:1178`) returns
+   `None` for them, so the §4.5.3 site is skipped (`:742-745` says every C).
+   Matrix 4.5.3-08.
+4. **Ellipse-edged planar faces are a Stage-0 `face-unsupported` wall**
+   (`stage0/frame.rs:1016` doc, `overlay_face_supported`); the paper's own
+   Fig. 24(b) benchmark (24 elliptical cylinders with coplanar caps, §5.5
+   `:962-966`) cannot run. Matrix 4.5.5-05, 5.5-03.
+5. **The coincident-cylinder Stage 0** (`stage0/cylinder.rs:416`
+   `coincident_cylinder_stage0`) extends §4.5.5 to coincident cylinders
+   with no entry (N25 covers plane groups only).
+6. **The §4.5.3 overtake arms** (the R0059 straight-run arm and P0036's
+   carried-curve sibling) are recorded only as N29 amendments; they bypass
+   the curve-endpoint guard and the paper-order removal of Phase 2a.
+7. **The Fig. 11(b) merge threshold.** N55 records identity-only merging but
+   not that the paper's merge is a QUALITY threshold ("too close", `:560-566`).
+8. **The Stage-2 broad phase** is a median-split BVH (`shell_contact.rs`
+   `struct Bvh`), not the paper's octree (`:434`) — performance-only, same
+   candidate set; D12 (HISTORICAL) cites deleted code, and cherchi-rs's own
+   pair scan is still O(n²).
+
+**State: OPEN** (found 2026-10-16), each item to be re-adjudicated when its
+mechanism is next touched.
+
+### N90 — §4.5.1 for INTERIOR points is half built (matrix M-2)
+
+**Paper.** §4.5.1 (`:661-664`, `:680-686`): remove the points between v0 and
+v1, replace them with a new point and "restart the optimization by allowing
+the points across the boundaries" — truncate a step that would leave S2 at
+the boundary curve C_b, continue with S1's parameterization, solve q1/q2.
+
+**Implementation.** Remove + midpoint + project is live
+(`stage4_correct.rs:562`, `:12715-12747`) for cone+plane and torus pairs
+only (the DRIFT scope). Truncation at C_b, the continuation on S1 and the
+q1/q2 solve are absent: `stage4_truncate.rs:351` `max_in_domain_step` is
+called only as a print (`stage4_correct.rs:7344`, "Report-only"). Spec
+`yang_451_optimize_across_boundaries.md` §3.4/§9 parks it "until a customer
+appears"; §4.5.2 compensates. D8 is HISTORICAL legacy only. Meanwhile the
+two live transits (N87) apply §4.5.1 to the class the paper excludes.
+
+**Remediation.** Build the interior form; the loud ceiling's worklist
+(T2 / boundary-domain survivors, `docs/yang_tail_triage.md` §"the loud
+ceiling") is its first candidate population. Matrix 4.5-06, 4.5.1-04,
+`s451 F2`. **State: OPEN** (found 2026-10-16).
+
+### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
+
+**Paper.** §4.3 (`:485-492`): Newton is used "only for tangential points and
+points gliding on boundary curves"; §4.2 seeds "a single tangential point"
+and small loops (`:499-501`), traced from a seed (`:598-601`, Fig. 10(c)).
+
+**Implementation.** The pair Newton REFUSES tangency
+(`stage4_relocate.rs:340`: `det ≤ rank_eps` ⇒ `None`, a STOP) and is the
+method for generic torus / pair points — the paper's method choice inverted
+at tangency (N7 records the closed-form substitution, not the inversion).
+Tangent points exist only as a cylinder × cylinder Stage-1 mint
+(`boolean/tangency.rs:78`). No small-loop tracing, no Fig. 10(c) seeding,
+and T6's floor (N89 item 2) excludes contacts that touch without crossing.
+
+**Remediation.** A tangent-point solve (Newton on the tangency condition)
+and seeded loop tracing; P0026 (a minted exact tangency, ADJUDICATED loud)
+and the loud-ceiling worklist are the measured customers. Matrix 4.2-20,
+4.3-08, `s43 F3`/`F4`, `s42 F3`. **State: OPEN** (found 2026-10-16).
+
+### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
+
+**Paper.** §4.2.2 (`:440-446`, right column): "conservatively estimate the
+Gauss map of the corresponding region on each surface and check if two Gauss
+maps overlap" to improve detection accuracy.
+
+**Implementation.** No Gauss-map or normal-cone code in any kernel crate.
+`shell_contact.rs:431` `pieces_cross_point` (exact leaf crossing) does the
+filtering. D13 (HISTORICAL) calls the filter moot for analytic surfaces;
+only its Bézier half (Theorem 4.1) is out of scope under D14 — plane,
+cylinder, cone, sphere and torus have closed-form Gauss maps.
+
+**Remediation.** Build it with closed-form maps when §4.2 detection is next
+touched; the exact-crossing test is the compensator, so no corpus customer
+is known. Matrix 4.2-12, 4.2-13, `s42 F2`. **State: OPEN** (found
+2026-10-16).
+
+### N93 — Stage 1 neither computes d(T) nor certifies d_ε (matrix M-6)
+
+**Paper.** §4.1 (`:289-292`, `:354-390`, Appendix A): every triangle's
+surface-to-mesh distance is bounded — d_ε(T) = d_ε for an inner triangle,
+d(T) for one with boundary samples.
+
+**Implementation.** Stage-1 boundary triangles carry no d(T); chart boundary
+chords are only counted; downstream readers use one operand-level budget
+(`normals_chord_bounds.rs` `owner_stage1_chord_budget`). The sphere's
+half-budget rests on a corpus measurement ("≈ 0.82·d_ε",
+`surface_face_tessellators.rs:85-92`); cone charts have no bound (N61 OPEN
+for cones). The faithful Theorem-A.1 primitive exists — `stage4_dt.rs:101`
+`d_of_t` — and only Stage 4 calls it.
+
+**Remediation.** Cleanup Phase 3 (with N5 / N61). Matrix 4.1-01, 4.1-26,
+`s41 F2`. **State: OPEN** (found 2026-10-16).
+
+### N94 — Boundary curves are restored as 3D analytic curves; no parametric-domain (p-)curves (matrix M-7)
+
+**Paper.** §4.4.2 (`:581-594`, right column): "the boundary curves can then
+be easily collected and mapped back to the parametric surfaces by fitting
+the curve in the parametric domain"; results are "parameter surfaces and
+their boundary curves in the parametric domain".
+
+**Implementation.** Stage 6 emits 3D analytic curves (`Circle`, `Ellipse`,
+`Hyperbola`, `SurfacePair`, …) and coalesces them in four passes; kernel-v2's
+B-Rep carries no p-curves at all.
+
+**Case for keeping (PROPOSED).** Every surface in scope (D14, analytic
+primitives) has a closed-form inverse parameterization, so a p-curve is
+DERIVABLE from the 3D curve wherever a consumer needs one (kernel-v2's
+charts do exactly that); the paper fits p-curves because its NURBS
+surfaces have no such inverse. The case stands or falls with D14, itself
+DELEGATED. Matrix 4.4.2 rows, `s44 F7`.
+
+**State: PROPOSED** (found 2026-10-16; awaits a prose sign-off request with
+D14 — A15.7).
