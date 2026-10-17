@@ -478,6 +478,14 @@ Do NOT skip to lower-priority items because they are easier.
    STOPs on P0015 / P0029), a worklist for matrix M-1 / M-2 / M-3, not
    regressions to chase back (`docs/yang_tail_triage.md` §"the loud
    ceiling").
+   **2026-10-17: the matrix catch-up and F-2 / F-3.** The ledger gained
+   N80–N94 (debt 47 → 64, all of it pre-existing and uncounted; N80, the
+   classify-before-update ORDER, has its design spec
+   `specs/yang_442_classify_after_update.md`). A §4.4.1 patch whose cycles
+   cross in its chart and every §4.5.3 exit now name the faces C_p
+   traverses (triggers T3, T7). **Canonical corpus 349C / 0W / 19E / 5EE /
+   1T** — R0044 is CORRECT alone in 1194 s, past the 900 s budget: the cost
+   of the whole-op recompute (matrix M-1), the next work item.
    **The open ERROR tail is P0005, P0015, P0020, P0029, P0045, P0056,
    P0061, R0049, R0070, F0064, F0067**
    (seeds 4–5; P0001–P0041 otherwise CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness

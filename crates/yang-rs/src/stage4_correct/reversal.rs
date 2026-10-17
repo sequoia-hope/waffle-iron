@@ -35,15 +35,21 @@ pub(crate) fn sweep_reversed_intersections(
     // either makes progress by collapsing ≥1 triangle or terminates).
     let max_passes = mesh.tris.len() + 1;
     let mut passes = 0usize;
+    // The reversed point of the latest removal: a sweep that cannot reach a
+    // fixed point names it, so the loop has faces to refine (matrix F-3).
+    let mut last_pr = u32::MAX;
     loop {
         passes += 1;
         if passes > max_passes {
-            // Could not reach a fixed point — genuine §4.5.2 territory.
+            // Could not reach a fixed point — genuine §4.5.2 territory. The
+            // Stage-4 wrapper records the faces at `last_pr` (T1).
             return Err(YangError::stage4_region_invalid(
-                u32::MAX,
+                last_pr,
                 Stage4InvalidReason::LocalRefinementRequired,
             ));
         }
+        // Reversals this pass leaves in place at the 2·d_ε gate below.
+        let mut refused: Vec<(u32, u32, f64)> = Vec::new();
 
         // Recompute Phase A so the loops reflect any prior collapse (spec §4.5.3
         // step 3 — re-sweep on fresh loops, never stale ones).
@@ -277,8 +283,11 @@ pub(crate) fn sweep_reversed_intersections(
                     // the two bands — derived, not widening). A LARGER
                     // excursion is not a resolution artifact but wrong
                     // topology (e.g. an unsupported Stage-0 crossing) — leave
-                    // the reversal for the downstream validation to reject
-                    // loudly (P9; pinned by `annular_cap_hole_crossing_stays_loud`).
+                    // the reversal in place and, at the fixed point, record it
+                    // as a T7 site naming its faces, so the §4.5.2 loop
+                    // refines it and a survivor STOPs loudly at the ceiling
+                    // (P9; pinned by `annular_cap_hole_crossing_stays_loud`;
+                    // matrix F-3 — until 2026-10-17 it left silently).
                     let pv = mesh.verts[victim as usize].as_array();
                     let ps = mesh.verts[survivor as usize].as_array();
                     let d = [pv[0] - ps[0], pv[1] - ps[1], pv[2] - ps[2]];
@@ -291,6 +300,7 @@ pub(crate) fn sweep_reversed_intersections(
                                 2.0 * d_eps
                             );
                         }
+                        refused.push((p_r, survivor, dist));
                         continue;
                     }
                     (victim, survivor)
@@ -312,7 +322,13 @@ pub(crate) fn sweep_reversed_intersections(
                 let dropped = collapse_vertex(mesh, attribution, victim, survivor);
                 if dropped == 0 {
                     // Nothing collapsed ⇒ cannot make progress on this
-                    // reversal. LOUD STOP.
+                    // reversal. LOUD STOP, naming the faces at the site (T7).
+                    crate::boolean::failures::record_reversal_unresolved(
+                        mesh,
+                        attribution,
+                        &[p_r, victim, survivor],
+                        format!("v{p_r} reversal on edge {key_n:?}: removal made no progress"),
+                    );
                     return Err(YangError::Stage4ReversalUnresolved {
                         edge: key_n,
                         vertex: p_r,
@@ -320,12 +336,28 @@ pub(crate) fn sweep_reversed_intersections(
                 }
                 collapsed_any = true;
                 acted = true;
+                last_pr = p_r;
                 break 'outer;
             }
         }
 
         if !acted {
-            // Fixed point: no reversal remains.
+            // Fixed point: no removable reversal remains. A reversal the
+            // 2·d_ε gate left in place is not a resolution artifact this
+            // sweep may remove; it is a failure the §4.5.2 loop refines
+            // (T7), never a silent survivor (matrix F-3).
+            for &(p_r, survivor, dist) in &refused {
+                crate::boolean::failures::record_reversal_unresolved(
+                    mesh,
+                    attribution,
+                    &[p_r, survivor],
+                    format!(
+                        "v{p_r} reversal left in place: removal toward v{survivor} \
+                         moves {dist:.3e} > 2·d_eps {:.3e}",
+                        2.0 * d_eps
+                    ),
+                );
+            }
             return Ok(collapsed_any);
         }
     }

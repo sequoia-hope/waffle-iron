@@ -480,10 +480,17 @@ built. (2) The Fig. 11(c) empty-loop insert (`:559-560`, `:564-567`) is
 MISSING: its one implementation was deleted in Phase 0 as "subsumed by d(T)
 seeding", but that seeding fires only on curved `ChordDegradation`; loop
 interiors are covered only because the Stage-2 arrangement already
-triangulates them. (3) A refused patch is SILENT — `update_patches`
-`continue`s on every refusal and maps an `apply_rebuild_batch` error to 0 —
-where spec 2b §3 says a refusal records a §4.5.2 failure site (matrix F-2,
-the next fix). WHERE the update runs (on the kept submesh, after
+triangulates them. (3) A refused patch was SILENT — `update_patches`
+`continue`d on every refusal and maps an `apply_rebuild_batch` error to 0 —
+where spec 2b §3 says a refusal records a §4.5.2 failure site (matrix F-2).
+**Fixed 2026-10-17** for the one class that is a failure: a CDT
+`TriangulationFailed` (the patch's cycles cross in its chart, §4.5.4)
+records a T3 site naming the faces at every vertex of the patch's
+intersection edges (the surfaces C_p traverses — the patch's own face alone
+did not converge, R0011 / R0074). The other refusals are this entry's open
+capability gaps (unsupported chart, d(T) budget, degenerate or coincident
+input). Corpus 349C / 0W / 19E / 5EE / 1T — R0044 CORRECT in 1194 s alone,
+past the 900 s budget: the M-1 cost (triage §"2026-10-17 (F-2, F-3)"). WHERE the update runs (on the kept submesh, after
 classification) is N80; that it runs in three places is N81.
 
 **Update (2026-10-16) — the per-patch re-CDT is LIVE (cleanup Phase 2b
@@ -2306,6 +2313,16 @@ incl. `s453_paper_order_removes_p_r_when_no_next_point_resolves`).
 method; the corridor-budget tolerance is a design decision with the provable
 first-order rationale above. No user sign-off outstanding (strengthening
 direction; identical to N24's posture).
+
+**Amendment 2026-10-17 (matrix F-3 — the sweep's exits name faces).** The
+2·d_ε collapse gate (no paper basis, matrix 4.5.3-13) left a refused
+reversal in place SILENTLY; at the sweep's fixed point it now records a T7
+`ReversalUnresolved` site naming the faces at p_r and its survivor, so the
+§4.5.2 loop refines it and a survivor STOPs at the ceiling. A removal that
+drops nothing records T7 before its `Stage4ReversalUnresolved` STOP; the
+`max_passes` STOP names the last reversed point instead of `u32::MAX`. The
+gate itself stays (DELEGATED with this entry). Corpus: T7 fired on F0064
+only (already ERROR); no CORRECT case moved.
 
 ### N30 — Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves)
 
@@ -6330,7 +6347,11 @@ computes Cherchi 2022's labels with the arrangement; `boolean_once` keeps
 the op's triangles at step (3) (`boolean.rs:2135` `la.keep_set(op)`),
 compacts the kept submesh, and only then runs §4.3 relocation and the
 §4.4.1 update (`stage4_construct::update_patches`) on that ONE submesh.
-Classification is per arrangement CELL, not per patch.
+Classification is per Cherchi PATCH — cut by the RAW mesh-intersection
+curves before any optimization, one exact ray per patch, on a soup dropped
+once the arrangement is built — not per patch of the optimized curves
+(corrected 2026-10-17 by the design survey; first written "per arrangement
+CELL").
 
 **Consequences.** (1) "r_A = r_B = r" cannot be two meshes sharing one
 point: after the keep the two operands' triangles along a curve are one
@@ -6345,9 +6366,13 @@ Stage 4 operates on a classified submesh the paper never has.
 **Ledger state before this entry.** N2's "trusts the sidecar-trimmed mesh"
 described the order without recording it as a deviation.
 
-**Remediation.** A design spec (classify after the update) before cleanup
-Phase 2b widens further — a pipeline restructure, not an increment; N81's
-three §4.4.1 sites and N68 depend on it. Matrix: pipeline-order section
+**Remediation.** Design spec `specs/yang_442_classify_after_update.md`
+(2026-10-17): the order is observable only where a pass changes the patch
+structure — the Case-IV rule-out, a loop-deleting §4.5.3 collapse, a
+relocation across a third surface — so I1 carries the labels through Stage 4
+(byte-identical), I3 runs Stage 4 on the full arrangement and keeps after
+it, I2 lands the rule-out with §4.5.2 locality. N81's three §4.4.1 sites and
+N68 depend on it. Matrix: pipeline-order section
 steps 4–6, `s44 F1`, `s43 F2`.
 
 **State: OPEN** (found 2026-10-16; remediation: the O-1 design spec).

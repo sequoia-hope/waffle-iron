@@ -18,7 +18,7 @@
 //! Phase 1b landed the record; Phase 1c's `boolean::refine_loop` reads it
 //! through [`failures`] and refines [`region`] (spec §6).
 
-use crate::brep::{BRep, InputId, TriangleAttributionMap};
+use crate::brep::{BRep, InputId, TriangleAttribution, TriangleAttributionMap};
 use crate::stage4_correct::DomainFire;
 use crate::{Mesh, YangError};
 use std::collections::BTreeSet;
@@ -47,6 +47,12 @@ pub(crate) enum FailureTrigger {
     /// (`shell_contact::contact_pairs`), joined by the arrangement nowhere
     /// in the two triangles' one-rings: the mesh missed a real intersection.
     MissedIntersection,
+    /// T7 — §4.5.3 `:742-751`: a reversed point the sweep could not remove
+    /// (the reversal outlives the sweep's fixed point, or its removal made
+    /// no progress). The paper's reversals are resolution artifacts; the
+    /// remedy for one that persists is §4.5.2 refinement of its curve's
+    /// faces.
+    ReversalUnresolved,
 }
 
 /// One failure site: what fired and the input faces it names. `faces` may be
@@ -174,19 +180,50 @@ pub(crate) fn faces_at_vertex(
     attribution: &TriangleAttributionMap,
     v: u32,
 ) -> Vec<(InputId, u32)> {
+    faces_at_vertices(mesh, &attribution.attributions, &[v])
+}
+
+/// The distinct input faces of every live triangle incident to any of `vs`,
+/// in `(input, face)` order.
+pub(crate) fn faces_at_vertices(
+    mesh: &Mesh,
+    attributions: &[Option<TriangleAttribution>],
+    vs: &[u32],
+) -> Vec<(InputId, u32)> {
     // Keyed `(is_b, face)` so operand A's faces list first.
     let mut out: BTreeSet<(bool, u32)> = BTreeSet::new();
     for (ti, tri) in mesh.tris.iter().enumerate() {
-        if !tri.contains(&v) {
+        if !vs.iter().any(|v| tri.contains(v)) {
             continue;
         }
-        if let Some(Some(at)) = attribution.attributions.get(ti) {
+        if let Some(Some(at)) = attributions.get(ti) {
             out.insert((matches!(at.input, InputId::B), at.face));
         }
     }
     out.into_iter()
         .map(|(is_b, f)| (if is_b { InputId::B } else { InputId::A }, f))
         .collect()
+}
+
+/// T7 producer: a §4.5.3 reversal the sweep could not remove names the
+/// faces at its reversed point `p_r` and at the point it would have joined —
+/// the curve's patches on both sides, which §4.5.2 refines.
+pub(crate) fn record_reversal_unresolved(
+    mesh: &Mesh,
+    attributions: &[Option<TriangleAttribution>],
+    points: &[u32],
+    detail: String,
+) {
+    let live: Vec<u32> = points
+        .iter()
+        .copied()
+        .filter(|&v| (v as usize) < mesh.verts.len())
+        .collect();
+    record(FailureSite {
+        trigger: FailureTrigger::ReversalUnresolved,
+        faces: faces_at_vertices(mesh, attributions, &live),
+        detail,
+    });
 }
 
 /// T1 producer: the Stage-4 wrapper records the STOP'd vertex's incident

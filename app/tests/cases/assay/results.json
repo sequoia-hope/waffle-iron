@@ -2,7 +2,7 @@
   "errored": 19,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 350,
+  "passed": 349,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 900s CPU (subprocess killed)",
       "id": "R0044",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -294,7 +294,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 1 unresolved failure site(s): BoundaryDomainFire×1; first BoundaryDomainFire on faces [(A, 5), (B, 134)]: v239 left B:134 across edge 1651 f_post=7.235e-6\")",
+      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 3 unresolved failure site(s): BoundaryDomainFire×1 IllegalIntersection×2; first IllegalIntersection on faces [(A, 0), (A, 2), (A, 5), (B, 0), (B, 128), (B, 129), (B, 130), (B, 131), (B, 132), (B, 133), (B, 134), (B, 135), (B, 136), (B, 137), (B, 138), (B, 139), (B, 140), (B, 141), (B, 142), (B, 143), (B, 144), (B, 145), (B, 146), (B, 147), (B, 148), (B, 149), (B, 150), (B, 151), (B, 152), (B, 153), (B, 154), (B, 155), (B, 156), (B, 157), (B, 158), (B, 159), (B, 160), (B, 161), (B, 162), (B, 163), (B, 164), (B, 165), (B, 166), (B, 167), (B, 168), (B, 169), (B, 170), (B, 176), (B, 177), (B, 178), (B, 179), (B, 180), (B, 181), (B, 182), (B, 183), (B, 184)]: §4.4.1 update refused patch 7: its cycles cross in the Cone { apex: Point3 { coords: [0.05662849487627047, -0.0029495337745939825, 0.11812415138693233] }, axis…\")",
       "id": "R0049",
       "status": "error"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): BoundaryDomainFire×2 MissedIntersection×2; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0064",
       "status": "error"
     },
@@ -1002,7 +1002,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): MissedIntersection×4; first MissedIntersection on faces [(A, 334), (B, 2)]: tris 6703×6236 touch within 2.001e-7 at (-1.860180e-2, -2.080162e-1, 1.751898e0); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 10: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 5 unresolved failure site(s): IllegalIntersection×1 MissedIntersection×4; first MissedIntersection on faces [(A, 334), (B, 2)]: tris 6703×6236 touch within 2.001e-7 at (-1.860180e-2, -2.080162e-1, 1.751898e0); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0067",
       "status": "error"
     },
@@ -2208,7 +2208,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 6 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×4; first BoundaryDomainFire on faces [(A, 1), (B, 0), (B, 2)]: v17 left A:1 across edge 6 f_post=1.410e0\")",
+      "detail": "1 engine error(s): cf758641-2fae-471b-abe1-444fc87c01bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 9 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×7; first IllegalIntersection on faces [(A, 1), (A, 5), (A, 6), (B, 0), (B, 2)]: §4.4.1 update refused patch 2: its cycles cross in the Plane { normal: Vector3 { coords: [-0.43999912000264, -0.55999888000336, 0.701998596004212] }, d: -166.0…\")",
       "id": "P0056",
       "status": "error"
     },
@@ -2238,7 +2238,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 7 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×5; first BoundaryDomainFire on faces [(A, 2), (A, 3), (B, 1)]: v13 left B:1 across edge 11 f_post=3.640e-2\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 9 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×7; first IllegalIntersection on faces [(A, 2), (A, 3), (B, 1), (B, 2), (B, 5)]: §4.4.1 update refused patch 13: its cycles cross in the Plane { normal: Vector3 { coords: [0.0, -1.0, 0.0] }, d: -1.06 } chart\"). Body created as standalone.",
       "id": "P0061",
       "status": "error"
     },

@@ -312,3 +312,23 @@ fn a_stage3_solving_failure_names_the_faces_on_its_edge_only_when_the_run_ends_t
     assert!(failures::failures(&ok).is_empty());
     failures::reset();
 }
+
+/// Matrix F-3: a §4.5.3 reversal the sweep cannot remove is a T7 site naming
+/// the faces at its reversed point and at the point it would have joined —
+/// never a faceless exit. Dead vertex ids name nothing.
+#[test]
+fn an_unresolved_reversal_names_the_faces_at_both_points() {
+    failures::reset();
+    let (mesh, at) = two_tris();
+    failures::record_reversal_unresolved(
+        &mesh,
+        &at.attributions,
+        &[2, 3, u32::MAX],
+        "v2 reversal left in place".to_string(),
+    );
+    let rec = failures::recorded();
+    assert_eq!(rec.len(), 1);
+    assert_eq!(rec[0].trigger, FailureTrigger::ReversalUnresolved);
+    assert_eq!(rec[0].faces, vec![(InputId::A, 3), (InputId::B, 7)]);
+    failures::reset();
+}

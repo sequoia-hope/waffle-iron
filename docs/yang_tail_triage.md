@@ -43,6 +43,46 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-17 (F-2, F-3) — the §4.4.1 crossing refusal and the §4.5.3 exits name faces; **corpus 349C / 0W / 19E / 5EE / 1T over 374**
+
+Compliance matrix F-2 and F-3 (`docs/audits/yang_2025_audit.md`): two places
+where a known failure left Stage 4 without a site the §4.5.2 loop could
+refine.
+
+- **F-2.** `update_patches` refused a patch and `continue`d. Of its refusal
+  classes (census 2026-10-17, `YANG_441_UPDATE_CENSUS`, verdict-identical
+  run: ok 13,777 · `ChordDegradation` 2,302 / 151 cases · CDT
+  `TriangulationFailed` 231 / 37 · `DegenerateInput` 77 / 38 · torus 81 /
+  20 · mixed attribution 22 · boundary changed 15 · `ThetaUnwrap` 7 ·
+  `DuplicateVertex` 4 · sphere 2) only `TriangulationFailed` — the patch's
+  cycles CROSS in its chart — is the §4.5.4 illegal-output condition (spec
+  `yang_441_phase2b_patch_update.md` §3); it now records a T3 site. The rest
+  are gaps in the update itself (N2) that refinement cannot close.
+- **F-3.** The §4.5.3 sweep's three exits: a reversal the 2·d_ε gate leaves
+  in place at the fixed point records a new trigger T7 `ReversalUnresolved`
+  (faces at p_r and the survivor); a removal that drops nothing records T7
+  before its loud STOP; the `max_passes` STOP names the last reversed point
+  instead of `u32::MAX` (T1).
+
+**The site must name the faces C_p traverses, not the patch's own face.**
+First form (own face only): 347C — R0011 and R0074 CORRECT → ERROR, the same
+four planar-patch crossings returning every iteration while operand A's
+region stayed empty (the crossing is made of intersection points both
+meshes place). Corrected form: the faces at every vertex of the patch's
+intersection edges — R0011 converges 4 → 2 → 0 sites and is adopted at ×8,
+R0074 2 → 0; both CORRECT (probes, `YANG_452_PROBE=1`).
+
+**Corpus (release, 8 jobs, 900 s; wall 1136.2 s): 349C / 0W / 19E / 5EE /
+1T** — versus 350C one move: **R0044 SUPPORTED_CORRECT → TIMEOUT**. Alone it
+is CORRECT in **1194.5 s CPU** (was ≈ 515 s): its natural run already fired
+the loop (T6 ×6, T1 ×1), and the crossing sites add one rung (adopted at ×8
+instead of ×4) — a whole-op recompute of a large region. That is the cost
+of matrix M-1 (N62: the refined op is recomputed WHOLE, not "only in the
+refined regions"), named here as M-1's first cost customer, not a
+correctness move. T7 fired on one case (F0064, already ERROR); five ERROR
+rows changed text only (F0064, F0067, P0056, P0061, R0049 — more sites
+named).
+
 ## 2026-10-16 (the loud ceiling) — the §4.5.2 loop adopts only an EMPTY failure set; **corpus 350C / 0W / 19E / 5EE / 0T over 374, eight recorded failures that used to ship now STOP**
 
 User sign-off ("yes, stop loudly at the ceiling"). Found by the

@@ -54,8 +54,8 @@ with a pin named in its `pin` column.
 | §4.3 — intersection optimization | 25 | 8 | 4 | 9 | 3 | 1 | 0 | 0 |
 | §4.4 — mesh updating, Booleans | 28 | 10 | 10 | 4 | 1 | 2 | 1 | 0 |
 | §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 6 | 5 | 3 | 0 | 6 | 1 |
-| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 18 | 8 | 4 | 0 | 1 | 4 | 0 |
-| **total** | **194** | **66** | **45** | **37** | **11** | **6** | **13** | **16** |
+| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 18 | 9 | 4 | 0 | 1 | 3 | 0 |
+| **total** | **194** | **66** | **46** | **37** | **11** | **6** | **12** | **16** |
 
 Eighteen rows said UNLEDGERED outright when the matrix was written, and the
 cross-cutting findings below added more that only show up across slices.
@@ -81,12 +81,12 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
   STOPs that had been masked. Three ERROR rows (P0045, P0056, P0061) now
   name their cause at the source instead of kernel-v2. Ledger N66
   amendment. (`5.6-03`, `4.5-10`.)
-- **F-2. A refused §4.4.1 patch update is silent.** `update_patches`
+- **F-2. RESOLVED 2026-10-17 for the crossing class** (a CDT `TriangulationFailed` records a T3 site naming the faces C_p traverses; the other refusal classes are N2's named capability gaps; corpus 349C / 1T — R0044 slow, the M-1 cost; triage §"2026-10-17 (F-2, F-3)"). **A refused §4.4.1 patch update was silent.** `update_patches`
   (`stage4_construct.rs:3178-3207`) `continue`s on every refusal and maps an
   `apply_rebuild_batch` error to 0. The Phase-2b spec says a refusal records
   a §4.5.2 failure site. 2,312 patches currently fall back to
   relocate-in-place under `ChordDegradation`. (`s44 F3`, `s44 F6`.)
-- **F-3. A §4.5.3 failure can't reach §4.5.2.** Three exits:
+- **F-3. RESOLVED 2026-10-17** (all three exits name faces: T7 `ReversalUnresolved` for the gate's survivors and a no-progress removal, the last reversed point for `max_passes`; N29 amendment). **A §4.5.3 failure couldn't reach §4.5.2.** Three exits:
   - the 2·d_ε refusal (`reversal.rs:286`) leaves the reversal in place
     without a STOP or a site;
   - `Stage4ReversalUnresolved` (`:316`) is a loud STOP but names an edge
@@ -98,7 +98,7 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
 
 ### O — order of operations
 
-- **O-1. Classification runs before optimization and mesh updating.** *Ledger N80 (2026-10-17).* The
+- **O-1. Classification runs before optimization and mesh updating.** *Ledger N80 (2026-10-17); design `specs/yang_442_classify_after_update.md`.* The
   paper trims and updates both meshes, then classifies (`:572-576`). The
   code classifies the raw arrangement (`boolean.rs:2131` `keep_set`), then
   relocates and updates only the kept submesh. See the pipeline-order
@@ -241,7 +241,7 @@ These are recommendations; nothing is adopted until the cleanup spec says so.
    bookkeeping only. U-2, U-3 and O-1 change the debt count materially.
    **Done 2026-10-17:** N80–N94 and six amendments; the ledger's debt count
    went 47 → 64; cleanup §2d lists the four new substitutes.
-2. **F-1 to F-3 come before further retirements.** (F-1 done 2026-10-16.) Each is a path where a
+2. **F-1 to F-3 come before further retirements.** (F-1 done 2026-10-16; F-2 and F-3 done 2026-10-17.) Each is a path where a
    known failure leaves without a STOP or a site. Under P10 a known failure
    must be loud or must reach the loop. F-2 and F-3 are small. F-1 needs a
    decision on what the loop does at its ceiling, and that is a sign-off
@@ -408,7 +408,7 @@ Inversions:
    - D14's code location is the deleted `crates/kernel`.
    - N9 / N10 / N11 carry the boilerplate "N5 reopens if NURBS…" in their State lines.
 6. **Fig. 2 / §3 ORDER.** `refine_loop` (`boolean.rs:621`) adopts failure sites read after assembly (T4 on the emitted body, T5 at Stage 5/6) and re-runs Stages 0–6. It is also capped (`FACE_REFINE_MAX = 8`), whereas the paper says "until all the failures are resolved" (`:309-312`). N62 is marked RESOLVED as faithful without recording either point.
-7. **§3 per-patch classification (`:318-321`, Fig. 2e) is per arrangement cell in code** (`boolean.rs:35`). This is noted in the ledger directive (item 7) as "the N2 gap", but N2's own heading does not name it.
+7. **§3 per-patch classification (`:318-321`, Fig. 2e) is per arrangement cell in code** (`boolean.rs:35`). *(Corrected 2026-10-17: per Cherchi patch cut by the RAW mesh-intersection curves — `specs/yang_442_classify_after_update.md` §2; ledger N80.)* This is noted in the ledger directive (item 7) as "the N2 gap", but N2's own heading does not name it.
 
 ## Slice: §4.2 Mesh intersection, Appendix B, §5.6
 
@@ -606,7 +606,7 @@ Code paths are relative to `crates/`. Every `path:line` below was opened during 
 |---|---|---|---|---|---|---|
 | 4.4-01 | `:595-600` | Do NOT classify B-Rep patches by casting a ray per patch. "numerical problems are easily encountered, leading to incorrect classifications" | No B-Rep-level classifier exists. Keep/discard comes from the mesh arrangement's labels: `yang-rs/src/boolean.rs:2131` `la.keep_set(op)` | FAITHFUL | — | `cherchi-rs/src/labeled_arrangement.rs::tests::keep_set_union_is_all_false_inside_tris` |
 | 4.4-02 | `:600-604` | "leverage the inherent watertightness of the mesh Boolean"; results are "mapped back to the B-Rep model using the parametric and topology correspondence" | Per-triangle provenance goes through the input face map: `yang-rs/src/boolean.rs:2644` `provenance_face_reason`. A geometric fallback runs only for lineage-less input (`boolean.rs:~2950` tiered `narrow`) | FAITHFUL | N4 (RESOLVED), N12 | — |
-| 4.4-03 | `:605-611`,`:541-543` | Relocation breaks bijectivity ("gaps or self-intersections", d_ε lost). "Therefore … we trim and update the meshes using the intersection curves" | `yang-rs/src/stage4_construct.rs:3113` `update_patches`, called at `stage4_correct.rs:13338`. It only runs when Stage 4 is entered (`stage5_topology.rs:4729` `if has_conic`). It skips patches that have no chart (`:3156`), more than one attribution (`:3166`), a refused plan (`:3178`) or a changed boundary (`:3197`) | PARTIAL: about 85 % of intersected patches; the rest keep relocate-in-place | N2 (OPEN) | — |
+| 4.4-03 | `:605-611`,`:541-543` | Relocation breaks bijectivity ("gaps or self-intersections", d_ε lost). "Therefore … we trim and update the meshes using the intersection curves" | `yang-rs/src/stage4_construct.rs:3113` `update_patches`, called at `stage4_correct.rs:13338`. It only runs when Stage 4 is entered (`stage5_topology.rs:4729` `if has_conic`). It skips patches that have no chart (`:3156`), more than one attribution (`:3166`), a refused plan (`:3178`) or a changed boundary (`:3197`) | PARTIAL: about 85 % of intersected patches; the rest keep relocate-in-place. Since 2026-10-17 a crossing-cycle refusal records a T3 site (F-2) | N2 (OPEN) | — |
 | 4.4-04 | `:543-547` | Intersection curves on the surfaces are "mapped to the meshes M_A and M_B by mapping each intersection point r to r_A ∈ M_A and r_B ∈ M_B" | The points mapped are the arrangement's MESH-crossing vertices, each relocated onto the exact curve: `stage4_correct.rs:11193` "(2) Relocate / retag every endpoint", writes e.g. `:11343` `mesh.verts[v] = proj`. The curve's own refined (§4.3.4) samples are inserted later, in the construct pass (`stage5_topology.rs:3068` `run_construct_passes`, I5 insert) | PARTIAL: relocation of mesh points, not insertion of the curve's polyline | N2, N7 | — |
 | 4.4-05 | `:547-549` | "Then we set r_A = r_B = r, so that the two polylines in the meshes coincide with the intersection curve" | Holds by construction: the Stage-2 arrangement gives both operands' kept triangles ONE shared vertex index per crossing, and relocation moves that vertex once (`stage4_correct.rs:11193`ff) | FAITHFUL | — | — |
 | 4.4-06 | `:547-549` | r_A = r_B = r applied to an isolated TANGENT point | The exact tangent point is minted into BOTH operands' Stage-1 meshes: `yang-rs/src/boolean/tangency.rs:634` `tangent_point_face_overrides`, called from `boolean/junction.rs:1348` | ORDER: runs at Stage 1, before the arrangement, instead of at §4.4.1 after optimization | N2 (2026-09-13 update) | `yang-rs/tests/tangency_pinch_split.rs::c0058_authored_geometry_union_mints_its_tangent_points` |
@@ -787,8 +787,8 @@ Note: the slice brief mentions "2·d_ε" under §4.5.3. **The paper's §4.5.3 ha
 | 4.5.3-10 | `:749-751` | "If no such next point can be found, we remove p_r and restart the correction from p_b". | `reversal.rs:407` removes p_r and collapses it onto the NEARER of p_b/p_n (reading (ii)). After every single removal, `break 'outer` (`:323`) recomputes Phase A (`:54`) and re-walks every loop from its start, which revisits p_b. | FAITHFUL | N29 | `m5_case_iv.rs::s453_paper_order_removes_p_r_when_no_next_point_resolves` |
 | 4.5.3-11 | `:728-731` ("C between S_A and S_B") | The test runs on points of ONE curve C. | `reversal.rs:467` `curve_endpoint_ranked` defines where C ends: a curve change, a run end, a pair change, or rank ≥3 surfaces or a Stage-1 mint (`:170-184`). Endpoints are never p_r (`:253`) and never removed. | SILENT | N29 | `m5_case_iv.rs::s453_collapse_protects_junction_p_n`, `::s453e_minted_junction_outranks_an_edge_carried_tie` |
 | 4.5.3-12 | `:746-751` | The removal is the only correction. | The two OVERTAKE arms skip `paper_order_removal`, name their own (victim=p_r, survivor=moved junction J), bypass the 2·d_ε gate, and skip the endpoint guard. `line_overtake_site` is at `reversal.rs:551` (call `:235`). `carried_curve_overtake_site` is at `:650` (call `:209`) and applies to a SINGLE operand's B-Rep edge, which is not an S_A∩S_B curve. | DEVIATES | N29 (amended for P0036/R0059) | `tests_unit/s453_line_overtake.rs::r0059_shaped_overtaken_points_collapse_onto_the_relocated_junction`, `tests_unit/s453_carried_curve_overtake.rs::p0036_shaped_rim_chord_vertex_collapses_onto_the_relocated_corner` |
-| 4.5.3-13 | — (no paper basis) | A removal is refused if victim→survivor > 2·d_ε. The reversal is then LEFT IN PLACE and not recorded as a failure site. | `reversal.rs:286` (`continue`). d_ε is the operand-pair max chord bound, `stage4_correct.rs:8987` and `:1587` `stage4_chord_band`. | DEVIATES | N29 ("2·d_ε collapse gate"; its line cites are stale) | `crates/yang-rs/tests/m8_holed_disc_coplanar.rs::annular_cap_hole_crossing_stays_loud` |
-| 4.5.3-14 | `:715` "ensuring no reversal occurs" | The correction terminates with no reversal. | If a collapse drops nothing: `Stage4ReversalUnresolved` (`reversal.rs:316`). If no fixed point within `max_passes`: `LocalRefinementRequired` at vertex `u32::MAX` (`:40-45`). Neither is recorded with faces: `record_relocation_divergence` fires only on `Stage4RegionInvalid` (`stage4_correct.rs:8804`), and a sentinel vertex names no face. The §4.5.2 loop therefore gets a faceless site and cannot refine. | SILENT | — | — |
+| 4.5.3-13 | — (no paper basis) | A removal is refused if victim→survivor > 2·d_ε. The reversal is then LEFT IN PLACE; since 2026-10-17 it is recorded at the fixed point as a T7 site with faces (F-3). | `reversal.rs:286` (`continue`). d_ε is the operand-pair max chord bound, `stage4_correct.rs:8987` and `:1587` `stage4_chord_band`. | DEVIATES | N29 ("2·d_ε collapse gate"; its line cites are stale) | `crates/yang-rs/tests/m8_holed_disc_coplanar.rs::annular_cap_hole_crossing_stays_loud` |
+| 4.5.3-14 | `:715` "ensuring no reversal occurs" | The correction terminates with no reversal. | If a collapse drops nothing: `Stage4ReversalUnresolved` (`reversal.rs:316`). If no fixed point within `max_passes`: `LocalRefinementRequired` at vertex `u32::MAX` (`:40-45`). Neither is recorded with faces: `record_relocation_divergence` fires only on `Stage4RegionInvalid` (`stage4_correct.rs:8804`), and a sentinel vertex names no face. The §4.5.2 loop therefore gets a faceless site and cannot refine. **Since 2026-10-17 (F-3):** the no-progress removal records T7 with faces, and `max_passes` names the last reversed point. | PARTIAL (the exits are refinable; the paper's own termination is the reversal-free fixed point) | N29 amendment | `tests_unit/s452_failure_sites.rs::an_unresolved_reversal_names_the_faces_at_both_points` |
 | 4.5.3-15 | `:745` (§5 angular tol.) | "The angular tolerance is uniformly set to 10⁻⁶ rad." | `reversal.rs:29-31` `ANG_TOL = 1e-6` widens the 45°/135° band. `pair_site_tangent` uses `PAIR_RANK_FLOOR=1e-6` (`:903` body). | FAITHFUL | — | — |
 | 4.5.4-01 | `:752-753` | Detect "self-intersections that may occur during surface discretization". | `stage1_tessellate/self_contact.rs:68` `scan_self_contacts` uses `cherchi_rs::detect_improper_contacts` (`crates/cherchi-rs/src/inputcheck.rs:281`) over the AABB octree (`crates/cherchi-rs/src/aabb_tree.rs:86`). It is driven from `stage1_tessellate.rs:440-448`. | FAITHFUL | substitute per plan (N5/N61 family, ledger table row P0037) | `tests_unit/s1_self_contact.rs::a_cylinder_skin_thinner_than_its_sagitta_reports_the_pocket_with_a_rim_demand` |
 | 4.5.4-02 | `:753-754` | Detect "new intersections that may arise during mesh updating". | The mesh-level census `boolean/failures.rs:589` `illegal_intersection_sites` is TEST-ONLY (`#[cfg_attr(not(test), allow(dead_code))]`, `:588`). Production detection runs on the EMITTED B-Rep instead: T3b `:1141` `output_curve_crossings` and T3c `:828` `output_loop_crossings`, via `:1279`. kernel-v2 then runs a render-resolution STOP (`crates/kernel-v2/src/validate/selfx.rs:53`, called at `crates/kernel-v2/src/boolean/mod.rs:544`). | ORDER | N6, N2 | `tests_unit/s454_output_loop_crossings.rs::an_arc_that_bulges_through_the_opposite_edge_is_a_crossing`, `tests_unit/s452_refinement_loop.rs::two_full_ellipses_of_two_faces_on_one_cylinder_cross_twice` |
@@ -811,7 +811,7 @@ Note: the slice brief mentions "2·d_ε" under §4.5.3. **The paper's §4.5.3 ha
 | 5.5-03 | `:962-966,1031-1033` | 24 elliptical cylinders with coplanar caps unioned in sequence; many coplanar fragments mapped to the mesh. | The n-ary plane groups (`stage0/nary.rs:53` `build_plane_groups`) handle many faces per plane. **Elliptical caps hit the `face-unsupported` wall** (`frame.rs:94`, `:1016`), so this benchmark is not reproducible. | PARTIAL | N25; ellipse **N89** item 4 (ledgered 2026-10-17) | `crates/yang-rs/tests/m8_bridge_nary_overlay.rs::narrow_bridge_union_is_genus1_frame` |
 | 5.5-04 | Fig.24(a) `:956-958`, `:1027-1028` | "generating a boundary-consistent mesh in the coplanar region". | Same mechanism as row 4.5.5-08. | FAITHFUL | N25 | `yr26_coplanar_boolean.rs::partial_overlap_union_is_watertight_16` |
 
-**Row count: 35.** FAITHFUL 18, PARTIAL 8, DEVIATES 4, ORDER 1, SILENT 4, MISSING 0, N/A 0.
+**Row count: 35.** FAITHFUL 18, PARTIAL 9, DEVIATES 4, ORDER 1, SILENT 3, MISSING 0, N/A 0 (4.5.3-14 SILENT → PARTIAL 2026-10-17, F-3).
 
 ### Code with no paper row
 

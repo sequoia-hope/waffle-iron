@@ -3175,13 +3175,57 @@ pub(crate) fn update_patches(
             tris: p.tri_indices.clone(),
             surface: info.inherited,
         };
-        let Ok(plan) = rebuild_patch_planar_bounded(
+        let plan = match rebuild_patch_planar_bounded(
             mesh,
             pi,
             &patch,
             crate::stage4_correct::stage4_chord_band(a, b),
-        ) else {
-            continue;
+        ) {
+            Ok(plan) => plan,
+            // The patch's cycles cross in its chart: the §4.5.4 illegal-output
+            // condition, not a gap in the update (spec 2b §3 "Failure is a
+            // §4.5.2 site"; matrix F-2). It names the patch's face so the loop
+            // refines it; the patch keeps its triangles meanwhile. The other
+            // refusals — an unsupported chart, the d(T) budget, degenerate or
+            // coincident input — are capability gaps of the update itself
+            // (N2), which refinement cannot close; they keep relocate-in-place
+            // and the census names them.
+            Err(ConstructError::Cdt {
+                error: CdtError::TriangulationFailed,
+                ..
+            }) => {
+                // The crossing is made of intersection-curve points, which
+                // both operands' meshes place: name the faces at every vertex
+                // of the patch's intersection edges — the patch's own face and
+                // the partner faces C_p traverses (§4.5.2 `:661-664`).
+                let on_curve: Vec<u32> = info
+                    .cycles
+                    .iter()
+                    .flatten()
+                    .filter(|&&(s, e)| is_isect(key(s, e)))
+                    .flat_map(|&(s, e)| [s, e])
+                    .collect();
+                let faces = crate::boolean::failures::faces_at_vertices(
+                    mesh,
+                    &attribution.attributions,
+                    &on_curve,
+                );
+                if !faces.is_empty() {
+                    crate::boolean::failures::record(crate::boolean::failures::FailureSite {
+                        trigger: crate::boolean::failures::FailureTrigger::IllegalIntersection,
+                        faces,
+                        detail: format!(
+                            "§4.4.1 update refused patch {pi}: its cycles cross in the {:?} chart",
+                            info.inherited
+                        )
+                        .chars()
+                        .take(160)
+                        .collect(),
+                    });
+                }
+                continue;
+            }
+            Err(_) => continue,
         };
         // §4.4.1: the update "maps boundary curves to boundary curves" —
         // the rebuilt patch's directed boundary must be the replaced

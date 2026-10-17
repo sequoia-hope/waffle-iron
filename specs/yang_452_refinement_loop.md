@@ -325,6 +325,16 @@ cylinder-pair arm retired — ×2 still bridged the pinch, ×4 reassembled
 non-manifold naming no face, ×8 is adopted. The NATURAL run's faceless
 STOP still ends the loop (no region exists yet). Corpus-neutral.
 
+**T3 from the §4.4.1 update, and T7 (2026-10-17, matrix F-2 / F-3).** A
+patch the update refuses because its cycles CROSS in its chart (CDT
+`TriangulationFailed`) records a T3 site; T7 `ReversalUnresolved` records a
+§4.5.3 reversal the sweep could not remove (the 2·d_ε gate's survivors at
+the fixed point, a removal that dropped nothing). Both name the faces at the
+vertices of the curve concerned — every face C_p traverses, on BOTH
+operands: naming the refused patch's own face alone left the partner mesh
+unrefined and R0011 / R0074 returned the same four sites every iteration
+(triage §"2026-10-17 (F-2, F-3)").
+
 ### 4. The region `region(F)`
 
 For each failure site, the faces it names on each operand, plus every face
