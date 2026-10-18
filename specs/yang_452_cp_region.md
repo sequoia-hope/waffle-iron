@@ -93,8 +93,8 @@ fires as "a vertex gliding along A:0's boundary crease, the §4.5.1 boundary
 class (M-2 / M-3)" with A:0 a planar face. A:0 is the cylinder lateral, and
 every fire was FALSE — the domain certificate read each flank-ellipse crease
 as its whole ellipse, and the steps crossed the flank planes 4 – 10 cm from
-millimetre arcs. Bounded by the arc, P0005, P0020 and R0070 convert; the
-region walk was never the question for them.)*
+millimetre arcs. Bounded by the arc, P0005, P0020 and R0070 convert (P0005's
+and R0070's real fires clearing in the loop once the false ones are gone).)*
 
 ## 4. L2 — collect every T1 (N84)
 

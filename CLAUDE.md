@@ -496,12 +496,13 @@ Do NOT skip to lower-priority items because they are easier.
    (`specs/yang_452_cp_region.md`: collected T1 failures and every T2 fire
    name the faces their C_p span traverses; corpus unchanged, active on
    four of seven worklist cases); L2 (N84, collect every T1) is the
-   region's remaining half. **2026-10-18: the loud ceiling's T2 rows were
+   region's remaining half. **2026-10-18: the loud ceiling's T2 rows held
    FALSE fires** — the §4.5 domain certificate tested a curved crease on
    its whole circle / conic, not the edge's arc, so a step crossing a gear
    flank's plane centimetres from a millimetre arc "left the face" (ledger
    N96; not the §4.5.1 boundary class an earlier reading named). Bounded by
-   the arc: **P0005, P0020, R0070 CONVERTED; canonical corpus 353C / 0W /
+   the arc (P0020's fires all false; P0005's and R0070's real fires then
+   clear in the loop): **P0005, P0020, R0070 CONVERTED; canonical corpus 353C / 0W /
    16E / 5EE / 0T** (wall 829.8 s, zero drift). Anchor a T2 fire's
    position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`)
    before reading it as a mechanism.

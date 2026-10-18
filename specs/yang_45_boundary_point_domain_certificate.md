@@ -449,4 +449,7 @@ Hyperbola the interval), or within the step's reach of an end — the
 unevaluable parameter keeps it too (the loud side). Pin
 `tests_unit/s45_boundary_domain.rs` `a_curved_crease_is_bounded_by_its_arc`.
 Corpus 353C / 0W / 16E / 5EE / 0T over 374: P0005, P0020 and R0070 — the
-loud ceiling's T2 rows — CONVERT, zero regressions, zero drift.
+loud ceiling's T2 rows — CONVERT, zero regressions, zero drift. P0020's
+fires were all off-arc; P0005 (22 off-arc crossings removed) and R0070
+(245) also carry real in-arc failures, which the §4.5.2 loop clears once
+the false ones no longer pin its failure set (ledger N96).

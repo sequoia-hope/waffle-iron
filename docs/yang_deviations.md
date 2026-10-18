@@ -5168,10 +5168,11 @@ becomes `YangError::RefinementExhausted { sites, summary }`, and a natural
 STOP stands. The STOP's detail names the trigger counts and the first
 site's faces.
 
-*(2026-10-18: three of the four T2 rows below — P0005, P0020, R0070 —
-were FALSE fires, a curved crease read as its whole conic; ledger N96,
-all three CORRECT. "Recorded failure" was the certificate's word, not a
-measured defect.)*
+*(2026-10-18, ledger N96: the certificate read a curved crease as its
+whole conic, so false off-arc fires sat among the T2 rows below and never
+cleared. Bounded by the arc, P0005, P0020 and R0070 are CORRECT: P0020's
+fires were all off-arc; P0005's and R0070's real in-arc fires clear in the
+loop once the false ones are gone.)*
 
 Measured (release, 8 jobs, 900 s): **350C / 0W / 19E / 5EE / 0T over
 374** against 358C, eight moves, every one a recorded failure that used
@@ -6600,9 +6601,10 @@ two live transits (N87) apply §4.5.1 to the class the paper excludes.
 (T2 / boundary-domain survivors, `docs/yang_tail_triage.md` §"the loud
 ceiling") is its first candidate population. Matrix 4.5-06, 4.5.1-04,
 `s451 F2`. **State: OPEN** (found 2026-10-16). *Amendment 2026-10-18:*
-three of those four T2 rows (P0005, P0020, R0070) were false fires (N96)
-and convert without this mechanism; R0049's one fire is unanchored, so the
-candidate population is unmeasured.
+three of those four T2 rows (P0005, P0020, R0070) convert without this
+mechanism once the certificate's off-arc false fires are gone (N96) —
+their real fires clear under §4.5.2 refinement; R0049's surviving fire
+is unanchored, so the candidate population is unmeasured.
 
 ### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
 
@@ -6797,9 +6799,21 @@ un-ignored and passing on the exact geometry, the ceiling pin corrected to
 `the_chained_intersect_emits_no_false_boundary_domain_fire`.
 
 **Corpus.** **353C / 0W / 16E / 5EE / 0T over 374** (release, 8 jobs, 900
-s; wall 829.8 s) — versus 350C / 0W / 19E exactly THREE moves, P0005 (×6
-fires, the first 14.7 m off its face), P0020 (×4) and R0070 (×81) ERROR →
-SUPPORTED_CORRECT, zero regressions, zero detail drift. Suites: yang-rs
+s; wall 829.8 s) — versus 350C / 0W / 19E exactly THREE moves, P0005,
+P0020 and R0070 ERROR → SUPPORTED_CORRECT, zero regressions, zero detail
+drift. What the arc bound removed, per case (a temporary print of every
+crossing that met the curve but not the arc, all ops and rungs): P0020 4 —
+its whole surviving set, the op now needs no refinement; P0005 22 and R0070
+245 — false fires the loop could never clear. Those two cases ALSO carry
+real in-arc failures (P0005's natural union 3 T2 + 3 T3; R0070's natural
+subtract 90 T2 + 21 T3 + 34 T7), which the §4.5.2 loop now clears — R0070
+at the first rung, P0005 at the third — as the paper's mechanism intends.
+Post-fix inventory (`YANG_S45_BOUNDARY_DOMAIN_LOG`, a second corpus run,
+same score, wall 957.2 s): 360 fire lines over 29 cases, from every
+Stage-4 run, natural and refined (the log's `rung=` field is the retired
+global chord knob, always 1); on a CORRECT row every one is on a run the
+loop did not adopt, and the rest are ERROR rows (R0049 3, P0056 6, P0061 4,
+P0029 4, P0015 1, F0064 2). Suites: yang-rs
 1505 / 0, kernel-v2 866 / 0, `smoke_corpus_boundary_categories` with the
 three pins flipped.
 

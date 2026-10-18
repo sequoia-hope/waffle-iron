@@ -53,7 +53,10 @@ flank-ellipse arcs. Each fire vertex lay between its two converged
 neighbours in parameter order (no §4.5.3 reversal) and crossed a flank
 plane 4.4 – 9.5 cm from that flank's 0.08 – 1.7 mm arc. `boundary_crease_crossed`
 tested a conic crease on its whole conic (`CreaseExtent::Whole`) and a
-circle crease on its whole circle; bounded by the arc, no fire remains.
+circle crease on its whole circle; bounded by the arc, no fire remains on
+P0020. On P0005 and R0070 the arc bound removes 22 / 245 off-arc crossings,
+and their real in-arc failures (3 T2 + 3 T3; 90 T2 + 21 T3 + 34 T7) clear in
+the §4.5.2 loop — at the third and first rung.
 Release, 8 jobs, 900 s, wall 829.8 s: exactly three moves, the loud
 ceiling's T2 rows P0005 (×6), P0020 (×4) and R0070 (×81); zero regressions,
 zero detail drift. kernel-v2's P0025-corner pin (`#[ignore]`d 2026-10-16 as
@@ -73,8 +76,10 @@ successfully optimized, to the nearest ones that are (p_f, p_b). Wall
 3 / 3, P0056 6 / 6; P0020, P0061, P0045 none. The loud-ceiling worklist's
 failures survive the paper's region at density 8 — their open mechanism is
 the §4.5.1 boundary class (M-2 / M-3), not the region. *(Retracted
-2026-10-18 for the T2 rows: P0005, P0020 and R0070's fires were false — a
-curved crease read as its whole conic, ledger N96 — and all three convert.)*
+2026-10-18 for the T2 rows: the certificate read a curved crease as its
+whole conic, ledger N96; with the arc bound P0005, P0020 and R0070 convert —
+P0020's fires all false, P0005's and R0070's real fires cleared by the loop
+once the false ones were gone.)*
 
 ## 2026-10-17 (Stage-2 complexity) — cherchi-rs detection and input prep at the reference's complexity (ledger N95); **corpus 350C / 0W / 19E / 5EE / 0T over 374, R0044 TIMEOUT → CORRECT, zero drift**
 
@@ -166,9 +171,10 @@ failures. Release, 8 jobs, 900 s, wall 1199.9 s.
 | P0015 | ERROR `RelocationCrossedCarrierVertex` | natural STOP, formerly masked by a refined body with failures | §4.5.2 locality |
 | P0029 | ERROR `RelocationCrossedCarrierVertex` | same | same |
 
-*(2026-10-18: the P0005, P0020 and R0070 rows' T2 fires were false — a
-curved crease tested on its whole conic, not the edge's arc, ledger N96 —
-and all three are CORRECT again; their worklist pointers were wrong.)*
+*(2026-10-18: the P0005, P0020 and R0070 rows' surviving T2 sets held
+false fires — a curved crease tested on its whole conic, not the edge's arc,
+ledger N96 — and all three are CORRECT again; their worklist pointers were
+wrong.)*
 
 Text drift, all three already ERROR, all now naming the yang-side cause:
 P0045 (`OffCurveBeyondChordBand`, was kernel-v2 torus UV-CDT), P0056 and

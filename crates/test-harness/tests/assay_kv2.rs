@@ -1022,9 +1022,9 @@ fn smoke_corpus_boundary_categories() {
         // candidate. 14 s release.
         // R0070 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
         // sign-off, ledger N66) — 81 surviving T2 boundary-domain fires.
-        // R0070 → CORRECT 2026-10-18: every one of those fires was FALSE
-        // (ledger N96) — the domain certificate read a curved crease as its
-        // whole conic, not the edge's arc; bounded by the arc, none fires.
+        // R0070 → CORRECT 2026-10-18 (ledger N96): the domain certificate
+        // read a curved crease as its whole conic, not the edge's arc, and
+        // its off-arc false fires never cleared; bounded by the arc, its 90 in-arc fires (and 21 T3, 34 T7) clear at the first §4.5.2 rung; 245 off-arc crossings no longer fire.
         ("R0070", Category::SupportedCorrect),
         // F0082 FLIPPED (2026-09-12, the planar chart scan): op 12's input
         // carried op 11's base cap with the two corners where the
@@ -1422,9 +1422,9 @@ fn smoke_corpus_boundary_categories() {
         // two live bodies (the first boss never merges); volume pinned.
         // P0005 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
         // sign-off, ledger N66) — 6 surviving T2 boundary-domain fires.
-        // P0005 → CORRECT 2026-10-18: every one of those fires was FALSE
-        // (ledger N96) — the domain certificate read a curved crease as its
-        // whole conic, not the edge's arc; bounded by the arc, none fires.
+        // P0005 → CORRECT 2026-10-18 (ledger N96): the domain certificate
+        // read a curved crease as its whole conic, not the edge's arc, and
+        // its off-arc false fires never cleared; bounded by the arc, its 3 in-arc fires (and 3 T3) clear by the third §4.5.2 rung; 22 off-arc crossings no longer fire.
         ("P0005", Category::SupportedCorrect),
         // P0006: two square bosses, a circle boss, a 10-tooth gear boss, a
         // square boss on an oblique plane. Was auto-union rejecting the
@@ -1779,9 +1779,9 @@ fn smoke_corpus_boundary_categories() {
         // true (the exact-membership oracle does not cover Intersect).
         // P0020 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
         // sign-off, ledger N66) — 4 surviving T2 boundary-domain fires.
-        // P0020 → CORRECT 2026-10-18: every one of those fires was FALSE
-        // (ledger N96) — the domain certificate read a curved crease as its
-        // whole conic, not the edge's arc; bounded by the arc, none fires.
+        // P0020 → CORRECT 2026-10-18 (ledger N96): the domain certificate
+        // read a curved crease as its whole conic, not the edge's arc, and
+        // its off-arc false fires never cleared; bounded by the arc, all four fires were off-arc — no refinement needed.
         ("P0020", Category::SupportedCorrect),
         // P0021 (3 ops: a square and two circle bosses) ⇒ auto-union
         // `SelfIntersectingBooleanOutput { penetrations: 5 }` at kernel-v2's
