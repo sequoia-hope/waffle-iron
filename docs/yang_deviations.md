@@ -195,6 +195,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
+| N96 | **RESOLVED** (2026-10-18, found and fixed the same day; corpus 353C / 0W / 16E / 5EE / 0T, P0005 / P0020 / R0070 ERROR → CORRECT, zero drift) | The §4.5 domain certificate (T2) tested a crossing of a curved crease on its WHOLE circle / conic, not on the edge's arc — steps crossing a flank plane centimetres from a millimetre arc fired as leaving the face |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -5167,6 +5168,11 @@ becomes `YangError::RefinementExhausted { sites, summary }`, and a natural
 STOP stands. The STOP's detail names the trigger counts and the first
 site's faces.
 
+*(2026-10-18: three of the four T2 rows below — P0005, P0020, R0070 —
+were FALSE fires, a curved crease read as its whole conic; ledger N96,
+all three CORRECT. "Recorded failure" was the certificate's word, not a
+measured defect.)*
+
 Measured (release, 8 jobs, 900 s): **350C / 0W / 19E / 5EE / 0T over
 374** against 358C, eight moves, every one a recorded failure that used
 to leave silently:
@@ -6593,7 +6599,10 @@ two live transits (N87) apply §4.5.1 to the class the paper excludes.
 **Remediation.** Build the interior form; the loud ceiling's worklist
 (T2 / boundary-domain survivors, `docs/yang_tail_triage.md` §"the loud
 ceiling") is its first candidate population. Matrix 4.5-06, 4.5.1-04,
-`s451 F2`. **State: OPEN** (found 2026-10-16).
+`s451 F2`. **State: OPEN** (found 2026-10-16). *Amendment 2026-10-18:*
+three of those four T2 rows (P0005, P0020, R0070) were false fires (N96)
+and convert without this mechanism; R0049's one fire is unanchored, so the
+candidate population is unmeasured.
 
 ### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
 
@@ -6735,3 +6744,63 @@ cost on the same case is Stage 4's §4.5.3 sweep: one whole-mesh
 `[s4-lap]`).
 
 **State: RESOLVED** (2026-10-17).
+
+## N96 — The §4.5 domain certificate read a curved crease as its whole conic, not the edge's arc (P0020, P0005, R0070)
+
+**Paper.** §4.5 (`refs/text/yang2025_hybrid_boolean.txt:656-659`): "we
+collect the point pairs that cannot converge to a distance of 0 **within
+their domains**". A face's domain is bounded by its boundary curves — the
+B-Rep edges, each an arc of its carrier curve between two vertices.
+
+**Implementation (until 2026-10-18).** `boundary_crease_crossed`
+(`stage4_boundary_curve.rs`), the T2 trigger, asks whether a relocation step
+crossed one of its face's creases: the step must cross the crease's divider
+(sign test) and the crossing point must lie on the crease's EXTENT. The
+module states the rule ("a crossing counts only where the step meets the
+crease itself"), and a `LineSegment` edge was tested on its segment; but a
+`Circle` edge was tested on its whole circle (radius / plane offset only)
+and an `Ellipse` / `Hyperbola` / `Parabola` edge on `CreaseExtent::Whole` —
+"its plane meets its surface in that one curve, so the plane is the
+extent". True for the curve, not for the arc. Anchored on P0020
+(2026-10-18, `YANG_S45_BOUNDARY_DOMAIN=census` plus a temporary dump): the
+second intersect's four fires all named A:0, the CYLINDER lateral of a
+circle-boss ∩ 12-tooth-gear body, bounded by 226 short ellipse arcs where
+the gear's oblique flank planes cut it. Each fire's step crossed a flank
+plane near the far side of that plane's ellipse — 4.4 to 9.5 cm from an arc
+0.08 to 1.7 mm long — and every fire of every §4.5.2 rung (eight, on eight
+different vertices and arcs) was of that kind. No vertex left A:0. The loop
+refined them to the ceiling and, since the loud ceiling (N66 amendment
+2026-10-16), STOPped. The §4.5.3 sweep had seen no reversal there (the
+fire vertex lay between its two converged neighbours in parameter order).
+
+This retracts two readings recorded 2026-10-16/17: P0020's fires are not
+"a vertex gliding along A:0's boundary crease, the §4.5.1 boundary class"
+(`specs/yang_452_cp_region.md` §3, triage "C_p region, L1"; A:0 is not a
+planar face either), and the kernel-v2 P0025-corner pin's fire was not the
+"missing §4.5.1 interior truncation" (matrix M-2) its `#[ignore]` named.
+
+**Fix.** A curved crease carries its arc (`CreaseArc { curve, p0, p1 }`,
+`CreaseExtent::Circle { arc }`, `CreaseExtent::Conic { arc }`), `None` for a
+closed edge (`start == end`, the whole curve bounds the face). The crossing
+must lie on the arc, or within the step's reach (travel + band, the
+`Segment` rule's tolerance) of one of its ends. The parameter is
+`conic_param` in the frame Stage 1 builds the arc in (a Circle / Ellipse arc
+runs counter-clockwise about the normal from `start` to `end`, a Hyperbola
+arc is the parameter interval); an unevaluable parameter or a missing
+endpoint keeps the whole curve — the loud side. Parabola edges never pass
+Stage 1 (`loop_geometry.rs` rejects them). Pins:
+`tests_unit/s45_boundary_domain.rs`
+`a_curved_crease_is_bounded_by_its_arc` (ellipse arc, closed ellipse, circle
+arc; red-verified — with the arc test forced true it fails on the antipodal
+crossing); kernel-v2 `s4_ellipse_pair_corner_chain`: the corner pin
+un-ignored and passing on the exact geometry, the ceiling pin corrected to
+`the_chained_intersect_emits_no_false_boundary_domain_fire`.
+
+**Corpus.** **353C / 0W / 16E / 5EE / 0T over 374** (release, 8 jobs, 900
+s; wall 829.8 s) — versus 350C / 0W / 19E exactly THREE moves, P0005 (×6
+fires, the first 14.7 m off its face), P0020 (×4) and R0070 (×81) ERROR →
+SUPPORTED_CORRECT, zero regressions, zero detail drift. Suites: yang-rs
+1505 / 0, kernel-v2 866 / 0, `smoke_corpus_boundary_categories` with the
+three pins flipped.
+
+**State: RESOLVED** (2026-10-18, found and fixed the same day).

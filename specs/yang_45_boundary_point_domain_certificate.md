@@ -428,3 +428,25 @@ copies whose normals differ in sense — and is now sense-free
 `specs/yang_451_corner_transit.md` §3ak. Corpus byte-identical (340C / 0W /
 19E / 5EE / 0T over 364).
 
+
+## 11. A curved crease is bounded by its ARC (2026-10-18, P0020; ledger N96)
+
+§3's extent test — "a crossing counts only where the step meets the crease
+itself" — was built for `LineSegment` edges (the segment) and stopped at the
+CURVE for the others: a `Circle` edge was read as its whole circle, a conic
+edge as `CreaseExtent::Whole`. A face bounded by short arcs of long curves
+then fires wherever a step crosses the curve's plane near the surface. P0020
+is that face: the cylinder lateral of a circle boss ∩ 12-tooth gear, bounded
+by 226 flank-ellipse arcs; its four fires (and the four rungs' eight) each
+crossed a flank plane 4.4 – 9.5 cm from a 0.08 – 1.7 mm arc. No vertex left
+the face.
+
+The extent of a curved crease is now the edge's arc (`CreaseArc`): the
+crossing must lie on it, in the parameter frame Stage 1 builds the arc in
+(`conic_param`; Circle / Ellipse counter-clockwise from `start` to `end`,
+Hyperbola the interval), or within the step's reach of an end — the
+`Segment` rule's tolerance. A closed edge keeps the whole curve; an
+unevaluable parameter keeps it too (the loud side). Pin
+`tests_unit/s45_boundary_domain.rs` `a_curved_crease_is_bounded_by_its_arc`.
+Corpus 353C / 0W / 16E / 5EE / 0T over 374: P0005, P0020 and R0070 — the
+loud ceiling's T2 rows — CONVERT, zero regressions, zero drift.

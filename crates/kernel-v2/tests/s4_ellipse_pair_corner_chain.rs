@@ -176,7 +176,6 @@ fn slab_dists(p: [f64; 3]) -> [f64; 2] {
 }
 
 #[test]
-#[ignore = "loud ceiling 2026-10-16: one T2 boundary-domain fire (v left A:3 across edge 34) shrinks at chord rate under refinement (1.7e-1, 3.8e-2, 1.0e-2) and Stage 1 cannot refine past x4 — the missing §4.5.1 interior truncation, compliance matrix M-2; the loud STOP is pinned below"]
 fn an_oblique_slab_through_a_two_boss_crease_resolves_coplanar_ellipse_corners() {
     let mut a = BrepArena::new();
     let ca = cyl_a(&mut a);
@@ -242,24 +241,25 @@ fn an_oblique_slab_through_a_two_boss_crease_resolves_coplanar_ellipse_corners()
     );
 }
 
-/// The §4.5.2 loop's ceiling is LOUD (user sign-off 2026-10-16, ledger N66):
-/// the same chained operation leaves one boundary-domain fire the loop
-/// cannot clear (it shrinks at chord rate and Stage 1 cannot refine past
-/// ×4), so the intersect STOPs with the surviving site named instead of
-/// shipping the body. When §4.5.1's interior truncation lands (compliance
-/// matrix M-2) this flips back and the corner pin above un-ignores.
+/// The chained intersect completes without the §4.5.2 loop. Between 2026-10-16
+/// and 2026-10-18 it STOPped at the loop's ceiling (`RefinementExhausted`, one
+/// T2 boundary-domain fire "v left A:3 across edge 34" that shrank at chord
+/// rate) and this pin asserted that STOP. The fire was false (ledger N96): the
+/// domain certificate read a curved crease as its WHOLE conic, not the edge's
+/// arc, so a step crossing the conic's plane far from the arc counted as
+/// leaving the face. With the crease bounded by its arc the run emits no fire,
+/// and the corner pin above holds on the exact geometry.
 #[test]
-fn a_surviving_boundary_domain_fire_stops_at_the_ceiling() {
+fn the_chained_intersect_emits_no_false_boundary_domain_fire() {
     let mut a = BrepArena::new();
     let ca = cyl_a(&mut a);
     let cb = cyl_b(&mut a);
     let bosses = boolean_op(&mut a, ca, cb, BoolOp::Union).expect("A ∪ B");
     let s = slab(&mut a);
-    let err = boolean_op(&mut a, bosses, s, BoolOp::Intersect)
-        .expect_err("the surviving T2 fire must STOP, not ship");
-    let text = format!("{err:?}");
+    let out = boolean_op(&mut a, bosses, s, BoolOp::Intersect);
     assert!(
-        text.contains("local refinement ended with") && text.contains("BoundaryDomainFire"),
-        "the STOP names the loop's ceiling and its surviving trigger: {text}"
+        out.is_ok(),
+        "no surviving failure site, so no ceiling STOP: {:?}",
+        out.err()
     );
 }

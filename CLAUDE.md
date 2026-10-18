@@ -495,12 +495,18 @@ Do NOT skip to lower-priority items because they are easier.
    before designing for its cost. **M-1's region (L1) LANDED the same day**
    (`specs/yang_452_cp_region.md`: collected T1 failures and every T2 fire
    name the faces their C_p span traverses; corpus unchanged, active on
-   four of seven worklist cases). The loud-ceiling worklist survives the
-   paper's region at density 8 — its open mechanism is the §4.5.1
-   boundary class (matrix M-2 / M-3, ledger N90 / N91); L2 (N84, collect
-   every T1) is the region's remaining half.
-   **The open ERROR tail is P0005, P0015, P0020, P0029, P0045, P0056,
-   P0061, R0049, R0070, F0064, F0067**
+   four of seven worklist cases); L2 (N84, collect every T1) is the
+   region's remaining half. **2026-10-18: the loud ceiling's T2 rows were
+   FALSE fires** — the §4.5 domain certificate tested a curved crease on
+   its whole circle / conic, not the edge's arc, so a step crossing a gear
+   flank's plane centimetres from a millimetre arc "left the face" (ledger
+   N96; not the §4.5.1 boundary class an earlier reading named). Bounded by
+   the arc: **P0005, P0020, R0070 CONVERTED; canonical corpus 353C / 0W /
+   16E / 5EE / 0T** (wall 829.8 s, zero drift). Anchor a T2 fire's
+   position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`)
+   before reading it as a mechanism.
+   **The open ERROR tail is P0015, P0029, P0045, P0056, P0061, R0049,
+   F0064, F0067**
    (seeds 4–5; P0001–P0041 otherwise CONVERTED except P0026, ADJUDICATED). Take them in order of cheapness
    and anchor each against its lineage first (`target/prospect/seed-{4,5}/
    candidates/`, the minima under `target/prospect/seed-{4,5}/findings/`;

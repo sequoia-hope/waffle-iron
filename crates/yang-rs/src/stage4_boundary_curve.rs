@@ -1151,11 +1151,72 @@ pub(crate) fn on_crease(p: Point3, s0: Surface, s1: Surface) -> bool {
 pub(crate) enum CreaseExtent {
     /// A `LineSegment` edge: the segment `p0 → p1`.
     Segment { p0: Point3, p1: Point3 },
-    /// A `Circle` edge: the circle in the divider plane.
-    Circle { center: Point3, radius: f64 },
+    /// A `Circle` edge: the circle in the divider plane, bounded to the
+    /// edge's own arc when the edge is one (`arc`, `None` for a full circle).
+    Circle {
+        center: Point3,
+        radius: f64,
+        arc: Option<CreaseArc>,
+    },
     /// A conic edge (ellipse / parabola / hyperbola): its plane meets its
-    /// surface in that one curve, so the plane is the extent.
-    Whole,
+    /// surface in that one curve, so the plane is the extent ALONG the curve
+    /// — bounded to the edge's own arc (`arc`, `None` for a closed conic).
+    Conic { arc: Option<CreaseArc> },
+}
+
+/// The arc of a curved B-Rep edge between its endpoints — what bounds a face,
+/// as opposed to the whole curve the arc lies on (P0020, 2026-10-18: a 1.6 mm
+/// flank-ellipse arc of a gear-trimmed cylinder face read as the whole
+/// ellipse, so steps crossing the flank plane 4 cm away fired as leaving the
+/// face). The parameter is [`crate::stage4_correct::conic_param`], the frame
+/// Stage 1 builds the arc in: a `Circle` / `Ellipse` arc runs counter-clockwise
+/// about the curve's normal from `p0` to `p1`
+/// (`stage1_tessellate.rs`, "Minor-arc chain" / "ARC chain"), a `Hyperbola`
+/// arc is the parameter interval between them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct CreaseArc {
+    pub curve: Curve,
+    pub p0: Point3,
+    pub p1: Point3,
+}
+
+impl CreaseArc {
+    /// Does `x` (a point on the arc's curve, to the caller's tolerance) lie on
+    /// the arc, or within `tol` of one of its ends? A parameter that cannot be
+    /// evaluated answers `true` — the whole curve, the certificate's loud side.
+    pub fn contains(&self, x: Point3, tol: f64) -> bool {
+        let near = |q: Point3| {
+            let (a, b) = (x.as_array(), q.as_array());
+            ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt() <= tol
+        };
+        if near(self.p0) || near(self.p1) {
+            return true;
+        }
+        let param = |q: Point3| crate::stage4_correct::conic_param(&self.curve, q);
+        let (Some(t0), Some(t1), Some(t)) = (param(self.p0), param(self.p1), param(x)) else {
+            return true;
+        };
+        if crate::stage4_correct::conic_param_periodic(&self.curve) {
+            let two_pi = 2.0 * std::f64::consts::PI;
+            (t - t0).rem_euclid(two_pi) <= (t1 - t0).rem_euclid(two_pi)
+        } else {
+            (t0.min(t1)..=t0.max(t1)).contains(&t)
+        }
+    }
+}
+
+/// The arc of a curved edge: `None` for a closed edge (`start == end`) — the
+/// whole curve bounds the face — and for an endpoint the vertex table does not
+/// hold (the whole curve again: the loud side, never a dropped crease).
+fn crease_arc(e: &crate::BRepEdge, verts: &[crate::BRepVertex]) -> Option<CreaseArc> {
+    if e.start == e.end {
+        return None;
+    }
+    Some(CreaseArc {
+        curve: e.curve,
+        p0: verts.get(e.start as usize)?.point,
+        p1: verts.get(e.end as usize)?.point,
+    })
 }
 
 /// One crease of one FACE: the plane a step must not cross, the face's own
@@ -1335,15 +1396,25 @@ pub(crate) fn crease_divider(
             // A planar face containing the circle: the radial divider
             // (`crease_divider_for`); every other face: the circle's plane.
             let divider = crease_divider_for(&e.curve, s_own, s_other)?;
-            Some((divider, CreaseExtent::Circle { center, radius }))
+            Some((
+                divider,
+                CreaseExtent::Circle {
+                    center,
+                    radius,
+                    arc: crease_arc(e, verts),
+                },
+            ))
         }
         // A planar face containing the conic: the crease's OTHER surface (the
         // cylinder or cone it is a section of — the conic's plane is the
         // face's own and divides nothing); every other face: the conic's
-        // plane. One conic per plane section, so the plane is the extent.
+        // plane. One conic per plane section, so the plane is the extent
+        // along the curve, bounded to the edge's arc.
         Curve::Ellipse { .. } | Curve::Hyperbola { .. } | Curve::Parabola { .. } => Some((
             crease_divider_for(&e.curve, s_own, s_other)?,
-            CreaseExtent::Whole,
+            CreaseExtent::Conic {
+                arc: crease_arc(e, verts),
+            },
         )),
         Curve::SurfacePair { .. } => None,
     }
@@ -1427,10 +1498,14 @@ pub(crate) fn boundary_crease_crossed(
                     dist <= tol
                 }
             }
-            CreaseExtent::Circle { center, radius } => {
+            CreaseExtent::Circle {
+                center,
+                radius,
+                arc,
+            } => {
                 let cc = center.as_array();
                 let w = [x[0] - cc[0], x[1] - cc[1], x[2] - cc[2]];
-                match c.divider {
+                (match c.divider {
                     // The circle's plane divides a curved face: the crossing
                     // must sit at the circle's RADIUS within that plane.
                     Surface::Plane { normal, .. } => {
@@ -1448,9 +1523,11 @@ pub(crate) fn boundary_crease_crossed(
                         h.abs() <= tol
                     }
                     _ => continue,
-                }
+                }) && arc.is_none_or(|arc| arc.contains(Point3::new(x[0], x[1], x[2]), tol))
             }
-            CreaseExtent::Whole => true,
+            CreaseExtent::Conic { arc } => {
+                arc.is_none_or(|arc| arc.contains(Point3::new(x[0], x[1], x[2]), tol))
+            }
         };
         if !on_extent {
             continue;

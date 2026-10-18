@@ -329,3 +329,160 @@ fn crease_index_pairs_neighbours_by_vertex_pair_and_skips_same_surface_splits() 
     assert!(n[0].abs() < 1e-12 && n[2].abs() < 1e-12 && (n[1].abs() - 1.0).abs() < 1e-12);
     assert!(d.abs() < 1e-12);
 }
+
+/// A curved crease bounds its face only along the edge's own ARC (P0020,
+/// 2026-10-18): a gear-trimmed cylinder face is bounded by 1.6 mm flank
+/// ellipse arcs, and steps crossing a flank plane 4 cm away — on the far part
+/// of the same ellipse — had fired as leaving the face (the extent was the
+/// whole ellipse). A step across the plane at the arc fires; the same step at
+/// the antipodal point of the ellipse does not; a CLOSED edge keeps the whole
+/// curve.
+#[test]
+fn a_curved_crease_is_bounded_by_its_arc() {
+    let cyl = Surface::Cylinder {
+        axis_point: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+    };
+    // The flank plane y = 0.5·x meets the cylinder in an ellipse centred on
+    // the axis: major axis along (1, 0.5, 0), minor along z.
+    let k = 0.5_f64;
+    let nl = (1.0 + k * k).sqrt();
+    let n = Vector3::new(-k / nl, 1.0 / nl, 0.0);
+    let flank = Surface::Plane { normal: n, d: 0.0 };
+    let (major_axis, major_radius, minor_radius) = (Vector3::new(1.0, k, 0.0), nl, 1.0);
+    let ellipse = Curve::Ellipse {
+        center: p(0.0, 0.0, 0.0),
+        normal: n,
+        major_axis,
+        major_radius,
+        minor_radius,
+    };
+    let at = |t: f64| {
+        crate::geom::ellipse_point(
+            p(0.0, 0.0, 0.0),
+            n,
+            major_axis,
+            major_radius,
+            minor_radius,
+            t,
+        )
+    };
+    let (t0, t1) = (0.3_f64, 0.32_f64);
+    let verts = vec![BRepVertex { point: at(t0) }, BRepVertex { point: at(t1) }];
+    let crease = |e: BRepEdge, verts: &[BRepVertex]| {
+        let (divider, extent) = crease_divider(&e, verts, cyl, Some(flank)).expect("conic crease");
+        FaceCrease {
+            divider,
+            s_own: cyl,
+            s_other: Some(flank),
+            extent,
+            edge: 0,
+        }
+    };
+    let arc = crease(
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: ellipse,
+        },
+        &verts,
+    );
+    assert!(
+        matches!(arc.extent, CreaseExtent::Conic { arc: Some(_) }),
+        "{arc:?}"
+    );
+    // A step through the flank plane at x, 1e-4 to either side of it.
+    let nn = n.as_array();
+    let step = |x: Point3| {
+        let xa = x.as_array();
+        let off = |s: f64| p(xa[0] + s * nn[0], xa[1] + s * nn[1], xa[2] + s * nn[2]);
+        (off(-1e-4), off(1e-4))
+    };
+    let (pre, post) = step(at(0.31));
+    assert!(
+        boundary_crease_crossed(pre, post, &[arc]).is_some(),
+        "a crossing on the arc fires"
+    );
+    let (pre, post) = step(at(0.31 + std::f64::consts::PI));
+    assert!(
+        boundary_crease_crossed(pre, post, &[arc]).is_none(),
+        "a crossing of the same ellipse off the arc is not a crossing of the face's boundary"
+    );
+    // Just past the arc's end, within the step's reach: still the crease.
+    let (pre, post) = step(at(t1 + 1e-5));
+    assert!(boundary_crease_crossed(pre, post, &[arc]).is_some());
+    // A closed ellipse edge bounds the face along the whole curve.
+    let closed = crease(
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: ellipse,
+        },
+        &verts,
+    );
+    let (pre, post) = step(at(0.31 + std::f64::consts::PI));
+    assert!(boundary_crease_crossed(pre, post, &[closed]).is_some());
+
+    // A circle ARC on a cylinder face (its plane y = 0 the divider): the
+    // same rule.
+    let rim = Curve::Circle {
+        center: p(0.0, 0.0, 0.0),
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        radius: 1.0,
+    };
+    let on_rim = |t: f64| {
+        let (rp, _) = crate::stage4_relocate::project_onto_circle(
+            p(t.cos(), 0.0, t.sin()),
+            p(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            1.0,
+        )
+        .expect("off axis");
+        rp
+    };
+    let rim_param = |q: Point3| crate::stage4_correct::conic_param(&rim, q).expect("on the rim");
+    let rim_verts = vec![
+        BRepVertex { point: on_rim(0.0) },
+        BRepVertex { point: on_rim(0.2) },
+    ];
+    // Orient the arc counter-clockwise (the Stage-1 convention) whichever way
+    // the frame runs: start at the endpoint the short sweep leaves from.
+    let (s0, s1) = (rim_param(rim_verts[0].point), rim_param(rim_verts[1].point));
+    let (start, end) = if (s1 - s0).rem_euclid(2.0 * std::f64::consts::PI) < std::f64::consts::PI {
+        (0, 1)
+    } else {
+        (1, 0)
+    };
+    let cap = Surface::Plane {
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        d: 0.0,
+    };
+    let (divider, extent) = crease_divider(
+        &BRepEdge {
+            start,
+            end,
+            curve: rim,
+        },
+        &rim_verts,
+        cyl,
+        Some(cap),
+    )
+    .expect("circle crease");
+    assert!(
+        matches!(extent, CreaseExtent::Circle { arc: Some(_), .. }),
+        "{extent:?}"
+    );
+    let rim_crease = FaceCrease {
+        divider,
+        s_own: cyl,
+        s_other: Some(cap),
+        extent,
+        edge: 0,
+    };
+    let across = |t: f64| (p(t.cos(), -1e-4, t.sin()), p(t.cos(), 1e-4, t.sin()));
+    let (pre, post) = across(0.1);
+    assert!(boundary_crease_crossed(pre, post, &[rim_crease]).is_some());
+    let (pre, post) = across(std::f64::consts::PI);
+    assert!(boundary_crease_crossed(pre, post, &[rim_crease]).is_none());
+}

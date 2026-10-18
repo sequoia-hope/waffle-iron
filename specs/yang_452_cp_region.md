@@ -88,9 +88,13 @@ case (spans / spans whose faces grew): R0070 215 / 149 (a run of 19 failing
 points, 3 → 17 faces), P0005 63 / 9, R0049 3 / 3, P0056 6 / 6; P0020 9 / 0,
 P0061 4 / 0, P0045 1 / 0. No worklist case converts: their failures survive
 density 8 on the paper's region. P0020's four fires each name `(A:0, B:3)`
-already, A:0 is a planar face whose ring is all of A, and the fires move
-by 1e-5 … 4e-7 per rung — a vertex gliding along A:0's boundary crease, the
-§4.5.1 boundary class (matrix M-2 / M-3, N90 / N91), not a region gap.
+already. *(Retracted 2026-10-18, ledger N96: this paragraph read P0020's
+fires as "a vertex gliding along A:0's boundary crease, the §4.5.1 boundary
+class (M-2 / M-3)" with A:0 a planar face. A:0 is the cylinder lateral, and
+every fire was FALSE — the domain certificate read each flank-ellipse crease
+as its whole ellipse, and the steps crossed the flank planes 4 – 10 cm from
+millimetre arcs. Bounded by the arc, P0005, P0020 and R0070 convert; the
+region walk was never the question for them.)*
 
 ## 4. L2 — collect every T1 (N84)
 

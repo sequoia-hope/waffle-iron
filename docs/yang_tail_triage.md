@@ -43,6 +43,25 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-18 (crease arcs) — the §4.5 domain certificate bounds a curved crease by the edge's ARC (ledger N96); **corpus 353C / 0W / 16E / 5EE / 0T over 374, P0005 / P0020 / R0070 ERROR → CORRECT**
+
+Anchored on P0020 before choosing a mechanism (`YANG_452_PROBE`,
+`YANG_S45_BOUNDARY_DOMAIN=census`, `YANG_T145_SWEEP_PROBE`, a temporary
+dump of the face's loop): the four surviving T2 fires all name A:0, the
+cylinder lateral of a circle boss ∩ 12-tooth gear, bounded by 226 short
+flank-ellipse arcs. Each fire vertex lay between its two converged
+neighbours in parameter order (no §4.5.3 reversal) and crossed a flank
+plane 4.4 – 9.5 cm from that flank's 0.08 – 1.7 mm arc. `boundary_crease_crossed`
+tested a conic crease on its whole conic (`CreaseExtent::Whole`) and a
+circle crease on its whole circle; bounded by the arc, no fire remains.
+Release, 8 jobs, 900 s, wall 829.8 s: exactly three moves, the loud
+ceiling's T2 rows P0005 (×6), P0020 (×4) and R0070 (×81); zero regressions,
+zero detail drift. kernel-v2's P0025-corner pin (`#[ignore]`d 2026-10-16 as
+"the missing §4.5.1 interior truncation") passes un-ignored. The open ERROR
+tail is now P0015, P0029, P0045, P0056, P0061, R0049, F0064, F0067 (plus
+the six C-series walls C0046 / C0107–C0109 / C0111 / C0113, P0026 and
+R0023 — 16 rows).
+
 ## 2026-10-17 (C_p region, L1) — collected T1 failures and every T2 fire name the faces their C_p span traverses; **corpus 350C / 0W / 19E / 5EE / 0T, zero moves**
 
 Spec `specs/yang_452_cp_region.md` §3 (matrix M-1's third gap): a
@@ -53,7 +72,9 @@ successfully optimized, to the nearest ones that are (p_f, p_b). Wall
 `YANG_452_PROBE`): R0070 149 of 215 fire regions grew, P0005 9 / 63, R0049
 3 / 3, P0056 6 / 6; P0020, P0061, P0045 none. The loud-ceiling worklist's
 failures survive the paper's region at density 8 — their open mechanism is
-the §4.5.1 boundary class (M-2 / M-3), not the region.
+the §4.5.1 boundary class (M-2 / M-3), not the region. *(Retracted
+2026-10-18 for the T2 rows: P0005, P0020 and R0070's fires were false — a
+curved crease read as its whole conic, ledger N96 — and all three convert.)*
 
 ## 2026-10-17 (Stage-2 complexity) — cherchi-rs detection and input prep at the reference's complexity (ledger N95); **corpus 350C / 0W / 19E / 5EE / 0T over 374, R0044 TIMEOUT → CORRECT, zero drift**
 
@@ -144,6 +165,10 @@ failures. Release, 8 jobs, 900 s, wall 1199.9 s.
 | F0067 | ERROR `RefinementExhausted` | T6 ×4 (2.0e-7 apart) | M-3 |
 | P0015 | ERROR `RelocationCrossedCarrierVertex` | natural STOP, formerly masked by a refined body with failures | §4.5.2 locality |
 | P0029 | ERROR `RelocationCrossedCarrierVertex` | same | same |
+
+*(2026-10-18: the P0005, P0020 and R0070 rows' T2 fires were false — a
+curved crease tested on its whole conic, not the edge's arc, ledger N96 —
+and all three are CORRECT again; their worklist pointers were wrong.)*
 
 Text drift, all three already ERROR, all now naming the yang-side cause:
 P0045 (`OffCurveBeyondChordBand`, was kernel-v2 torus UV-CDT), P0056 and

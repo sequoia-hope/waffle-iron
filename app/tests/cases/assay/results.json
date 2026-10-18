@@ -1,8 +1,8 @@
 {
-  "errored": 19,
+  "errored": 16,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 350,
+  "passed": 353,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -419,10 +419,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 81 unresolved failure site(s): BoundaryDomainFire×81; first BoundaryDomainFire on faces [(A, 1), (B, 1)]: v6 left A:1 across edge 76 f_post=-3.771e-6\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0070",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1901,10 +1901,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 6 unresolved failure site(s): BoundaryDomainFire×6; first BoundaryDomainFire on faces [(A, 3), (B, 0)]: v226 left A:3 across edge 242 f_post=1.471e1\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0005",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1991,10 +1991,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 08bce8a9-133b-4de5-aafe-ab4f76bae438: operation error: kernel error: boolean operation failed: kernel-v2 boolean_intersect failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 4 unresolved failure site(s): BoundaryDomainFire×4; first BoundaryDomainFire on faces [(A, 0), (B, 3)]: v196 left A:0 across edge 98 f_post=-1.460e-5\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0020",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

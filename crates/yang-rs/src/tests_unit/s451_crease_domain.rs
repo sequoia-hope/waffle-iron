@@ -3560,7 +3560,7 @@ fn the_brep_crease_index_gives_an_oblique_cap_its_cylinder_divider() {
             c.divider, lateral,
             "the cap's divider is the cylinder: {c:?}"
         );
-        assert_eq!(c.extent, CreaseExtent::Whole);
+        assert!(matches!(c.extent, CreaseExtent::Conic { .. }), "{c:?}");
     }
     // A step WITHIN the cap plane from inside the ellipse to outside it, along
     // +x where the ellipse's major axis reaches `l` from the centre.
@@ -3580,7 +3580,7 @@ fn the_brep_crease_index_gives_an_oblique_cap_its_cylinder_divider() {
         .zip(out.faces())
         .filter(|(_, f)| f.surface == lateral)
         .flat_map(|(c, _)| c.iter())
-        .filter(|c| matches!(c.extent, CreaseExtent::Whole))
+        .filter(|c| matches!(c.extent, CreaseExtent::Conic { .. }))
         .collect::<Vec<_>>();
     assert!(!lat_creases.is_empty());
     assert!(lat_creases
