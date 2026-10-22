@@ -1,8 +1,8 @@
 {
-  "errored": 16,
+  "errored": 13,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 353,
+  "passed": 356,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -293,10 +293,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 3 unresolved failure site(s): BoundaryDomainFire×1 IllegalIntersection×2; first IllegalIntersection on faces [(A, 0), (A, 2), (A, 5), (B, 0), (B, 128), (B, 129), (B, 130), (B, 131), (B, 132), (B, 133), (B, 134), (B, 135), (B, 136), (B, 137), (B, 138), (B, 139), (B, 140), (B, 141), (B, 142), (B, 143), (B, 144), (B, 145), (B, 146), (B, 147), (B, 148), (B, 149), (B, 150), (B, 151), (B, 152), (B, 153), (B, 154), (B, 155), (B, 156), (B, 157), (B, 158), (B, 159), (B, 160), (B, 161), (B, 162), (B, 163), (B, 164), (B, 165), (B, 166), (B, 167), (B, 168), (B, 169), (B, 170), (B, 176), (B, 177), (B, 178), (B, 179), (B, 180), (B, 181), (B, 182), (B, 183), (B, 184)]: §4.4.1 update refused patch 7: its cycles cross in the Cone { apex: Point3 { coords: [0.05662849487627047, -0.0029495337745939825, 0.11812415138693233] }, axis…\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0049",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1961,10 +1961,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): d848d213-03e1-4265-b19b-b44eccc60b9c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 149 is invalid: RelocationCrossedCarrierVertex\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0015",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -2045,10 +2045,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 6ec5ae89-75b2-4c2f-99f2-c0844364a04d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 98 is invalid: RelocationCrossedCarrierVertex\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "P0029",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

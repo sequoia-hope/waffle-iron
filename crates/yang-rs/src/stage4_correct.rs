@@ -3922,8 +3922,53 @@ fn stage4_relocate_and_correct_inner(
         );
     }
 
+    // §4.5.1 interior continuation (ledger N90): a cone-section step that
+    // leaves its plane face across a crease continues on the neighbouring
+    // plane (`cone_section_continue_across_crease`). Built once, only when a
+    // cone section is being relocated.
+    let cone_sections = !(vert_cone_ellipse.is_empty()
+        && vert_parabola.is_empty()
+        && vert_cone_hyperbola.is_empty());
+    let s451_patches = if cone_sections {
+        domain_census::build_patch_map(mesh, &attribution.attributions)
+    } else {
+        BTreeMap::new()
+    };
+    let s451_creases = cone_sections.then(|| {
+        [
+            crate::stage4_boundary_curve::CreaseIndex::build(brep_a),
+            crate::stage4_boundary_curve::CreaseIndex::build(brep_b),
+        ]
+    });
+    let continue_across = |v: u32,
+                           p: Point3,
+                           proj: Point3,
+                           cone: (Point3, Vector3, f64),
+                           plane: (Vector3, f64)|
+     -> Point3 {
+        let Some(idx) = &s451_creases else {
+            return proj;
+        };
+        for &(input, face) in s451_patches.get(&v).into_iter().flatten() {
+            let slot = match input {
+                InputId::A => 0,
+                InputId::B => 1,
+            };
+            let Some(creases) = idx[slot].faces.get(face as usize) else {
+                continue;
+            };
+            if let Some((q, _edge)) =
+                cone_section_continue_across_crease(p, proj, cone, plane, creases)
+            {
+                return q;
+            }
+        }
+        proj
+    };
+
     // PR-YR21: cone-ellipse relocation loop, mirroring the cylinder-ellipse loop.
-    // Closed form via the cone GENERATOR parameterization (spec §3.1). Gated
+    // §4.3.2's step on (cone, plane) (`project_onto_cone_section`, ledger N97),
+    // continued across a plane–plane crease per §4.5.1 (N90). Gated
     // against the cone's OWN chord budget `cone_d_eps` (NOT the rim-AABB `d_eps`)
     // so a tall-thin cone's residual is checked against the honest cone bound.
     for (&v, cer) in &vert_cone_ellipse {
@@ -3944,6 +3989,13 @@ fn stage4_relocate_and_correct_inner(
             cer.plane_d,
         )
         .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
+        let proj = continue_across(
+            v,
+            p,
+            proj,
+            (cer.apex, cer.axis_dir, cer.half_angle),
+            (cer.plane_n, cer.plane_d),
+        );
         // Round-trip param `t` in the stored ellipse frame so the unchanged
         // `eval_source` Ellipse arm reproduces the relocated position.
         let t = ellipse_param(
@@ -3964,11 +4016,9 @@ fn stage4_relocate_and_correct_inner(
     }
 
     // PR-YR22: cone-parabola relocation loop, mirroring the cone-ellipse loop.
-    // Closed form via the cone GENERATOR parameterization (the section TYPE does
-    // not change the relocation — `project_onto_cone_section` is type-agnostic;
-    // its `s ≤ 0` / generator-parallel guards correctly reject the out-of-scope
-    // parabola tail, which the fixture's finite arc avoids). Gated against the
-    // cone's OWN chord budget `cone_d_eps`.
+    // The same §4.3.2 step and §4.5.1 continuation (the section TYPE does not
+    // change the relocation — `project_onto_cone_section` is type-agnostic).
+    // Gated against the cone's OWN chord budget `cone_d_eps`.
     for (&v, cpr) in &vert_parabola {
         let p = mesh.verts[v as usize];
         let rho = cone_plane_residual(
@@ -3994,6 +4044,13 @@ fn stage4_relocate_and_correct_inner(
             cpr.plane_d,
         )
         .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
+        let proj = continue_across(
+            v,
+            p,
+            proj,
+            (cpr.apex, cpr.cone_axis_dir, cpr.half_angle),
+            (cpr.plane_n, cpr.plane_d),
+        );
         // Round-trip param `t` = the conjugate-axis coordinate of the parabola
         // parameterization `(proj − vertex)·(normal × axis_dir)`, so the unchanged
         // `eval_source` Parabola arm reproduces the relocated position (oracle3).
@@ -4018,10 +4075,8 @@ fn stage4_relocate_and_correct_inner(
     }
 
     // PR-YR23: cone-hyperbola relocation loop, mirroring the cone-parabola loop.
-    // Closed form via the same type-agnostic cone GENERATOR parameterization
-    // (`project_onto_cone_section`); its `s ≤ 0` / generator-parallel guards
-    // correctly reject the out-of-scope asymptote, which the fixture's finite arc
-    // avoids. Gated against the cone's OWN chord budget `cone_d_eps`.
+    // The same §4.3.2 step and §4.5.1 continuation. Gated against the cone's
+    // OWN chord budget `cone_d_eps`.
     for (&v, chr) in &vert_cone_hyperbola {
         let p = mesh.verts[v as usize];
         let rho = cone_plane_residual(
@@ -4047,6 +4102,13 @@ fn stage4_relocate_and_correct_inner(
             chr.plane_d,
         )
         .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
+        let proj = continue_across(
+            v,
+            p,
+            proj,
+            (chr.apex, chr.cone_axis_dir, chr.half_angle),
+            (chr.plane_n, chr.plane_d),
+        );
         // Round-trip param `t = asinh(v_coord / b)` where `v_coord` is the
         // conjugate-axis coordinate `(proj − center)·(normal × major_axis)` and
         // `b = semi_conjugate`. The eval is

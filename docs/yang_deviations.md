@@ -189,13 +189,14 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5) | Eight smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
-| N90 | OPEN (2026-10-16, matrix M-2) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
+| N90 | OPEN (2026-10-16, matrix M-2; truncation + continuation on S1 BUILT 2026-10-22 for cone ∩ plane, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
 | N96 | **RESOLVED** (2026-10-18, found and fixed the same day; corpus 353C / 0W / 16E / 5EE / 0T, P0005 / P0020 / R0070 ERROR → CORRECT, zero drift) | The §4.5 domain certificate (T2) tested a crossing of a curved crease on its WHOLE circle / conic, not on the edge's arc — steps crossing a flank plane centimetres from a millimetre arc fired as leaving the face |
+| N97 | **RESOLVED** (2026-10-22, found and fixed the same day; corpus 356C / 0W / 13E / 5EE / 0T, R0049 / P0015 / P0029 ERROR → CORRECT, zero drift) | The cone ∩ plane relocation slid a vertex along its cone GENERATOR (azimuth kept) instead of taking §4.3.2's closest point on L_k = P_A ∩ P_B — unbounded slip along the section as the generators turn parallel to the plane |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -6624,6 +6625,28 @@ three of those four T2 rows (P0005, P0020, R0070) convert without this
 mechanism once the certificate's off-arc false fires are gone (N96) —
 their real fires clear under §4.5.2 refinement; R0049's surviving fire
 is unanchored, so the candidate population is unmeasured.
+*Amendment 2026-10-22 (with N97):* R0049's fire was N97, not this
+finding. Taking §4.3.2's closest-point step exposed this finding's first
+measured population instead: P0005 (13 natural fires on a 45° cone against
+gear-flank facets, CORRECT → ERROR under the step alone). Anchored on v20:
+the closest point of cone ∩ B:131 lies 0.31 past crease 1077, while
+cone ∩ neighbour has a point 1.070 away inside its own domain — Fig. 12.
+**Truncation at C_b and the continuation on S1 are now BUILT for cone ∩
+plane** (`stage4_correct::s451::cone_section_continue_across_crease`,
+called from the cone-ellipse, -parabola and -hyperbola relocation loops):
+a step that leaves its plane face across a crease whose far side is
+again a plane is truncated where the divider vanishes and re-solved on
+cone ∩ S1. A crease owned by the cone face, or with a non-plane far side,
+declines and stays the certificate's (loud). **q1/q2 is not built:** a
+continued vertex is not re-seated in S1's mesh or re-tagged onto S1's
+conic, so one that SURVIVES the §4.5.3 sweep fires the domain certificate
+and its run goes to §4.5.2 — never ships (measured on P0005: the natural
+run's 13 continued vertices survive and fire; the adopted iter-1 run's two
+were swept onto the crease junction). Pins:
+`tests_unit/s451_interior_continue.rs` (P0005 v20 geometry; non-plane
+neighbour declines; in-face step untouched). Corpus with N97: 356C / 0W /
+13E / 5EE / 0T, P0005 held CORRECT. **State: OPEN** — q1/q2 and S1
+re-seating, then the other pair families.
 
 ### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
 
@@ -6837,3 +6860,55 @@ P0029 4, P0015 1, F0064 2). Suites: yang-rs
 three pins flipped.
 
 **State: RESOLVED** (2026-10-18, found and fixed the same day).
+
+## N97 — The cone ∩ plane relocation slid along the cone generator instead of taking §4.3.2's step (R0049, P0015, P0029)
+
+**Paper.** §4.3.2 (`refs/text/yang2025_hybrid_boolean.txt:493-502`):
+linearize both surfaces as tangent planes at the iterate and move the
+point to the closest point of their intersection line L_k = P_A ∩ P_B,
+iterating.
+
+**Implementation (before).** `stage4_relocate::project_onto_cone_section`
+— the relocation of every cone ∩ plane section vertex (ellipse, parabola,
+hyperbola) — kept the vertex's cone AZIMUTH and slid along that generator
+to the plane: a closed form labelled "Yang §4.3.2" that is not §4.3.2's
+step. It moves the point ALONG the section by ≈ (radial residual)·(n·r̂) /
+(n·g), unbounded as the generators turn parallel to the plane; its guard
+`|n·g| < MIN_FEATURE_SIZE` compared a length constant against a cosine.
+Unledgered — the audit rows 4.3-03 / 4.3-09 / 4.5.1-03 filed it under N7,
+whose sign-off covers Stage 3's closed-form CURVES, not a Stage-4 point
+step.
+
+**Measured (R0049).** A revolve's 0.015-rad cone against a gear-flank facet
+(|n·g| ≈ 6e-3): a 1.4e-6 radial residual slid the vertex 1.6e-4 along the
+hyperbola, past the {cone, facet, facet} corner 8.4e-6 away; the exact foot
+point lies 1.8e-6 off, inside the facet (independent float solve). The
+domain certificate fired and §4.4.1 refused the facet patch; refinement
+could not help (the slip scales with 1/|n·g|, not with the chord).
+P0015 and P0029 STOPped as `RelocationCrossedCarrierVertex` — the same slip
+crossing a junction; the step change was the only variable in the run
+that converted them.
+
+**Fix.** `project_onto_cone_section` is now `relocate_onto_implicit_pair`
+(the min-norm step on unit-normal distance residuals — §4.3.2's closest
+point on L_k) on (cone, plane), keeping the loud `OnAxis` refusal and
+refusing a converged point on the other nappe. Taken alone it regressed
+P0005 (N90's population, exposed — the generator slide had moved those
+vertices parallel to vertical creases); it lands together with N90's
+truncation and continuation. Pins: `tests_unit/s432_cone_section_step.rs`
+(R0049 geometry; red-verified — the slide moves 120× the residual);
+`yr23_cone_hyperbola.rs` oracle 2's volume pin bounded one-sided (the
+mock arc's ends are no boundary; the nearest-point step slides them
+outward, 4.19e-3 → 5.20e-3).
+
+**Corpus.** 356C / 0W / 13E / 5EE / 0T over 374 (release, 8 jobs, 900 s;
+wall 755.5 s) — versus 353C / 16E exactly three moves, R0049, P0015, P0029
+ERROR → SUPPORTED_CORRECT, zero regressions, zero detail drift. yang-rs
+1511 / 0.
+
+**Open sibling.** `project_onto_ellipse_via_cylinder` keeps the cylinder
+azimuth the same way, bounded by an R1/R2/R3 band ladder (in-band keep,
+beyond → in-plane nearest, beyond → STOP); §4.3.2's step would retire the
+ladder. Not touched here; measured separately.
+
+**State: RESOLVED** (2026-10-22, found and fixed the same day).

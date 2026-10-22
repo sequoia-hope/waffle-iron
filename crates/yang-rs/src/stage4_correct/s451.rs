@@ -911,3 +911,58 @@ pub(crate) fn s451_plan_repairs(
 pub(crate) fn dist3(p: [f64; 3], q: [f64; 3]) -> f64 {
     ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)).sqrt()
 }
+
+/// §4.5.1 for an INTERIOR point of a `cone ∩ plane` section (ledger N90,
+/// `refs/text/yang2025_hybrid_boolean.txt:680-686`): "Instead of taking a
+/// full step length that takes the point to a position p1 outside the
+/// surface S2 where the point is initially located, we truncate the step so
+/// that the point moves to p on the boundary curve C_b between S2 and the
+/// neighboring surface S1. In the next iteration, the optimization step of p
+/// is computed using the parameterization of S1."
+///
+/// `proj` is the §4.3.2 step's converged point on cone ∩ S2 (S2 = the
+/// section's plane, `plane`). When the step `p → proj` leaves S2's face
+/// across one of its creases (`creases`, the face's own) and the surface
+/// across that crease is again a plane S1, the optimization continues on
+/// cone ∩ S1 from the truncation point and the point lands there. Returns the
+/// continued point and the crossed B-Rep edge; `None` = no crossing, or a
+/// crossing this form cannot continue (S1 not a plane, so the pair is no
+/// longer a cone section; a continuation the cone solve refuses). Those keep
+/// `proj`, and the §4.5 domain certificate reports them loudly.
+///
+/// The point is not yet seated in S1's mesh: the paper's last step, q1 / q2
+/// on C_b, is not built, so a continued vertex that SURVIVES the §4.5.3 sweep
+/// still fires the certificate and its run goes to §4.5.2 (measured
+/// 2026-10-22: P0005's adopted run had its two continued vertices swept onto
+/// the crease junction; the natural run's survivors fired).
+pub(crate) fn cone_section_continue_across_crease(
+    p: Point3,
+    proj: Point3,
+    cone: (Point3, Vector3, f64),
+    plane: (Vector3, f64),
+    creases: &[crate::stage4_boundary_curve::FaceCrease],
+) -> Option<(Point3, u32)> {
+    let fire = crate::stage4_boundary_curve::boundary_crease_crossed(p, proj, creases)?;
+    let crease = &creases[fire.crease];
+    let own_is_plane = matches!(
+        crease.s_own,
+        Surface::Plane { normal, d } if normal == plane.0 && d == plane.1
+    );
+    let Some(Surface::Plane { normal: n1, d: d1 }) = crease.s_other else {
+        return None;
+    };
+    if !own_is_plane {
+        return None;
+    }
+    // Truncate at C_b: the point on the segment where the divider vanishes.
+    let s = fire.f_pre / (fire.f_pre - fire.f_post);
+    let (a, b) = (p.as_array(), proj.as_array());
+    let at = Point3::new(
+        a[0] + s * (b[0] - a[0]),
+        a[1] + s * (b[1] - a[1]),
+        a[2] + s * (b[2] - a[2]),
+    );
+    let (apex, axis_dir, half_angle) = cone;
+    let q = project_onto_cone_section(at, apex, axis_dir, half_angle, n1, d1).ok()?;
+    Some((q, fire.edge))
+}

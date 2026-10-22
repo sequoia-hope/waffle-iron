@@ -1761,21 +1761,32 @@ pub(crate) struct ConeHyperbolaReloc {
     pub(crate) cone_d_eps: f64,
 }
 
-/// PR-YR21 (spec §3.1): relocate `p` onto the exact `cone ∩ plane` ellipse via
-/// the CONE GENERATOR parameterization (Yang §4.3.2) — closed-form, NO quartic.
-/// The cone analog of [`project_onto_ellipse_via_cylinder`]. The relocated point
-/// is built on the cone generator at `p`'s azimuth (so it lies on the cone) and
-/// solved to satisfy `n·x + d = 0` (so it lies on the plane), hence exactly on
-/// `plane ∩ cone` = the ellipse. Returns only the relocated 3D point
-/// (type-agnostic; the caller does its own conic param inversion — YR22/YR23
-/// reuse this unchanged for parabola/hyperbola).
+/// PR-YR21: relocate `p` onto the exact `cone ∩ plane` section (ellipse,
+/// parabola or hyperbola — the result is type-agnostic; the caller does its
+/// own conic param inversion) by Yang §4.3.2's geometric method: linearize
+/// both surfaces as tangent planes at the iterate and step to the closest
+/// point of their intersection line `L_k` (`refs/text/yang2025_hybrid_boolean.txt:493-502`),
+/// i.e. [`relocate_onto_implicit_pair`] on (cone, plane).
 ///
-/// LOUD STOPs (P9/P10), never a silent snap / divide-by-~0:
-/// - `Err(OnAxis)` when the radial component `ρ < MIN_FEATURE_SIZE`.
-/// - `Err(LocalRefinementRequired)` when the generator is parallel to the plane
-///   (`|n·g| < MIN_FEATURE_SIZE` — the asymptotic / parabola-tail direction,
-///   out of scope) or the solved generator parameter `s ≤ 0` (apex-coincident /
-///   wrong-nappe).
+/// **Ledger N97 (2026-10-22, R0049).** This used to be a closed-form
+/// substitute: keep `p`'s cone AZIMUTH and slide along that generator to the
+/// plane. That step is not §4.3.2's — it moves the vertex ALONG the curve by
+/// `(radial residual)·(n·r̂)/(n·g)`, unbounded as the generators turn
+/// parallel to the plane. R0049's gear-flank facet cuts a 0.015-rad cone
+/// with `|n·g| ≈ 6e-3`: a 1.4e-6 radial residual slid the vertex 1.6e-4
+/// along the hyperbola and past the {cone, flank, flank} corner 8.4e-6 away,
+/// where the exact foot point lies 1.8e-6 off, inside its own facet.
+/// The geometric step moves a point by a small multiple of its residual
+/// whenever the two surfaces meet transversally, which is the paper's own
+/// condition for the method.
+///
+/// LOUD STOPs (P9/P10), never a silent snap:
+/// - `Err(OnAxis)` when `p`'s radial component `ρ < MIN_FEATURE_SIZE` (the
+///   cone normal is undefined on its axis).
+/// - `Err(LocalRefinementRequired)` when the pair is tangential at an iterate,
+///   the iterate meets the axis, the iteration does not converge, or the
+///   converged point lies on the other nappe (an apex crossing is not a
+///   relocation of `p`).
 pub(crate) fn project_onto_cone_section(
     p: Point3,
     apex: Point3,
@@ -1786,71 +1797,43 @@ pub(crate) fn project_onto_cone_section(
 ) -> Result<Point3, Stage4InvalidReason> {
     let ap = apex.as_array();
     let a_hat = normalize3(axis_dir.as_array());
-    let n = normalize3(plane_n.as_array());
-    // The plane offset `d` must be expressed for the UNIT normal `n`. Stored
-    // `Surface::Plane` normals in the corpus are already unit, but normalize the
-    // offset defensively against the same scale used for `n` (same pattern as
-    // `project_onto_ellipse_via_cylinder`).
-    let n_raw = plane_n.as_array();
-    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
-    let d = if n_len < cad_primitives::TAU_WORK {
-        plane_d
-    } else {
-        plane_d / n_len
+    let axial_rho = |q: [f64; 3]| -> (f64, f64) {
+        let w = [q[0] - ap[0], q[1] - ap[1], q[2] - ap[2]];
+        let axial = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+        let r = [
+            w[0] - axial * a_hat[0],
+            w[1] - axial * a_hat[1],
+            w[2] - axial * a_hat[2],
+        ];
+        (axial, (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt())
     };
-    let x = p.as_array();
-
-    let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
-    let axial = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
-    let radial = [
-        w[0] - axial * a_hat[0],
-        w[1] - axial * a_hat[1],
-        w[2] - axial * a_hat[2],
-    ];
-    let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    let (axial, rho) = axial_rho(p.as_array());
     if rho < cad_primitives::MIN_FEATURE_SIZE {
         return Err(Stage4InvalidReason::OnAxis);
     }
-    let rdir = [radial[0] / rho, radial[1] / rho, radial[2] / rho];
-
-    // Nappe sign from the axial component; the upper nappe (axial ≥ 0) uses
-    // `+cosα·â`, the lower (`axial < 0`) uses `−cosα·â`. ρ ≥ MIN_FEATURE_SIZE so
-    // the point is genuinely off-axis; the `|n·g|` / `s ≤ 0` guards below catch
-    // any apex-plane degeneracy.
-    let nappe = if axial < 0.0 { -1.0 } else { 1.0 };
-    let (ca, sa) = (half_angle.cos(), half_angle.sin());
-    // Unit generator at `p`'s azimuth (|g| = 1 by construction).
-    let g = [
-        nappe * ca * a_hat[0] + sa * rdir[0],
-        nappe * ca * a_hat[1] + sa * rdir[1],
-        nappe * ca * a_hat[2] + sa * rdir[2],
-    ];
-
-    let n_dot_g = n[0] * g[0] + n[1] * g[1] + n[2] * g[2];
-    if n_dot_g.abs() < cad_primitives::MIN_FEATURE_SIZE {
-        // Generator parallel to the plane: the asymptotic / parabola-tail
-        // direction — out of scope (spec §6). Loud STOP rather than dividing by
-        // ~0.
+    let cone = Surface::Cone {
+        apex,
+        axis_dir,
+        half_angle,
+    };
+    let plane = Surface::Plane {
+        normal: plane_n,
+        d: plane_d,
+    };
+    let Some(proj) = relocate_onto_implicit_pair(p, cone, plane) else {
         if std::env::var_os("YANG_LRR_PROBE").is_some() {
-            eprintln!("YANG_LRR_SITE site=cone_generator_parallel n_dot_g={n_dot_g:.3e}");
+            eprintln!("YANG_LRR_SITE site=cone_section_geometric_step p={p:?}");
+        }
+        return Err(Stage4InvalidReason::LocalRefinementRequired);
+    };
+    let (axial_out, _) = axial_rho(proj.as_array());
+    if axial_out * axial <= 0.0 {
+        if std::env::var_os("YANG_LRR_PROBE").is_some() {
+            eprintln!("YANG_LRR_SITE site=cone_wrong_nappe axial={axial:.3e} -> {axial_out:.3e}");
         }
         return Err(Stage4InvalidReason::LocalRefinementRequired);
     }
-    let n_dot_apex = n[0] * ap[0] + n[1] * ap[1] + n[2] * ap[2];
-    let s = -(n_dot_apex + d) / n_dot_g;
-    if s <= 0.0 {
-        // Apex-coincident / wrong-nappe: the generator pierces the plane at or
-        // behind the apex — out of scope. Loud STOP.
-        if std::env::var_os("YANG_LRR_PROBE").is_some() {
-            eprintln!("YANG_LRR_SITE site=cone_wrong_nappe s={s:.3e}");
-        }
-        return Err(Stage4InvalidReason::LocalRefinementRequired);
-    }
-    Ok(Point3::new(
-        ap[0] + s * g[0],
-        ap[1] + s * g[1],
-        ap[2] + s * g[2],
-    ))
+    Ok(proj)
 }
 
 /// PR-YR21 (spec §3.3): derive a cone's Stage-1 chord budget
