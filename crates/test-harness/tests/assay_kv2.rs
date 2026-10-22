@@ -1643,7 +1643,10 @@ fn smoke_corpus_boundary_categories() {
         // it through the AUTO-UNION path and is ledgered, not promoted.
         // P0015 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
         // sign-off, ledger N66) — its natural RelocationCrossedCarrierVertex STOP, no longer masked by a refined body with failures.
-        ("P0015", Category::Error),
+        // P0015 → CORRECT 2026-10-22 (ledger N97): that STOP was the cone ∩
+        // plane relocation sliding along its generator past a carrier vertex;
+        // §4.3.2's closest-point step does not.
+        ("P0015", Category::SupportedCorrect),
         // P0016 (3 ops) was promoted as Stage-3
         // `AmbiguousCurve { candidates: 0, matched: 0 }` — candidates ZERO, so
         // no analytical curve was proposed at all. **CONVERTED 2026-10-03
@@ -1924,7 +1927,10 @@ fn smoke_corpus_boundary_categories() {
         ("P0028", Category::SupportedCorrect),
         // P0029 → ERROR 2026-10-16: the §4.5.2 loop's ceiling is LOUD (user
         // sign-off, ledger N66) — its natural RelocationCrossedCarrierVertex STOP, no longer masked by a refined body with failures.
-        ("P0029", Category::Error),
+        // P0029 → CORRECT 2026-10-22 (ledger N97): that STOP was the cone ∩
+        // plane relocation sliding along its generator past a carrier vertex;
+        // §4.3.2's closest-point step does not.
+        ("P0029", Category::SupportedCorrect),
         ("P0030", Category::SupportedCorrect),
         // P0031 / P0032: `SelfIntersectingBooleanOutput` at kernel-v2's output
         // gate, on two different SURFACE PAIRS. P0031 is FaceId(32) CYLINDER ×

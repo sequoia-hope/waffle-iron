@@ -120,13 +120,14 @@ Do NOT skip to lower-priority items because they are easier.
      - `specs/yang_faithful_cleanup.md` — ACTIVE cleanup plan (from 2026-10-14; governance A15.7: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*). Retires Stage-1 pre-emptive sample arms and Stage-4 post-hoc repair passes in favor of the paper's §4.5.2 local refinement loop (`boolean::refine_loop`) and §4.4.1 mesh updating (`stage4_construct::update_patches`).
      - `docs/audits/yang_2025_audit.md` — 194-row paper-ordered compliance matrix (rebuilt 2026-10-16) mapping every procedural statement of §3–§4 to its code site, status, ledger ID, and pin. Read the rows for your section before changing a stage, and update them in the same commit as `docs/yang_deviations.md`.
      - `docs/yang_tail_triage.md` — Full chronological conversion log (P0001–P0062, seeds 1–5) and per-case triage ledger.
-   - **Current canonical corpus status (2026-10-18):** **353C / 0W / 16E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall ~830 s).
-     - **Open actionable ERROR tail (8 rows):** **P0015, P0029, P0045, P0056, P0061, R0049, F0064, F0067**.
+   - **Current canonical corpus status (2026-10-22):** **356C / 0W / 13E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall ~760 s).
+     - **Open actionable ERROR tail (5 rows):** **P0045, P0056, P0061, F0064, F0067**.
      - **Loud-by-design / adjudicated ERROR rows (8 rows):** six C-series walls (`C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`), `P0026` (adjudicated minimizer-minted exact tangency), and `R0023` (refined cap segment face / M8 follow-up).
      - **Key permanent lessons from recent conversions:**
        - *Never enumerate surface types or curve maps inside a general geometric rule:* Stage-4 triple-corner gate admits by incidence count (three distinct surfaces, Yang §4.5.1), and fan-rebuild winding uses `surface_normal_at` for all surface types.
        - *Loud ceiling (N66):* `boolean::refine_loop` adopts only an EMPTY failure set; surviving failures STOP loudly as `YangError::RefinementExhausted`.
        - *Crease arc extent (N96):* Anchor a T2 fire's position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`) before reading it as a mechanism.
+       - *A relocation is §4.3.2's closest point, never an azimuth slide (N97):* the cone ∩ plane generator slide slipped vertices ALONG their section (R0049 / P0015 / P0029). When the closest point leaves its face, §4.5.1 truncates at C_b and continues on S1 (N90, built for plane–plane creases; q1/q2 still open). The cylinder twin `project_onto_ellipse_via_cylinder` still slides, behind a band ladder.
        - *Timing slow cases:* Time with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1` (`ASSAY_JOBS=1 … single_case`) before designing for cost.
    - **Working the tail & assay prospector:**
      - Take open tail items in order of cheapness and anchor each against its un-minimized lineage first (`target/prospect/seed-{4,5}/candidates/` and `findings/`, or `WAFFLE_PATH=… user_case_probe replay_waffle_env` — minimizer rounding can mint contacts or shift sites).
