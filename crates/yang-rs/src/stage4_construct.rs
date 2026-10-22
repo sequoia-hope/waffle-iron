@@ -576,6 +576,15 @@ pub(crate) fn rebuild_patch_planar_bounded(
                 continue;
             }
             let uv = chart.project(mesh.verts[v as usize]);
+            // I13a, interior form: the apex has no azimuth, so carrying it
+            // into the CDT as `(θ, 0)` drops the apex fan and leaves a
+            // secant polygon — the yr23 hyperbola fixture's cone patch went
+            // flat onto its cap, and the coincident pair was deleted as a
+            // membrane. An interior at or behind the apex station touches the
+            // apex exactly as a boundary vertex there does: refuse.
+            if matches!(chart, SurfaceChart::Cone { .. }) && uv.y() <= 0.0 {
+                return Err(ConstructError::ApexInPatch { patch: patch_index });
+            }
             let theta = if band {
                 band_branch(uv).ok_or(ConstructError::ThetaUnwrap { patch: patch_index })?
             } else {

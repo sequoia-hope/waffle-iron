@@ -1060,6 +1060,17 @@ fn oracle2_offcurve_relocate_on_hyperbola_watertight() {
         2,
         "yr23: relocated output Euler V−E+F must be 2"
     );
+    // The union keeps the whole cone-sector shell: relocation moves the ring
+    // by ≤ δ, so the volume stays within a few percent of the input's. χ = 2
+    // alone passed a 4-triangle sliver (2026-10-22): the §4.4.1 update had
+    // carried the cone APEX as an interior at station 0, flattened the cone
+    // patch onto its cap and the membrane pass deleted the coincident pair.
+    let v_in = signed_volume(&simulated_output_mesh(&off_curve_arrangement()));
+    let v_out = signed_volume(r.as_mesh());
+    assert!(
+        (v_out - v_in).abs() <= 0.1 * v_in.abs(),
+        "yr23: union volume {v_out:.6e} must match the input shell's {v_in:.6e}"
+    );
 
     let hyperbolas = hyperbola_edges(&r);
     assert!(

@@ -102,7 +102,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
 | D14 | DELEGATED (C) | No NURBS / Bézier surface support; only analytic primitives |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
-| N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open | Stage-4 mesh-updating / CDT absent (relocation-only) |
+| N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open; apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
 | N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
 | N5 | DELEGATED (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
@@ -1081,6 +1081,25 @@ LOUD STOP on the pinch instead of a downstream non-manifold surprise. Gate-ON
 full assay unchanged (241C/0W/49E, byte-identical). R0038 belongs to the
 §4.3.3 near-tangency epic (task #137), not N2. Full analysis:
 `specs/yang_n2_stage4_cdt_mesh_updating.md` §5c.10.
+
+**Amendment (2026-10-22) — a cone patch carrying its APEX as an interior
+vertex is refused, not flattened.** `rebuild_patch_planar_bounded`'s I13a
+guard ("a patch touching or crossing the apex station refuses loudly")
+read only the patch's BOUNDARY vertices. A cone patch whose apex is an
+interior mesh vertex carried it into the CDT at chart `(θ, 0)` — a point
+with no azimuth — so the rebuild dropped the apex fan and wrote a secant
+polygon. On the yr23 hyperbola fixture (a cone sector capped by a plane)
+the cone patch went flat onto its cap, `remove_doubled_membranes` deleted
+24 of the 28 coincident triangles, and the "union" shipped as a 4-triangle
+sliver of volume 1.0e-17 (input shell 4.19e-3) that still passed χ = 2 —
+a silent wrong at HEAD, masked by an oracle that read topology only. The
+guard now applies to interior carries at or behind the apex station
+(`ConstructError::ApexInPatch`; the patch keeps its triangles, as every
+refusal does). Pin: `yr23_cone_hyperbola.rs` oracle 2 asserts the union
+keeps the shell's volume (red-verified: 1.0e-17 vs 4.19e-3 without the
+guard). Corpus 353C / 0W / 16E / 5EE / 0T, the baseline rows exactly — no
+corpus case carries a cone apex inside an intersected patch. yang-rs
+1505 / 0.
 
 ---
 
