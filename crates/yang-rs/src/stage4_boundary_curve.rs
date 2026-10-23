@@ -1229,6 +1229,9 @@ pub(crate) struct FaceCrease {
     pub divider: Surface,
     pub s_own: Surface,
     pub s_other: Option<Surface>,
+    /// The neighbour's face index on the same operand, when found — the
+    /// face §4.5.1's continuation lands on (S1).
+    pub face_other: Option<u32>,
     pub extent: CreaseExtent,
     /// The B-Rep edge index on its operand (diagnostics).
     pub edge: u32,
@@ -1278,13 +1281,12 @@ impl CreaseIndex {
                 // face, else another face's edge on the same vertex pair with
                 // the same curve.
                 let key = (e.start.min(e.end), e.start.max(e.end));
-                let mut s_other: Option<Surface> = by_edge[ei as usize]
+                let mut other: Option<u32> = by_edge[ei as usize]
                     .iter()
                     .find(|&&g| g != fi as u32)
-                    .and_then(|&g| faces.get(g as usize))
-                    .map(|g| g.surface);
-                if s_other.is_none() {
-                    s_other = by_pair
+                    .copied();
+                if other.is_none() {
+                    other = by_pair
                         .get(&key)
                         .into_iter()
                         .flatten()
@@ -1294,9 +1296,12 @@ impl CreaseIndex {
                                     .get(ej as usize)
                                     .is_some_and(|x| curves_coincide(&x.curve, &e.curve))
                         })
-                        .and_then(|&(g, _)| faces.get(g as usize))
-                        .map(|g| g.surface);
+                        .map(|&(g, _)| g);
                 }
+                let face_other = other.filter(|&g| faces.get(g as usize).is_some());
+                let s_other: Option<Surface> = face_other
+                    .and_then(|g| faces.get(g as usize))
+                    .map(|g| g.surface);
                 if s_other == Some(s_own) {
                     continue; // a seam / split of ONE surface bounds no domain
                 }
@@ -1307,6 +1312,7 @@ impl CreaseIndex {
                     divider,
                     s_own,
                     s_other,
+                    face_other,
                     extent,
                     edge: ei,
                 });

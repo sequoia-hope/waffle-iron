@@ -547,15 +547,20 @@ pub(crate) fn s451_plan_repairs(
     };
     let mut consumed: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut plans: Vec<S451PlannedRepair> = Vec::new();
+    let mut creases: Option<[crate::stage4_boundary_curve::CreaseIndex; 2]> = None;
 
     for &(v, _) in failures {
         if consumed.contains(&v) {
             continue;
         }
-        // Clause 1 at the failure itself.
+        // Clause 1 at the failure itself: an INTERIOR point (`:635-657`, the
+        // Fig. 13 exclusion) — no operand carries it on two surfaces. A count
+        // of 0 is no boundary reading: an unrelocated arrangement vertex sits
+        // off its own plane by rounding (P0005 v443: 1.1e-11 against a
+        // 3.0e-12 certificate band), and the repair certifies its own result.
         let pos = mesh.verts[v as usize].as_array();
         let (ca, cb) = carrier_counts(&patches, a, b, v, pos);
-        if ca.max(cb) != 1 {
+        if ca.max(cb) > 1 {
             eprintln!("YANG_451_REPAIR v{v} DECLINE clause1 carrier=(A{ca},B{cb})");
             return Err(());
         }
@@ -787,6 +792,37 @@ pub(crate) fn s451_plan_repairs(
                 return Err(());
             }
         };
+        // The midpoint's step must stay in the plane's face (`:680-683`). One
+        // that leaves it is Fig. 12 proper: truncate at C_b and continue on
+        // S1 (`cone_section_continue_across_crease`), then q1 / q2 on C_b —
+        // and q1 / q2 is not built (N90), so it declines loudly.
+        let crease_idx = creases.get_or_insert_with(|| {
+            [
+                crate::stage4_boundary_curve::CreaseIndex::build(a),
+                crate::stage4_boundary_curve::CreaseIndex::build(b),
+            ]
+        });
+        let leaves = patches.get(&v).into_iter().flatten().any(|&(input, face)| {
+            let slot = match input {
+                InputId::A => 0,
+                InputId::B => 1,
+            };
+            crease_idx[slot].faces.get(face as usize).is_some_and(|cr| {
+                cone_section_step_leaves_face(
+                    Point3::new(mid[0], mid[1], mid[2]),
+                    proj,
+                    (normal, d),
+                    cr,
+                )
+            })
+        });
+        if leaves {
+            eprintln!(
+                "YANG_451_REPAIR v{v} DECLINE the midpoint's step leaves its face: \
+                 continuation on S1 needs q1/q2 on C_b (N90)"
+            );
+            return Err(());
+        }
         let pa = proj.as_array();
         // Shared certificate on BOTH surfaces — the same reading the selector
         // and §4-I9 use; no new band.
@@ -854,6 +890,24 @@ pub(crate) fn s451_plan_repairs(
                     + (pa[1] - ctr[1]) * conj[1]
                     + (pa[2] - ctr[2]) * conj[2];
                 (vc / semi_conjugate).asinh()
+            }
+            // t = the conjugate-axis coordinate `(proj − vertex)·(normal ×
+            // axis)` — the same round-trip the cone-parabola arm records.
+            Curve::Parabola {
+                vertex,
+                normal: pn,
+                axis_dir,
+                ..
+            } => {
+                let n = normalize3(pn.as_array());
+                let ax = normalize3(axis_dir.as_array());
+                let conj = [
+                    n[1] * ax[2] - n[2] * ax[1],
+                    n[2] * ax[0] - n[0] * ax[2],
+                    n[0] * ax[1] - n[1] * ax[0],
+                ];
+                let vx = vertex.as_array();
+                (pa[0] - vx[0]) * conj[0] + (pa[1] - vx[1]) * conj[1] + (pa[2] - vx[2]) * conj[2]
             }
             other => {
                 eprintln!("YANG_451_REPAIR v{v} DECLINE unretaggable curve kind {other:?}");
@@ -930,18 +984,20 @@ pub(crate) fn dist3(p: [f64; 3], q: [f64; 3]) -> f64 {
 /// longer a cone section; a continuation the cone solve refuses). Those keep
 /// `proj`, and the §4.5 domain certificate reports them loudly.
 ///
-/// The point is not yet seated in S1's mesh: the paper's last step, q1 / q2
-/// on C_b, is not built, so a continued vertex that SURVIVES the §4.5.3 sweep
-/// still fires the certificate and its run goes to §4.5.2 (measured
-/// 2026-10-22: P0005's adopted run had its two continued vertices swept onto
-/// the crease junction; the natural run's survivors fired).
+/// Not wired: the paper applies it to the bounded MIDPOINT (`:678-683`), and
+/// `s451_plan_repairs` declines a midpoint whose step leaves its face, because
+/// the paper's last step — q1 / q2 on C_b, seating the point in S1's mesh — is
+/// not built (N90). The primitive is pinned for that increment. (Measured
+/// 2026-10-23: P0005's fires, which this once continued, were not Fig. 12 —
+/// each point's bounds put it on its own facet, and the midpoint stays there.)
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn cone_section_continue_across_crease(
     p: Point3,
     proj: Point3,
     cone: (Point3, Vector3, f64),
     plane: (Vector3, f64),
     creases: &[crate::stage4_boundary_curve::FaceCrease],
-) -> Option<(Point3, u32)> {
+) -> Option<(Point3, crate::stage4_boundary_curve::FaceCrease)> {
     let fire = crate::stage4_boundary_curve::boundary_crease_crossed(p, proj, creases)?;
     let crease = &creases[fire.crease];
     let own_is_plane = matches!(
@@ -964,5 +1020,107 @@ pub(crate) fn cone_section_continue_across_crease(
     );
     let (apex, axis_dir, half_angle) = cone;
     let q = project_onto_cone_section(at, apex, axis_dir, half_angle, n1, d1).ok()?;
-    Some((q, fire.edge))
+    Some((q, *crease))
+}
+
+/// One cone ∩ plane section a Stage-4 vertex relocates onto — the three
+/// conic records share the §4.3.2 step and differ only in how the relocated
+/// point is tagged with its curve parameter.
+#[derive(Clone, Copy)]
+pub(crate) enum ConeSection {
+    Ellipse(crate::stage4_relocate::ConeEllipseReloc),
+    Parabola(crate::stage4_relocate::ConeParabolaReloc),
+    Hyperbola(crate::stage4_relocate::ConeHyperbolaReloc),
+}
+
+impl ConeSection {
+    /// The cone (apex, axis, half-angle).
+    pub(crate) fn cone(&self) -> (Point3, Vector3, f64) {
+        match self {
+            Self::Ellipse(c) => (c.apex, c.axis_dir, c.half_angle),
+            Self::Parabola(c) => (c.apex, c.cone_axis_dir, c.half_angle),
+            Self::Hyperbola(c) => (c.apex, c.cone_axis_dir, c.half_angle),
+        }
+    }
+
+    /// The cutting plane (unit normal, offset).
+    pub(crate) fn plane(&self) -> (Vector3, f64) {
+        match self {
+            Self::Ellipse(c) => (c.plane_n, c.plane_d),
+            Self::Parabola(c) => (c.plane_n, c.plane_d),
+            Self::Hyperbola(c) => (c.plane_n, c.plane_d),
+        }
+    }
+
+    /// §4.3.2's step onto the section (`project_onto_cone_section`).
+    pub(crate) fn step(&self, p: Point3) -> Result<Point3, Stage4InvalidReason> {
+        let ((apex, axis, half), (n, d)) = (self.cone(), self.plane());
+        project_onto_cone_section(p, apex, axis, half, n, d)
+    }
+
+    /// Distance-like residual of `p` against cone and plane.
+    pub(crate) fn residual(&self, p: Point3) -> f64 {
+        let ((apex, axis, half), (n, d)) = (self.cone(), self.plane());
+        cone_plane_residual(p, apex, axis, half, n, d)
+    }
+
+    /// The stored curve's parameter at a relocated point, so the unchanged
+    /// `eval_source` arm of each conic reproduces the position (oracle 3).
+    pub(crate) fn param(&self, proj: Point3) -> f64 {
+        let cross = |n: [f64; 3], ax: [f64; 3]| {
+            [
+                n[1] * ax[2] - n[2] * ax[1],
+                n[2] * ax[0] - n[0] * ax[2],
+                n[0] * ax[1] - n[1] * ax[0],
+            ]
+        };
+        let along = |origin: Point3, dir: [f64; 3]| {
+            let (o, pr) = (origin.as_array(), proj.as_array());
+            (pr[0] - o[0]) * dir[0] + (pr[1] - o[1]) * dir[1] + (pr[2] - o[2]) * dir[2]
+        };
+        match self {
+            Self::Ellipse(c) => ellipse_param(
+                proj,
+                c.center,
+                c.normal,
+                c.major_axis,
+                c.major_radius,
+                c.minor_radius,
+            ),
+            // The conjugate-axis coordinate `(proj − vertex)·(normal × axis)`.
+            Self::Parabola(c) => {
+                let n = normalize3(c.normal.as_array());
+                let ax = normalize3(c.para_axis_dir.as_array());
+                along(c.vertex, cross(n, ax))
+            }
+            // `asinh(v / b)`, `v = (proj − center)·(normal × major)`: the
+            // eval is `center + a·cosh(t)·major + b·sinh(t)·(normal×major)`,
+            // and sinh is the bijective coordinate.
+            Self::Hyperbola(c) => {
+                let n = normalize3(c.normal.as_array());
+                let maj = normalize3(c.major_axis.as_array());
+                (along(c.center, cross(n, maj)) / c.semi_conjugate).asinh()
+            }
+        }
+    }
+}
+
+/// Whether §4.3.2's step `p → proj` on a cone ∩ plane section leaves the
+/// plane's face: the face's own creases (`creases`, all of one face) and the
+/// first one the step crosses. Only a face whose surface IS the section's
+/// plane is read — the step's domain is that face.
+pub(crate) fn cone_section_step_leaves_face(
+    p: Point3,
+    proj: Point3,
+    plane: (Vector3, f64),
+    creases: &[crate::stage4_boundary_curve::FaceCrease],
+) -> bool {
+    let own_is_plane = creases.first().is_some_and(|c| {
+        matches!(
+            c.s_own,
+            Surface::Plane { normal, d } if normal == plane.0 && d == plane.1
+        )
+    });
+    own_is_plane
+        && crate::stage4_boundary_curve::boundary_crease_crossed(p, proj, creases).is_some()
 }

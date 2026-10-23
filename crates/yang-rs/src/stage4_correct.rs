@@ -3922,10 +3922,11 @@ fn stage4_relocate_and_correct_inner(
         );
     }
 
-    // §4.5.1 interior continuation (ledger N90): a cone-section step that
-    // leaves its plane face across a crease continues on the neighbouring
-    // plane (`cone_section_continue_across_crease`). Built once, only when a
-    // cone section is being relocated.
+    // §4.5.1 (ledger N90): a cone-section step that leaves its plane face is
+    // a failure to converge within the domain (`:652-654`) — RECORDED with
+    // the other collected failures, and repaired after the sweep from the
+    // midpoint of its converged bounds (`s451_plan_repairs`). The crease
+    // index is built once, only when a cone section is relocated.
     let cone_sections = !(vert_cone_ellipse.is_empty()
         && vert_parabola.is_empty()
         && vert_cone_hyperbola.is_empty());
@@ -3940,198 +3941,81 @@ fn stage4_relocate_and_correct_inner(
             crate::stage4_boundary_curve::CreaseIndex::build(brep_b),
         ]
     });
-    let continue_across = |v: u32,
-                           p: Point3,
-                           proj: Point3,
-                           cone: (Point3, Vector3, f64),
-                           plane: (Vector3, f64)|
-     -> Point3 {
+    // The creases of every face at `v`.
+    let creases_at = |v: u32| -> Vec<&[crate::stage4_boundary_curve::FaceCrease]> {
         let Some(idx) = &s451_creases else {
-            return proj;
+            return Vec::new();
         };
-        for &(input, face) in s451_patches.get(&v).into_iter().flatten() {
-            let slot = match input {
-                InputId::A => 0,
-                InputId::B => 1,
-            };
-            let Some(creases) = idx[slot].faces.get(face as usize) else {
-                continue;
-            };
-            if let Some((q, _edge)) =
-                cone_section_continue_across_crease(p, proj, cone, plane, creases)
-            {
-                return q;
-            }
-        }
-        proj
+        s451_patches
+            .get(&v)
+            .into_iter()
+            .flatten()
+            .filter_map(|&(input, face)| {
+                let slot = match input {
+                    InputId::A => 0,
+                    InputId::B => 1,
+                };
+                idx[slot].faces.get(face as usize).map(Vec::as_slice)
+            })
+            .collect()
+    };
+    let leaves_face = |v: u32, p: Point3, proj: Point3, sec: &ConeSection| -> bool {
+        creases_at(v)
+            .into_iter()
+            .any(|cr| cone_section_step_leaves_face(p, proj, sec.plane(), cr))
     };
 
-    // PR-YR21: cone-ellipse relocation loop, mirroring the cylinder-ellipse loop.
-    // §4.3.2's step on (cone, plane) (`project_onto_cone_section`, ledger N97),
-    // continued across a plane–plane crease per §4.5.1 (N90). Gated
-    // against the cone's OWN chord budget `cone_d_eps` (NOT the rim-AABB `d_eps`)
-    // so a tall-thin cone's residual is checked against the honest cone bound.
-    for (&v, cer) in &vert_cone_ellipse {
+    // PR-YR21 / YR22 / YR23: the cone-ellipse, cone-parabola and
+    // cone-hyperbola relocation loops. §4.3.2's step on (cone, plane)
+    // (`project_onto_cone_section`, ledger N97) — the section TYPE does not
+    // change the relocation, only the parameter tag. Gated against the cone's
+    // OWN chord budget `cone_d_eps` (NOT the rim-AABB `d_eps`) so a
+    // tall-thin cone's residual is checked against the honest cone bound.
+    let sections: Vec<(u32, ConeSection)> = vert_cone_ellipse
+        .iter()
+        .map(|(&v, &c)| (v, ConeSection::Ellipse(c)))
+        .chain(
+            vert_parabola
+                .iter()
+                .map(|(&v, &c)| (v, ConeSection::Parabola(c))),
+        )
+        .chain(
+            vert_cone_hyperbola
+                .iter()
+                .map(|(&v, &c)| (v, ConeSection::Hyperbola(c))),
+        )
+        .collect();
+    for (v, sec) in sections {
         let p = mesh.verts[v as usize];
-        let rho = cone_ellipse_residual(p, cer);
-        if rho > cer.cone_d_eps {
+        let rho = sec.residual(p);
+        let cone_d_eps = match sec {
+            ConeSection::Ellipse(c) => c.cone_d_eps,
+            ConeSection::Parabola(c) => c.cone_d_eps,
+            ConeSection::Hyperbola(c) => c.cone_d_eps,
+        };
+        if rho > cone_d_eps {
             if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
                 return Err(e);
             }
             continue;
         }
-        let proj = project_onto_cone_section(
-            p,
-            cer.apex,
-            cer.axis_dir,
-            cer.half_angle,
-            cer.plane_n,
-            cer.plane_d,
-        )
-        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
-        let proj = continue_across(
-            v,
-            p,
-            proj,
-            (cer.apex, cer.axis_dir, cer.half_angle),
-            (cer.plane_n, cer.plane_d),
-        );
-        // Round-trip param `t` in the stored ellipse frame so the unchanged
-        // `eval_source` Ellipse arm reproduces the relocated position.
-        let t = ellipse_param(
-            proj,
-            cer.center,
-            cer.normal,
-            cer.major_axis,
-            cer.major_radius,
-            cer.minor_radius,
-        );
-        if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
-            moved.insert(v);
-        }
-        probe_push(line!(), v, t, mesh.verts[v as usize]);
-        relocations.push((v, t));
-        processed.insert(v);
-    }
-
-    // PR-YR22: cone-parabola relocation loop, mirroring the cone-ellipse loop.
-    // The same §4.3.2 step and §4.5.1 continuation (the section TYPE does not
-    // change the relocation — `project_onto_cone_section` is type-agnostic).
-    // Gated against the cone's OWN chord budget `cone_d_eps`.
-    for (&v, cpr) in &vert_parabola {
-        let p = mesh.verts[v as usize];
-        let rho = cone_plane_residual(
-            p,
-            cpr.apex,
-            cpr.cone_axis_dir,
-            cpr.half_angle,
-            cpr.plane_n,
-            cpr.plane_d,
-        );
-        if rho > cpr.cone_d_eps {
-            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
-                return Err(e);
-            }
+        let proj = sec
+            .step(p)
+            .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
+        if leaves_face(v, p, proj, &sec) {
+            // Cannot converge within its domain (`:652-654`): a recorded
+            // failure, repaired with the others after the sweep.
+            s45_failures.push((
+                v,
+                YangError::stage4_region_invalid(v, Stage4InvalidReason::RelocationCrossedCrease),
+            ));
             continue;
         }
-        let proj = project_onto_cone_section(
-            p,
-            cpr.apex,
-            cpr.cone_axis_dir,
-            cpr.half_angle,
-            cpr.plane_n,
-            cpr.plane_d,
-        )
-        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
-        let proj = continue_across(
-            v,
-            p,
-            proj,
-            (cpr.apex, cpr.cone_axis_dir, cpr.half_angle),
-            (cpr.plane_n, cpr.plane_d),
-        );
-        // Round-trip param `t` = the conjugate-axis coordinate of the parabola
-        // parameterization `(proj − vertex)·(normal × axis_dir)`, so the unchanged
-        // `eval_source` Parabola arm reproduces the relocated position (oracle3).
-        let n = normalize3(cpr.normal.as_array());
-        let ax = normalize3(cpr.para_axis_dir.as_array());
-        let conj = [
-            n[1] * ax[2] - n[2] * ax[1],
-            n[2] * ax[0] - n[0] * ax[2],
-            n[0] * ax[1] - n[1] * ax[0],
-        ];
-        let vtx = cpr.vertex.as_array();
-        let pr = proj.as_array();
-        let t =
-            (pr[0] - vtx[0]) * conj[0] + (pr[1] - vtx[1]) * conj[1] + (pr[2] - vtx[2]) * conj[2];
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
         }
-        probe_push(line!(), v, t, mesh.verts[v as usize]);
-        relocations.push((v, t));
-        processed.insert(v);
-    }
-
-    // PR-YR23: cone-hyperbola relocation loop, mirroring the cone-parabola loop.
-    // The same §4.3.2 step and §4.5.1 continuation. Gated against the cone's
-    // OWN chord budget `cone_d_eps`.
-    for (&v, chr) in &vert_cone_hyperbola {
-        let p = mesh.verts[v as usize];
-        let rho = cone_plane_residual(
-            p,
-            chr.apex,
-            chr.cone_axis_dir,
-            chr.half_angle,
-            chr.plane_n,
-            chr.plane_d,
-        );
-        if rho > chr.cone_d_eps {
-            if let Some(e) = s451_stop(s451_collect, &mut s45_failures, v, &curves0, &inc0) {
-                return Err(e);
-            }
-            continue;
-        }
-        let proj = project_onto_cone_section(
-            p,
-            chr.apex,
-            chr.cone_axis_dir,
-            chr.half_angle,
-            chr.plane_n,
-            chr.plane_d,
-        )
-        .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
-        let proj = continue_across(
-            v,
-            p,
-            proj,
-            (chr.apex, chr.cone_axis_dir, chr.half_angle),
-            (chr.plane_n, chr.plane_d),
-        );
-        // Round-trip param `t = asinh(v_coord / b)` where `v_coord` is the
-        // conjugate-axis coordinate `(proj − center)·(normal × major_axis)` and
-        // `b = semi_conjugate`. The eval is
-        // `center + a·cosh(t)·major + b·sinh(t)·(normal×major)`, so
-        // `v_coord = b·sinh(t) ⇒ t = asinh(v_coord/b)` (sinh is the bijective
-        // coordinate; well-defined ∀ v_coord). The unchanged `eval_source`
-        // Hyperbola arm reproduces the relocated position (oracle3).
-        let n = normalize3(chr.normal.as_array());
-        let maj = normalize3(chr.major_axis.as_array());
-        let conj = [
-            n[1] * maj[2] - n[2] * maj[1],
-            n[2] * maj[0] - n[0] * maj[2],
-            n[0] * maj[1] - n[1] * maj[0],
-        ];
-        let ctr = chr.center.as_array();
-        let pr = proj.as_array();
-        let v_coord =
-            (pr[0] - ctr[0]) * conj[0] + (pr[1] - ctr[1]) * conj[1] + (pr[2] - ctr[2]) * conj[2];
-        let t = (v_coord / chr.semi_conjugate).asinh();
-        if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
-            moved.insert(v);
-        }
+        let t = sec.param(proj);
         probe_push(line!(), v, t, mesh.verts[v as usize]);
         relocations.push((v, t));
         processed.insert(v);

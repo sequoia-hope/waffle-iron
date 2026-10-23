@@ -66,6 +66,7 @@ fn lateral_top_edge_crease() -> FaceCrease {
         s_own: boss_lateral_45(),
         s_other: Some(boss_top()),
         extent,
+        face_other: None,
         edge: 0,
     }
 }
@@ -107,6 +108,7 @@ fn cutter_rim_crease() -> FaceCrease {
         s_own: cutter_torus(),
         s_other: Some(cap),
         extent,
+        face_other: None,
         edge: 1,
     }
 }
@@ -377,6 +379,7 @@ fn a_curved_crease_is_bounded_by_its_arc() {
             s_own: cyl,
             s_other: Some(flank),
             extent,
+            face_other: None,
             edge: 0,
         }
     };
@@ -478,6 +481,7 @@ fn a_curved_crease_is_bounded_by_its_arc() {
         s_own: cyl,
         s_other: Some(cap),
         extent,
+        face_other: None,
         edge: 0,
     };
     let across = |t: f64| (p(t.cos(), -1e-4, t.sin()), p(t.cos(), 1e-4, t.sin()));

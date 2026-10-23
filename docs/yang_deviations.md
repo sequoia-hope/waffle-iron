@@ -189,7 +189,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5) | Eight smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
-| N90 | OPEN (2026-10-16, matrix M-2; truncation + continuation on S1 BUILT 2026-10-22 for cone ∩ plane, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
+| N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
@@ -6647,6 +6647,39 @@ were swept onto the crease junction). Pins:
 neighbour declines; in-face step untouched). Corpus with N97: 356C / 0W /
 13E / 5EE / 0T, P0005 held CORRECT. **State: OPEN** — q1/q2 and S1
 re-seating, then the other pair families.
+*Amendment 2026-10-23 — the 10-22 reading was WRONG, and the build is now
+the paper's order.* P0005's 13 natural fires are not Fig. 12. Exact solve
+on v20: its curve neighbours are converged — v18 on cone ∩ B:131, v27
+EXACTLY at the triple point where the curve crosses crease 1077 — so the
+true curve between them runs on B:131. v20's mesh position sits 1.0 off
+the cone and only 0.30 from the crease, so its own §4.3.2 step overshoots
+past the triple point. Continuing that step onto B:130 put v20 beyond v27,
+which is a reversal. All 13 fires have this shape: one seam neighbour of
+each continued vertex is the crease vertex. The deviation was in the ORDER:
+the 10-22 build continued each failing point's own step inside the
+relocation loop. The paper collects failures AFTER optimization, replaces
+the region between two converged bounds by their MIDPOINT, and steps from
+there (`:652-660`, `:676-680`). **Now built that way:** a cone-section
+step that leaves its plane face is a RECORDED failure
+(`RelocationCrossedCrease`, `stage4_correct.rs` cone-section loop, the three
+conic loops folded into one over `s451::ConeSection`). The existing §4.5.1
+planner, `s451_plan_repairs`, repairs it: it walks the own-curve bounds,
+projects their midpoint, certifies the result, and applies the §4-I8
+containment check.
+The planner gained (a) a domain check on the midpoint's step, where a step
+that leaves its face is Fig. 12 proper and DECLINES loudly ("continuation
+on S1 needs q1/q2"); (b) a Parabola retag; and (c) clause 1 now declines
+only a BOUNDARY reading (a count > 1, the Fig. 13 exclusion). A count of 0
+is arrangement rounding, not a boundary: P0005 v443 is 1.1e-11 off its
+plane against a 3.0e-12 band. The truncate-and-continue primitive
+(`cone_section_continue_across_crease`) is UNWIRED and pinned for the q1/q2
+increment. Measured: P0005's natural run now repairs 14 regions and is
+adopted without §4.5.2 (6.9 s → 4.6 s). Corpus 356C / 0W / 13E / 5EE / 0T,
+zero detail drift versus 0a98ce14. Pins: `tests_unit/s451_interior_continue.rs`
+(P0005 v18/v20/v27: v20's own step leaves B:131; the bounds' midpoint step
+stays on B:131 between them). **State: OPEN** — q1/q2 for a bounded midpoint
+whose step leaves its face, with no measured customer yet; the other pair
+families.
 
 ### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
 
@@ -6895,7 +6928,8 @@ point on L_k) on (cone, plane), keeping the loud `OnAxis` refusal and
 refusing a converged point on the other nappe. Taken alone it regressed
 P0005 (N90's population, exposed — the generator slide had moved those
 vertices parallel to vertical creases); it lands together with N90's
-truncation and continuation. Pins: `tests_unit/s432_cone_section_step.rs`
+truncation and continuation. (2026-10-23: those were failures to repair from
+their bounds' midpoint, not continuations — N90's amendment.) Pins: `tests_unit/s432_cone_section_step.rs`
 (R0049 geometry; red-verified — the slide moves 120× the residual);
 `yr23_cone_hyperbola.rs` oracle 2's volume pin bounded one-sided (the
 mock arc's ends are no boundary; the nearest-point step slides them
