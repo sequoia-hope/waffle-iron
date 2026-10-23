@@ -6677,9 +6677,16 @@ increment. Measured: P0005's natural run now repairs 14 regions and is
 adopted without §4.5.2 (6.9 s → 4.6 s). Corpus 356C / 0W / 13E / 5EE / 0T,
 zero detail drift versus 0a98ce14. Pins: `tests_unit/s451_interior_continue.rs`
 (P0005 v18/v20/v27: v20's own step leaves B:131; the bounds' midpoint step
-stays on B:131 between them). **State: OPEN** — q1/q2 for a bounded midpoint
-whose step leaves its face, with no measured customer yet; the other pair
-families.
+stays on B:131 between them). *Census 2026-10-23 (full corpus, file-logged
+at the record, repair and decline sites):* leave-face failures occur in
+seven cases. P0005 (14), P0008 (4), P0009 (5), R0004 (4) and R0049 (1) all
+REPAIR from their bounds' midpoint. P0015 (10) and P0029 (1) decline
+because their own-curve chain ends before a converged bound ("0
+continuations"), so they go to §4.5.2 as the paper prescribes and finish
+CORRECT. **Zero** bounded midpoints leave their face, so q1/q2 has no
+corpus customer. **State: OPEN** — q1/q2 for a bounded midpoint whose step
+leaves its face (unmeasured; build when a customer appears, the primitive
+is pinned); the other pair families.
 
 ### N91 — Tangent points, small loops and sub-band contacts are not resolved (matrix M-3)
 
