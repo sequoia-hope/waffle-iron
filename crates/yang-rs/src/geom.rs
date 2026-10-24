@@ -295,6 +295,24 @@ pub(crate) fn hyperbola_param(
     v.asinh()
 }
 
+/// PR-YR22: parameter of a point in the parabola frame:
+/// `t = (x − vertex)·(normalize(normal) × normalize(axis_dir))` — the
+/// conjugate-axis coordinate, injective and strictly monotone along the
+/// parabola, matching [`parabola_point`]'s frame so `parabola_point(…,
+/// parabola_param(x, …))` reproduces an on-curve `x`.
+pub(crate) fn parabola_param(x: Point3, vertex: Point3, normal: Vector3, axis_dir: Vector3) -> f64 {
+    let n = normalize3(normal.as_array());
+    let ax = normalize3(axis_dir.as_array());
+    let conj = [
+        n[1] * ax[2] - n[2] * ax[1],
+        n[2] * ax[0] - n[0] * ax[2],
+        n[0] * ax[1] - n[1] * ax[0],
+    ];
+    let vx = vertex.as_array();
+    let xa = x.as_array();
+    (xa[0] - vx[0]) * conj[0] + (xa[1] - vx[1]) * conj[1] + (xa[2] - vx[2]) * conj[2]
+}
+
 pub(crate) fn ellipse_param(
     x: Point3,
     center: Point3,

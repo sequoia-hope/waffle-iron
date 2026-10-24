@@ -73,15 +73,86 @@ fn hyperbola_param_is_strictly_monotone_along_the_branch() {
 
 #[test]
 fn conic_param_covers_the_hyperbola_by_default() {
-    // FLIPPED 2026-08-25: the open-conic arm is always-on;
-    // `YANG_441_OPEN_CONIC_PARAM=0|off` restores the pre-I13b `None`.
     let (h, ..) = sample_hyperbola();
-    if crate::stage4_correct::open_conic_param_enabled() {
-        let t = conic_param(&h, hyperbola_point(0.3)).expect("open-conic param is on");
-        assert!((t - 0.3).abs() < 1e-12);
-    } else {
-        assert_eq!(conic_param(&h, hyperbola_point(0.3)), None);
+    let t = conic_param(&h, hyperbola_point(0.3)).expect("open-conic param is on");
+    assert!((t - 0.3).abs() < 1e-12);
+}
+
+#[test]
+fn conic_param_and_reversal_cover_parabola_and_hyperbola() {
+    use crate::stage4_correct::{
+        conic_param_deltas, conic_param_reversed, mixed_cycle_shared_conic,
+    };
+    use std::collections::BTreeMap;
+
+    let (h, ..) = sample_hyperbola();
+    assert!(!conic_param_reversed(
+        &h,
+        hyperbola_point(-0.5),
+        hyperbola_point(0.2),
+        hyperbola_point(0.9),
+    ));
+    assert!(conic_param_reversed(
+        &h,
+        hyperbola_point(-0.5),
+        hyperbola_point(0.9),
+        hyperbola_point(0.2),
+    ));
+    let (d1, d2) = conic_param_deltas(
+        &h,
+        hyperbola_point(-0.5),
+        hyperbola_point(0.9),
+        hyperbola_point(0.2),
+    )
+    .expect("hyperbola param deltas");
+    assert!(d1 > 0.0 && d2 < 0.0);
+
+    let vertex = Point3::new(0.5, -1.0, 2.0);
+    let normal = Vector3::new(0.0, 0.0, 1.0);
+    let axis_dir = Vector3::new(1.0, 0.0, 0.0);
+    let focal = 0.8;
+    let para = Curve::Parabola {
+        vertex,
+        normal,
+        axis_dir,
+        focal_length: focal,
+    };
+    let para_flip = Curve::Parabola {
+        vertex,
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        axis_dir,
+        focal_length: focal,
+    };
+    let p_at = |t: f64| crate::geom::parabola_point(vertex, normal, axis_dir, focal, t);
+    for &t in &[-4.5, -0.3, 0.0, 1.2, 6.0] {
+        let got = conic_param(&para, p_at(t)).expect("parabola param");
+        assert!((got - t).abs() < 1e-12, "t={t}: got {got}");
     }
+    assert!(!conic_param_periodic(&para));
+    assert!(conics_equal_up_to_normal_sign(&para, &para_flip));
+    assert!(!conic_param_reversed(
+        &para,
+        p_at(-1.0),
+        p_at(0.5),
+        p_at(2.0)
+    ));
+    assert!(conic_param_reversed(
+        &para,
+        p_at(-1.0),
+        p_at(2.0),
+        p_at(0.5)
+    ));
+
+    let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+    curves.insert((1, 2), para);
+    curves.insert((2, 3), para_flip);
+    assert_eq!(
+        mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)),
+        Some(para)
+    );
+    curves.insert((1, 2), h);
+    curves.insert((2, 3), h);
+    assert_eq!(mixed_cycle_shared_conic(&curves, (1, 2), (2, 3)), Some(h));
 }
 
 #[test]

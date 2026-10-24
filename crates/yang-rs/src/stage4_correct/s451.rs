@@ -548,6 +548,15 @@ pub(crate) fn s451_plan_repairs(
     let mut consumed: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
     let mut plans: Vec<S451PlannedRepair> = Vec::new();
     let mut creases: Option<[crate::stage4_boundary_curve::CreaseIndex; 2]> = None;
+    let trace = std::env::var_os("YANG_451_PROBE").is_some()
+        || std::env::var("YANG_451").as_deref() == Ok("census");
+    macro_rules! say {
+        ($($t:tt)*) => {
+            if trace {
+                eprintln!($($t)*);
+            }
+        };
+    }
 
     for &(v, _) in failures {
         if consumed.contains(&v) {
@@ -561,7 +570,7 @@ pub(crate) fn s451_plan_repairs(
         let pos = mesh.verts[v as usize].as_array();
         let (ca, cb) = carrier_counts(&patches, a, b, v, pos);
         if ca.max(cb) > 1 {
-            eprintln!("YANG_451_REPAIR v{v} DECLINE clause1 carrier=(A{ca},B{cb})");
+            say!("YANG_451_REPAIR v{v} DECLINE clause1 carrier=(A{ca},B{cb})");
             return Err(());
         }
         // The failure's own conic (LineSegment cannot key a chain).
@@ -585,11 +594,11 @@ pub(crate) fn s451_plan_repairs(
             let Some((walk_bounds, _common)) =
                 selector_clause2_walk(mesh, attribution, a, b, &adj, v, &on_curve, &good)
             else {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: clause 2 fails");
+                say!("YANG_451_REPAIR v{v} DECLINE torus arm: clause 2 fails");
                 return Err(());
             };
             let [w0, w1] = walk_bounds[..] else {
-                eprintln!(
+                say!(
                     "YANG_451_REPAIR v{v} DECLINE torus arm: {} bounds (need 2)",
                     walk_bounds.len()
                 );
@@ -597,7 +606,7 @@ pub(crate) fn s451_plan_repairs(
             };
             let direct = |w: u32| adj.get(&v).is_some_and(|nb| nb.contains(&w)) && on_curve(w);
             if !(direct(w0) && direct(w1)) {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: region k > 1");
+                say!("YANG_451_REPAIR v{v} DECLINE torus arm: region k > 1");
                 return Err(());
             }
             let p0 = mesh.verts[w0 as usize].as_array();
@@ -620,7 +629,7 @@ pub(crate) fn s451_plan_repairs(
                 [s0, s1] => relocate_onto_implicit_pair(midp, s0, s1),
                 [s0, s1, s2] => relocate_onto_implicit_triple(midp, s0, s1, s2),
                 _ => {
-                    eprintln!(
+                    say!(
                         "YANG_451_REPAIR v{v} DECLINE torus arm: {} constraint surfaces \
                          (need 2 or 3)",
                         constraints.len()
@@ -629,7 +638,7 @@ pub(crate) fn s451_plan_repairs(
                 }
             };
             let Some(proj) = proj else {
-                eprintln!(
+                say!(
                     "YANG_451_REPAIR v{v} DECLINE torus arm: Newton diverged on {} surfaces",
                     constraints.len()
                 );
@@ -642,33 +651,36 @@ pub(crate) fn s451_plan_repairs(
                 let ok = surface_distance_and_normal(s, pa2)
                     .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa2, s));
                 if !ok {
-                    eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: certificate fails on {s:?}");
+                    say!("YANG_451_REPAIR v{v} DECLINE torus arm: certificate fails on {s:?}");
                     return Err(());
                 }
             }
             let chord = dist3(p0, p1);
             if dist3(pa2, mid) > chord {
-                eprintln!(
-                    "YANG_451_REPAIR v{v} DECLINE torus arm: projection left the region                      scale (|proj-mid|={:.3e} > |bounds|={:.3e})",
+                say!(
+                    "YANG_451_REPAIR v{v} DECLINE torus arm: projection left the region \
+                     scale (|proj-mid|={:.3e} > |bounds|={:.3e})",
                     dist3(pa2, mid),
                     chord
                 );
                 return Err(());
             }
             let Some(d_eps) = stage4_chord_band(a, b) else {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE torus arm: no chord band");
+                say!("YANG_451_REPAIR v{v} DECLINE torus arm: no chord band");
                 return Err(());
             };
             for &s in &constraints {
                 if planar_partner_hull_contains(a, b, s, pa2, d_eps) == Some(false) {
-                    eprintln!(
-                        "YANG_451_REPAIR v{v} DECLINE torus arm: owner-face hull refuses                          on {s:?}"
+                    say!(
+                        "YANG_451_REPAIR v{v} DECLINE torus arm: owner-face hull refuses \
+                         on {s:?}"
                     );
                     return Err(());
                 }
             }
-            eprintln!(
-                "YANG_451_REPAIR torus region k=1 survivor=v{v} bounds=(v{w0},v{w1})                  n_surfs={} proj=({:.9},{:.9},{:.9})",
+            say!(
+                "YANG_451_REPAIR torus region k=1 survivor=v{v} bounds=(v{w0},v{w1}) \
+                 n_surfs={} proj=({:.9},{:.9},{:.9})",
                 constraints.len(),
                 pa2[0],
                 pa2[1],
@@ -684,7 +696,7 @@ pub(crate) fn s451_plan_repairs(
             continue;
         }
         let [curve] = own_curves[..] else {
-            eprintln!(
+            say!(
                 "YANG_451_REPAIR v{v} DECLINE own-curve count {} != 1",
                 own_curves.len()
             );
@@ -707,7 +719,7 @@ pub(crate) fn s451_plan_repairs(
                     break;
                 }
                 if members.len() > 128 {
-                    eprintln!("YANG_451_REPAIR v{v} DECLINE region cap");
+                    say!("YANG_451_REPAIR v{v} DECLINE region cap");
                     return Err(());
                 }
                 if !members.contains(&cur) {
@@ -720,7 +732,7 @@ pub(crate) fn s451_plan_repairs(
                         cur = next[0];
                     }
                     n => {
-                        eprintln!(
+                        say!(
                             "YANG_451_REPAIR v{v} DECLINE chain via v{start}: {} continuations",
                             n
                         );
@@ -730,13 +742,16 @@ pub(crate) fn s451_plan_repairs(
             }
         }
         let [w0, w1] = bounds[..] else {
-            eprintln!("YANG_451_REPAIR v{v} DECLINE bounds {} != 2", bounds.len());
+            say!("YANG_451_REPAIR v{v} DECLINE bounds {} != 2", bounds.len());
             return Err(());
         };
         if w0 == w1 {
-            eprintln!("YANG_451_REPAIR v{v} DECLINE bounds coincide (v{w0})");
+            say!("YANG_451_REPAIR v{v} DECLINE bounds coincide (v{w0})");
             return Err(());
         }
+        members.sort_unstable();
+        members.dedup();
+        let survivor = members[0];
         // The shared cone+plane pair, read from the bounds' carried surfaces.
         let p0 = mesh.verts[w0 as usize].as_array();
         let p1 = mesh.verts[w1 as usize].as_array();
@@ -767,7 +782,7 @@ pub(crate) fn s451_plan_repairs(
             Some(sp @ Surface::Plane { normal, d }),
         ) = (cone, plane)
         else {
-            eprintln!(
+            say!(
                 "YANG_451_REPAIR v{v} DECLINE shared pair not cone+plane ({} shared)",
                 shared.len()
             );
@@ -788,7 +803,7 @@ pub(crate) fn s451_plan_repairs(
         ) {
             Ok(p) => p,
             Err(reason) => {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE projection failed: {reason:?}");
+                say!("YANG_451_REPAIR v{v} DECLINE projection failed: {reason:?}");
                 return Err(());
             }
         };
@@ -802,22 +817,27 @@ pub(crate) fn s451_plan_repairs(
                 crate::stage4_boundary_curve::CreaseIndex::build(b),
             ]
         });
-        let leaves = patches.get(&v).into_iter().flatten().any(|&(input, face)| {
-            let slot = match input {
-                InputId::A => 0,
-                InputId::B => 1,
-            };
-            crease_idx[slot].faces.get(face as usize).is_some_and(|cr| {
-                cone_section_step_leaves_face(
-                    Point3::new(mid[0], mid[1], mid[2]),
-                    proj,
-                    (normal, d),
-                    cr,
-                )
-            })
-        });
+        let leaves =
+            members
+                .iter()
+                .filter_map(|m| patches.get(m))
+                .flatten()
+                .any(|&(input, face)| {
+                    let slot = match input {
+                        InputId::A => 0,
+                        InputId::B => 1,
+                    };
+                    crease_idx[slot].faces.get(face as usize).is_some_and(|cr| {
+                        cone_section_step_leaves_face(
+                            Point3::new(mid[0], mid[1], mid[2]),
+                            proj,
+                            (normal, d),
+                            cr,
+                        )
+                    })
+                });
         if leaves {
-            eprintln!(
+            say!(
                 "YANG_451_REPAIR v{v} DECLINE the midpoint's step leaves its face: \
                  continuation on S1 needs q1/q2 on C_b (N90)"
             );
@@ -830,7 +850,7 @@ pub(crate) fn s451_plan_repairs(
             let ok = surface_distance_and_normal(s, pa)
                 .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa, s));
             if !ok {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE certificate fails on {s:?}");
+                say!("YANG_451_REPAIR v{v} DECLINE certificate fails on {s:?}");
                 return Err(());
             }
         }
@@ -842,9 +862,7 @@ pub(crate) fn s451_plan_repairs(
             let ok = surface_distance_and_normal(s, pa)
                 .is_some_and(|(x, _)| x.abs() <= junction_certificate_band(pa, s));
             if !ok {
-                eprintln!(
-                    "YANG_451_REPAIR v{v} DECLINE region constraint surface fails at proj: {s:?}"
-                );
+                say!("YANG_451_REPAIR v{v} DECLINE region constraint surface fails at proj: {s:?}");
                 return Err(());
             }
         }
@@ -852,7 +870,7 @@ pub(crate) fn s451_plan_repairs(
         // infinite conic is a wrong answer — STOP, never accept.
         let chord = dist3(p0, p1);
         if dist3(pa, mid) > chord {
-            eprintln!(
+            say!(
                 "YANG_451_REPAIR v{v} DECLINE projection left the region scale \
                  (|proj-mid|={:.3e} > |bounds|={:.3e})",
                 dist3(pa, mid),
@@ -898,19 +916,9 @@ pub(crate) fn s451_plan_repairs(
                 normal: pn,
                 axis_dir,
                 ..
-            } => {
-                let n = normalize3(pn.as_array());
-                let ax = normalize3(axis_dir.as_array());
-                let conj = [
-                    n[1] * ax[2] - n[2] * ax[1],
-                    n[2] * ax[0] - n[0] * ax[2],
-                    n[0] * ax[1] - n[1] * ax[0],
-                ];
-                let vx = vertex.as_array();
-                (pa[0] - vx[0]) * conj[0] + (pa[1] - vx[1]) * conj[1] + (pa[2] - vx[2]) * conj[2]
-            }
+            } => crate::geom::parabola_param(proj, vertex, pn, axis_dir),
             other => {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE unretaggable curve kind {other:?}");
+                say!("YANG_451_REPAIR v{v} DECLINE unretaggable curve kind {other:?}");
                 return Err(());
             }
         };
@@ -918,21 +926,18 @@ pub(crate) fn s451_plan_repairs(
         // position: every victim's carried set must be a subset of what the
         // repaired survivor carries.
         let surv_carried: Vec<Surface> = {
-            let (xa, xb) = carrier_surface_sets(&patches, a, b, v, pa);
+            let (xa, xb) = carrier_surface_sets(&patches, a, b, survivor, pa);
             xa.into_iter().chain(xb).collect()
         };
-        members.sort_unstable();
-        members.dedup();
-        let survivor = members[0];
         for &m in &members {
             let mp = mesh.verts[m as usize].as_array();
             let (ma, mb) = carrier_surface_sets(&patches, a, b, m, mp);
             if !ma.iter().chain(mb.iter()).all(|s| surv_carried.contains(s)) {
-                eprintln!("YANG_451_REPAIR v{v} DECLINE §4-I8 containment fails for member v{m}");
+                say!("YANG_451_REPAIR v{v} DECLINE §4-I8 containment fails for member v{m}");
                 return Err(());
             }
         }
-        eprintln!(
+        say!(
             "YANG_451_REPAIR region k={} survivor=v{survivor} bounds=(v{w0},v{w1}) \
              proj=({:.9},{:.9},{:.9}) t={t:.6} cone_tan={:.6} chord={chord:.4e}",
             members.len(),
@@ -955,7 +960,7 @@ pub(crate) fn s451_plan_repairs(
     // means the repair set is incomplete and the stage must STOP.
     for &(v, _) in failures {
         if !consumed.contains(&v) {
-            eprintln!("YANG_451_REPAIR v{v} DECLINE not reachable by any planned region");
+            say!("YANG_451_REPAIR v{v} DECLINE not reachable by any planned region");
             return Err(());
         }
     }
@@ -1089,9 +1094,7 @@ impl ConeSection {
             ),
             // The conjugate-axis coordinate `(proj − vertex)·(normal × axis)`.
             Self::Parabola(c) => {
-                let n = normalize3(c.normal.as_array());
-                let ax = normalize3(c.para_axis_dir.as_array());
-                along(c.vertex, cross(n, ax))
+                crate::geom::parabola_param(proj, c.vertex, c.normal, c.para_axis_dir)
             }
             // `asinh(v / b)`, `v = (proj − center)·(normal × major)`: the
             // eval is `center + a·cosh(t)·major + b·sinh(t)·(normal×major)`,

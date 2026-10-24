@@ -408,7 +408,7 @@ pub(crate) fn census_output_pair_chords(
 /// is read-only measurement (no apply); the `0|off` kill switch was deleted
 /// 2026-10-16 (cleanup spec §4).
 pub(crate) fn restore_gate_enabled() -> bool {
-    std::env::var("YANG_434_OUT").as_deref() != Ok("census")
+    !(cfg!(debug_assertions) && std::env::var("YANG_434_OUT").as_deref() == Ok("census"))
 }
 
 #[derive(Default, Debug)]

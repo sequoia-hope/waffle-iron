@@ -820,7 +820,8 @@ pub(crate) fn stage4_relocate_and_correct(
     if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
         eprintln!("[edge-pinch] entry split {splits} vertex copies");
     }
-    let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
+    let census = cfg!(debug_assertions)
+        && std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
     // Taken before the inner call, so it is the mesh exactly as Stage 4 received
     // it — strictly earlier than the inner snapshot and never later.
     let entry: Option<Vec<[f64; 3]>> =
@@ -1004,12 +1005,13 @@ fn stage4_relocate_and_correct_inner(
         }
     };
 
-    // §4.5.1 inc-1 census (spec §7): `census` flips every OffCurve gate from
-    // abort-at-first-fire to record-and-skip; the post-sweep census then
-    // reports at the paper's vantage and returns the FIRST recorded error
-    // unchanged. Default: gates abort exactly as today.
+    // §4.5.1 inc-1 census (spec §7, debug-only neuter): `census` flips every
+    // OffCurve gate from abort-at-first-fire to record-and-skip; the post-sweep
+    // census then reports at the paper's vantage and returns the FIRST recorded
+    // error unchanged. Default (always in release): gates abort and `s451_repair`
+    // is ON.
     let s451_mode = std::env::var("YANG_451").unwrap_or_default();
-    let s451_census = s451_mode == "census";
+    let s451_census = cfg!(debug_assertions) && s451_mode == "census";
     // FLIPPED ALWAYS-ON 2026-08-22 (spec `yang_451_optimize_across_boundaries.md`
     // §11): the corpus under the gate is category-identical with EXACTLY ONE
     // explained detail delta (R0003: Stage-4 OffCurve → the pre-existing
@@ -2341,7 +2343,7 @@ fn stage4_relocate_and_correct_inner(
         // emission could not repair (the `0`/`off` pre-flip path was deleted
         // 2026-10-16, cleanup spec §4).
         let dom_mode = std::env::var("YANG_451_TRIPLE_DOMAIN").unwrap_or_default();
-        let dom_stop = dom_mode == "1" || dom_mode == "on";
+        let dom_stop = cfg!(debug_assertions) && (dom_mode == "1" || dom_mode == "on");
         // The anatomy → emission sub-chain is always on; the knob's pre-flip
         // role (any value = arm) survives as "set = report".
         let trace = dom_mode == "census" || std::env::var_os("YANG_451_TRANSIT_ANATOMY").is_some();
@@ -4722,10 +4724,12 @@ fn stage4_relocate_and_correct_inner(
                             relocations.push((plan.survivor, t));
                         }
                     }
-                    eprintln!(
-                        "YANG_451_REPAIR applied {} region repair(s); stage continues",
-                        plans.len()
-                    );
+                    if std::env::var_os("YANG_451_PROBE").is_some() || s451_mode == "census" {
+                        eprintln!(
+                            "YANG_451_REPAIR applied {} region repair(s); stage continues",
+                            plans.len()
+                        );
+                    }
                     s451_repaired_any = !plans.is_empty();
                     s45_failures.clear();
                 }

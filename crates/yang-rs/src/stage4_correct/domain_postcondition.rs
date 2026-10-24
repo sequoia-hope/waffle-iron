@@ -111,9 +111,9 @@ pub(crate) fn boundary_domain_postcondition(
     let mode = std::env::var("YANG_S45_BOUNDARY_DOMAIN").unwrap_or_default();
     // `census` and the production default both REPORT (the default records
     // the count for the op-level ladder, `boolean::refine_452_domain`);
-    // only `stop` turns a fire into the hard STOP here.
+    // only `stop` (debug-only strengthener) turns a fire into the hard STOP here.
     let census = mode == "census";
-    let stop = mode == "stop" || mode == "1" || mode == "on";
+    let stop = cfg!(debug_assertions) && (mode == "stop" || mode == "1" || mode == "on");
     let n = entry.len().min(mesh.verts.len());
     let patches = build_patch_map(mesh, &attribution.attributions);
     let mut index: [Option<CreaseIndex>; 2] = [None, None];
@@ -270,7 +270,8 @@ pub(crate) fn relocation_domain_postcondition(
     b: &BRep,
     entry: &[[f64; 3]],
 ) -> Result<(), YangError> {
-    let census = std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
+    let census = cfg!(debug_assertions)
+        && std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
 
     // Census-only: the FACE-level picture the §4-I10 measurements need, built
     // ONCE (one pass over the triangles) rather than per query.

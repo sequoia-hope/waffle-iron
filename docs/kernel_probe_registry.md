@@ -29,8 +29,13 @@ output** so they are auditable.
 | `YANG_RIM_JUNCTION_DISABLE` | `yang-rs/src/boolean.rs:~1853` | disables the Stage-1 rim-junction insertion | insertion enabled |
 | `YANG_441_APPLY_BOOL_CAP` | `yang-rs/src/stage5_topology.rs` (`run_construct_passes`) | booleans at/above this process-order index run the I5 construct pass census-only | every boolean applies |
 | `YANG_441_APPLY_SEAM_CAP` | same | caps the total applied-seam budget | uncapped |
+| `YANG_434_OUT=census` | `yang-rs/src/stage5_output_refine.rs` (`restore_gate_enabled`) | reports the §4.4.2 restoration and does NOT apply it | restoration applied |
+| `YANG_441_RUN_ABSORB=census`, `YANG_441_GROUP_ABSORB=census`, `YANG_441_REHOME=census` | `yang-rs/src/stage4_fold_risk.rs`, `stage4_rehome.rs` | select and report, apply nothing | absorption / rehome applied |
+| `YANG_451=census` | `yang-rs/src/stage4_correct.rs` (`s451_census`) | OffCurve gates record-and-skip instead of abort, and the §4.5.1 repair is OFF | `on` (record and repair) |
+| `YANG_451_TRIPLE_DOMAIN=1\|on`, `YANG_S45_BOUNDARY_DOMAIN=stop\|1\|on` | `yang-rs/src/stage4_correct.rs`, `stage4_correct/domain_postcondition.rs` | turn a domain fire into a hard STOP (`census` remains a print-only trace in release) | record-and-continue (`0\|off`) |
+| `YANG_S4_CARRIER_DOMAIN=census` | `yang-rs/src/stage4_correct.rs` (`carrier_domain_mode`) | skips the carrier-domain abort (changes flow) | `stop` |
 
-## Kill switches of landed mechanisms: DELETED 2026-10-16
+## Kill switches of landed mechanisms: DELETED 2026-10-16 / 2026-10-24
 
 Cleanup spec §4 (`specs/yang_faithful_cleanup.md`, Phase 0): a default-ON
 `0|off` kill switch is legitimate for ONE corpus run after its mechanism
@@ -54,6 +59,10 @@ went too, their other modes kept: `YANG_434_OUT`, `YANG_441_RUN_ABSORB`,
 `YANG_441_GROUP_ABSORB`, `YANG_441_REHOME`, `YANG_451`,
 `YANG_451_TRIPLE_DOMAIN`, `YANG_451_TRANSIT_ANATOMY`,
 `YANG_S45_BOUNDARY_DOMAIN`, `YANG_S4_CARRIER_DOMAIN`.
+Deleted on 2026-10-24: `YANG_441_OPEN_CONIC_PARAM` (open-conic parameter order in
+`stage4_correct/reversal.rs` is always-on for both `Parabola` and `Hyperbola`),
+and the result-changing arms of the 8 multi-valued `census` / `stop` modes above
+were gated behind `cfg!(debug_assertions)`.
 
 ## Result-changing modes still read in release (OPEN)
 
@@ -62,12 +71,6 @@ debug-only or go; each needs its own decision (cleanup spec §4):
 
 | Env var = value | Effect |
 |---|---|
-| `YANG_434_OUT=census` | reports the §4.4.2 restoration and does NOT apply it |
-| `YANG_441_RUN_ABSORB=census`, `YANG_441_GROUP_ABSORB=census`, `YANG_441_REHOME=census` | select and report, apply nothing |
-| `YANG_451=census` | OffCurve gates record-and-skip instead of abort, and the §4.5.1 repair is OFF |
-| `YANG_451_TRIPLE_DOMAIN=1\|on`, `YANG_S45_BOUNDARY_DOMAIN=stop\|1\|on` | turn a domain fire into a hard STOP |
-| `YANG_S4_CARRIER_DOMAIN=census` | changes FLOW (measured 2026-10-08) |
-| `YANG_441_OPEN_CONIC_PARAM` | `stage4_correct/reversal.rs` — kill switch of the open-conic parameter arm; decide with Phase 2a-ii |
 | `YANG_S1_SELF_CONTACT`, `YANG_S1_SELF_CONTACT_CHART` | the self-contact guard's switches — go with the guard (Phase 3) |
 
 kernel-v2's ~24 `KV2_*_PROBE` and cherchi-rs's `CHERCHI_*_PROBE` are all

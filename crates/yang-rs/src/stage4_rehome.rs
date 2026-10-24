@@ -160,7 +160,7 @@ pub(crate) enum RehomeMode {
 
 pub(crate) fn rehome_mode() -> RehomeMode {
     match std::env::var("YANG_441_REHOME") {
-        Ok(v) if v == "census" => RehomeMode::Census,
+        Ok(v) if cfg!(debug_assertions) && v == "census" => RehomeMode::Census,
         _ => RehomeMode::On,
     }
 }

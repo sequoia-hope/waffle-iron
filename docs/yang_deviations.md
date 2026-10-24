@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
-| N89 | OPEN (2026-10-16, matrix U-5) | Eight smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24) | Seven smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-24, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
@@ -6577,10 +6577,18 @@ Each is OPEN, each small; recorded together so none is invisible.
    sub-band loops are never sites (§4.2 `:499-501` seeds both; see N91). The
    Fig. 7 caption's "d_ε = 0.05d" AABB expansion (`:425-431`) is replaced by
    per-triangle exact deviation (low weight). Matrix 4.2-05, 4.2-10.
-3. **Parabola and Hyperbola curves are never reversal-tested.**
-   `mixed_cycle_shared_conic` (`stage4_correct/reversal.rs:1178`) returns
-   `None` for them, so the §4.5.3 site is skipped (`:742-745` says every C).
-   Matrix 4.5.3-08.
+3. **~~Parabola and Hyperbola curves are never reversal-tested.~~ RESOLVED (2026-10-24).**
+   `mixed_cycle_shared_conic` (`stage4_correct/reversal.rs`) previously returned
+   `None` for `Parabola` and `Hyperbola`, so the §4.5.3 site was skipped (`:742-745`
+   says every C). `conic_param`, `conics_equal_up_to_normal_sign`,
+   `mixed_cycle_shared_conic`, and `conic_param_deltas` now cover both open conic
+   variants (`Parabola` via `crate::geom::parabola_param`, `Hyperbola` via
+   `crate::geom::hyperbola_param`), and the `YANG_441_OPEN_CONIC_PARAM` kill switch
+   was deleted. Adding `Parabola` to `conic_param` also bounds `Parabola` crease
+   edges by their arc interval in `CreaseArc::contains` (`stage4_boundary_curve.rs`)
+   and `inside_span` (`boolean/failures.rs`). Pinned by
+   `tests_unit/i13_junction_overrun.rs::conic_param_and_reversal_cover_parabola_and_hyperbola`.
+   Matrix 4.5.3-08 → FAITHFUL.
 4. **Ellipse-edged planar faces are a Stage-0 `face-unsupported` wall**
    (`stage0/frame.rs:1016` doc, `overlay_face_supported`); the paper's own
    Fig. 24(b) benchmark (24 elliptical cylinders with coplanar caps, §5.5

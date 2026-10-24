@@ -1025,11 +1025,25 @@ pub(crate) fn conics_equal_up_to_normal_sign(a: &Curve, b: &Curve) -> bool {
                 minor_radius: b1,
             },
         ) => c0 == c1 && m0 == m1 && a0 == a1 && b0 == b1 && (*n0 == *n1 || *n0 == neg(*n1)),
-        // I13: same frame-choice fact for the hyperbola — negating the stored
-        // normal flips the derived conjugate direction (`normal × major`),
-        // tracing the identical +branch point set with the parameter running
-        // the other way. `major_axis` is untouched, so the branch choice
-        // (`u > 0`) is preserved.
+        // I13: same frame-choice fact for the parabola and hyperbola — negating
+        // the stored normal flips the derived conjugate direction (`normal ×
+        // axis_dir` / `normal × major`), tracing the identical point set with
+        // the parameter running the other way. `axis_dir` / `major_axis` is
+        // untouched, so the branch choice is preserved.
+        (
+            Curve::Parabola {
+                vertex: v0,
+                normal: n0,
+                axis_dir: a0,
+                focal_length: f0,
+            },
+            Curve::Parabola {
+                vertex: v1,
+                normal: n1,
+                axis_dir: a1,
+                focal_length: f1,
+            },
+        ) => v0 == v1 && a0 == a1 && f0 == f1 && (*n0 == *n1 || *n0 == neg(*n1)),
         (
             Curve::Hyperbola {
                 center: c0,
@@ -1051,10 +1065,11 @@ pub(crate) fn conics_equal_up_to_normal_sign(a: &Curve, b: &Curve) -> bool {
 }
 
 /// Task #145 (spec `yang_453_mixed_cycle_conic_backtrack`): the exact conic
-/// parameter of `pt` on a `Circle`/`Ellipse`, in the shared PR-YR11 frame
-/// (`project_onto_circle` / `ellipse_param` — the same parameterization
-/// Stage-4 relocation and `is_reversed` use). `None` for non-conic payloads
-/// or a degenerate projection (branch 11 — cannot diagnose).
+/// parameter of `pt` on a `Circle`/`Ellipse`/`Parabola`/`Hyperbola`, in the
+/// shared frame (`project_onto_circle` / `ellipse_param` / `parabola_param` /
+/// `hyperbola_param` — the same parameterization Stage-4 relocation and
+/// `is_reversed` use). `None` for non-conic payloads or a degenerate
+/// projection (branch 11 — cannot diagnose).
 ///
 /// Also the curve-AUTHORITY key for the §4.4.1 splice
 /// ([`crate::stage4_splice::order_along_curve`]): §4.5.3's "points progressing
@@ -1084,18 +1099,23 @@ pub(crate) fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
             *major_radius,
             *minor_radius,
         )),
-        // I13b (gated `YANG_441_OPEN_CONIC_PARAM`): the hyperbola's own
-        // parameter — strictly monotone along the branch and UNBOUNDED:
-        // consumers whose math lives in the angle domain (wraps, 2π sweeps,
-        // circular-gap cuts) must gate on [`conic_param_periodic`] and
-        // decline open params — never wrap them.
+        // Open conics (Parabola, Hyperbola): strictly monotone along the
+        // curve / branch and UNBOUNDED. Consumers whose math lives in the
+        // angle domain (wraps, 2π sweeps, circular-gap cuts) gate on
+        // [`conic_param_periodic`] and handle open params without wrapping.
+        Curve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            ..
+        } => Some(crate::geom::parabola_param(pt, *vertex, *normal, *axis_dir)),
         Curve::Hyperbola {
             center,
             normal,
             major_axis,
             semi_conjugate,
             ..
-        } if open_conic_param_enabled() => Some(crate::geom::hyperbola_param(
+        } => Some(crate::geom::hyperbola_param(
             pt,
             *center,
             *normal,
@@ -1106,18 +1126,11 @@ pub(crate) fn conic_param(curve: &Curve, pt: Point3) -> Option<f64> {
     }
 }
 
-/// I13b — `conic_param` on OPEN conics (Hyperbola). **FLIPPED ALWAYS-ON
-/// 2026-08-25** with the I13 corpus proofs (see `cone_chart_enabled`).
-/// `YANG_441_OPEN_CONIC_PARAM=0|off` is the dev A/B off-knob.
-pub(crate) fn open_conic_param_enabled() -> bool {
-    !matches!(std::env::var("YANG_441_OPEN_CONIC_PARAM"), Ok(v) if v == "0" || v == "off")
-}
-
 /// Is [`conic_param`]'s parameterization of `curve` an ANGLE (2π-periodic)?
 /// `true` for Circle/Ellipse — wraps, circular-gap cuts and 2π sweep budgets
-/// are meaningful. `false` for the open conics (Hyperbola), whose parameter
-/// is unbounded: angle-domain consumers must DECLINE those, in their
-/// existing decline bucket, exactly as a `None` parameter declines.
+/// are meaningful. `false` for the open conics (Parabola, Hyperbola), whose
+/// parameter is unbounded: angle-domain consumers must DECLINE those (or take
+/// unwrapped differences), never wrap them to `(−π, π]`.
 pub(crate) fn conic_param_periodic(curve: &Curve) -> bool {
     matches!(curve, Curve::Circle { .. } | Curve::Ellipse { .. })
 }
@@ -1128,9 +1141,10 @@ pub(crate) fn conic_param_periodic(curve: &Curve) -> bool {
 /// conics the curve parameter tests this directly (the paper's discrete
 /// tangent test is the general-surface proxy, whose 45° band is P10-disproven
 /// at coarse-chord conic sites — spec §3c records). Consecutive deltas are
-/// wrapped to (−π, π] (each Stage-1 chord subtends < π); reversal ⟺ the two
-/// deltas have opposite signs. A zero delta (coincident parameters) and a
-/// degenerate projection are healthy — cannot diagnose (branch 11).
+/// wrapped to (−π, π] for periodic conics (each Stage-1 chord subtends < π)
+/// and taken directly for open conics; reversal ⟺ the two deltas have opposite
+/// signs. A zero delta (coincident parameters) and a degenerate projection are
+/// healthy — cannot diagnose (branch 11).
 /// (The sweep consumes `conic_param_deltas` directly — it also needs the
 /// survivor side; this equivalent boolean form is the branch-table oracle.)
 #[cfg(test)]
@@ -1138,13 +1152,13 @@ pub(crate) fn conic_param_reversed(curve: &Curve, p_b: Point3, p_r: Point3, p_n:
     conic_param_deltas(curve, p_b, p_r, p_n).is_some_and(|(d1, d2)| d1 * d2 < 0.0)
 }
 
-/// Task #145: the wrapped conic-parameter deltas `(t_r − t_b, t_n − t_r)` of a
-/// shared-conic site, each in (−π, π]. `None` when any parameter is undefined
-/// (branch 11). The reversal test is `d1·d2 < 0`; the collapse survivor is the
-/// parameter-NEARER bracketing neighbor (the endpoint `p_r` overshot — its
-/// distance is the actual overshoot, which the 2·d_ε resolution gate can
-/// honestly bound; the FAR neighbor is a whole arc away and never a resolution
-/// artifact).
+/// Task #145: the conic-parameter deltas `(t_r − t_b, t_n − t_r)` of a
+/// shared-conic site (wrapped to `(−π, π]` for periodic conics, unwrapped for
+/// open conics). `None` when any parameter is undefined (branch 11). The
+/// reversal test is `d1·d2 < 0`; the collapse survivor is the parameter-NEARER
+/// bracketing neighbor (the endpoint `p_r` overshot — its distance is the
+/// actual overshoot, which the 2·d_ε resolution gate can honestly bound; the
+/// FAR neighbor is a whole arc away and never a resolution artifact).
 pub(crate) fn conic_param_deltas(
     curve: &Curve,
     p_b: Point3,
@@ -1178,17 +1192,14 @@ pub(crate) fn conic_param_deltas(
         let d2 = (pn[0] - pr[0]) * t[0] + (pn[1] - pr[1]) * t[1] + (pn[2] - pr[2]) * t[2];
         return Some((d1, d2));
     }
-    // I13b: the (−π, π] wrap below is angle-domain math — an open conic's
-    // unbounded parameter must not pass through it. Same `None` ("cannot
-    // diagnose") the missing parameter produced before the extension.
-    if !conic_param_periodic(curve) {
-        return None;
-    }
     let (t_b, t_r, t_n) = (
         conic_param(curve, p_b)?,
         conic_param(curve, p_r)?,
         conic_param(curve, p_n)?,
     );
+    if !conic_param_periodic(curve) {
+        return Some((t_r - t_b, t_n - t_r));
+    }
     let two_pi = 2.0 * std::f64::consts::PI;
     let wrap = |mut d: f64| -> f64 {
         while d > std::f64::consts::PI {
@@ -1203,10 +1214,11 @@ pub(crate) fn conic_param_deltas(
 }
 
 /// Task #145 branch 12 (site eligibility): the shared conic of a mixed-cycle
-/// site — `Some` iff BOTH incident edges carry the SAME `Circle`/`Ellipse`
-/// (exact struct equality or equality up to the stored normal's sign, I5).
-/// Junctions (different conics), conic/LineSegment boundaries, and straight
-/// runs (the §3c both-line arm) return `None`.
+/// site — `Some` iff BOTH incident edges carry the SAME conic (`Circle`,
+/// `Ellipse`, `Parabola`, or `Hyperbola`, exact struct equality or equality up
+/// to the stored normal's sign, I5). Junctions (different conics),
+/// conic/LineSegment boundaries, and straight runs (the §3c both-line arm)
+/// return `None`.
 pub(crate) fn mixed_cycle_shared_conic(
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     key_b: (u32, u32),
@@ -1222,7 +1234,13 @@ pub(crate) fn mixed_cycle_shared_conic(
     if let (Curve::SurfacePair { a: na, b: nb }, Curve::SurfacePair { a: ba, b: bb }) = (cn, cb) {
         return ((na == ba && nb == bb) || (na == bb && nb == ba)).then_some(*cb);
     }
-    if !matches!(cn, Curve::Circle { .. } | Curve::Ellipse { .. }) {
+    if !matches!(
+        cn,
+        Curve::Circle { .. }
+            | Curve::Ellipse { .. }
+            | Curve::Parabola { .. }
+            | Curve::Hyperbola { .. }
+    ) {
         return None;
     }
     if cn == cb || conics_equal_up_to_normal_sign(cn, cb) {

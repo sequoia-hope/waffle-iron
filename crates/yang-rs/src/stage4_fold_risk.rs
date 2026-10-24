@@ -88,7 +88,7 @@ pub(crate) enum RunAbsorbMode {
 
 pub(crate) fn run_absorb_mode() -> RunAbsorbMode {
     match std::env::var("YANG_441_RUN_ABSORB") {
-        Ok(v) if v == "census" => RunAbsorbMode::Census,
+        Ok(v) if cfg!(debug_assertions) && v == "census" => RunAbsorbMode::Census,
         _ => RunAbsorbMode::On,
     }
 }
@@ -113,7 +113,7 @@ pub(crate) enum GroupAbsorbMode {
 
 pub(crate) fn group_absorb_mode() -> GroupAbsorbMode {
     match std::env::var("YANG_441_GROUP_ABSORB") {
-        Ok(v) if v == "census" => GroupAbsorbMode::Census,
+        Ok(v) if cfg!(debug_assertions) && v == "census" => GroupAbsorbMode::Census,
         _ => GroupAbsorbMode::On,
     }
 }
