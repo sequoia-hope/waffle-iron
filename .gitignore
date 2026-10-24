@@ -56,3 +56,6 @@ app/static/share/
 # si5_exactness.py as a module, which writes one).
 __pycache__/
 *.pyc
+
+# Machine-local compose additions (status hooks mount)
+docker-compose.override.yml
