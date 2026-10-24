@@ -375,6 +375,39 @@ fn corner_arc(j: Point2, d: f64, e: Point2, s: Point2, dir_out: Point2) -> Segme
 pub struct OffsetResult {
     pub segments: Vec<Segment>,
     pub closed: bool,
+    /// Parallel to `segments`: which input segment each came from.
+    pub origins: Vec<Origin>,
+    /// How `segments[k]` meets `segments[k + 1]` (and, when closed, the last
+    /// meets the first). Empty for a single circle.
+    pub joints: Vec<Joint>,
+    /// False when a collapsed output segment was dropped: its neighbours then
+    /// meet where the dropped piece used to be, and the joint record no
+    /// longer describes the geometry.
+    pub provenance_exact: bool,
+    /// True when the closed result was reversed to come back CCW: each
+    /// output segment then runs from its source's traversal END to its START.
+    pub reversed: bool,
+}
+
+/// Where an output segment came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Origin {
+    /// The offset of input segment `i`.
+    Source(usize),
+    /// The corner arc at the joint after input segment `i`, centred on that
+    /// source joint.
+    Corner(usize),
+}
+
+/// How two consecutive output segments meet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Joint {
+    /// A trim/extend or miter: the carriers cross, so the joint is fixed by
+    /// the two segments themselves.
+    Crossing,
+    /// A tangent weld or a corner-arc end: the carriers touch, so the joint
+    /// sits `|d|` off the source joint along the source normal.
+    Tangent,
 }
 
 /// Offset a resolved chain by signed distance `d` (positive = left of
@@ -399,6 +432,10 @@ pub fn offset_chain_segments(
                 r: nr,
             }],
             closed: true,
+            origins: vec![Origin::Source(0)],
+            joints: Vec::new(),
+            provenance_exact: true,
+            reversed: false,
         });
     }
 
@@ -406,6 +443,8 @@ pub fn offset_chain_segments(
         src: Segment,
         off: Segment,
         corner_after: Option<Segment>,
+        /// How this piece's offset meets the next one when there is no corner.
+        joint_after: Joint,
     }
     let mut out: Vec<Piece> = Vec::with_capacity(segments.len());
     for seg in segments {
@@ -414,6 +453,7 @@ pub fn offset_chain_segments(
             src: *seg,
             off,
             corner_after: None,
+            joint_after: Joint::Crossing,
         });
     }
 
@@ -428,6 +468,7 @@ pub fn offset_chain_segments(
             let m = e.midpoint(s);
             out[i].off.set_end(m);
             out[next].off.set_start(m);
+            out[i].joint_after = Joint::Tangent;
             continue;
         }
 
@@ -471,7 +512,12 @@ pub fn offset_chain_segments(
     }
 
     let mut result: Vec<Segment> = Vec::new();
-    for piece in &out {
+    let mut origins: Vec<Origin> = Vec::new();
+    // joints[k] = how result[k] meets result[k + 1]; the last entry is the
+    // wrap (closed) or the open chain's trailing piece (dropped below).
+    let mut joints: Vec<Joint> = Vec::new();
+    let mut provenance_exact = true;
+    for (i, piece) in out.iter().enumerate() {
         let degenerate = match piece.off {
             Segment::Line { p0, p1 } => p0.dist(p1) < 1e-12,
             _ => {
@@ -481,22 +527,43 @@ pub fn offset_chain_segments(
         };
         if !degenerate {
             result.push(piece.off);
+            origins.push(Origin::Source(i));
+            joints.push(if piece.corner_after.is_some() {
+                Joint::Tangent
+            } else {
+                piece.joint_after
+            });
+        } else {
+            provenance_exact = false;
         }
         if let Some(corner) = piece.corner_after {
             let sweep = corner.sweep();
             if (1e-9..TWO_PI - 1e-9).contains(&sweep) {
                 result.push(corner);
+                origins.push(Origin::Corner(i));
+                joints.push(Joint::Tangent);
+            } else {
+                provenance_exact = false;
             }
         }
     }
     if result.is_empty() {
         return Err(OffsetError::Degenerate);
     }
+    if !closed {
+        joints.pop();
+    }
     // Invariant O5 — deterministic winding: a closed output is always CCW.
     // The chain walk's direction is arbitrary, and downstream profile
     // extraction (outer-face classification, kernel loop staging) assumes
     // drawn-geometry winding; a CW ring scrambles it (NewellMismatch class).
-    if closed && chain_signed_area(&result) < 0.0 {
+    let reversed = closed && chain_signed_area(&result) < 0.0;
+    if reversed {
+        // joints[k] sits between k and k+1; reversed, the pair (n-1-k-1,
+        // n-1-k) becomes (k, k+1), i.e. new[k] = old[(n - 2 - k) mod n].
+        let n = joints.len();
+        joints = (0..n).map(|k| joints[(2 * n - 2 - k) % n]).collect();
+        origins.reverse();
         result.reverse();
         for seg in result.iter_mut() {
             *seg = match *seg {
@@ -521,6 +588,10 @@ pub fn offset_chain_segments(
     Ok(OffsetResult {
         segments: result,
         closed,
+        origins,
+        joints,
+        provenance_exact,
+        reversed,
     })
 }
 

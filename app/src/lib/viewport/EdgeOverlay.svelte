@@ -272,8 +272,11 @@
 	 */
 	function handleEdgeClick(e) {
 		if (!isBodyPickingEnabled()) return;
-		// Invariant I1: a sketch entity under the pointer wins over the body.
-		if (getSketchMode()?.active && getSketchHover() != null) return;
+		// In a sketch the select tool's pointerdown owns Vertex/Edge picks
+		// (tools.js handleSelectTool, where they accumulate). This DOM click
+		// only sometimes survives the orbit pointer capture, and when it did it
+		// REPLACED the accumulated selection with one edge.
+		if (getSketchMode()?.active) return;
 
 		// Invariant I3: a hovered Vertex outranks the edge — defer to it.
 		if (getHoveredRef()?.kind?.type === 'Vertex') return;

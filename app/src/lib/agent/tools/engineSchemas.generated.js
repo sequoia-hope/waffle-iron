@@ -1379,6 +1379,73 @@ export const ENGINE_DEFS = {
     },
     "type": "object"
   },
+  "OffsetLink": {
+    "description": "An offset entity and what it was offset from (`SketchConstraint::Offset`).",
+    "properties": {
+      "entity": {
+        "description": "The offset Line / Arc / Circle.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "sign": {
+        "description": "`+1` / `-1`: which side of `source` the offset lies on. For a line,\n`+1` is LEFT of the source's start→end; for an arc or circle, `+1`\nmeans the radius grew.\nIgnored for a corner arc, whose radius is `value`.",
+        "format": "int8",
+        "maximum": 127,
+        "minimum": -128,
+        "type": "integer"
+      },
+      "source": {
+        "description": "The source Line / Arc / Circle it parallels — or, for a corner arc, the\nsource corner POINT it is centred on.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "entity",
+      "source",
+      "sign"
+    ],
+    "type": "object"
+  },
+  "OffsetPlacement": {
+    "description": "A joint point pinned `value` off a source point (`SketchConstraint::Offset`).",
+    "properties": {
+      "along": {
+        "description": "The source Line or Arc whose normal at `anchor` the offset follows.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "anchor": {
+        "description": "The source point it is offset from (an endpoint of `along`).",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "point": {
+        "description": "The offset joint point.",
+        "format": "uint32",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "sign": {
+        "description": "`+1` / `-1` along that normal (a line's left normal; an arc's outward\nradial).",
+        "format": "int8",
+        "maximum": 127,
+        "minimum": -128,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "point",
+      "anchor",
+      "along",
+      "sign"
+    ],
+    "type": "object"
+  },
   "Operation": {
     "description": "A parametric modeling operation with its parameters. Any other well-formed object with a string `type` (an operation kind from a newer build) is preserved verbatim, re-emitted on save, and fails its rebuild loudly.",
     "oneOf": [
@@ -4295,6 +4362,51 @@ export const ENGINE_DEFS = {
           "type",
           "entity_a",
           "entity_b"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A chain offset kept parametric: every entity the Offset op made stays\n`value` from the geometry it was made from, so the whole offset is ONE\ndimension. Lines stay parallel at `value`, arcs and circles stay\nconcentric at `r ± value`, a corner arc stays centred on its source\ncorner, and every joint that is not a transversal crossing (tangent\nwelds, corner-arc ends, open-chain ends) is placed exactly `value` off\nits source point along the source's normal. See\nspecs/sketch_chain_offset.md §\"Cycle 4\".",
+        "properties": {
+          "expression": {
+            "description": "See `Distance::expression`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "links": {
+            "description": "One per offset entity.",
+            "items": {
+              "$ref": "#/$defs/OffsetLink"
+            },
+            "type": "array"
+          },
+          "placements": {
+            "description": "One per placed joint point.",
+            "items": {
+              "$ref": "#/$defs/OffsetPlacement"
+            },
+            "type": "array"
+          },
+          "reference": {
+            "description": "See `Distance::reference`.",
+            "type": "boolean"
+          },
+          "type": {
+            "const": "Offset",
+            "type": "string"
+          },
+          "value": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "type",
+          "value",
+          "links",
+          "placements"
         ],
         "type": "object"
       }

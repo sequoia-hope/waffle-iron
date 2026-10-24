@@ -219,8 +219,9 @@
 
 	function handleClick(e) {
 		if (!isBodyPickingEnabled()) return;
-		// Invariant I1: a sketch entity under the pointer wins over the body.
-		if (getSketchMode()?.active && getSketchHover() != null) return;
+		// In a sketch the select tool's pointerdown owns Vertex/Edge picks
+		// (tools.js handleSelectTool); see EdgeOverlay.handleEdgeClick.
+		if (getSketchMode()?.active) return;
 
 		const hit = pickVertexAtScreen(e.clientX, e.clientY);
 		if (hit) {

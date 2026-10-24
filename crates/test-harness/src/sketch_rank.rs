@@ -144,13 +144,12 @@ enum Ent {
     Circle {
         center: u32,
     },
-    /// An arc's `end` point is deliberately absent: no constraint in the
-    /// vocabulary reads it (an arc's radius is its centre→start distance, and
-    /// its sweep is not constrainable), so recording it would claim a
-    /// dependence the residuals do not have.
+    /// An arc's radius is its centre→start distance. Only `Offset` reads
+    /// `end` (it holds each offset arc endpoint at the offset radius).
     Arc {
         center: u32,
         start: u32,
+        end: u32,
     },
     /// A spline or a compact generator (gear, sprocket): no constraint arm in
     /// the vocabulary targets one, so the oracle only needs to know it exists.
@@ -211,6 +210,7 @@ impl Layout {
                     id,
                     center_id,
                     start_id,
+                    end_id,
                     ..
                 } => {
                     ents.insert(
@@ -218,6 +218,7 @@ impl Layout {
                         Ent::Arc {
                             center: *center_id,
                             start: *start_id,
+                            end: *end_id,
                         },
                     );
                 }
@@ -729,6 +730,90 @@ pub fn residual_rows(layout: &Layout, c: &SketchConstraint, x: &[f64]) -> Result
         // itself the assertion, since a variant that quietly owned a row would
         // shift every later constraint's rank contribution.
         C::SameOrientation { .. } => Ok(vec![]),
+        // A chain offset (specs/sketch_chain_offset.md §"Cycle 4"), from its
+        // meaning: each offset curve parallels its source at `value` on its
+        // recorded side, a corner arc is centred on its source corner with
+        // radius `value`, and a placed joint is `value` off its anchor along
+        // the source normal. A placed endpoint owns no curve row — its two
+        // placement rows already fix it. Rows: links in order, then
+        // placements.
+        C::Offset {
+            value,
+            links,
+            placements,
+            ..
+        } => {
+            let placed: std::collections::HashSet<u32> =
+                placements.iter().map(|p| p.point).collect();
+            let side = |s: i8| if s < 0 { -1.0 } else { 1.0 };
+            let mut rows = Vec::new();
+            for link in links {
+                let v = side(link.sign) * value;
+                match (layout.ent(link.entity)?, layout.ent(link.source)?) {
+                    (Ent::Line { start, end }, Ent::Line { .. }) => {
+                        let (s, e) = layout.line_pts(x, link.source)?;
+                        for q in [*start, *end] {
+                            if !placed.contains(&q) {
+                                rows.push(signed_line_dist(layout.pt(x, q)?, s, e)? - v);
+                            }
+                        }
+                    }
+                    (Ent::Arc { center, start, end }, Ent::Arc { .. }) => {
+                        let (c_src, r_src) = layout.curve(x, link.source)?;
+                        let c = layout.pt(x, *center)?;
+                        rows.push(c.0 - c_src.0);
+                        rows.push(c.1 - c_src.1);
+                        for q in [*start, *end] {
+                            if !placed.contains(&q) {
+                                rows.push(dist(c, layout.pt(x, q)?) - (r_src + v));
+                            }
+                        }
+                    }
+                    (Ent::Circle { .. }, Ent::Circle { .. }) => {
+                        let (c_src, r_src) = layout.curve(x, link.source)?;
+                        let (c, r) = layout.curve(x, link.entity)?;
+                        rows.push(c.0 - c_src.0);
+                        rows.push(c.1 - c_src.1);
+                        rows.push(r - (r_src + v));
+                    }
+                    (Ent::Arc { center, start, end }, Ent::Point) => {
+                        let j = layout.pt(x, link.source)?;
+                        let c = layout.pt(x, *center)?;
+                        rows.push(c.0 - j.0);
+                        rows.push(c.1 - j.1);
+                        for q in [*start, *end] {
+                            if !placed.contains(&q) {
+                                rows.push(dist(c, layout.pt(x, q)?) - value);
+                            }
+                        }
+                    }
+                    (a, b) => return Err(format!("offset link {a:?} from {b:?}")),
+                }
+            }
+            for pl in placements {
+                let p = layout.pt(x, pl.point)?;
+                let j = layout.pt(x, pl.anchor)?;
+                let (dir, len) = match layout.ent(pl.along)? {
+                    Ent::Line { .. } => {
+                        let (s, e) = layout.line_pts(x, pl.along)?;
+                        let d = sub(e, s);
+                        ((-d.1, d.0), norm(d))
+                    }
+                    Ent::Arc { center, .. } => {
+                        let w = sub(j, layout.pt(x, *center)?);
+                        (w, norm(w))
+                    }
+                    other => return Err(format!("offset placement along {other:?}")),
+                };
+                if len == 0.0 {
+                    return Err("offset placement normal is undefined".into());
+                }
+                let v = side(pl.sign) * value / len;
+                rows.push(p.0 - j.0 - v * dir.0);
+                rows.push(p.1 - j.1 - v * dir.1);
+            }
+            Ok(rows)
+        }
     }
 }
 

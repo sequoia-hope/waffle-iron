@@ -217,6 +217,13 @@ fn constraint_refs(c: &SketchConstraint) -> Vec<u32> {
             point_b,
             line,
         } => vec![*point_a, *point_b, *line],
+        C::Offset {
+            links, placements, ..
+        } => links
+            .iter()
+            .flat_map(|l| [l.entity, l.source])
+            .chain(placements.iter().flat_map(|p| [p.point, p.anchor, p.along]))
+            .collect(),
     }
 }
 
@@ -757,6 +764,8 @@ pub fn extend(
 pub struct ResolvedChain {
     pub segments: Vec<Segment>,
     pub closed: bool,
+    /// Parallel to `segments`: the entity each came from, in traversal order.
+    pub items: Vec<chain::ChainItem>,
 }
 
 /// Resolve a selection into offsettable segments: a single circle becomes one
@@ -780,6 +789,10 @@ pub fn resolve_offset_chain(
             return Ok(ResolvedChain {
                 segments: vec![Segment::Circle { center, r: *radius }],
                 closed: true,
+                items: vec![chain::ChainItem {
+                    id: *only,
+                    reversed: false,
+                }],
             });
         }
     }
@@ -788,6 +801,7 @@ pub fn resolve_offset_chain(
     Ok(ResolvedChain {
         segments,
         closed: ordered.closed,
+        items: ordered.items,
     })
 }
 
@@ -812,7 +826,175 @@ pub fn offset(
     let signed = distance.abs() * side.sign();
     let result =
         offset_chain_segments(&resolved.segments, resolved.closed, signed).map_err(refused)?;
-    Ok(materialize_segments(&result.segments, result.closed, ids))
+    let made = materialize_segments(&result.segments, result.closed, ids);
+    let mut edit = made.edit.clone();
+    if let Some(c) = offset_constraint(
+        sketch,
+        &positions,
+        &resolved,
+        &result,
+        &made,
+        distance.abs(),
+    ) {
+        edit.constraints_added.push(c);
+    }
+    Ok(edit)
+}
+
+/// The traversal start and end point ids of a chain item.
+fn traversal_ends(sketch: &Sketch, item: &chain::ChainItem) -> Option<(u32, u32)> {
+    let (s, e) = match entity(sketch, item.id).ok()? {
+        SketchEntity::Line {
+            start_id, end_id, ..
+        }
+        | SketchEntity::Arc {
+            start_id, end_id, ..
+        } => (*start_id, *end_id),
+        _ => return None,
+    };
+    Some(if item.reversed { (e, s) } else { (s, e) })
+}
+
+/// The `Offset` constraint that keeps a fresh offset tied to its source at
+/// `distance` — one dimension for the whole chain.
+///
+/// `None` when the offset's own record cannot describe it exactly (a
+/// collapsed segment was dropped), or when a joint is not where the record
+/// says it is: the geometry is still made, it is just not constrained, which
+/// is what an offset was before this constraint existed. Constraining it
+/// wrongly would make the first solve move the user's geometry.
+fn offset_constraint(
+    sketch: &Sketch,
+    positions: &Positions,
+    resolved: &ResolvedChain,
+    result: &offset::OffsetResult,
+    made: &Materialized,
+    distance: f64,
+) -> Option<SketchConstraint> {
+    use offset::{Joint, Origin};
+    use waffle_types::{OffsetLink, OffsetPlacement};
+    if !result.provenance_exact || made.entities.len() != result.segments.len() {
+        return None;
+    }
+    let pos = |id: u32| positions.get(&id).copied();
+    let sign_of = |v: f64| if v < 0.0 { -1 } else { 1 };
+    let n = result.segments.len();
+
+    let mut links = Vec::with_capacity(n);
+    for (k, origin) in result.origins.iter().enumerate() {
+        let off = result.segments[k];
+        let link = match *origin {
+            Origin::Source(i) => {
+                let item = resolved.items.get(i)?;
+                let sign = match entity(sketch, item.id).ok()? {
+                    SketchEntity::Line {
+                        start_id, end_id, ..
+                    } => {
+                        let (a, b) = (pos(*start_id)?, pos(*end_id)?);
+                        let p = off.start();
+                        // Left of start→end is positive (OffsetLink::sign).
+                        let (d, q) = (b.minus(a), p.minus(a));
+                        sign_of(d.x * q.y - d.y * q.x)
+                    }
+                    SketchEntity::Arc { .. } | SketchEntity::Circle { .. } => {
+                        let r_src = match resolved.segments.get(i)? {
+                            Segment::Arc { r, .. } | Segment::Circle { r, .. } => *r,
+                            Segment::Line { .. } => return None,
+                        };
+                        let r_off = match off {
+                            Segment::Arc { r, .. } | Segment::Circle { r, .. } => r,
+                            Segment::Line { .. } => return None,
+                        };
+                        sign_of(r_off - r_src)
+                    }
+                    _ => return None,
+                };
+                OffsetLink {
+                    entity: made.entities[k],
+                    source: item.id,
+                    sign,
+                }
+            }
+            // The corner after input `i` is centred on the joint i/i+1,
+            // whichever way the result runs.
+            Origin::Corner(i) => OffsetLink {
+                entity: made.entities[k],
+                source: traversal_ends(sketch, resolved.items.get(i)?)?.1,
+                sign: 1,
+            },
+        };
+        links.push(link);
+    }
+
+    // Every non-crossing joint (and both ends of an open chain) is placed.
+    // A placement is anchored on the source point the joint was offset from,
+    // and follows the normal of a non-corner neighbour.
+    let mut to_place: Vec<(u32, usize, bool)> = Vec::new(); // (point, segment, at_end)
+    for (k, joint) in result.joints.iter().enumerate() {
+        if *joint == Joint::Tangent {
+            let point = made.joints[k + 1];
+            if matches!(result.origins[k], Origin::Source(_)) {
+                to_place.push((point, k, true));
+            } else {
+                to_place.push((point, (k + 1) % n, false));
+            }
+        }
+    }
+    if !result.closed {
+        to_place.push((made.joints[0], 0, false));
+        to_place.push((made.joints[n], n - 1, true));
+    }
+
+    let mut placements = Vec::with_capacity(to_place.len());
+    for (point, k, at_end) in to_place {
+        let Origin::Source(i) = result.origins[k] else {
+            return None;
+        };
+        let item = resolved.items.get(i)?;
+        let (t_start, t_end) = traversal_ends(sketch, item)?;
+        // A reversed (CCW-normalized) result runs each segment backwards
+        // along its source, so its end sits over the source's traversal start.
+        let anchor = if at_end != result.reversed {
+            t_end
+        } else {
+            t_start
+        };
+        let j = pos(anchor)?;
+        let p = if at_end {
+            result.segments[k].end()
+        } else {
+            result.segments[k].start()
+        };
+        let normal = match entity(sketch, item.id).ok()? {
+            SketchEntity::Line {
+                start_id, end_id, ..
+            } => {
+                let u = pos(*end_id)?.minus(pos(*start_id)?).unit()?;
+                Point2::new(-u.y, u.x)
+            }
+            SketchEntity::Arc { center_id, .. } => j.minus(pos(*center_id)?).unit()?,
+            _ => return None,
+        };
+        let along_normal = p.minus(j).dot(normal);
+        // The record must match the geometry it describes.
+        if (p.dist(j) - distance).abs() > 1e-6 * distance.max(1e-3) {
+            return None;
+        }
+        placements.push(OffsetPlacement {
+            point,
+            anchor,
+            along: item.id,
+            sign: sign_of(along_normal),
+        });
+    }
+
+    Some(SketchConstraint::Offset {
+        value: distance,
+        expression: None,
+        reference: false,
+        links,
+        placements,
+    })
 }
 
 /// Turn offset segments into Points and Lines/Arcs/Circles.
@@ -820,8 +1002,9 @@ pub fn offset(
 /// A port of the JS `createEntitiesFromSegments`, including its arc
 /// convention: sketch arcs are CCW start→end (invariant O2), so a
 /// CW-traversal segment swaps its endpoints.
-fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocator) -> SketchEdit {
+fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocator) -> Materialized {
     let mut edit = SketchEdit::default();
+    let mut entities: Vec<u32> = Vec::with_capacity(segments.len());
     let new_point = |p: Point2, edit: &mut SketchEdit, ids: &mut IdAllocator| -> u32 {
         let id = ids.next_id();
         edit.added.push(SketchEntity::Point {
@@ -835,13 +1018,18 @@ fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocato
 
     if let [Segment::Circle { center, r }] = segments {
         let center_id = new_point(*center, &mut edit, ids);
+        let id = ids.next_id();
         edit.added.push(SketchEntity::Circle {
-            id: ids.next_id(),
+            id,
             center_id,
             radius: *r,
             construction: false,
         });
-        return edit;
+        return Materialized {
+            edit,
+            entities: vec![id],
+            joints: Vec::new(),
+        };
     }
 
     let mut joints: Vec<u32> = Vec::with_capacity(segments.len() + 1);
@@ -859,16 +1047,22 @@ fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocato
     for (i, seg) in segments.iter().enumerate() {
         let (s_id, e_id) = (joints[i], joints[i + 1]);
         match seg {
-            Segment::Line { .. } => edit.added.push(SketchEntity::Line {
-                id: ids.next_id(),
-                start_id: s_id,
-                end_id: e_id,
-                construction: false,
-            }),
+            Segment::Line { .. } => {
+                let id = ids.next_id();
+                entities.push(id);
+                edit.added.push(SketchEntity::Line {
+                    id,
+                    start_id: s_id,
+                    end_id: e_id,
+                    construction: false,
+                });
+            }
             Segment::Arc { center, ccw, .. } => {
                 let center_id = new_point(*center, &mut edit, ids);
+                let id = ids.next_id();
+                entities.push(id);
                 edit.added.push(SketchEntity::Arc {
-                    id: ids.next_id(),
+                    id,
                     center_id,
                     start_id: if *ccw { s_id } else { e_id },
                     end_id: if *ccw { e_id } else { s_id },
@@ -877,8 +1071,10 @@ fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocato
             }
             Segment::Circle { center, r } => {
                 let center_id = new_point(*center, &mut edit, ids);
+                let id = ids.next_id();
+                entities.push(id);
                 edit.added.push(SketchEntity::Circle {
-                    id: ids.next_id(),
+                    id,
                     center_id,
                     radius: *r,
                     construction: false,
@@ -886,7 +1082,21 @@ fn materialize_segments(segments: &[Segment], closed: bool, ids: &mut IdAllocato
             }
         }
     }
-    edit
+    Materialized {
+        edit,
+        entities,
+        joints,
+    }
+}
+
+/// What [`materialize_segments`] made.
+struct Materialized {
+    edit: SketchEdit,
+    /// Parallel to the segments: each one's curve entity id.
+    entities: Vec<u32>,
+    /// Joint point ids: `joints[k]` starts segment `k`, `joints[k + 1]` ends
+    /// it (a closed run repeats `joints[0]` at the end). Empty for a circle.
+    joints: Vec<u32>,
 }
 
 // ── Fillet ──────────────────────────────────────────────────────────────────

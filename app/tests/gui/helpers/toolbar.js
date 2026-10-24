@@ -103,10 +103,18 @@ export async function clickToolbarAction(page, id) {
 }
 
 /**
- * Click the Sketch toolbar button and wait for sketch mode to activate.
+ * Click the Sketch toolbar button and wait for sketch mode to activate, then
+ * arm `tool` (default: the line tool).
+ *
+ * The app starts a new sketch on Select (pick / rotate, no drawing tool). Most
+ * specs predate that and draw lines straight after entering, so this setup
+ * helper arms Line for them; pass `{ tool: null }` to observe the real entry
+ * state (sketch-entry.spec.js pins it).
  * @param {import('@playwright/test').Page} page
+ * @param {string} [plane]
+ * @param {{ tool?: string | null }} [opts]
  */
-export async function clickSketch(page, plane = 'front') {
+export async function clickSketch(page, plane = 'front', { tool = 'line' } = {}) {
 	await clickTool(page, 'sketch');
 	// If plane selection mode is active, select the requested plane
 	const inPlaneSelectionMode = await page.evaluate(
@@ -133,6 +141,10 @@ export async function clickSketch(page, plane = 'front') {
 	);
 	// Allow Svelte reactivity to settle
 	await page.waitForTimeout(200);
+	if (tool) {
+		await page.evaluate((t) => window.__waffle.setTool(t), tool);
+		await page.waitForFunction((t) => window.__waffle?.getState()?.activeTool === t, tool, { timeout: 3000 });
+	}
 }
 
 /**

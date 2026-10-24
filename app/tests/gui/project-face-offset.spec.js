@@ -140,7 +140,13 @@ test('imported STEP face: curved boundary projects as one loop and offsets outwa
 	await expect(input).toBeVisible({ timeout: 3000 });
 	await input.fill('0.5');
 	await page.keyboard.press('Enter');
-	await page.waitForTimeout(300);
+	// Wait for the committed offset rather than a fixed delay: under parallel
+	// load the engine round trip outlived 300 ms (1 in 6 at HEAD, 2026-10-24).
+	await page.waitForFunction(
+		(n) => window.__waffle.getEntities().filter((e) => e.type === 'Line').length >= 2 * n,
+		linesMade,
+		{ timeout: 10000 }
+	);
 
 	const after = await entities(page);
 	const newLines = after.filter(

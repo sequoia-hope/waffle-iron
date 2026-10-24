@@ -195,6 +195,269 @@ pub enum CompiledConstraint {
     },
     /// SameOrientation: 2D noop (normals always aligned in workplane)
     SameOrientation,
+    // ── Offset building blocks (SketchConstraint::Offset) ───────────────
+    /// Signed point-line distance at a target: r = ((P-A)×(B-A))/ℓ - value.
+    /// The `OnEntityLine` form with a target; `value` carries the side.
+    SignedDistancePL {
+        px: usize, py: usize,
+        ax: usize, ay: usize, bx: usize, by: usize,
+        value: f64,
+    },
+    /// Radius difference: r = rad(off) - rad(src) - delta.
+    RadiusDelta {
+        off: RadiusTerm, src: RadiusTerm,
+        delta: f64,
+    },
+    /// Point placed off an anchor along a source normal:
+    /// r = P - J - value·n̂ (two rows).
+    Place {
+        px: usize, py: usize, jx: usize, jy: usize,
+        normal: NormalTerm,
+        value: f64,
+    },
+    /// Several blocks owned by ONE sketch constraint (an Offset), rows in
+    /// order.
+    Group(Vec<CompiledConstraint>),
+}
+
+/// Compile a [`SketchConstraint::Offset`] into its row blocks.
+///
+/// Per link: a line keeps each NON-placed endpoint at signed distance
+/// `sign·value` from its source line; an arc keeps its centre on the source
+/// centre and each non-placed endpoint at `r_src + sign·value`; a circle keeps
+/// its centre and radius the same way; a corner arc (source = a point) keeps
+/// its centre on that point. Per placement: the point sits `sign·value` off
+/// its anchor along the source normal. A placed endpoint gets no link row —
+/// the placement already pins both of its coordinates, and the link row
+/// there would be rank-redundant (the joint is tangent).
+#[rustfmt::skip]
+fn compile_offset(
+    value: f64,
+    links: &[crate::types::OffsetLink],
+    placements: &[crate::types::OffsetPlacement],
+    layout: &ParamLayout,
+) -> Result<CompiledConstraint, String> {
+    let pt = |id: u32| -> Result<(usize, usize), String> {
+        layout.point_indices.get(&id).copied()
+            .ok_or_else(|| format!("offset references unknown point {id}"))
+    };
+    let kind_of = |id: u32| -> Result<EntityKind, String> {
+        layout.entity_kinds.get(&id).copied()
+            .ok_or_else(|| format!("offset references unknown entity {id}"))
+    };
+    let line_pts = |id: u32| -> Result<(u32, u32), String> {
+        layout.line_endpoints.get(&id).copied()
+            .ok_or_else(|| format!("offset references unknown line {id}"))
+    };
+    let arc_pts = |id: u32| -> Result<(u32, u32, u32), String> {
+        layout.arc_endpoints.get(&id).copied()
+            .ok_or_else(|| format!("offset references unknown arc {id}"))
+    };
+    let circle = |id: u32| -> Result<((usize, usize), usize), String> {
+        let c = layout.circle_centers.get(&id).copied()
+            .ok_or_else(|| format!("circle {id} has no recorded center"))?;
+        let r = layout.radius_indices.get(&id).copied()
+            .ok_or_else(|| format!("circle {id} has no radius param"))?;
+        Ok((pt(c)?, r))
+    };
+    let side = |sign: i8| if sign < 0 { -1.0 } else { 1.0 };
+    let placed: std::collections::HashSet<u32> = placements.iter().map(|p| p.point).collect();
+    let mut blocks = Vec::new();
+
+    for link in links {
+        let s = side(link.sign);
+        match (kind_of(link.entity)?, kind_of(link.source)?) {
+            (EntityKind::Line, EntityKind::Line) => {
+                let (s0, s1) = line_pts(link.source)?;
+                let ((ax, ay), (bx, by)) = (pt(s0)?, pt(s1)?);
+                let (e0, e1) = line_pts(link.entity)?;
+                for end in [e0, e1] {
+                    if placed.contains(&end) { continue; }
+                    let (px, py) = pt(end)?;
+                    // SignedDistancePL is OnEntityLine's handedness:
+                    // positive to the RIGHT of A→B. The link's sign is left.
+                    blocks.push(CompiledConstraint::SignedDistancePL { px, py, ax, ay, bx, by, value: -s * value });
+                }
+            }
+            (EntityKind::Arc, EntityKind::Arc) => {
+                let (sc, ss, _) = arc_pts(link.source)?;
+                let (scx, scy) = pt(sc)?;
+                let (ssx, ssy) = pt(ss)?;
+                let (oc, os, oe) = arc_pts(link.entity)?;
+                let (ocx, ocy) = pt(oc)?;
+                blocks.push(CompiledConstraint::Coincident { ax: ocx, ay: ocy, bx: scx, by: scy });
+                let src = RadiusTerm::Points { cx: scx, cy: scy, sx: ssx, sy: ssy };
+                for end in [os, oe] {
+                    if placed.contains(&end) { continue; }
+                    let (ex, ey) = pt(end)?;
+                    let off = RadiusTerm::Points { cx: ocx, cy: ocy, sx: ex, sy: ey };
+                    blocks.push(CompiledConstraint::RadiusDelta { off, src, delta: s * value });
+                }
+            }
+            (EntityKind::Circle, EntityKind::Circle) => {
+                let ((scx, scy), sr) = circle(link.source)?;
+                let ((ocx, ocy), or) = circle(link.entity)?;
+                blocks.push(CompiledConstraint::Coincident { ax: ocx, ay: ocy, bx: scx, by: scy });
+                blocks.push(CompiledConstraint::RadiusDelta {
+                    off: RadiusTerm::Param(or), src: RadiusTerm::Param(sr), delta: s * value,
+                });
+            }
+            (EntityKind::Arc, EntityKind::Point) => {
+                // Corner arc around a source corner, radius `value`.
+                let (jx, jy) = pt(link.source)?;
+                let (oc, os, oe) = arc_pts(link.entity)?;
+                let (ocx, ocy) = pt(oc)?;
+                blocks.push(CompiledConstraint::Coincident { ax: ocx, ay: ocy, bx: jx, by: jy });
+                for end in [os, oe] {
+                    if placed.contains(&end) { continue; }
+                    let (sx, sy) = pt(end)?;
+                    blocks.push(CompiledConstraint::RadiusArc { cx: ocx, cy: ocy, sx, sy, value });
+                }
+            }
+            (ke, ks) => return Err(format!("offset link {ke:?} from {ks:?} is not supported")),
+        }
+    }
+
+    for pl in placements {
+        let (px, py) = pt(pl.point)?;
+        let (jx, jy) = pt(pl.anchor)?;
+        let normal = match kind_of(pl.along)? {
+            EntityKind::Line => {
+                let (a, b) = line_pts(pl.along)?;
+                let ((ax, ay), (bx, by)) = (pt(a)?, pt(b)?);
+                NormalTerm::Line { ax, ay, bx, by }
+            }
+            EntityKind::Arc => {
+                let (c, _, _) = arc_pts(pl.along)?;
+                let (cx, cy) = pt(c)?;
+                NormalTerm::Radial { cx, cy }
+            }
+            k => return Err(format!("offset placement along {k:?} is not supported")),
+        };
+        blocks.push(CompiledConstraint::Place { px, py, jx, jy, normal, value: side(pl.sign) * value });
+    }
+
+    Ok(CompiledConstraint::Group(blocks))
+}
+
+/// A radius for [`CompiledConstraint::RadiusDelta`]: a circle's radius
+/// parameter, or an arc's ‖S - C‖ at one of its endpoints.
+#[derive(Clone, Copy)]
+#[rustfmt::skip]
+pub enum RadiusTerm {
+    Param(usize),
+    Points { cx: usize, cy: usize, sx: usize, sy: usize },
+}
+
+/// The unit normal a [`CompiledConstraint::Place`] follows at its anchor `J`.
+#[derive(Clone, Copy)]
+#[rustfmt::skip]
+pub enum NormalTerm {
+    /// A line's left normal: perp((B - A)/ℓ), perp(x, y) = (-y, x).
+    Line { ax: usize, ay: usize, bx: usize, by: usize },
+    /// An arc's outward radial at J: (J - C)/‖J - C‖.
+    Radial { cx: usize, cy: usize },
+}
+
+impl RadiusTerm {
+    fn value(&self, p: &[f64]) -> f64 {
+        match *self {
+            RadiusTerm::Param(r) => p[r],
+            RadiusTerm::Points { cx, cy, sx, sy } => (p[sx] - p[cx]).hypot(p[sy] - p[cy]),
+        }
+    }
+
+    /// Add `scale · ∂rad/∂p` into row `row` of `j`.
+    fn add_gradient(&self, p: &[f64], j: &mut DMatrix<f64>, row: usize, scale: f64) {
+        match *self {
+            RadiusTerm::Param(r) => j[(row, r)] += scale,
+            RadiusTerm::Points { cx, cy, sx, sy } => {
+                let dx = p[sx] - p[cx];
+                let dy = p[sy] - p[cy];
+                let rho = dx.hypot(dy);
+                if rho > 1e-15 {
+                    j[(row, sx)] += scale * dx / rho;
+                    j[(row, sy)] += scale * dy / rho;
+                    j[(row, cx)] -= scale * dx / rho;
+                    j[(row, cy)] -= scale * dy / rho;
+                }
+            }
+        }
+    }
+}
+
+impl NormalTerm {
+    /// The unit normal at anchor `(jx, jy)`.
+    fn value(&self, p: &[f64], jx: usize, jy: usize) -> (f64, f64) {
+        match *self {
+            NormalTerm::Line { ax, ay, bx, by } => {
+                let dx = p[bx] - p[ax];
+                let dy = p[by] - p[ay];
+                let len = dx.hypot(dy);
+                if len < 1e-15 {
+                    (0.0, 0.0)
+                } else {
+                    (-dy / len, dx / len)
+                }
+            }
+            NormalTerm::Radial { cx, cy } => {
+                let dx = p[jx] - p[cx];
+                let dy = p[jy] - p[cy];
+                let rho = dx.hypot(dy);
+                if rho < 1e-15 {
+                    (0.0, 0.0)
+                } else {
+                    (dx / rho, dy / rho)
+                }
+            }
+        }
+    }
+
+    /// Add `scale · ∂n̂/∂p` into rows `row0` (x) and `row0 + 1` (y) of `j`.
+    ///
+    /// For a unit vector `û = w/‖w‖`, `∂û/∂w = (I - ûûᵀ)/‖w‖`. The line normal
+    /// is `R·û` with `R = [[0,-1],[1,0]]` and `w = B - A`; the radial is `û`
+    /// itself with `w = J - C`.
+    fn add_gradient(
+        &self,
+        p: &[f64],
+        j: &mut DMatrix<f64>,
+        row0: usize,
+        jx: usize,
+        jy: usize,
+        scale: f64,
+    ) {
+        let (wx, wy, plus, minus, rotate) = match *self {
+            NormalTerm::Line { ax, ay, bx, by } => {
+                (p[bx] - p[ax], p[by] - p[ay], (bx, by), (ax, ay), true)
+            }
+            NormalTerm::Radial { cx, cy } => {
+                (p[jx] - p[cx], p[jy] - p[cy], (jx, jy), (cx, cy), false)
+            }
+        };
+        let len = wx.hypot(wy);
+        if len < 1e-15 {
+            return;
+        }
+        let (ux, uy) = (wx / len, wy / len);
+        // M = (I - uuᵀ)/len, row-major.
+        let m = [
+            [(1.0 - ux * ux) / len, -ux * uy / len],
+            [-ux * uy / len, (1.0 - uy * uy) / len],
+        ];
+        // ∂n̂/∂w: M for the radial, R·M for the line normal (R·M row 0 = -M row 1, row 1 = M row 0).
+        let d = if rotate {
+            [[-m[1][0], -m[1][1]], [m[0][0], m[0][1]]]
+        } else {
+            m
+        };
+        for (r, drow) in d.iter().enumerate() {
+            j[(row0 + r, plus.0)] += scale * drow[0];
+            j[(row0 + r, plus.1)] += scale * drow[1];
+            j[(row0 + r, minus.0)] -= scale * drow[0];
+            j[(row0 + r, minus.1)] -= scale * drow[1];
+        }
+    }
 }
 
 /// Number of residual rows a compiled constraint contributes.
@@ -208,6 +471,8 @@ pub fn residual_count(cc: &CompiledConstraint) -> usize {
         CompiledConstraint::SymmetricH { .. } => 2,
         CompiledConstraint::SymmetricV { .. } => 2,
         CompiledConstraint::SameOrientation => 0,
+        CompiledConstraint::Place { .. } => 2,
+        CompiledConstraint::Group(blocks) => blocks.iter().map(residual_count).sum(),
         _ => 1,
     }
 }
@@ -598,6 +863,10 @@ impl CompiledConstraint {
                 // Zero residual rows, zero Jacobian rows — contributes nothing.
                 Ok(CompiledConstraint::SameOrientation)
             }
+
+            SketchConstraint::Offset { value, links, placements, .. } => {
+                compile_offset(*value, links, placements, layout)
+            }
         }
     }
 
@@ -933,6 +1202,27 @@ impl CompiledConstraint {
             // SameOrientation: 2D noop, zero residual rows
             CompiledConstraint::SameOrientation => {
                 DVector::zeros(0)
+            }
+
+            CompiledConstraint::SignedDistancePL { px, py, ax, ay, bx, by, value } => {
+                let on = CompiledConstraint::OnEntityLine { px: *px, py: *py, ax: *ax, ay: *ay, bx: *bx, by: *by };
+                let mut r = on.residuals(p);
+                r[0] -= value;
+                r
+            }
+            CompiledConstraint::RadiusDelta { off, src, delta } => {
+                DVector::from_element(1, off.value(p) - src.value(p) - delta)
+            }
+            CompiledConstraint::Place { px, py, jx, jy, normal, value } => {
+                let (nx, ny) = normal.value(p, *jx, *jy);
+                DVector::from_vec(vec![
+                    p[*px] - p[*jx] - value * nx,
+                    p[*py] - p[*jy] - value * ny,
+                ])
+            }
+            CompiledConstraint::Group(blocks) => {
+                let rows: Vec<f64> = blocks.iter().flat_map(|b| b.residuals(p).iter().copied().collect::<Vec<_>>()).collect();
+                DVector::from_vec(rows)
             }
         }
     }
@@ -1619,6 +1909,44 @@ impl CompiledConstraint {
             // SameOrientation: 2D noop, zero rows
             CompiledConstraint::SameOrientation => {
                 DMatrix::zeros(0, n_params)
+            }
+
+            // ── SignedDistancePL: OnEntityLine's Jacobian (the target is a constant)
+            CompiledConstraint::SignedDistancePL { px, py, ax, ay, bx, by, value: _ } => {
+                CompiledConstraint::OnEntityLine { px: *px, py: *py, ax: *ax, ay: *ay, bx: *bx, by: *by }
+                    .jacobian(p, n_params)
+            }
+
+            // ── RadiusDelta: ∂rad(off) - ∂rad(src) ─────────────────────
+            CompiledConstraint::RadiusDelta { off, src, delta: _ } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                off.add_gradient(p, &mut j, 0, 1.0);
+                src.add_gradient(p, &mut j, 0, -1.0);
+                j
+            }
+
+            // ── Place: r = P - J - v·n̂ ─────────────────────────────────
+            // Accumulated (+=), never assigned: J is usually an endpoint of
+            // the line whose normal it follows, so indices coincide.
+            CompiledConstraint::Place { px, py, jx, jy, normal, value } => {
+                let mut j = DMatrix::zeros(2, n_params);
+                j[(0, *px)] += 1.0;
+                j[(1, *py)] += 1.0;
+                j[(0, *jx)] -= 1.0;
+                j[(1, *jy)] -= 1.0;
+                normal.add_gradient(p, &mut j, 0, *jx, *jy, -value);
+                j
+            }
+
+            CompiledConstraint::Group(blocks) => {
+                let mut j = DMatrix::zeros(residual_count(self), n_params);
+                let mut row = 0;
+                for b in blocks {
+                    let jb = b.jacobian(p, n_params);
+                    j.rows_mut(row, jb.nrows()).copy_from(&jb);
+                    row += jb.nrows();
+                }
+                j
             }
         }
     }
@@ -2618,6 +2946,117 @@ mod tests {
         assert_eq!(j.ncols(), 4, "Jacobian must still be n_params wide");
     }
 
+    // ── Offset blocks: analytic Jacobian vs numeric ─────────────────────────
+
+    #[test]
+    fn signed_distance_pl_jacobian_matches_numeric() {
+        let cc = CompiledConstraint::SignedDistancePL {
+            px: 0,
+            py: 1,
+            ax: 2,
+            ay: 3,
+            bx: 4,
+            by: 5,
+            value: -0.3,
+        };
+        check_jacobian(cc, vec![0.4, 1.3, -0.2, 0.1, 2.1, 0.7]);
+    }
+
+    #[test]
+    fn radius_delta_jacobian_matches_numeric_for_both_radius_kinds() {
+        let pts = RadiusTerm::Points {
+            cx: 1,
+            cy: 2,
+            sx: 3,
+            sy: 4,
+        };
+        check_jacobian(
+            CompiledConstraint::RadiusDelta {
+                off: RadiusTerm::Param(0),
+                src: pts,
+                delta: 0.2,
+            },
+            vec![1.7, 0.1, -0.3, 0.9, 0.8],
+        );
+        check_jacobian(
+            CompiledConstraint::RadiusDelta {
+                off: pts,
+                src: RadiusTerm::Param(0),
+                delta: -0.2,
+            },
+            vec![1.7, 0.1, -0.3, 0.9, 0.8],
+        );
+    }
+
+    #[test]
+    fn place_along_a_line_normal_jacobian_matches_numeric_when_the_anchor_is_its_endpoint() {
+        // J (2,3) IS the line's start A: the index aliasing the accumulation guards.
+        let cc = CompiledConstraint::Place {
+            px: 0,
+            py: 1,
+            jx: 2,
+            jy: 3,
+            normal: NormalTerm::Line {
+                ax: 2,
+                ay: 3,
+                bx: 4,
+                by: 5,
+            },
+            value: 0.4,
+        };
+        check_jacobian(cc, vec![0.3, 0.6, 0.1, -0.2, 1.9, 0.8]);
+    }
+
+    #[test]
+    fn place_along_a_radial_jacobian_matches_numeric() {
+        let cc = CompiledConstraint::Place {
+            px: 0,
+            py: 1,
+            jx: 2,
+            jy: 3,
+            normal: NormalTerm::Radial { cx: 4, cy: 5 },
+            value: -0.25,
+        };
+        check_jacobian(cc, vec![1.1, 0.2, 1.0, 0.5, 0.2, -0.1]);
+    }
+
+    #[test]
+    fn a_placed_point_on_its_line_normal_has_zero_residual() {
+        // A = (0,0), B = (2,0): left normal (0,1); J = A, value 0.5 → P = (0, 0.5).
+        let cc = CompiledConstraint::Place {
+            px: 0,
+            py: 1,
+            jx: 2,
+            jy: 3,
+            normal: NormalTerm::Line {
+                ax: 2,
+                ay: 3,
+                bx: 4,
+                by: 5,
+            },
+            value: 0.5,
+        };
+        let r = cc.residuals(&[0.0, 0.5, 0.0, 0.0, 2.0, 0.0]);
+        assert!(r.norm() < 1e-15, "{r}");
+    }
+
+    #[test]
+    fn a_group_stacks_its_blocks_rows_in_order() {
+        let cc = CompiledConstraint::Group(vec![
+            CompiledConstraint::Horizontal { ay: 1, by: 3 },
+            CompiledConstraint::Coincident {
+                ax: 0,
+                ay: 1,
+                bx: 2,
+                by: 3,
+            },
+        ]);
+        let p = [1.0, 2.0, 4.0, 7.0];
+        let r = cc.residuals(&p);
+        assert_eq!(r.as_slice(), &[5.0, -3.0, -5.0]);
+        check_jacobian(cc, p.to_vec());
+    }
+
     // Kept compact: this is a one-line-per-variant census table, and the
     // enum it mirrors is itself `#[rustfmt::skip]` for the same reason.
     #[rustfmt::skip]
@@ -2669,6 +3108,13 @@ mod tests {
             CompiledConstraint::Ratio { ax: 0, ay: 1, bx: 2, by: 3, cx: 4, cy: 5, dx: 6, dy: 7, value: 2.0 },
             CompiledConstraint::EqualPointToLine { ax: 0, ay: 1, bx: 2, by: 3, lx0: 4, ly0: 5, lx1: 6, ly1: 7 },
             CompiledConstraint::SameOrientation,
+            CompiledConstraint::SignedDistancePL { px: 0, py: 1, ax: 2, ay: 3, bx: 4, by: 5, value: 0.5 },
+            CompiledConstraint::RadiusDelta { off: RadiusTerm::Param(0), src: RadiusTerm::Points { cx: 1, cy: 2, sx: 3, sy: 4 }, delta: 0.5 },
+            CompiledConstraint::Place { px: 0, py: 1, jx: 2, jy: 3, normal: NormalTerm::Line { ax: 2, ay: 3, bx: 4, by: 5 }, value: 0.5 },
+            CompiledConstraint::Group(vec![
+                CompiledConstraint::Coincident { ax: 0, ay: 1, bx: 2, by: 3 },
+                CompiledConstraint::Place { px: 4, py: 5, jx: 6, jy: 7, normal: NormalTerm::Radial { cx: 8, cy: 9 }, value: 0.5 },
+            ]),
         ];
 
         // Names parallel to `all`, so a failure identifies the variant.
@@ -2680,7 +3126,7 @@ mod tests {
             "EqualArcArc", "OnEntityArc", "Midpoint", "Dragged", "Pinned",
             "Symmetric", "SymmetricH", "SymmetricV", "TangentLineCircle",
             "TangentLineArc", "EqualAngle", "Ratio", "EqualPointToLine",
-            "SameOrientation",
+            "SameOrientation", "SignedDistancePL", "RadiusDelta", "Place", "Group",
         ];
         assert_eq!(
             all.len(),

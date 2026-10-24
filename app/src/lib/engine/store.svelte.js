@@ -17,7 +17,7 @@ import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog, getOffsetToolState as _getOffsetToolState } from '$lib/sketch/tools.js';
 import { buildSketchPlane, defaultSketchXAxis, sketchToScreen } from '$lib/sketch/sketchCoords.js';
-import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
+import { computeConstraintBadges, offsetConstraintRefs } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { getSetting, getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
@@ -2295,7 +2295,8 @@ export function selectRef(ref, additive = false) {
 		if (plane) {
 			exitSketchPlaneSelection();
 			enterSketchMode(plane.origin, plane.normal, ref);
-			setActiveTool('line');
+			// A new sketch starts on Select (pick / rotate), no drawing tool.
+			setActiveTool('select');
 			return;
 		}
 	}
@@ -3242,7 +3243,7 @@ function mapConstraintForBridge(c) {
  * @param {object} constraint - SketchConstraint object
  */
 /** Constraint types that carry a length (an Angle is not one). */
-const LENGTH_DIMENSION_TYPES = new Set(['Distance', 'HDistance', 'VDistance', 'PointLineDistance', 'Diameter', 'Radius']);
+const LENGTH_DIMENSION_TYPES = new Set(['Distance', 'HDistance', 'VDistance', 'PointLineDistance', 'Diameter', 'Radius', 'Offset']);
 
 /**
  * Measure the CURRENT value of a length-dimension constraint against the live
@@ -3464,7 +3465,29 @@ export function updateConstraintValue(index, newValue) {
 		...sketchConstraints.slice(index + 1)
 	];
 
-	triggerSolve();
+	triggerSolve(offsetEditHints(c));
+}
+
+/**
+ * Editing an offset's distance means "move the offset", not "move what it was
+ * offset from": the source's points get the solver's weak stay-put hint
+ * (`Dragged`, weight 1/20) for that one solve. A source that is itself
+ * constrained is unaffected; an under-constrained one (a freshly drawn
+ * rectangle) no longer drifts to share the change.
+ * @param {any} c - the edited constraint
+ * @returns {any[]} transient constraints for the solve
+ */
+function offsetEditHints(c) {
+	if (c?.type !== 'Offset') return [];
+	const points = new Set();
+	for (const l of c.links ?? []) {
+		const e = sketchEntities.find((x) => x.id === l.source);
+		if (!e) continue;
+		if (e.type === 'Point') points.add(e.id);
+		for (const k of ['start_id', 'end_id', 'center_id']) if (e[k] != null) points.add(e[k]);
+	}
+	for (const p of c.placements ?? []) points.add(p.anchor);
+	return [...points].map((point) => ({ type: 'Dragged', point }));
 }
 
 /**
@@ -3488,7 +3511,7 @@ export function updateConstraintExpression(index, expression, internalValue) {
 		...sketchConstraints.slice(index + 1)
 	];
 
-	triggerSolve();
+	triggerSolve(offsetEditHints(c));
 }
 
 /**
@@ -3735,7 +3758,7 @@ export function removeSketchEntities(entityIds) {
 	for (const c of sketchConstraints) {
 		const refs = [c.entity, c.entity_a, c.entity_b, c.entity_c,
 			c.line, c.curve, c.line_a, c.line_b,
-			c.point, c.point_a, c.point_b].filter(v => v != null);
+			c.point, c.point_a, c.point_b, ...offsetConstraintRefs(c)].filter(v => v != null);
 		if (refs.some(id => toRemove.has(id))) {
 			removedConstraints.push(JSON.parse(JSON.stringify(c)));
 		} else {
@@ -4420,7 +4443,8 @@ function recomputeOverConstrained() {
 			if (failedIdx >= 0 && failedIdx < sketchConstraints.length) {
 				const c = sketchConstraints[failedIdx];
 				const refs = [c.entity, c.entity_a, c.entity_b, c.line, c.curve,
-					c.line_a, c.line_b, c.point, c.point_a, c.point_b].filter(v => v != null);
+					c.line_a, c.line_b, c.point, c.point_a, c.point_b,
+					...offsetConstraintRefs(c)].filter(v => v != null);
 				for (const id of refs) {
 					overconstrained.add(id);
 				}
@@ -4510,6 +4534,23 @@ export function getSketchSolveStatus() { return sketchSolveStatus; }
 export function getSketchSelection() { return sketchSelection; }
 /** @param {Set<number>} sel */
 export function setSketchSelection(sel) { sketchSelection = sel; }
+
+/**
+ * Drop every selection a sketch session holds: sketch entities, the selected
+ * profile region, the selected constraint badge, and picked body geometry.
+ * Escape in sketch mode and a click on empty space both land here.
+ * @returns {boolean} true when anything was selected
+ */
+export function clearSketchSessionSelection() {
+	const had = sketchSelection.size > 0 || selectedProfileIndex != null
+		|| selectedConstraintIndex != null || selectedRefs.length > 0 || selectedBodyId != null;
+	sketchSelection = new Set();
+	selectedProfileIndex = null;
+	selectedConstraintIndex = null;
+	selectedRefs = [];
+	selectedBodyId = null;
+	return had;
+}
 
 export function getSketchHover() { return sketchHover; }
 /** @param {number | null} id */
@@ -6969,7 +7010,7 @@ export function applyDimensionFromPopup(value, expression = null) {
 	// Custom callback takes priority over built-in dimType handling
 	if (p.customApply) {
 		dimensionPopup = null;
-		p.customApply(value);
+		p.customApply(value, expression);
 		return;
 	}
 
@@ -7078,7 +7119,7 @@ export async function confirmSketchPlaneDialog() {
 	sketchPlaneDialogVisible = false;
 	sketchPlaneDialogSelection = null;
 	await enterSketchMode(sel.origin, sel.normal);
-	setActiveTool('line');
+	setActiveTool('select');
 }
 
 // -- Inline sketch plane selection mode --
@@ -10545,7 +10586,7 @@ function undoSketchAction() {
 		const cJson = JSON.stringify(c);
 		if (actionConstraintJsons.has(cJson)) continue;
 		const refs = [c.entity, c.entity_a, c.entity_b, c.line, c.curve,
-			c.line_a, c.line_b, c.point].filter(v => v != null);
+			c.line_a, c.line_b, c.point, ...offsetConstraintRefs(c)].filter(v => v != null);
 		if (refs.some(id => idSet.has(id))) {
 			cascadedConstraints.push(JSON.parse(cJson));
 		}

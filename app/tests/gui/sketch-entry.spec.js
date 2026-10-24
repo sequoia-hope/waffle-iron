@@ -56,11 +56,11 @@ test.describe('sketch entry via GUI', () => {
 		expect(active).toBe(true);
 	});
 
-	test('entering sketch mode sets line tool as default', async ({ waffle }) => {
-		await clickSketch(waffle.page);
+	test('entering sketch mode starts on Select (no drawing tool)', async ({ waffle }) => {
+		await clickSketch(waffle.page, 'front', { tool: null });
 
 		const tool = await getActiveTool(waffle.page);
-		expect(tool).toBe('line');
+		expect(tool).toBe('select');
 	});
 
 	test('status bar reflects sketch mode', async ({ waffle }) => {

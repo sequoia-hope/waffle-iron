@@ -216,3 +216,63 @@ swapped endpoints describes the 270° COMPLEMENT lobe (legal, self-
 intersecting profile). The M15b ring fixtures do exactly that (harmless for
 their dedup/densifier oracles, misleading name "cw"); project-arc-offset
 authors the true corner arcs.
+
+# Cycle 4 (2026-10-24): the offset is one parametric dimension
+
+User ask: "once I click and the dimension box is active, the offset must stop
+moving; once I punch in an offset dimension that should be displayed like any
+sketch dimension, also constraining all items in the offset to this common
+offset distance with the relevant sketch edges joined."
+
+## Behavior
+
+- **Freeze on click.** While the value box is open the armed ghost does not
+  follow the pointer (`handleOffsetTool` returns early on `getDimensionPopup()`);
+  dismissing the box without a value resumes the live ghost.
+- **One `SketchConstraint::Offset`** is recorded by `sketch_solver::ops::offset`
+  in the same edit as the geometry. It is a length dimension
+  (`dimension_value`, `expression`, `reference` like `Distance`), rendered by
+  `DimensionLabels.svelte` across the gap between the first offset curve and
+  its source, and edited by clicking it like any label.
+- **What it holds** (`compile_offset` in `constraint_mapping.rs`; the rank
+  oracle `test-harness/src/sketch_rank.rs` re-derives the same rows from the
+  meaning):
+  - `links[]` — one per offset entity. Line ← source line: each NON-placed
+    endpoint at signed distance `sign·value` (left of the source's start→end
+    is `+`). Arc ← source arc: centres coincident, each non-placed endpoint at
+    `r_src + sign·value`. Circle ← circle: centres coincident, radius
+    `r_src + sign·value`. Corner arc ← source corner POINT: centred on it.
+  - `placements[]` — every joint that is not a transversal crossing (tangent
+    welds, both ends of a corner arc, both ends of an open chain) sits at
+    `anchor + sign·value·n̂`, `n̂` the source line's left normal or the source
+    arc's outward radial at the anchor. A placed endpoint owns no link row:
+    at a tangent joint the link row is parallel to the placement's normal row
+    (rank-redundant), and the placement already fixes both coordinates.
+  - Crossing joints (trim/extend, miter) are fixed by the two links meeting
+    there. Result: with a fixed source the offset has zero free directions and
+    no redundant row (`tests/offset_constraint.rs`, every chain shape, both
+    sides, reversed items, CW input).
+- **Provenance** comes from `offset_chain_segments`: `origins` (which input
+  segment, or the corner after it), `joints` (Crossing / Tangent), `reversed`
+  (a CW closed result was flipped CCW, so each segment runs from its source's
+  traversal END to START). If a collapsed segment was dropped
+  (`provenance_exact = false`) or a placement does not sit `value` from its
+  anchor, NO constraint is recorded — the geometry is still made, exactly as
+  before this cycle; constraining it wrongly would move it on the first solve.
+- **Editing the value moves the offset, not the source.** The edit's solve
+  carries transient `Dragged` hints (weight 1/20) on the source's points
+  (`offsetEditHints`), so an under-constrained drawn source does not drift to
+  share the change.
+- Deleting any piece of the offset (or its source) drops the whole constraint
+  (`constraint_refs` / `offsetConstraintRefs`).
+
+Oracles: `crates/sketch-solver/tests/offset_constraint.rs`; Jacobian FD checks
+for `SignedDistancePL` / `RadiusDelta` / `Place` / `Group` in
+`constraint_mapping.rs`; GUI `sketch-offset-dimension.spec.js` (ghost frozen
+while the box is open; one Offset constraint + one label; editing 5 → 8 mm
+moves all four lines and arcs, corners still joined, source still).
+
+Same cycle, sketch gestures (`sketch-selection-escape.spec.js`): body picks in
+a sketch ACCUMULATE without Shift (a repeat click drops that one; empty space
+or Escape drops all — `clearSketchSessionSelection`), and **Escape never
+finishes a sketch**: it backs out tool → Select → empty selection.

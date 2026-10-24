@@ -92,7 +92,7 @@ test.describe('sketch-mode tool shortcuts', () => {
 test.describe('Escape key behavior', () => {
 	test('Escape returns to select from drawing tool', async ({ waffle }) => {
 		await clickSketch(waffle.page);
-		// Should be in line tool by default
+		await pressKey(waffle.page, 'l');
 		expect(await getActiveTool(waffle.page)).toBe('line');
 
 		await pressKey(waffle.page, 'Escape');
@@ -101,20 +101,22 @@ test.describe('Escape key behavior', () => {
 		expect(tool).toBe('select');
 	});
 
-	test('Escape from select exits sketch mode', async ({ waffle }) => {
+	test('Escape backs out to Select and never exits sketch mode', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 		expect(await isSketchActive(waffle.page)).toBe(true);
 
 		// First Escape: line tool → select
+		await pressKey(waffle.page, 'l');
+		expect(await getActiveTool(waffle.page)).toBe('line');
 		await pressKey(waffle.page, 'Escape');
 		expect(await getActiveTool(waffle.page)).toBe('select');
 
-		// Second Escape: select → exit sketch mode
+		// Further Escapes from select stay in the sketch.
+		await pressKey(waffle.page, 'Escape');
 		await pressKey(waffle.page, 'Escape');
 		await waffle.page.waitForTimeout(500);
-
-		const active = await isSketchActive(waffle.page);
-		expect(active).toBe(false);
+		expect(await isSketchActive(waffle.page)).toBe(true);
+		expect(await getActiveTool(waffle.page)).toBe('select');
 	});
 });
 

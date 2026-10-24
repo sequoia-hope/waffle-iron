@@ -83,7 +83,7 @@ test.describe('full workflows', () => {
 		expect(hasMesh).toBe(true);
 	});
 
-	test('Tutorial 1 (keyboard): S -> R -> draw -> Esc -> Esc -> E -> depth -> Enter', async ({ waffle }) => {
+	test('Tutorial 1 (keyboard): S -> R -> draw -> Esc -> Finish -> E -> depth -> Enter', async ({ waffle }) => {
 		// Step 1: Press S to enter sketch
 		await pressKey(waffle.page, 's');
 
@@ -115,13 +115,13 @@ test.describe('full workflows', () => {
 			await waffle.dumpState('tutorial1-kb-draw-failed');
 		}
 
-		// Step 4: Escape to deselect tool, then Escape again to finish sketch
+		// Step 4: Escape to deselect the tool (Escape never finishes a sketch),
+		// then Finish.
 		await pressKey(waffle.page, 'Escape');
 		let currentTool = await getActiveTool(waffle.page);
 		expect(currentTool).toBe('select');
 
-		await pressKey(waffle.page, 'Escape');
-		// Pressing Escape while on select tool in sketch mode should finish the sketch
+		await clickFinishSketch(waffle.page);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === false,
 			{ timeout: 10000 }
@@ -158,7 +158,7 @@ test.describe('full workflows', () => {
 	test('draw multiple lines in sketch', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		// Line tool is default
+		// clickSketch arms the line tool (helpers/toolbar.js)
 		const tool = await getActiveTool(waffle.page);
 		expect(tool).toBe('line');
 

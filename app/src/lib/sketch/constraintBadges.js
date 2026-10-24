@@ -18,12 +18,27 @@
 /** Constant screen-pixel gap between a badge and its anchor geometry. */
 export const BADGE_GAP_PX = 18;
 
+/**
+ * Every id an `Offset` constraint names (its links' entities and sources, its
+ * placements' points, anchors and source curves); [] for any other type. The
+ * plain-field ref collectors append this so deleting any piece of an offset
+ * drops its constraint, exactly as `sketch_solver::ops::constraint_refs` does.
+ */
+export function offsetConstraintRefs(c) {
+	if (c?.type !== 'Offset') return [];
+	return [
+		...(c.links ?? []).flatMap((l) => [l.entity, l.source]),
+		...(c.placements ?? []).flatMap((p) => [p.point, p.anchor, p.along]),
+	];
+}
+
 /** Stable, presentation-order-independent key for a constraint (for offsets). */
 export function constraintKey(c) {
 	const refs = [
 		c.entity, c.entity_a, c.entity_b, c.entity_c,
 		c.line, c.curve, c.line_a, c.line_b,
 		c.point, c.point_a, c.point_b,
+		...offsetConstraintRefs(c),
 	].filter((v) => v != null);
 	refs.sort((a, b) => a - b);
 	return `${c.type}|${refs.join(',')}`;

@@ -766,6 +766,58 @@ pub enum SketchConstraint {
         entity_a: u32,
         entity_b: u32,
     },
+    /// A chain offset kept parametric: every entity the Offset op made stays
+    /// `value` from the geometry it was made from, so the whole offset is ONE
+    /// dimension. Lines stay parallel at `value`, arcs and circles stay
+    /// concentric at `r ± value`, a corner arc stays centred on its source
+    /// corner, and every joint that is not a transversal crossing (tangent
+    /// welds, corner-arc ends, open-chain ends) is placed exactly `value` off
+    /// its source point along the source's normal. See
+    /// specs/sketch_chain_offset.md §"Cycle 4".
+    Offset {
+        value: f64,
+        /// See `Distance::expression`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        expression: Option<String>,
+        /// See `Distance::reference`.
+        #[serde(default, skip_serializing_if = "is_false")]
+        reference: bool,
+        /// One per offset entity.
+        links: Vec<OffsetLink>,
+        /// One per placed joint point.
+        placements: Vec<OffsetPlacement>,
+    },
+}
+
+/// An offset entity and what it was offset from (`SketchConstraint::Offset`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct OffsetLink {
+    /// The offset Line / Arc / Circle.
+    pub entity: u32,
+    /// The source Line / Arc / Circle it parallels — or, for a corner arc, the
+    /// source corner POINT it is centred on.
+    pub source: u32,
+    /// `+1` / `-1`: which side of `source` the offset lies on. For a line,
+    /// `+1` is LEFT of the source's start→end; for an arc or circle, `+1`
+    /// means the radius grew.
+    /// Ignored for a corner arc, whose radius is `value`.
+    pub sign: i8,
+}
+
+/// A joint point pinned `value` off a source point (`SketchConstraint::Offset`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "json-schema", derive(schemars::JsonSchema))]
+pub struct OffsetPlacement {
+    /// The offset joint point.
+    pub point: u32,
+    /// The source point it is offset from (an endpoint of `along`).
+    pub anchor: u32,
+    /// The source Line or Arc whose normal at `anchor` the offset follows.
+    pub along: u32,
+    /// `+1` / `-1` along that normal (a line's left normal; an arc's outward
+    /// radial).
+    pub sign: i8,
 }
 
 /// How an expression-driven dimension's evaluated number maps onto its stored
@@ -813,6 +865,7 @@ impl SketchConstraint {
             SketchConstraint::Ratio { .. } => "Ratio",
             SketchConstraint::EqualPointToLine { .. } => "EqualPointToLine",
             SketchConstraint::SameOrientation { .. } => "SameOrientation",
+            SketchConstraint::Offset { .. } => "Offset",
         }
     }
 
@@ -843,7 +896,8 @@ impl SketchConstraint {
             | SketchConstraint::VDistance { expression, .. }
             | SketchConstraint::Angle { expression, .. }
             | SketchConstraint::Radius { expression, .. }
-            | SketchConstraint::Diameter { expression, .. } => expression.as_mut(),
+            | SketchConstraint::Diameter { expression, .. }
+            | SketchConstraint::Offset { expression, .. } => expression.as_mut(),
             _ => None,
         }
     }
@@ -858,7 +912,8 @@ impl SketchConstraint {
             | SketchConstraint::VDistance { reference, .. }
             | SketchConstraint::Angle { reference, .. }
             | SketchConstraint::Radius { reference, .. }
-            | SketchConstraint::Diameter { reference, .. } => *reference,
+            | SketchConstraint::Diameter { reference, .. }
+            | SketchConstraint::Offset { reference, .. } => *reference,
             _ => false,
         }
     }
@@ -872,7 +927,8 @@ impl SketchConstraint {
             | SketchConstraint::HDistance { .. }
             | SketchConstraint::VDistance { .. }
             | SketchConstraint::Radius { .. }
-            | SketchConstraint::Diameter { .. } => Some(DimensionUnit::Length),
+            | SketchConstraint::Diameter { .. }
+            | SketchConstraint::Offset { .. } => Some(DimensionUnit::Length),
             SketchConstraint::Angle { .. } => Some(DimensionUnit::AngleDegrees),
             _ => None,
         }
@@ -886,7 +942,8 @@ impl SketchConstraint {
             | SketchConstraint::HDistance { value, .. }
             | SketchConstraint::VDistance { value, .. }
             | SketchConstraint::Radius { value, .. }
-            | SketchConstraint::Diameter { value, .. } => Some(*value),
+            | SketchConstraint::Diameter { value, .. }
+            | SketchConstraint::Offset { value, .. } => Some(*value),
             SketchConstraint::Angle { value_degrees, .. } => Some(*value_degrees),
             _ => None,
         }
@@ -901,7 +958,8 @@ impl SketchConstraint {
             | SketchConstraint::HDistance { value, .. }
             | SketchConstraint::VDistance { value, .. }
             | SketchConstraint::Radius { value, .. }
-            | SketchConstraint::Diameter { value, .. } => *value = new_value,
+            | SketchConstraint::Diameter { value, .. }
+            | SketchConstraint::Offset { value, .. } => *value = new_value,
             SketchConstraint::Angle { value_degrees, .. } => *value_degrees = new_value,
             _ => {}
         }

@@ -12,6 +12,7 @@ import {
 import { clickAt, drawRectangle } from './helpers/canvas.js';
 import {
 	isSketchActive,
+	getActiveTool,
 	waitForEntityCount,
 	waitForFeatureCount,
 	getFeatureCount,
@@ -50,20 +51,23 @@ test.describe('cancel and recovery', () => {
 		// Click once (first corner only — incomplete rectangle)
 		await clickAt(waffle.page, -80, -60);
 
-		// Press Escape to cancel drawing
+		// Press Escape to cancel drawing: the tool drops to Select.
 		await pressKey(waffle.page, 'Escape');
 		await waffle.page.waitForTimeout(200);
+		expect(await getActiveTool(waffle.page)).toBe('select');
 
-		// Press Escape again to exit sketch mode if still active
-		const stillActive = await isSketchActive(waffle.page);
-		if (stillActive) {
-			await pressKey(waffle.page, 'Escape');
-			await waffle.page.waitForTimeout(500);
-		}
+		// Escape never leaves the sketch (repeated taps are harmless)...
+		await pressKey(waffle.page, 'Escape');
+		await waffle.page.waitForTimeout(300);
+		expect(await isSketchActive(waffle.page)).toBe(true);
 
-		// Verify sketch mode is deactivated
-		const active = await isSketchActive(waffle.page);
-		expect(active).toBe(false);
+		// ...Finish does.
+		await clickFinishSketch(waffle.page);
+		await waffle.page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === false,
+			{ timeout: 10000 }
+		);
+		expect(await isSketchActive(waffle.page)).toBe(false);
 
 		// Canvas should be visible
 		const canvas = waffle.page.locator('canvas');

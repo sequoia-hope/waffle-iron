@@ -186,6 +186,19 @@
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
+			} else if (c.type === 'Offset') {
+				const labelPos = computeOffsetLabelPos(c);
+				if (labelPos) {
+					labels.push({
+						index,
+						type: 'Offset',
+						value: c.value,
+						reference: !!c.reference,
+						expression: c.expression ?? null,
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
+						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
+					});
+				}
 			} else if (c.type === 'PointLineDistance') {
 				const labelPos = computePointLineDistanceLabelPos(c);
 				if (labelPos) {
@@ -288,6 +301,51 @@
 		const mx = (pos.x + nearX) / 2;
 		const my = (pos.y + nearY) / 2;
 		return { x: mx + 0.00015, y: my + 0.00015, fromX: mx, fromY: my };
+	}
+
+	/**
+	 * An offset's one dimension sits across the gap between the first offset
+	 * curve and its source: a line's midpoint and its foot on the source line,
+	 * or an arc/circle point and the source point on the same radial.
+	 */
+	function computeOffsetLabelPos(c) {
+		const byId = (id) => entities.find((e) => e.id === id);
+		const across = (a, b) => {
+			const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+			return { x: mx + 0.00015, y: my + 0.00015, fromX: mx, fromY: my };
+		};
+		for (const link of c.links ?? []) {
+			const off = byId(link.entity), src = byId(link.source);
+			if (!off || !src) continue;
+			if (off.type === 'Line' && src.type === 'Line') {
+				const p0 = positions.get(off.start_id), p1 = positions.get(off.end_id);
+				const a = positions.get(src.start_id), b = positions.get(src.end_id);
+				if (!p0 || !p1 || !a || !b) continue;
+				const m = { x: (p0.x + p1.x) / 2, y: (p0.y + p1.y) / 2 };
+				const lx = b.x - a.x, ly = b.y - a.y;
+				const l2 = lx * lx + ly * ly;
+				if (l2 < 1e-20) continue;
+				const t = ((m.x - a.x) * lx + (m.y - a.y) * ly) / l2;
+				return across(m, { x: a.x + t * lx, y: a.y + t * ly });
+			}
+			if ((off.type === 'Arc' || off.type === 'Circle') && (src.type === 'Arc' || src.type === 'Circle')) {
+				const ctr = positions.get(src.center_id);
+				if (!ctr) continue;
+				const radius = (e) => {
+					if (e.type === 'Circle') return e.radius;
+					const st = positions.get(e.start_id);
+					return st ? Math.hypot(st.x - ctr.x, st.y - ctr.y) : null;
+				};
+				// Along the offset arc's start radial (45° for a whole circle).
+				const st = off.type === 'Arc' ? positions.get(off.start_id) : null;
+				const ang = st ? Math.atan2(st.y - ctr.y, st.x - ctr.x) : Math.PI / 4;
+				const ro = radius(off), rs = radius(src);
+				if (ro == null || rs == null) continue;
+				const at = (r) => ({ x: ctr.x + r * Math.cos(ang), y: ctr.y + r * Math.sin(ang) });
+				return across(at(ro), at(rs));
+			}
+		}
+		return null;
 	}
 
 	function computeAngleLabelPos(c) {

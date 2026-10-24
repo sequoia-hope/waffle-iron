@@ -621,6 +621,13 @@
 			return;
 		}
 
+		// In a sketch a repeat click on a picked face drops it (picks
+		// accumulate), so Select Other cycling is a modeling-mode gesture.
+		if (getSketchMode()?.active) {
+			selectRef(ref, true);
+			return;
+		}
+
 		// Check if this is a "same position" click for Select Other cycling
 		const soState = getSelectOtherState();
 		const dx = screenX - soState.lastScreenX;

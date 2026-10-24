@@ -35,6 +35,7 @@
 		exportStep,
 		getSelectedRefs,
 		clearSelection,
+		clearSketchSessionSelection,
 		computeFacePlane,
 		enterSketchPlaneSelection,
 		exitSketchPlaneSelection,
@@ -333,7 +334,7 @@
 					const plane = computeFacePlane(refs[0]);
 					if (plane) {
 						await enterSketchMode(plane.origin, plane.normal, refs[0]);
-						setActiveTool('line');
+						setActiveTool('select');
 						return;
 					}
 				}
@@ -555,11 +556,15 @@
 					if (planeSelecting) {
 						exitSketchPlaneSelection();
 					} else if (inSketch) {
+						// Escape never leaves the sketch (finishing is the
+						// Finish button's job): it backs out one level — the
+						// active tool to Select, then the selection to empty —
+						// so repeated taps are harmless.
 						if (tool !== 'select') {
 							resetTool();
 							setActiveTool('select');
 						} else {
-							handleFinishSketch();
+							clearSketchSessionSelection();
 						}
 					} else {
 						setActiveTool('select');

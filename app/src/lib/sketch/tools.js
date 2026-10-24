@@ -32,6 +32,8 @@ import {
 	setSelectedProfileIndex,
 	setHoveredProfileIndex,
 	showDimensionPopup,
+	getDimensionPopup,
+	updateConstraintExpression,
 	hideDimensionPopup,
 	getSnapSettings,
 	dragSketchPoint,
@@ -41,6 +43,7 @@ import {
 	getHoveredRef,
 	getFreshHoveredRef,
 	selectRef,
+	clearSketchSessionSelection,
 	getMeshes,
 	geomRefEquals,
 	getSketchMode,
@@ -1265,9 +1268,12 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			// getFreshHoveredRef (not getHoveredRef) so a stale Vertex/Edge hover
 			// carried from a previous pixel isn't selected on a click that actually
 			// landed on a face-interior pixel (the frame-deferred face hover race).
+			// In a sketch, body picks ACCUMULATE without Shift (picking a run
+			// of edges to project or constrain); clicking a picked one again
+			// drops just that one, and empty space or Escape drops them all.
 			const bodyRef = getFreshHoveredRef();
 			if (bodyRef && (bodyRef.kind?.type === 'Vertex' || bodyRef.kind?.type === 'Edge')) {
-				selectRef(bodyRef, shiftKey);
+				selectRef(bodyRef, true);
 				setSketchSelection(new Set());
 				return;
 			}
@@ -1280,10 +1286,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 				return;
 			}
 
-			if (!shiftKey) {
-				setSketchSelection(new Set());
-				setSelectedProfileIndex(null);
-			}
+			if (!shiftKey) clearSketchSessionSelection();
 			return;
 		}
 
@@ -2094,6 +2097,10 @@ function handleOffsetTool(eventType, x, y, screenPixelSize, altKey) {
 
 	if (eventType === 'pointermove') {
 		if (offsetArmed) {
+			// The click froze side and distance and opened the value box: the
+			// ghost holds still while it is open (it resumes following the
+			// cursor if the box is dismissed without a value).
+			if (getDimensionPopup()) return;
 			previewQuery(
 				{ type: 'OffsetPreview', chain: offsetArmed.ids, cursor: [x, y] },
 				(result) => {
@@ -2213,7 +2220,7 @@ async function openOffsetPopup(x, y) {
 		sketchY: y,
 		dimType: 'distance',
 		defaultValue: parseFloat(Math.abs(d).toPrecision(6)),
-		customApply: (value) => commitOffset(value, side)
+		customApply: (value, expression) => commitOffset(value, side, expression)
 	});
 }
 
@@ -2230,18 +2237,31 @@ async function armChainThrough(seedId, onlySeed) {
 
 /**
  * Commit the armed chain's offset at an exact distance, as one undo step.
- * Keeps the tool armed when the engine refuses (a typed radius collapse), so
- * the user can retry with a smaller value.
+ * The engine records ONE `Offset` constraint with it — the typed distance,
+ * shown and edited like any dimension, holding every new curve parallel to
+ * its source with the joints joined. Keeps the tool armed when the engine
+ * refuses (a typed radius collapse), so the user can retry with a smaller
+ * value.
  * @param {number} value - magnitude, always positive
  * @param {'Left' | 'Right'} side
+ * @param {string | null} [expression] - typed expression driving the distance
  */
-async function commitOffset(value, side) {
+async function commitOffset(value, side, expression = null) {
 	if (!offsetArmed) return;
 	const armed = offsetArmed;
 	const applied = await applySketchOps([
 		{ type: 'Offset', chain: armed.ids, distance: Math.abs(value), side }
 	]);
 	if (!applied) return; // the engine's typed refusal was already surfaced
+	if (expression) {
+		const constraints = getSketchConstraints();
+		for (let i = constraints.length - 1; i >= 0; i--) {
+			if (constraints[i].type === 'Offset') {
+				updateConstraintExpression(i, expression, Math.abs(value));
+				break;
+			}
+		}
+	}
 
 	log('sketch', 'Offset committed', { value, side, added: applied.edit?.added?.length ?? 0 });
 	setPreview(null);

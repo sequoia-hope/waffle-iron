@@ -30,8 +30,8 @@ export async function clickConstraintButton(page, constraintId) {
 
 	// Applying a constraint sets showConstraints=false, so the dropdown normally
 	// closes itself. If it somehow stays open, click the backdrop (its onclick
-	// closes it). NEVER press Escape here: in sketch select mode Escape finishes
-	// the sketch (Toolbar handleFinishSketch), clearing the constraints just added.
+	// closes it). Don't press Escape here: in sketch select mode it clears the
+	// selection the next helper call may still need.
 	if (await dropdown.isVisible({ timeout: 100 }).catch(() => false)) {
 		await page.locator('.dropdown-backdrop').first().click({ force: true }).catch(() => {});
 		await page.waitForTimeout(100);
