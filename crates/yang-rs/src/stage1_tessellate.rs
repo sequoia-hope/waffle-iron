@@ -155,7 +155,12 @@ pub(crate) type FaceRefine = std::collections::BTreeMap<u32, u32>;
 /// Three doublings from the natural mesh. (Phase 1a first wrote 64 here,
 /// reading the d_ε divisor as a density; corrected 2026-10-14 in Phase 1c
 /// when P0005's gear climbed to ×64 for 82 s on a CORRECT body.)
-pub(crate) const FACE_REFINE_MAX: u32 = 8;
+///
+/// Raised to 16 (four doublings) 2026-10-25, user-signed ("i am open to a
+/// slow and correct kernel", ledger N67 amendment): P0056's and F0067's
+/// failure sets stay flat through ×8 and clear at ×16 — a real corner
+/// 0.727 inside an r = 3600 rim's chord sag. Cost: F0067 214 → 586 s CPU.
+pub(crate) const FACE_REFINE_MAX: u32 = 16;
 
 /// The density factor of face `f` under `face_refine` (1 when absent).
 pub(crate) fn face_refine_factor(face_refine: &FaceRefine, f: usize) -> u32 {

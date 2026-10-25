@@ -61,11 +61,12 @@ fn r0085_s_rider_demand_names_density_eight() {
 
 #[test]
 fn p0015_s_demand_past_the_old_ceiling_starts_at_the_ceiling() {
-    // √159 ≈ 12.6 would be 16; the ceiling is 8 = the old d_ε/64 as a
-    // density (P0015 converged at d_ε/32 while its certificate read 159 — a
-    // demand past the ceiling certifies nothing about the rungs inside it).
-    assert_eq!(FACE_REFINE_MAX, 8, "the old d_ε/64 ceiling is density 8");
-    assert_eq!(density_for_demand(Some(159.37)), FACE_REFINE_MAX);
+    // √159 ≈ 12.6 → 16, which is the ceiling since 2026-10-25 (it was 8, the
+    // old d_ε/64 as a density, until P0056 / F0067 measured convergence at
+    // ×16). P0015 converged at d_ε/32 while its certificate read 159 — a
+    // demand past the ceiling certifies nothing about the rungs inside it.
+    assert_eq!(FACE_REFINE_MAX, 16, "four doublings from the natural mesh");
+    assert_eq!(density_for_demand(Some(159.37)), 16);
     assert_eq!(density_for_demand(Some(4096.0)), FACE_REFINE_MAX);
     assert_eq!(density_for_demand(Some(1e12)), FACE_REFINE_MAX);
     assert_eq!(density_for_demand(Some(60.0)), 8, "√60 ≈ 7.7 → 8");

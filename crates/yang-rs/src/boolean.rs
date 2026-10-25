@@ -575,15 +575,11 @@ pub(crate) fn weld_lpi_pencils(
     welded
 }
 
-/// Iteration cap of the §4.5.2 loop: six doublings reach `FACE_REFINE_MAX`
+/// Iteration cap of the §4.5.2 loop: four doublings reach `FACE_REFINE_MAX`
 /// from the natural density; the cap bounds a loop whose region keeps
 /// naming NEW faces (the paper's loop terminates by convergence under
 /// refinement; the cap is the budget that makes that finite in practice).
 const REFINE_LOOP_ITER_CAP: usize = 8;
-
-/// A failure set up to vertex ids and detail text: the triggers and the
-/// input faces they name, sorted — what the convergence monitor compares.
-type FailureSignature = Vec<(failures::FailureTrigger, Vec<(crate::brep::InputId, u32)>)>;
 
 /// Yang §4.5 — the ONE refinement loop (spec `specs/yang_452_refinement_loop.md`
 /// §2 / §6; Phase 1c of `specs/yang_faithful_cleanup.md`). *"The failed
@@ -692,33 +688,13 @@ fn refine_loop(
     };
     let mut f = natural_failures;
     let (mut ra, mut rb) = (a.clone(), b.clone());
-    // Convergence monitor (spec §6.0.1): the paper's loop terminates because
-    // the mesh intersections CONVERGE under refinement; a failure set that
-    // comes back IDENTICAL — the same triggers on the same faces — after a
-    // doubling is the observable negation. One identical return is tolerated
-    // (P0031's two fires sit on the exact corner at ×2 and clear at ×4), the
-    // second ends the loop. The SET is compared, not the count: a STOP whose
-    // site moves to the next corner (P0039's tooth corners) is progress and
-    // keeps refining; a tangency STOP (P0026) or a gear's inventoried fires
-    // (R0070) return the same set and stop paying — measured 2026-10-14:
-    // P0026 climbed to the ceiling for 483 s before this rule.
-    let signature = |f: &[failures::FailureSite]| -> FailureSignature {
-        let mut v: Vec<_> = f.iter().map(|s| (s.trigger, s.faces.clone())).collect();
-        v.sort_by(|x, y| {
-            format!("{:?}", x.0)
-                .cmp(&format!("{:?}", y.0))
-                .then_with(|| x.1.len().cmp(&y.1.len()))
-                .then_with(|| format!("{:?}", x.1).cmp(&format!("{:?}", y.1)))
-        });
-        v
-    };
-    // Every signature seen so far: a set that RETURNS — identical to the
-    // previous iteration's or to any earlier one (P0005's second op
-    // oscillates between two sets of gear-tooth fires and climbed to the
-    // ceiling for 80 s under a previous-only test) — is the same
-    // non-convergence.
-    let mut seen_signatures: Vec<FailureSignature> = vec![signature(&f)];
-    let mut plateaus = 0usize;
+    // No convergence monitor (retired 2026-10-25, ledger N67 amendment): the
+    // paper's loop is "repeated if optimization failure persists"
+    // (`:665-670`) and stops on convergence; the failure set is a STEP
+    // function of density, so an identical set after a doubling is not
+    // evidence against convergence — P0056's nine sites read 9 / 9 / 9 at
+    // ×2 / ×4 / ×8 and clear at ×16. The loop ends empty (adopted), at the
+    // ceiling, or at the iteration cap — never on a repeat.
     let mut prev_region: Option<(
         std::collections::BTreeSet<u32>,
         std::collections::BTreeSet<u32>,
@@ -804,7 +780,6 @@ fn refine_loop(
                 );
             }
         }
-        let sig = signature(&f);
         match out {
             Ok(brep) if f.is_empty() => {
                 if probe {
@@ -815,21 +790,6 @@ fn refine_loop(
             // A refined body with surviving failures is never adopted.
             Ok(_) | Err(_) => {}
         }
-        if seen_signatures.contains(&sig) {
-            plateaus += 1;
-            if plateaus >= 2 {
-                if probe {
-                    eprintln!(
-                        "[s452]   iter {iter}: the failure set returned to an earlier one twice — \
-                         not converging under refinement"
-                    );
-                }
-                break;
-            }
-        } else {
-            plateaus = 0;
-        }
-        seen_signatures.push(sig);
     }
     if natural.is_ok() {
         if probe {

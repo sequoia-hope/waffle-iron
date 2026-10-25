@@ -2238,7 +2238,11 @@ fn smoke_corpus_boundary_categories() {
         // P0056 (4 ops, scale 899) ⇒ `boolean_subtract NonManifoldVertex`
         // at (3.533e2, −5.999e2, −2.052e1); the lineage's vertex sits 13
         // units away. Scale-invariant.
-        ("P0056", Category::Error),
+        // CONVERTED 2026-10-25 (N67 amendment): a real corner 0.727 inside
+        // the r = 3600 cutter's rim sits in the chord sag; the nine sites
+        // read 9 / 9 / 9 at ×2 / ×4 / ×8 and clear at ×16. The §4.5.2 loop
+        // no longer stops on a repeated failure set, and its ceiling is 16.
+        ("P0056", Category::SupportedCorrect),
         // P0057 (3 ops) ⇒ `boolean_subtract SelfIntersectingBooleanOutput`
         // faces 20 × 19, 51 penetrations, two ADJACENT faces; the lineage's
         // 156 × 155 at the same coordinates. ×1e3 keeps the class, ×1e-3 CORRECT.
@@ -2286,9 +2290,10 @@ fn smoke_corpus_boundary_categories() {
         // P0061 (3 ops) ⇒ auto-union §4.5.2 `RefinementExhausted` at k = 8
         // (N67). ADJUDICATED MINIMIZER-MINTED 2026-10-25, like P0026: P0062
         // (its UN-MINIMIZED 7-op lineage) and the un-rounded 3-op reductions
-        // are CORRECT; rounding left a 2.1e-4 graze past a prism ridge. Kept
-        // as a loud pin of the refinement ceiling.
-        ("P0061", Category::Error),
+        // are CORRECT; rounding left a 2.1e-4 graze past a prism ridge.
+        // CONVERTED 2026-10-25 (N67 amendment): the graze resolves at the
+        // raised ceiling, ×16.
+        ("P0061", Category::SupportedCorrect),
         ("P0062", Category::SupportedCorrect),
     ];
     // Per-case CPU budget, expressed in RELEASE-equivalent seconds and scaled

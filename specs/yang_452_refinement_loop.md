@@ -442,7 +442,14 @@ boolean(a, b, op):
     return natural (the STOP, with F attached to the error's detail)
 ```
 
-6.0.1 **Convergence monitor, both paths.** The paper's loop terminates
+6.0.1 **RETIRED 2026-10-25 (ledger N67 amendment, user-signed).** P0056's
+failure set reads 9 / 9 / 9 at ×2 / ×4 / ×8 and empties at ×16, and F0067
+needs ×16 too. An identical set after a doubling is a STEP function of
+density, not evidence against convergence. The loop now ends only when it
+adopts an empty set, every named face is at `FACE_REFINE_MAX` (now 16), or
+`REFINE_LOOP_ITER_CAP` runs out. The text below is kept as history.
+
+6.0.1 (historical) **Convergence monitor, both paths.** The paper's loop terminates
 because "the mesh intersections converge to the spline surface
 intersections under refinement" (`:650-652`); a failure SET that comes back
 IDENTICAL — the same triggers on the same input faces — after a doubling is

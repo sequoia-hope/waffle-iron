@@ -664,10 +664,10 @@ pub(crate) fn illegal_intersection_sites(
 /// `k = next power of two ≥ √f` (chord sagitta ∝ 1/N²), at least 2 — one
 /// doubling — so a certificate the first doubling already satisfies, a NaN
 /// or `None` all ask for one doubling. R0085's 18.2 → 8, P0039's 2.24 → 2.
-/// Capped at `FACE_REFINE_MAX` (8, the old d_ε/64 ceiling): P0015's 159
-/// (√159 ≈ 12.6) starts AT the ceiling — a demand past it certifies nothing
-/// about the rungs inside it (P0015 converged at d_ε/32 while its
-/// certificate read 159), so the loop's first rung is the last one.
+/// Capped at `FACE_REFINE_MAX` (16 since 2026-10-25; 8, the old d_ε/64
+/// ceiling, before): a demand past the ceiling certifies nothing about the
+/// rungs inside it (P0015 converged at d_ε/32 while its certificate read
+/// 159, √159 ≈ 12.6 → 16), so such a loop's first rung is the last one.
 pub(crate) fn density_for_demand(demand: Option<f64>) -> u32 {
     let f = match demand {
         Some(f) if f.is_finite() && f > 1.0 => f,
