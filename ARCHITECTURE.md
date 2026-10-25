@@ -57,7 +57,7 @@ Three crates that implement the parametric modeling logic:
 
 - **feature-engine** — The parametric modeling brain. Manages the feature tree (ordered list of modeling operations), persistent naming (GeomRef system for stable geometry references across rebuilds), rebuild algorithm (replay features from change point), and undo/redo.
 - **modeling-ops** — Individual operation implementations (extrude, revolve, boolean combine). Each operation calls the Kernel trait, introspects the result, assigns semantic roles to created geometry, and returns a complete OpResult with provenance for persistent naming. (Fillet, chamfer, and shell operations exist experimentally but are deferred indefinitely pending boolean reliability.)
-- **sketch-solver** — Wraps the `slvs` crate (SolveSpace's libslvs) for 2D geometric constraint solving. Maps Waffle Iron sketch types to libslvs calls, runs the solver, extracts solved positions and closed profiles.
+- **sketch-solver** — Pure-Rust 2D geometric constraint solver (`crates/sketch-solver`) using Levenberg-Marquardt with analytical Jacobians, DOF analysis, and closed-profile extraction (replaced the earlier `slvs`/libslvs C wrapper).
 
 ### Bridge Layer (Rust/WASM + JavaScript glue, runs in Web Worker)
 
@@ -120,8 +120,8 @@ User Input
 │    └── Provenance + role assignment → OpResult              │
 │         │                                                   │
 │         ▼                                                   │
-│  sketch-solver (slvs/libslvs)                               │
-│    ├── Constraint solving (Newton-Raphson)                   │
+│  sketch-solver (pure-Rust Levenberg-Marquardt)              │
+│    ├── Constraint solving (LM + analytical Jacobians)       │
 │    ├── Solve status (fully/under/over-constrained)          │
 │    └── Profile extraction (closed loops for extrusion)      │
 └─────────────────────────────┼───────────────────────────────┘
@@ -135,8 +135,8 @@ User Input
 │    ├── Boolean operations (Yang hybrid B-Rep/mesh pipeline) │
 │    ├── Topology introspection (faces, edges, vertices)      │
 │    ├── Tessellation → RenderMesh with face-range metadata   │
-│    └── STEP import: separate crates/step-import (truck as   │
-│        parser only); STEP export: NotSupported (roadmap)    │
+│    └── STEP import (`crates/step-import`, truck as parser   │
+│        only) & STEP export (`kernel_v2::step_export` AP214) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -146,7 +146,7 @@ Sketch data flow (during sketch mode):
 sketch-ui (draw/constrain)
     │ UiToEngine::AddSketchEntity / AddConstraint / SolveSketch
     ▼
-wasm-bridge → sketch-solver (slvs)
+wasm-bridge → sketch-solver
     │ SolvedSketch (positions + status)
     ▼
 wasm-bridge → sketch-ui (update display, color by status)
@@ -156,8 +156,8 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` + `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE 2026-06-11; assay 240/295 CORRECT, 0 WRONG; remaining walls M8 coplanar / §4.3.3 near-tangency / non-convex CDT) |
-| 02 | sketch-solver | 2D constraint solving via slvs | Rust + C (libslvs) | None | Complete (M1-M10 + Emscripten WASM) |
+| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` + `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE; assay 356/374 CORRECT, 0 WRONG as of 2026-10-22; see `docs/yang_tail_triage.md`) |
+| 02 | sketch-solver | Pure-Rust 2D constraint solving (Levenberg-Marquardt) | Rust | None | Complete |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
 | 05 | sketch-ui | 2D sketch editing interface | Svelte + JS | 02, 03, 04 | Complete |
@@ -216,10 +216,10 @@ through the `Kernel` / `KernelIntrospect` traits on stable Rust with standard
 The correctness oracle is the categorized kernel-v2 assay
 (`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`) plus
 reference parity against the Cherchi C++ sidecars. The assay corpus is
-**295 cases** with analytical ground truth and Euler-characteristic oracles,
+**374 cases** with analytical ground truth and Euler-characteristic oracles,
 scored in five exhaustive buckets:
 
-**240 CORRECT · 0 WRONG · 51 ERROR · 4 UNSUPPORTED · 0 TIMEOUT** (2026-07-12).
+**356 CORRECT · 0 WRONG · 13 ERROR · 5 EXPECTED_ERROR · 0 TIMEOUT** (2026-10-22; see `docs/yang_tail_triage.md`).
 
 ### What exists (live):
 - Half-edge B-Rep topology (arena-based storage, tombstoned ids) with Euler
@@ -240,17 +240,13 @@ scored in five exhaustive buckets:
   intersect over box/cyl/cone/sphere/torus operands
 - Geometry-driven tessellation for planar, cylindrical, conical, spherical,
   and toroidal faces
+- Analytical AP214 STEP export (`kernel_v2::step_export`) and STEP import (`crates/step-import`, truck pinned as parser only)
 - `MockKernel` (deterministic test double, `waffle-types` `mock-kernel` feature)
   for consumer-crate unit tests; `KernelV2Adapter` for real-geometry tests
 
 ### Remaining capability walls (typed `NotSupported`/error, loud — ROADMAP, not bugs):
-- **M8 coplanar-boolean tail** — the last flush/stacked-face coplanar cases
-  (Stage 0); the bulk of the class has shipped, a small residue remains
-- **§4.3.3 near-tangency** — face-gap-under-sagitta cases where mesh topology
-  can diverge from exact topology
-- **Non-convex CDT profile tail** — gear / arc-segment profiles
-- **STEP export** — trait-default `NotSupported` (STEP *import* is the separate
-  `crates/step-import`, truck pinned as parser only)
+- **N2 / N90 / N91 (§4.4.1 mesh updating & §4.5.1/§4.5.2 boundary/tangency handling)** — the dominant remaining ERROR class (13 corpus cases; tracked in `docs/yang_deviations.md` and `docs/yang_tail_triage.md`)
+- **M8 coplanar-boolean tail** — annular hole-rim crossings and ellipse-edged planar faces in Stage 0 (N89 item 4)
 
 The dominant remaining ERROR class is Stage-4 `LocalRefinementRequired` (the N2
 mesh-updating gap). When a milestone lands, its `#[ignore]`/`test.skip`
