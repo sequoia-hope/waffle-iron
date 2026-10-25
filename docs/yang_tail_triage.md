@@ -43,6 +43,12 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-25 (P0045 CONVERTED) — the torus band chart's seam bridge is a SEGMENT: tested against every window loop's edges, not the window's u-interval at its foot (ledger N5 amendment); **corpus 357C / 0W / 12E / 5EE / 0T over 374**
+
+- **Anchor** (`YANG_TORUS_PATCH_PROBE=1`, `ASSAY_CASE=P0045 single_case`): face 2's band (261-point boundary, 4 holes, `R = 9.067`, `r = 5.433`) declined at `cdt_polygon_with_holes_refined_seeded` (`TriangulationFailed`, outer 54 pts, 3 holes). An offline segment test of the dumped ring against the holes: the left bridge (outer 39 → 53, `su` 9.190 → 8.534 across the band) crosses hole 2 (30 pts, `su ∈ [8.698, 9.350]`) at two edges. `straddles_window(base_x)` read only the foot `8.534`, outside that interval, and took the anchor. This is the defect the 2026-10-24 entry named; the fix here is the bridge's own contract (crosses no trim loop), not an interval widening.
+- **Fix** (`band_seam_bridge` + its band caller): window loops' edges join the bridge test at every period image in `su` and `sv`, with closed contact (the bridge in `torus_band_window_on_seam_render` runs exactly through two window vertices); the window-crossing fallback is deleted; each hole lands in the period image the ring contains (nearest-centre image first).
+- **Corpus** (release, 8 jobs, 900 s, wall 913.6 s at load ~38): **357C / 0W / 12E / 5EE / 0T**, exactly one move (P0045 ERROR → SUPPORTED_CORRECT, 2.0 s), zero detail drift. yang-rs + kernel-v2 suites green. The actionable tail is P0056, F0064, F0067.
+
 ## 2026-10-25 (re-promotion) — **P0045 re-promoted from its un-minimized 7-op lineage; P0061 ADJUDICATED minimizer-minted.** Corpus score unchanged (356C / 0W / 13E / 5EE / 0T); the actionable tail is P0045, P0056, F0064, F0067
 
 - **Correction to the 2026-10-24 entry below:** at HEAD `8c112a49`, `try010.waffle` (the un-rounded 3-op reduction) does **not** fail. It is `SUPPORTED_CORRECT` under the corpus categorizer (2.1 s, `ASSAY_CASE=P0045` with it in place) and `replay_waffle_env` (18,154 tris, volume 7.7177e3). Only the 7-op original `X00000004-00088.waffle` fails at HEAD. The 2026-10-24 line claiming both failed is wrong for `try010`.

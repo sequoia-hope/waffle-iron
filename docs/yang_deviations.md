@@ -1180,6 +1180,32 @@ still rim rings + per-surface dispatch, not the §4.1 u-v CDT — but the
 "rim N is one number per operand" half of the entry is no longer true: a
 band between two rims of different `k` is the azimuth zipper's.
 
+**Amendment (2026-10-25, P0045 — the torus band chart's seam cut).** The paper
+meshes the untrimmed u-v rectangle and trims it with the boundary curves
+(`:294-296`, `:404-407`), so a trim loop crossing the parameter seam costs it
+nothing. Our torus BAND chart (`patch_tessellators.rs` `band_seam_bridge`)
+instead triangulates one fundamental domain of the band's cover, cut along
+two seam bridges, so its contract is that **no bridge touches any trim
+loop** — the band's window holes included. The bridge test checked the two
+rims as segments but each window only as the meridian line `u ≡ base_x`
+against the window's u-interval; the bridge is the segment
+`(base_x, v0) → (base_x + dpr, v1)`. P0045 (7 ops, un-minimized index-88
+lineage): the left bridge slanted 0.66 in `su` through a 30-point window
+whose u-interval `[8.698, 9.350]` excluded its foot `8.534`, and the CDT
+declined the crossing ring (`torus patch UV-CDT declined`, the converted
+input B-Rep). The bridge is now tested against every period image of every
+window edge (closed contact — a bridge through a window VERTEX splits it
+too), the fallback that took a window-crossing anchor is deleted (with an
+exact test it could only hand the CDT a crossing — `None` now declines
+loudly), and each window lands in the period image the ring CONTAINS (the
+nearest-to-centre image first, so every passing case is byte-identical).
+Not a paper mechanism: it makes the chart honor its own trim contract
+inside N5's deviation (per-face trimmed CDT in place of untrimmed-then-trim);
+N5 stays DELEGATED. Corpus 357C / 0W / 12E / 5EE / 0T over 374, P0045 ERROR →
+CORRECT, zero other moves, zero detail drift. Pin:
+`stage1_tessellate::torus_patch_tests::torus_band_slanted_seam_bridge_avoids_a_window`
+(fails on the old test).
+
 ### N9 — Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade)
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); recommended default applied (batch A). N5 reopens if NURBS/Bézier support is ever scheduled.

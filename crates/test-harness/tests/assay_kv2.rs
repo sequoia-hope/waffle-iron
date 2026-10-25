@@ -2152,7 +2152,10 @@ fn smoke_corpus_boundary_categories() {
         // `torus patch UV-CDT declined` (KV14 Slice F). The 3-op minimum it
         // replaced was minimizer-minted (its rounding shrank a torus crown
         // graze 27× into a Stage-4 STOP; the un-rounded reduction is CORRECT).
-        ("P0045", Category::Error),
+        // CONVERTED 2026-10-25: the torus band chart's seam bridge is tested
+        // as a SEGMENT against every window loop's edges (it slanted through
+        // a window whose u-interval excluded its foot), ledger N5 amendment.
+        ("P0045", Category::SupportedCorrect),
         // P0046 (4 ops) ⇒ auto-union `ring rejected by CDT` — a fourth locus
         // of the P0002 / P0013 / P0036 text. Same class at ×1e-3 and ×1e3.
         ("P0046", Category::SupportedCorrect),

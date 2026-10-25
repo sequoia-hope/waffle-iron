@@ -570,6 +570,21 @@ pub(crate) fn unwrap_seq(a: &mut [f64]) {
     }
 }
 
+/// Even-odd point-in-polygon for a closed ring in the chart plane.
+fn point_in_ring(ring: &[[f64; 2]], p: [f64; 2]) -> bool {
+    let n = ring.len();
+    let mut inside = false;
+    for k in 0..n {
+        let (a, b) = (ring[k], ring[(k + 1) % n]);
+        if (a[1] > p[1]) != (b[1] > p[1])
+            && p[0] < a[0] + (p[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0])
+        {
+            inside = !inside;
+        }
+    }
+    inside
+}
+
 /// KV6d UV-CDT consumer: tessellate an arbitrary torus PATCH from its ordered
 /// closed 3D boundary loop `boundary` (the mesh-boolean intersection curve +
 /// seam, finely sampled) via the interior-Steiner CDT
@@ -610,15 +625,20 @@ pub(crate) struct PLoop {
 /// bridge to `mc`, walk `mc` reversed (`su` decreasing), bridge back. The seam
 /// bridges connect an anchor pair chosen so neither bridge crosses a boundary
 /// edge; the duplicated anchor vertices coincide in 3D (the meridian is
-/// periodic) so the result is watertight. Returns the ring as `(su, sv, 3d)` per
+/// periodic) so the result is watertight. The window loops (the band's
+/// non-wrapping holes) are boundary edges too: a bridge that crosses any period
+/// image of one would cut that window across the chart, so such an anchor is
+/// blocked like one crossing a rim. Returns the ring as `(su, sv, 3d)` per
 /// vertex, or `None` if no unblocked bridge exists.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
     pc: &PLoop,
     mc: &PLoop,
     span: f64,
+    span_v: f64,
     minor: f64,
     major: f64,
-    windows: &[(f64, f64)],
+    windows: &[&PLoop],
     eval: F,
 ) -> Option<Vec<(f64, f64, Point3)>> {
     let (m, mm) = (pc.su.len(), mc.su.len());
@@ -632,6 +652,17 @@ pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
             (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
         };
         o(a, c, d) * o(b, c, d) < 0.0 && o(a, b, c) * o(a, b, d) < 0.0
+    };
+    // Closed segment contact (a shared point or a collinear overlap counts): a
+    // bridge legitimately ends ON its rims, but may not touch a window at all —
+    // one through a window VERTEX splits that window as surely as a crossing.
+    let seg_touch = |a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]| -> bool {
+        let o = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        let overlap =
+            |i: usize| a[i].min(b[i]) <= c[i].max(d[i]) && c[i].min(d[i]) <= a[i].max(b[i]);
+        o(a, c, d) * o(b, c, d) <= 0.0 && o(a, b, c) * o(a, b, d) <= 0.0 && overlap(0) && overlap(1)
     };
     // Each seam bridge spans the full longitude gap (v0 → v1) as a SINGLE
     // segment; left unsplit, the CDT cannot place Steiner near it and the edge
@@ -704,18 +735,55 @@ pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
         ));
         ring
     };
-    // A non-wrapping window straddles the seam cut (at u ≡ base_x mod span) iff a
-    // seam line falls strictly inside its u-interval [wlo, whi] — i.e. Slice F-2's
-    // "window on the seam" split (the R0063/cylinder wall on the torus). Prefer an
-    // anchor whose seam splits no window; if none exists, fall back to the first
-    // non-crossing anchor (a genuinely seam-crossing patch, out of scope).
-    let straddles_window = |base_x: f64| -> bool {
-        windows.iter().any(|&(wlo, whi)| {
-            let d = (base_x - wlo).rem_euclid(span);
-            d > 1e-12 && d < (whi - wlo) - 1e-12
+    // Slice F-2's "window on the seam" (the R0063/cylinder wall on the torus): a
+    // seam bridge that crosses a window loop splits that window across the cut,
+    // and no placement of the hole fits the ring. The bridge is the SEGMENT
+    // (base_x, v0) → (base_x + dpr, v1), not the meridian line u ≡ base_x — P0045's
+    // left bridge slanted 0.66 in su through a window whose u-interval excluded its
+    // foot. Test the segment against every period image (in su and sv) of every
+    // window edge that its bounding box can reach.
+    let window_bounds: Vec<[f64; 4]> = windows
+        .iter()
+        .map(|w| {
+            let (mut ulo, mut uhi, mut vlo, mut vhi) = (
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+                f64::INFINITY,
+                f64::NEG_INFINITY,
+            );
+            for (&u, &v) in w.su.iter().zip(&w.sv) {
+                ulo = ulo.min(u);
+                uhi = uhi.max(u);
+                vlo = vlo.min(v);
+                vhi = vhi.max(v);
+            }
+            [ulo, uhi, vlo, vhi]
+        })
+        .collect();
+    let crosses_window = |p: [f64; 2], q: [f64; 2]| -> bool {
+        let (pulo, puhi) = (p[0].min(q[0]), p[0].max(q[0]));
+        let (pvlo, pvhi) = (p[1].min(q[1]), p[1].max(q[1]));
+        windows.iter().zip(&window_bounds).any(|(w, b)| {
+            let n = w.su.len();
+            let ku = ((pulo - b[1]) / span).ceil() as i64..=((puhi - b[0]) / span).floor() as i64;
+            let kv =
+                ((pvlo - b[3]) / span_v).ceil() as i64..=((pvhi - b[2]) / span_v).floor() as i64;
+            ku.clone().any(|i| {
+                kv.clone().any(|j| {
+                    let (du, dv) = (i as f64 * span, j as f64 * span_v);
+                    (0..n).any(|k| {
+                        let l = (k + 1) % n;
+                        seg_touch(
+                            p,
+                            q,
+                            [w.su[k] + du, w.sv[k] + dv],
+                            [w.su[l] + du, w.sv[l] + dv],
+                        )
+                    })
+                })
+            })
         })
     };
-    let mut fallback: Option<(usize, usize, f64)> = None;
     // Pick the anchor pair (xi on pc, yi on mc) whose two seam-bridge SPANS
     // (validated as single segments, before subdivision) cross no boundary edge.
     for xi in 0..m {
@@ -771,19 +839,15 @@ pub(crate) fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
                 |chain: &[[f64; 2]]| chain.windows(2).any(|w| seg_cross(p, q, w[0], w[1]));
             chain_hit(&bottom) || chain_hit(&top)
         };
-        if spans.iter().any(|&(p, q)| crosses(p, q)) {
+        if spans
+            .iter()
+            .any(|&(p, q)| crosses(p, q) || crosses_window(p, q))
+        {
             continue;
         }
-        // Non-crossing anchor: take it immediately if it also splits no window;
-        // otherwise remember it as the fallback and keep looking for a clean seam.
-        if !straddles_window(base_x) {
-            return Some(build_ring(xi, yi, dpr));
-        }
-        if fallback.is_none() {
-            fallback = Some((xi, yi, dpr));
-        }
+        return Some(build_ring(xi, yi, dpr));
     }
-    fallback.map(|(xi, yi, dpr)| build_ring(xi, yi, dpr))
+    None
 }
 
 /// KV14 Slice F-4 (C0065): the seam cut for a CLOSED periodic coordinate
@@ -1232,19 +1296,18 @@ pub fn tessellate_torus_patch(
                     ((mean(&mc.sv) - v_pc) / major).to_degrees()
                 );
             }
-            // Window u-intervals (the non-wrapping loops) so the seam bridge can
-            // place its cut where it splits no window (Slice F-2).
-            let windows: Vec<(f64, f64)> = ploops
-                .iter()
-                .filter(|l| l.wu == 0)
-                .map(|l| {
-                    (
-                        l.su.iter().cloned().fold(f64::INFINITY, f64::min),
-                        l.su.iter().cloned().fold(f64::NEG_INFINITY, f64::max),
-                    )
-                })
-                .collect();
-            let ring = band_seam_bridge(pc, mc, span, minor, major, &windows, eval)?;
+            // The window loops (non-wrapping), so the seam bridge places its cut
+            // where it crosses none (Slice F-2).
+            let windows: Vec<&PLoop> = ploops.iter().filter(|l| l.wu == 0).collect();
+            let Some(ring) = band_seam_bridge(pc, mc, span, span_v, minor, major, &windows, eval)
+            else {
+                if probe {
+                    eprintln!(
+                        "[torus-patch] DECLINE band: every seam-bridge anchor crosses a rim or a window"
+                    );
+                }
+                return None;
+            };
             let mut o = Vec::with_capacity(ring.len());
             let (mut umin, mut umax) = (f64::INFINITY, f64::NEG_INFINITY);
             let (mut vmin, mut vmax) = (f64::INFINITY, f64::NEG_INFINITY);
@@ -1258,10 +1321,25 @@ pub fn tessellate_torus_patch(
                 vert3d.push(*p);
             }
             // Window holes = the non-wrapping loops (band edges already consumed).
+            // The ring is one fundamental domain of the band's cover and no
+            // bridge crosses a window, so exactly one period image of each
+            // window lies inside it: take the image nearest the ring's centre
+            // when it is inside, else the image that is.
             let (u_center, v_center) = (0.5 * (umin + umax), 0.5 * (vmin + vmax));
+            let ring2d: Vec<[f64; 2]> = ring.iter().map(|&(u, v, _)| [u, v]).collect();
             for l in ploops.iter().filter(|l| l.wu == 0) {
-                let du = ((umean(l) - u_center) / span).round() * span;
-                let dv = ((vmean(l) - v_center) / span_v).round() * span_v;
+                let du0 = ((umean(l) - u_center) / span).round();
+                let dv0 = ((vmean(l) - v_center) / span_v).round();
+                let inside = |i: f64, j: f64| {
+                    point_in_ring(&ring2d, [l.su[0] - i * span, l.sv[0] - j * span_v])
+                };
+                let (i, j) = [(0.0, 0.0), (-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0)]
+                    .iter()
+                    .chain(&[(-1.0, -1.0), (-1.0, 1.0), (1.0, -1.0), (1.0, 1.0)])
+                    .map(|&(a, b)| (du0 + a, dv0 + b))
+                    .find(|&(i, j)| inside(i, j))
+                    .unwrap_or((du0, dv0));
+                let (du, dv) = (i * span, j * span_v);
                 let mut hi = Vec::with_capacity(l.su.len());
                 for k in 0..l.su.len() {
                     hi.push(verts2d.len() as u32);

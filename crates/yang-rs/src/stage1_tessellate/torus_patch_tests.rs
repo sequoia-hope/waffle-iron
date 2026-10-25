@@ -459,6 +459,114 @@ fn torus_band_window_on_seam_render() {
     );
 }
 
+/// P0045 in miniature: the seam bridge is a SEGMENT, not a meridian line. The
+/// rims are sampled at meridians offset by 0.12 rad, so the bridge from the
+/// first `pc` anchor (u = 0.12) to its nearest `mc` vertex (u = 0) slants
+/// through a narrow window whose u-interval [0.02, 0.10] excludes the anchor's
+/// foot. Testing the foot alone took that anchor and handed the CDT a hole
+/// crossing the outer ring; the bridge must be tested against the window's
+/// edges, and the anchor skipped.
+#[test]
+fn torus_band_slanted_seam_bridge_avoids_a_window() {
+    let center = Point3::new(0.0, 0.0, 0.0);
+    let axis = Vector3::new(0.0, 0.0, 1.0);
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let ax = normalize3(axis.as_array());
+    let (e1, e2) = ortho_basis(axis);
+    let (e1a, e2a) = (e1.as_array(), e2.as_array());
+    let (v0, v1) = (0.0_f64, std::f64::consts::FRAC_PI_2);
+    let (nu, off) = (24, 0.12_f64);
+    let mut c0: Vec<Point3> = Vec::new();
+    let mut c1: Vec<Point3> = Vec::new();
+    for k in 0..nu {
+        let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
+        c0.push(eval(center, ax, e1a, e2a, major, minor, -u, v0));
+        c1.push(eval(center, ax, e1a, e2a, major, minor, u + off, v1));
+    }
+    // A window over the middle of the band's longitude, between the anchor
+    // meridian u = 0.12 and its bridge's far end u = 0.
+    let (wv0, wv1) = (0.3 * (v1 - v0), 0.7 * (v1 - v0));
+    let window = |wu0: f64, wu1: f64| -> Vec<Point3> {
+        let nw = 6;
+        let mut w: Vec<Point3> = Vec::new();
+        let mut push = |u: f64, v: f64| w.push(eval(center, ax, e1a, e2a, major, minor, u, v));
+        for k in 0..nw {
+            push(wu0 + (wu1 - wu0) * (k as f64 / nw as f64), wv0);
+        }
+        for k in 0..nw {
+            push(wu1, wv0 + (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        for k in 0..nw {
+            push(wu1 - (wu1 - wu0) * (k as f64 / nw as f64), wv1);
+        }
+        for k in 0..nw {
+            push(wu0, wv1 - (wv1 - wv0) * (k as f64 / nw as f64));
+        }
+        w
+    };
+    let wins = [(0.02_f64, 0.10_f64)];
+    let wa = window(wins[0].0, wins[0].1);
+    let win_edges = wa.len();
+
+    let (verts, tris) =
+        tessellate_torus_patch(center, axis, major, minor, &c0, &[c1, wa], 0.05, false)
+            .expect("band tessellates with the slanted bridge moved off the windows");
+
+    let surf = torus(major, minor);
+    for (i, &p) in verts.iter().enumerate() {
+        let d = signed_distance_to_surface(surf, p).unwrap();
+        assert!(d.abs() < 1e-9, "vert {i} off tube: {d:e}");
+    }
+    let key = |p: Point3| {
+        let a = p.as_array();
+        [
+            (a[0] * 1e7).round() as i64,
+            (a[1] * 1e7).round() as i64,
+            (a[2] * 1e7).round() as i64,
+        ]
+    };
+    let mut edges: BTreeMap<([i64; 3], [i64; 3]), u32> = BTreeMap::new();
+    for t in &tris {
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let (ka, kb) = (key(verts[a as usize]), key(verts[b as usize]));
+            let e = if ka < kb { (ka, kb) } else { (kb, ka) };
+            *edges.entry(e).or_insert(0) += 1;
+        }
+    }
+    assert!(
+        edges.values().all(|&c| c == 1 || c == 2),
+        "non-manifold edge (seam or window split)"
+    );
+    let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+    assert_eq!(boundary_edges, 2 * nu + win_edges);
+    let band_area = minor * (v1 - v0) * std::f64::consts::TAU * major;
+    let win_area: f64 = wins
+        .iter()
+        .map(|&(wu0, wu1)| {
+            minor * (wv1 - wv0) * (major * (wu1 - wu0) + minor * (wu1.sin() - wu0.sin()))
+        })
+        .sum();
+    let analytic = band_area - win_area;
+    let mut area = 0.0;
+    for t in &tris {
+        let a = verts[t[0] as usize].as_array();
+        let b = verts[t[1] as usize].as_array();
+        let c = verts[t[2] as usize].as_array();
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let cr = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+    }
+    assert!(
+        area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+        "band area {area} vs analytic {analytic}"
+    );
+}
+
 /// KV14 Slice F-4 (C0065): a CLOSED torus carrying only WINDOW loops — the
 /// through-slot's two holes in the tube, no loop wrapping either period.
 /// The face's "outer" loop bounds the complement (it is a window), so the
