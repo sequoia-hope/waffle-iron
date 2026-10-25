@@ -2142,7 +2142,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 101 is invalid: OffCurveBeyondChordBand\"). Body created as standalone.",
+      "detail": "2 engine error(s): ba48991e-e9dd-4c77-8b94-7494285f543c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: torus patch UV-CDT declined (a seam-crossing / longitude-wrapping loop, or a lone loop bounding the torus's complement — KV14 Slice F later sub-slice)\"); eedb27da-7f3d-49fa-ab23-2e9cf4f82177: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs rejected the converted input B-Rep: yang-rs: malformed B-Rep topology: face 2: torus patch UV-CDT declined (a seam-crossing / longitude-wrapping loop, or a lone loop bounding the torus's complement — KV14 Slice F later sub-slice)\")",
       "id": "P0045",
       "status": "error"
     },

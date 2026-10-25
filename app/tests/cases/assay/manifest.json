@@ -2499,7 +2499,7 @@
       "id": "P0045",
       "filename": "P0045.waffle",
       "meta_filename": "P0045.meta.json",
-      "description": "prospector seed 4 index 88, minimized 7->3 ops (convex4:boss circle:rev convex3:boss): auto-union TessellationFailed 'torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)' (kernel-v2 tessellate/surfaces/torus.rs) — P0003's text (CONVERTED 2026-09-28) on P0030's recipe shape (CONVERTED 2026-10-10, whole-shell passthrough) but with a prism that TOUCHES the torus; same text on the un-minimized lineage (FaceId 21). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+      "description": "prospector seed 4 index 88, UN-MINIMIZED 7 ops (re-promoted 2026-10-25; the 3-op minimum it replaces was minimizer-minted: its rounding to 3 significant digits shrank a torus crown's protrusion past a plane 27x, into a Stage-4 OffCurveBeyondChordBand STOP, while the un-rounded 3-op reduction is SUPPORTED_CORRECT — docs/yang_tail_triage.md 2026-10-24/25): two boolean_subtract engine errors, yang-rs rejects the converted input B-Rep — 'face 2: torus patch UV-CDT declined (a seam-crossing / longitude-wrapping loop, or a lone loop bounding the torus's complement — KV14 Slice F later sub-slice)'. derived_meta; the pin IS the expectation.",
       "featured": true
     },
     {
@@ -2611,7 +2611,7 @@
       "id": "P0061",
       "filename": "P0061.waffle",
       "meta_filename": "P0061.meta.json",
-      "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67: auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 33 — a 49-point hole-free ring along a curve (KV2_RING_REJECT_PROBE outer_len=49 holes=0); x1e-3 and x1e3 identical (FaceId 28). The 7-op lineage rejects a DIFFERENT ring (30 points with a collinear run), promoted beside it. derived_meta; the pin IS the expectation.",
+      "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67 — ADJUDICATED MINIMIZER-MINTED 2026-10-25 (cf. P0026): its un-minimized lineage P0062 and the un-rounded 3-op reductions (try005..try011) are all SUPPORTED_CORRECT; rounding Step 0 to 1 significant digit left a 2.1e-4 cylinder protrusion past a hexagonal prism ridge whose mesh pierce points both converge into one Newton basin, so §4.5.2 ends at FACE_REFINE_MAX = 8 (N67) with T3c IllegalIntersections (docs/yang_tail_triage.md 2026-10-24). Kept as a loud pin of the k=8 ceiling, not an actionable tail row. derived_meta; the pin IS the expectation.",
       "featured": true
     },
     {

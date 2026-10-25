@@ -2147,9 +2147,11 @@ fn smoke_corpus_boundary_categories() {
         // surface's own roots, Stage 1 zips unequal rims, and one rim sample
         // per model-scale point (spec `stage1_azimuth_merge_unequal_rings.md`).
         ("P0044", Category::SupportedCorrect),
-        // P0045 (3 ops) ⇒ auto-union `torus patch UV-CDT failed` — P0003's
-        // text on P0030's recipe shape, with a prism that TOUCHES the torus.
-        // Same class at ×1e-3 and ×1e3.
+        // P0045 (7 ops, the UN-MINIMIZED index-88 lineage, re-promoted
+        // 2026-10-25) ⇒ `boolean_subtract` rejects the converted input B-Rep:
+        // `torus patch UV-CDT declined` (KV14 Slice F). The 3-op minimum it
+        // replaced was minimizer-minted (its rounding shrank a torus crown
+        // graze 27× into a Stage-4 STOP; the un-rounded reduction is CORRECT).
         ("P0045", Category::Error),
         // P0046 (4 ops) ⇒ auto-union `ring rejected by CDT` — a fourth locus
         // of the P0002 / P0013 / P0036 text. Same class at ×1e-3 and ×1e3.
@@ -2278,9 +2280,11 @@ fn smoke_corpus_boundary_categories() {
         // `kv15b_mint_site_subresolution_collapse` I1c): a pair neither of
         // whose carried-surface sets contains the other is kept, exact.
         ("P0060", Category::SupportedCorrect),
-        // P0061 (3 ops) ⇒ auto-union `ring rejected by CDT` on a 49-point
-        // curved ring; P0062 is its UN-MINIMIZED 7-op lineage, which rejects a
-        // DIFFERENT ring (30 points with a collinear run) — both halves.
+        // P0061 (3 ops) ⇒ auto-union §4.5.2 `RefinementExhausted` at k = 8
+        // (N67). ADJUDICATED MINIMIZER-MINTED 2026-10-25, like P0026: P0062
+        // (its UN-MINIMIZED 7-op lineage) and the un-rounded 3-op reductions
+        // are CORRECT; rounding left a 2.1e-4 graze past a prism ridge. Kept
+        // as a loud pin of the refinement ceiling.
         ("P0061", Category::Error),
         ("P0062", Category::SupportedCorrect),
     ];

@@ -43,6 +43,12 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-25 (re-promotion) — **P0045 re-promoted from its un-minimized 7-op lineage; P0061 ADJUDICATED minimizer-minted.** Corpus score unchanged (356C / 0W / 13E / 5EE / 0T); the actionable tail is P0045, P0056, F0064, F0067
+
+- **Correction to the 2026-10-24 entry below:** at HEAD `8c112a49`, `try010.waffle` (the un-rounded 3-op reduction) does **not** fail. It is `SUPPORTED_CORRECT` under the corpus categorizer (2.1 s, `ASSAY_CASE=P0045` with it in place) and `replay_waffle_env` (18,154 tris, volume 7.7177e3). Only the 7-op original `X00000004-00088.waffle` fails at HEAD. The 2026-10-24 line claiming both failed is wrong for `try010`.
+- **P0045** is now `X00000004-00088.waffle` (7 ops, meta re-derived by `prospect_derive_meta`). Verdict ERROR (0.6 s): two `boolean_subtract` engine errors, `yang-rs rejected the converted input B-Rep: … face 2: torus patch UV-CDT declined (a seam-crossing / longitude-wrapping loop, or a lone loop bounding the torus's complement — KV14 Slice F later sub-slice)`. This failure is real: it sits in the un-minimized document, not in the minimizer's rounding. The minted 3-op minimum it replaces (`try011.waffle`, Stage-4 `OffCurveBeyondChordBand`) leaves the corpus.
+- **P0061** stays in the corpus as a loud pin of the k = 8 ceiling (N67), adjudicated minimizer-minted like P0026: `try005` and `try011` replay clean at HEAD (24,482 / 24,457 tris); `try014` (= P0061) fails with the `RefinementExhausted` text. Its lineage P0062 is CORRECT. It is no longer an actionable tail row.
+
 ## 2026-10-24 (lineage anchor: P0045 and P0061 vs their un-minimized originals) — both Stage-4 `RefinementExhausted` STOPs at `k=8` are minimizer-minted shallow crown grazes hitting N67 (`FACE_REFINE_MAX = 8`)
 
 Before designing any Stage-4 mechanism for `P0045` or `P0061`, both cases were anchored in `--release` against their un-minimized originals and minimizer step histories (`target/prospect/seed-{4,5}/`), and two uncommitted explorations from a prior session (`window_clearance` / `best_clean` in `patch_tessellators.rs` and `relocate_onto_implicit_triple_grazing` in `stage4_relocate.rs`) were reverted so `crates/yang-rs/` stays 100% clean at `HEAD` (`14b2679f`).

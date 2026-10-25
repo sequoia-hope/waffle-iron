@@ -1,6 +1,6 @@
 {
   "id": "P0061",
-  "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67: auto-union TessellationFailed 'ring rejected by CDT (degenerate/self-intersecting)' on FaceId 33 — a 49-point hole-free ring along a curve (KV2_RING_REJECT_PROBE outer_len=49 holes=0); x1e-3 and x1e3 identical (FaceId 28). The 7-op lineage rejects a DIFFERENT ring (30 points with a collinear run), promoted beside it. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 5 index 91, minimized 7->3 ops (convex4:boss circle:boss convex6:boss), scale 1.67 — ADJUDICATED MINIMIZER-MINTED 2026-10-25 (cf. P0026): its un-minimized lineage P0062 and the un-rounded 3-op reductions (try005..try011) are all SUPPORTED_CORRECT; rounding Step 0 to 1 significant digit left a 2.1e-4 cylinder protrusion past a hexagonal prism ridge whose mesh pierce points both converge into one Newton basin, so §4.5.2 ends at FACE_REFINE_MAX = 8 (N67) with T3c IllegalIntersections (docs/yang_tail_triage.md 2026-10-24). Kept as a loud pin of the k=8 ceiling, not an actionable tail row. derived_meta; the pin IS the expectation.",
   "master_seed": 0,
   "test_seed": 0,
   "scale": 4.25,

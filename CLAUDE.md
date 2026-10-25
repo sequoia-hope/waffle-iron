@@ -121,8 +121,8 @@ Do NOT skip to lower-priority items because they are easier.
      - `docs/audits/yang_2025_audit.md` — 194-row paper-ordered compliance matrix (rebuilt 2026-10-16) mapping every procedural statement of §3–§4 to its code site, status, ledger ID, and pin. Read the rows for your section before changing a stage, and update them in the same commit as `docs/yang_deviations.md`.
      - `docs/yang_tail_triage.md` — Full chronological conversion log (P0001–P0062, seeds 1–5) and per-case triage ledger.
    - **Current canonical corpus status (2026-10-22):** **356C / 0W / 13E / 5EE / 0T over 374** (release, 8 jobs, 900 s; wall ~760 s).
-     - **Open actionable ERROR tail (5 rows):** **P0045, P0056, P0061, F0064, F0067**.
-     - **Loud-by-design / adjudicated ERROR rows (8 rows):** six C-series walls (`C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`), `P0026` (adjudicated minimizer-minted exact tangency), and `R0023` (refined cap segment face / M8 follow-up).
+     - **Open actionable ERROR tail (4 rows):** **P0045, P0056, F0064, F0067** (P0045 re-promoted 2026-10-25 from its un-minimized 7-op lineage: `torus patch UV-CDT declined` on the converted input B-Rep, KV14 Slice F).
+     - **Loud-by-design / adjudicated ERROR rows (9 rows):** six C-series walls (`C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`), `P0026` (adjudicated minimizer-minted exact tangency), `P0061` (adjudicated minimizer-minted 2.1e-4 graze at the k = 8 refinement ceiling; its lineage P0062 is CORRECT), and `R0023` (refined cap segment face / M8 follow-up).
      - **Key permanent lessons from recent conversions:**
        - *Never enumerate surface types or curve maps inside a general geometric rule:* Stage-4 triple-corner gate admits by incidence count (three distinct surfaces, Yang §4.5.1), and fan-rebuild winding uses `surface_normal_at` for all surface types.
        - *Loud ceiling (N66):* `boolean::refine_loop` adopts only an EMPTY failure set; surviving failures STOP loudly as `YangError::RefinementExhausted`.

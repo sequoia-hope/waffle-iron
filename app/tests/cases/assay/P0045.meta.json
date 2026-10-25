@@ -1,10 +1,10 @@
 {
   "id": "P0045",
-  "description": "prospector seed 4 index 88, minimized 7->3 ops (convex4:boss circle:rev convex3:boss): auto-union TessellationFailed 'torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)' (kernel-v2 tessellate/surfaces/torus.rs) — P0003's text (CONVERTED 2026-09-28) on P0030's recipe shape (CONVERTED 2026-10-10, whole-shell passthrough) but with a prism that TOUCHES the torus; same text on the un-minimized lineage (FaceId 21). x1e3 keeps the class. derived_meta; the pin IS the expectation.",
+  "description": "prospector seed 4 index 88, UN-MINIMIZED 7 ops (re-promoted 2026-10-25; the 3-op minimum it replaces was minimizer-minted: its rounding to 3 significant digits shrank a torus crown's protrusion past a plane 27x, into a Stage-4 OffCurveBeyondChordBand STOP, while the un-rounded 3-op reduction is SUPPORTED_CORRECT — docs/yang_tail_triage.md 2026-10-24/25): two boolean_subtract engine errors, yang-rs rejects the converted input B-Rep — 'face 2: torus patch UV-CDT declined (a seam-crossing / longitude-wrapping loop, or a lone loop bounding the torus's complement — KV14 Slice F later sub-slice)'. derived_meta; the pin IS the expectation.",
   "master_seed": 0,
   "test_seed": 0,
-  "scale": 18.10509912380729,
-  "log_scale": 1.2578009068831981,
+  "scale": 33.9986819643034,
+  "log_scale": 1.5314620809620982,
   "plane_origin": [
     0.0,
     0.0,
@@ -20,14 +20,14 @@
       "kind": "extrude",
       "profile_type": "unknown",
       "profile_size": 0.0,
-      "depth_or_angle": 10.0,
+      "depth_or_angle": 9.72605836940012,
       "is_cut": false
     },
     {
       "kind": "revolve",
       "profile_type": "unknown",
       "profile_size": 0.0,
-      "depth_or_angle": 264.0,
+      "depth_or_angle": 264.046837861156,
       "is_cut": false
     },
     {
@@ -36,12 +36,40 @@
       "profile_size": 0.0,
       "depth_or_angle": 18.10509912380729,
       "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 8.664245722907243,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 25.528984709128924,
+      "is_cut": true
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 15.541009985539866,
+      "is_cut": false
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "unknown",
+      "profile_size": 0.0,
+      "depth_or_angle": 17.227845848728872,
+      "is_cut": false
     }
   ],
   "oracles": {
     "euler_target": 2,
     "expect_watertight": true,
-    "max_bbox_extent": 1810.5099123807288,
+    "max_bbox_extent": 3399.86819643034,
     "expect_positive_volume": true,
     "volume_monotonicity": [],
     "expect_rebuild_error": false,
