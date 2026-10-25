@@ -33,9 +33,34 @@ if [ -z "$GH_TOKEN" ] && command -v gh &>/dev/null; then
     fi
 fi
 
+# Extract Antigravity OAuth token from host keyring so container file-based
+# token storage (~/.gemini/antigravity-cli/antigravity-oauth-token) stays in sync
+if [ -d "$HOME/.gemini/antigravity-cli" ]; then
+    python3 -c '
+import os, secretstorage
+try:
+    bus = secretstorage.dbus_init()
+    col = secretstorage.get_default_collection(bus)
+    for item in col.get_all_items():
+        a = item.get_attributes()
+        if a.get("service") == "gemini" and a.get("username") == "antigravity":
+            p = os.path.expanduser("~/.gemini/antigravity-cli/antigravity-oauth-token")
+            with open(p, "wb") as f:
+                f.write(item.get_secret())
+            os.chmod(p, 0o600)
+            break
+except Exception:
+    pass
+' 2>/dev/null || true
+fi
+
 echo "Starting Docker services..."
 
-docker compose up --build -d
+if [[ "${1:-}" == "--build" ]] || ! docker image inspect waffle-iron-claude-remote >/dev/null 2>&1; then
+    docker compose up --build -d
+else
+    docker compose up -d
+fi
 
 echo ""
 echo "Docker services running:"

@@ -21,9 +21,16 @@ services:
       - cargo-git:/home/claude/.cargo/git
       # Build cache (persist target/ across container restarts)
       - cargo-target:/home/claude/workspace/target
+      # Cherchi 2022 reference sidecar build cache (~22 min C++ build)
+      - cherchi2022:/home/claude/cherchi2022
+      # Entrypoint script (so changes take effect without full image rebuild)
+      - ./claude-remote/entrypoint.sh:/home/claude/entrypoint.sh:ro
       # Claude auth persistence
       - ${HOME}/.claude:/home/claude/.claude
       - ${HOME}/.claude.json:/home/claude/.claude.json
+      # Antigravity (agy) binary + auth/config/state persistence
+      - ${HOME}/.local/bin/agy:/home/claude/.local/bin/agy:ro
+      - ${HOME}/.gemini:/home/claude/.gemini
       # opencode config / auth / state (mirror of host XDG dirs)
       - ${HOME}/.config/opencode:/home/claude/.config/opencode
       - ${HOME}/.local/share/opencode:/home/claude/.local/share/opencode
@@ -54,3 +61,4 @@ volumes:
   cargo-registry:
   cargo-git:
   cargo-target:
+  cherchi2022:

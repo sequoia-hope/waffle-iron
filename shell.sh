@@ -7,7 +7,22 @@ CONTAINER="waffle-iron-claude"
 WORKSPACE="/home/claude/workspace"
 DEFAULT_SESSION="default"
 CLAUDE_CMD="CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 claude --dangerously-skip-permissions"
+AGY_CMD="agy --dangerously-skip-permissions"
 AUTO_TIMEOUT=2
+FORCE_RESTART=false
+AGENT=""
+
+while getopts "ra:" opt; do
+    case "$opt" in
+        r) FORCE_RESTART=true ;;
+        a) AGENT="$OPTARG" ;;
+        *) echo "Usage: $0 [-r] [-a claude|agy] [claude|agy]"; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+if [ $# -gt 0 ]; then
+    AGENT="$1"
+fi
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -27,23 +42,33 @@ get_sessions() {
 attach_session() {
     local name="$1"
     echo "  → Attaching to '$name'"
-    docker exec -it "$CONTAINER" tmux attach-session -t "$name"
+    exec docker exec -it "$CONTAINER" tmux attach-session -t "=$name"
 }
 
 create_and_attach() {
     local name="$1"
+    local cmd="${2:-$CLAUDE_CMD}"
     echo "  → Creating '$name'"
     docker exec "$CONTAINER" \
-        tmux new-session -d -s "$name" -c "$WORKSPACE" "$CLAUDE_CMD; exec bash"
-    docker exec -it "$CONTAINER" tmux attach-session -t "$name"
+        tmux new-session -d -s "$name" -c "$WORKSPACE" "$cmd; exec bash"
+    exec docker exec -it "$CONTAINER" tmux attach-session -t "=$name"
+}
+
+launch_agent_session() {
+    local sess="$1"
+    local cmd="$2"
+    if $FORCE_RESTART && docker exec "$CONTAINER" tmux has-session -t "=$sess" 2>/dev/null; then
+        docker exec "$CONTAINER" tmux kill-session -t "=$sess"
+    fi
+    if docker exec "$CONTAINER" tmux has-session -t "=$sess" 2>/dev/null; then
+        attach_session "$sess"
+    else
+        create_and_attach "$sess" "$cmd"
+    fi
 }
 
 launch_default() {
-    if docker exec "$CONTAINER" tmux has-session -t "$DEFAULT_SESSION" 2>/dev/null; then
-        attach_session "$DEFAULT_SESSION"
-    else
-        create_and_attach "$DEFAULT_SESSION"
-    fi
+    launch_agent_session "$DEFAULT_SESSION" "$CLAUDE_CMD"
 }
 
 # ── Menu ─────────────────────────────────────────────────────────────
@@ -119,5 +144,19 @@ show_menu() {
 
 # ── Main ─────────────────────────────────────────────────────────────
 
-container_running || die "Container '$CONTAINER' not running. Start with: ./claude-remote/run.sh"
-show_menu
+container_running || die "Container '$CONTAINER' not running. Start with: ./run.sh"
+
+case "$AGENT" in
+    claude)
+        launch_agent_session "$DEFAULT_SESSION" "$CLAUDE_CMD"
+        ;;
+    agy)
+        launch_agent_session "agy" "$AGY_CMD"
+        ;;
+    "")
+        show_menu
+        ;;
+    *)
+        die "Unknown agent '$AGENT' (expected: claude or agy)"
+        ;;
+esac
