@@ -191,7 +191,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24) | Seven smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-24, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
-| N92 | OPEN (2026-10-16, matrix M-4) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
+| N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
@@ -6818,6 +6818,27 @@ cylinder, cone, sphere and torus have closed-form Gauss maps.
 touched; the exact-crossing test is the compensator, so no corpus customer
 is known. Matrix 4.2-12, 4.2-13, `s42 F2`. **State: OPEN** (found
 2026-10-16).
+
+**Amendment (2026-10-27, roadmap F4): built, measured, PARKED, folded into
+N91 by the user.** A closed-form conservative Gauss map for all five
+analytic surfaces (`gauss_map.rs`) and its wiring ahead of
+`pieces_cross_point` were built on branch `agy/f4-n92-gaussmap` (head
+`1519f6ed`, not merged). Measured there: canonical corpus byte-identical
+(360C / 0W / 9E / 5EE / 0T); the filter rejected 114 pairs in 8 cases
+(F0082, P0045, P0049, R0019, R0025, R0032, R0050, R0085) and every one of
+the 608 contacts survived, i.e. each rejected pair was one the exact
+crossing test already discards; 1.271 s CPU over the whole corpus. As a
+pruner in front of an exact test it changes nothing, and the wiring had to
+exempt areas touching a face trim or a mesh crossing (Sederberg's
+collinear-normal pair is guaranteed only inside a CLOSED loop; P0021's
+rim-clipped lens has normals 61.9° / 51.7° apart), a divergence of its own.
+The user's ruling (2026-10-27): park it and fold it into N91. Its real role
+in the paper is the admission test for small closed loops that no mesh
+crossing reveals (§4.2.2 `:440-446` with §4.3 small-loop tracing
+`:598-601`), so it is built with N91 as that test, starting from the parked
+branch, and the trim-boundary question is decided there against a real
+small-loop customer (C0116's strictly interior contacts). **State: OPEN**,
+resolved with N91.
 
 ### N93 — Stage 1 neither computes d(T) nor certifies d_ε (matrix M-6)
 
