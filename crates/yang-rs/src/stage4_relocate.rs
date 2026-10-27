@@ -2081,9 +2081,13 @@ pub(crate) fn remove_doubled_membranes_scoped(
         "side_labels must be 1:1 with mesh.tris on entry"
     );
     use std::collections::BTreeMap;
-    type ScopeKey = ([bool; 2], Option<bool>);
+    type ScopeKey = Option<crate::brep::TriangleSideLabel>;
     type GroupKey = ([u32; 3], ScopeKey);
     // Group triangles by (ascending-sorted vertex triple, scope) → (index, sign).
+    // On the full arrangement (`scope_by_side_label = true`, Yang §4.4.2
+    // `yang2025_hybrid_boolean.txt:572-578`), scoping by the full
+    // `TriangleSideLabel` ensures opposite-winding fins only cancel within the
+    // same patch, never tearing a kept patch boundary against a dropped patch.
     let mut groups: BTreeMap<GroupKey, Vec<(usize, i8)>> = BTreeMap::new();
     for (ti, &tri) in mesh.tris.iter().enumerate() {
         let mut key = tri;
@@ -2093,12 +2097,8 @@ pub(crate) fn remove_doubled_membranes_scoped(
         if key[0] == key[1] || key[1] == key[2] {
             continue;
         }
-        let scope: ScopeKey = if scope_by_side_label {
-            let lbl = side_labels.get(ti).copied().unwrap_or_default();
-            (lbl.surface, lbl.sheet_opposite)
-        } else {
-            ([false, false], None)
-        };
+        let scope: ScopeKey =
+            scope_by_side_label.then(|| side_labels.get(ti).copied().unwrap_or_default());
         groups
             .entry((key, scope))
             .or_default()
@@ -2509,11 +2509,16 @@ pub(crate) fn extract_operand_shell(
     attribution: &TriangleAttributionMap,
     side_labels: &crate::brep::TriangleSideLabelMap,
     input: InputId,
-) -> (Mesh, TriangleAttributionMap) {
+) -> (
+    Mesh,
+    TriangleAttributionMap,
+    Vec<crate::brep::TriangleSideLabel>,
+) {
     debug_assert_eq!(side_labels.len(), mesh.tris.len());
     debug_assert_eq!(attribution.attributions.len(), mesh.tris.len());
     let mut tris = Vec::new();
     let mut attrs = Vec::new();
+    let mut labels = Vec::new();
     for (ti, &tri) in mesh.tris.iter().enumerate() {
         let lbl = side_labels.labels[ti];
         if !lbl.in_operand(input) {
@@ -2526,12 +2531,14 @@ pub(crate) fn extract_operand_shell(
         };
         tris.push(oriented);
         attrs.push(attribution.attributions[ti]);
+        labels.push(lbl);
     }
     (
         Mesh::new(mesh.verts.clone(), tris),
         TriangleAttributionMap {
             attributions: attrs,
         },
+        labels,
     )
 }
 
@@ -2551,8 +2558,11 @@ pub(crate) fn check_watertight_2manifold_per_operand(
     record_t4: bool,
 ) -> Result<(), YangError> {
     for input in [InputId::A, InputId::B] {
-        let (op_mesh, op_attr) = extract_operand_shell(mesh, attribution, side_labels, input);
-        if let Err(gate_err) = check_watertight_2manifold(&op_mesh) {
+        let (op_mesh, op_attr, op_labels) =
+            extract_operand_shell(mesh, attribution, side_labels, input);
+        if let Err(gate_err) =
+            check_watertight_2manifold_with_patch_labels(&op_mesh, Some(&op_labels))
+        {
             if record_t4 {
                 crate::boolean::failures::record_nonmanifold_mesh(&op_mesh, &op_attr);
             }
@@ -2563,7 +2573,17 @@ pub(crate) fn check_watertight_2manifold_per_operand(
 }
 
 pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
+    check_watertight_2manifold_with_patch_labels(mesh, None)
+}
+
+fn check_watertight_2manifold_with_patch_labels(
+    mesh: &Mesh,
+    patch_labels: Option<&[crate::brep::TriangleSideLabel]>,
+) -> Result<(), YangError> {
     use std::collections::{BTreeMap, BTreeSet};
+    if let Some(lbls) = patch_labels {
+        debug_assert_eq!(lbls.len(), mesh.tris.len());
+    }
     // Directed half-edge multiset: every (a,b) must be paired by one (b,a).
     let mut dir: BTreeMap<(u32, u32), i32> = BTreeMap::new();
     for tri in &mesh.tris {
@@ -2637,11 +2657,19 @@ pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         union(&mut parent, tri[0], tri[1]);
         union(&mut parent, tri[1], tri[2]);
     }
-    // Per-shell V, E (undirected), F.
+    // Per-shell V, E (undirected), F, plus per-patch directed counts on
+    // multi-covered edges when `patch_labels` is supplied (`M_op` glued across
+    // `cherchi_patch` boundaries: if k ≥ 2 distinct patches each carry `(a, b)`
+    // as a balanced `(1 fwd, 1 rev)` patch-interior diagonal, those k diagonals
+    // are k distinct interior 1-cells of the glued surface CW-complex, whereas
+    // intra-patch folds `(2, 2)` or 4-sheet boundary pinches `(1, 0)` keep the
+    // single undirected count so odd χ = 3 rejects loudly).
     let mut shell_v: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
     let mut shell_e: BTreeMap<u32, BTreeSet<(u32, u32)>> = BTreeMap::new();
     let mut shell_f: BTreeMap<u32, i64> = BTreeMap::new();
-    for tri in &mesh.tris {
+    type PatchEdgeCounts = BTreeMap<crate::brep::TriangleSideLabel, (u32, u32)>;
+    let mut edge_patch_dir: BTreeMap<(u32, u32), PatchEdgeCounts> = BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
         let root = find(&mut parent, tri[0]);
         let v_set = shell_v.entry(root).or_default();
         for &vi in tri {
@@ -2650,13 +2678,41 @@ pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         let e_set = shell_e.entry(root).or_default();
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
             let (a, b) = (tri[i], tri[j]);
-            e_set.insert(if a < b { (a, b) } else { (b, a) });
+            let key = if a < b { (a, b) } else { (b, a) };
+            e_set.insert(key);
+            if let Some(lbls) = patch_labels {
+                let entry = edge_patch_dir
+                    .entry(key)
+                    .or_default()
+                    .entry(lbls[ti])
+                    .or_insert((0, 0));
+                if a < b {
+                    entry.0 += 1;
+                } else {
+                    entry.1 += 1;
+                }
+            }
         }
         *shell_f.entry(root).or_insert(0) += 1;
     }
     for (root, v_set) in &shell_v {
         let v = v_set.len() as i64;
-        let e = shell_e.get(root).map(|s| s.len()).unwrap_or(0) as i64;
+        let mut e = shell_e.get(root).map(|s| s.len()).unwrap_or(0) as i64;
+        if patch_labels.is_some() {
+            if let Some(edges) = shell_e.get(root) {
+                for key in edges {
+                    if let Some(by_patch) = edge_patch_dir.get(key) {
+                        if by_patch.len() >= 2
+                            && by_patch
+                                .values()
+                                .all(|&(fwd_p, rev_p)| fwd_p == 1 && rev_p == 1)
+                        {
+                            e += (by_patch.len() - 1) as i64;
+                        }
+                    }
+                }
+            }
+        }
         let f = shell_f.get(root).copied().unwrap_or(0);
         let chi = v - e + f;
         // A closed orientable 2-manifold shell has χ = 2 − 2g for integer genus

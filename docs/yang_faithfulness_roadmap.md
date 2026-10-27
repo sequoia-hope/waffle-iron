@@ -95,7 +95,12 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
       membrane rule after it. The flood key becomes `(attribution, cherchi
       patch)`, curve incidence is deduped per operand, and a per-operand
       closed-manifold gate replaces the vacuous half-edge balance. This
-      gives r_A = r_B = r on two trimmed meshes.
+      gives r_A = r_B = r on two trimmed meshes. *(I3a full-arrangement
+      primitives + 9 unit pins landed 2026-10-27; I3b `boolean_once` flip
+      stopped per P9/P10 on `R0063`, `tangency_pinch_split`, and `b2_pipe::s_bend`
+      — gated on F2 retiring pre-CDT 2D `collapse_vertex` relabelling, post-hoc
+      `(3d)` unzip, and Stage-5 index-parity decimation; see
+      `specs/yang_442_classify_after_update.md` §3(d) and N80/N81.)*
 - **Resolves:** N80. **Consolidates:** N81's three §4.4.1 sites (finished
   in F2). **Unblocks:** F2 and F3's Case-IV rule-out (I2).
 - **Gate:** corpus held, and the kept set equals today's set except where

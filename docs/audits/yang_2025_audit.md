@@ -116,20 +116,34 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
   the `emit_topology` hand-off.
   *I3a landed 2026-10-27 (full-arrangement Stage-4 primitives, unwired):*
   `(attribution, side_label)` flood key, per-operand curve-incidence dedup,
-  4-owner seam construct/fold-merge/unzip passes, operand-scoped membrane
-  cancellation and pinch tracking, and per-operand closed-2-manifold gate are
-  built and unit-pinned; §4.4.2 matrix rows remain unchanged in status until
-  I3b flips `boolean_once`.
+  4-owner seam construct/fold-merge/unzip passes, exact-`TriangleSideLabel`
+  membrane/pleat cancellation and pinch tracking, and CW-complex per-operand
+  closed-2-manifold gate are built and unit-pinned (`yang-rs`: 1530 passed).
+  Empirical `I3b` wiring ran all 76 `yang-rs` targets (`1526 passed; 3 failed;
+  8 ignored` initially; `yr10_adversary` `4 passed` and `n2_junction_cluster`
+  `5 passed` after the hardenings above) and `80/82` `kernel-v2` targets
+  (`865 passed; 4 failed; 10 ignored`), hitting STOP conditions on
+  `tangency_pinch_split::c0058_authored_geometry_union_mints_its_tangent_points`
+  (`NonManifoldOutput`), `R0063` (`SUPPORTED_CORRECT → ERROR`), and `b2_pipe`
+  (`s_bend()`), proving `O-2` / `N2` / `N81` (Roadmap F2) must land before
+  `boolean_once` flips (`specs/yang_442_classify_after_update.md` §3(d));
+  §4.4.2 matrix rows remain unchanged in status until `I3b` lands.
 - **O-2. Within Stage 4 the paper's order is not kept.** *Ledger N81.*
   - The §4.3 point removals and the Case-IV rule-out
     (`stage4_correct.rs:14274`, `:12975`, `stage5_topology.rs:4925`) run
     after the §4.5.3 sweep and the §4.4.1 update. The paper does them during
-    optimization (`:527-536`).
+    optimization (`:527-536`). Conversely, PR-KV9 twin dedup and §4.5.3
+    reversal collapse mutate 2D arrangement triangles via `collapse_vertex`
+    before `update_patches` (§4.4.1 CDT), rather than editing the 1D curve
+    polyline (`:687-690`, `:746-751`) and letting CDT triangulate each patch
+    (`:550-562`).
   - §4.4.1 itself runs in three places: `update_patches`, the
     construct/fold-merge alternation (`stage5_topology.rs:4808`), and the
-    Stage-5 seam merge/decimation.
+    Stage-5 seam merge/decimation (`stage5_topology.rs:6796`, whose
+    lowest-vertex-index decimation parity breaks torus seam recovery on
+    `b2_pipe::s_bend` under full-arrangement vertex numbering).
 
-  (`s43 F2`, `s44 F5`.)
+  (`s43 F2`, `s44 F5`; prerequisite for `O-1` `I3b`.)
 - **O-3. Exact junctions are minted at Stage 1.** *Ledger N82; cleanup §2d.* The rim-junction insertion,
   P3a and the tangent boost (`boolean.rs:1125`, `:1210`, `:1297`) run before
   the arrangement; the paper identifies these vertices in §4.4.1. They appear

@@ -72,10 +72,63 @@ structure:
 - **(c) A relocation across a third surface** (the §4-I9 corner-crossers):
   the cell structure itself is wrong; no relabel fixes it; it stays a STOP
   that names faces (T1) — §4.5.2.
+- **(d) Pre-CDT 2D collapse / relocate-in-place (`N2`, `N81`) on dropped
+  patches, plus Stage-5 vertex-index-dependent chain decimation (`N81`).**
+  The argument above assumed Stage 4 updates every patch cleanly by
+  parametric CDT (`update_patches`). In the paper, §4.3 (`:535-536`) and
+  §4.5.3 (`:687-690`, `:718-721`, `:746-751`) edit the **1D intersection
+  curve polyline** (`"removes the reversed point, and locally corrects the
+  intersection curve"`), and §4.4.1 (`:550-562`, Fig. 11) then maps
+  `r_A = r_B = r` onto $M_A, M_B$ and CDT-retriangulates every trimmed patch
+  in parameter space before §4.4.2 (`:574-579`) classifies retained
+  triangles. Today's Stage 4 instead runs 2D vertex-index relabelling
+  (`collapse_vertex` in PR-KV9 junction-twin dedup, §4.5.3
+  `sweep_reversed_intersections`, and §4.4.1(b) sub-feature merge) BEFORE
+  `update_patches`, leaves refused/unhandled patches on relocate-in-place +
+  post-hoc `(3d)` triangle unzipping (`4.4-03`, `4.4-12`, `N2`), and finishes
+  with Stage-5 polyline chain decimation (`stage5_topology.rs:6796`, one of
+  `N81`'s three §4.4.1 sites). Pre-Stage-4 `keep_set` masked all three on
+  dropped patches; empirical `I3b` evaluation (2026-10-27) exposed them at
+  three sites:
+  1. `yang-rs` permanent pin `tangency_pinch_split::c0058_authored_geometry_union_mints_its_tangent_points`
+     (matrix `4.4-06` pin; `la tris 360`: `A-out=105`, `A-in=77`, `B-out=109`,
+     `B-in=69`): in dropped patch `A-in` (`inside = [false, true]`, a cap-free
+     elliptical dome triangulated by cross-ellipse chords), `PR-KV9`
+     (`41 -> 34`) + §4.5.3 (`43 -> 34` on `loop=[34, 43, 79, 78]`) relabel
+     five vertices on one planar Steinmetz ellipse so triangles `[77, 34, 78]`,
+     `[34, 77, 79]`, and `[77, 34, 46]` all share undirected edge `(34, 77)`
+     (`3` incident triangles in `A-in`, `2` fwd / `1` rev), breaking
+     `patch_boundary_cycle` (`s6-boundary-walk-deadend: vertex 77`) before
+     `update_patches` runs and exhausting §4.5.2 at `16×`
+     (`NonManifoldOutput`) — the exact `N2` mechanism documented on its
+     quarantined twin (`tangency_pinch_split.rs:333-344`: *"a braid collapsed
+     onto a minted node must be RE-TRIANGULATED, not relabelled"*).
+     (`ASSAY_CASE=C0058` passes in `47.64s` as `SUPPORTED_CORRECT`.)
+  2. Corpus case `R0063` (`Subtract`, `SUPPORTED_CORRECT → ERROR` in `8.88s`):
+     on dropped cutter patches `(B, 1)` and `(B, 5)` (`B-out`), junction
+     relocation seats `v31` at `t = 0.8026` on their shared planar crease edge
+     `(177, 175)`, leaving a collinear opposite-winding degenerate pair
+     `tri 426 = [177, 175, 31]` (`(B, 1)`) and `tri 503 = [31, 175, 177]`
+     (`(B, 5)`). Because `(3d)` unzip (`4.4-12 DEVIATES`, `N2`) replaces
+     Fig. 11(a)'s boundary-edge split inside per-patch CDT (`:555-562`) and
+     cannot resolve two degenerate triangles sharing the same off-vertex
+     `b = nb = 31`, Stage 4 STOPs with `LocalRefinementRequired` at sentinel
+     `v = 4294967295` (`u32::MAX`, `faces = []`, `stage4_correct.rs:6214`).
+  3. `kernel-v2` `b2_pipe` (`3` `s_bend()` tests:
+     `"torus lateral missing its +axis seam arc"`): numbering vertices across
+     the full arrangement shifts compact vertex-index parity between Bend 1's
+     two closed 8-gon rims `chain 1` (`(0,0,0)`) and `chain 2` (`(0.3,0.3,0)`),
+     so Stage-5 chain decimation (`N81`) keeps phases `{0, ±π/2, π}` on
+     `chain 1` and `{±π/4, ±3π/4}` on `chain 2` (`anchor = Some(25)` at
+     `z = +0.0354`), deleting the constructor's original `+π/2` seam vertex
+     `(0.3, 0.3, +0.05)` on `chain 2`.
 
-So O-1 is observable only through (a)–(c), and (a) is the paper mechanism
-the order disables: C0117 (cleanup §2a, the phantom boost) and N68 trace to
-it.
+So O-1 is observable through (a)–(d): (a) is the paper mechanism the order
+disables (C0117, cleanup §2a, and N68 trace to it), while (d) establishes
+that Roadmap **F2** (`N2` / `N81`: decoupling 1D §4.3/§4.5.3 curve point
+removal from 2D pre-CDT triangle relabelling, replacing post-hoc `(3d)` unzip
+with Fig. 11(a) boundary-edge splitting in CDT, and retiring Stage-5 chain
+decimation) is a prerequisite before `I3b` flips `boolean_once`.
 
 ## 4. What assumes "kept triangles only"
 
@@ -172,7 +225,21 @@ per pass, the unzip) are up to O(T²) — about 2.7× worst case. Measure before
 flipping. A "band" variant (keep a one-ring of dropped triangles) is
 rejected: it leaves open boundaries that break the cycles and the gate.
 *(I3a full-arrangement Stage-4 primitives and unit pins landed 2026-10-27,
-unwired in `boolean_once`; I3b flips `boolean_once`.)*
+unwired in `boolean_once`, including exact `TriangleSideLabel` scoping in
+`collapse_vertex_scoped` / `remove_doubled_membranes_scoped`, CW-complex
+per-patch interior-chord counting in `check_watertight_2manifold_per_operand`,
+and `BoolOp::Xor` winding parity in `flip_winding_for_op` — 9 new pins in
+`s442_side_labels.rs` + `stage4_construct.rs`, `yang-rs` `1530 passed; 0 failed;
+8 ignored`. Empirical I3b evaluation wiring `boolean_once` across all 76
+`yang-rs` targets (`1526 passed; 3 failed; 8 ignored` initially, with
+`yr10_adversary` `4 passed; 0 failed` and `n2_junction_cluster` `5 passed; 0
+failed` after the exact-`TriangleSideLabel` and CW-chord hardenings above, plus
+`ASSAY_CASE=C0058` `SUPPORTED_CORRECT` in `47.64s`) and all 82 `kernel-v2`
+targets (`80/82` targets pass, `865 passed; 4 failed; 10 ignored`) hit §3(d)'s
+mandatory STOPs on `tangency_pinch_split::c0058_authored_geometry_union_mints_its_tangent_points`,
+corpus case `R0063`, and `b2_pipe`'s 3 `s_bend()` tests. `I3b` `boolean_once`
+flip is therefore sequenced immediately after Roadmap F2 retires pre-CDT 2D
+relabelling, `(3d)` post-hoc unzip, and Stage-5 index-parity decimation.)*
 
 **I2 — the Case-IV rule-out, re-keyed.** With I3 the phantom certificate
 returns to `boolean_once` with `la` alive: merge the patches across the

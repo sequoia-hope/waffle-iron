@@ -115,6 +115,13 @@ fn side_label_keep_for_op_matches_labeled_arrangement_keep_set() {
             la.keep_set(op),
             "carried side labels must re-derive LabeledArrangement::keep_set({op:?}) identically"
         );
+        for t in 0..la.mesh.tris.len() {
+            assert_eq!(
+                map.lookup(t as u32).flip_winding_for_op(op),
+                crate::boolean::flip_for_op(op, &la, t),
+                "flip_winding_for_op({op:?}) must match flip_for_op at tri {t}"
+            );
+        }
     }
 }
 
@@ -1306,5 +1313,139 @@ fn per_operand_watertight_gate_catches_cancelling_cross_operand_holes() {
     assert!(
         check_watertight_2manifold_per_operand(&mesh, &attribution, &side_labels, false).is_err(),
         "per-operand closed-manifold gate must reject open operand shells"
+    );
+}
+
+/// Pin 13 (I3a): Within the SAME operand (`surface = [true, false]`),
+/// `collapse_vertex_scoped(..., true)` and `remove_doubled_membranes_scoped(..., true)`
+/// must NEVER cancel an opposite-winding triangle in `A-out` (`inside = [false, false]`,
+/// kept for Union/Subtract) against one in `A-in` (`inside = [false, true]`, dropped
+/// for Union/Subtract), because cancelling kept-against-dropped leaves M_A globally
+/// balanced while tearing `A-out`'s boundary cycle after post-Stage-4 keep
+/// (`yr10_adversary::adv2` and `tangency_pinch_split::c0058` regression class).
+#[test]
+fn scoped_collapse_and_membrane_removal_preserve_kept_vs_dropped_within_same_operand() {
+    let lbl_a_out = side_lbl(10, [false, false], [true, false]);
+    let lbl_a_in = side_lbl(11, [false, true], [true, false]);
+
+    let verts = vec![
+        pt(0.0, 0.0, 0.0),
+        pt(1.0, 0.0, 0.0),
+        pt(0.0, 1.0, 0.0),
+        pt(0.0, 1.0, 0.0), // 3 coincides with 2 (collapse victim)
+    ];
+
+    // 1. `remove_doubled_membranes_scoped(..., true)` preserves `[0, 1, 2]` (`A-out`)
+    //    vs `[0, 2, 1]` (`A-in`).
+    let mut m_mem = Mesh::new(verts.clone(), vec![[0, 1, 2], [0, 2, 1]]);
+    let mut a_mem = vec![attr(InputId::A, 0), attr(InputId::A, 0)];
+    let mut l_mem = vec![lbl_a_out, lbl_a_in];
+    assert_eq!(
+        remove_doubled_membranes_scoped(&mut m_mem, &mut a_mem, &mut l_mem, true),
+        0,
+        "kept (`A-out`) vs dropped (`A-in`) opposite-winding sheets must not cancel before keep"
+    );
+    assert_eq!(m_mem.tris.len(), 2);
+
+    // 2. `collapse_vertex_scoped(..., true)` collapsing 3 -> 2 preserves
+    //    `[0, 1, 2]` (`A-out`) vs `[0, 3, 1] -> [0, 2, 1]` (`A-in`).
+    let mut m_col = Mesh::new(verts, vec![[0, 1, 2], [0, 3, 1], [0, 2, 3]]);
+    let mut a_col = vec![
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    let mut l_col = vec![lbl_a_out, lbl_a_in, lbl_a_in];
+    let dropped = collapse_vertex_scoped(&mut m_col, &mut a_col, &mut l_col, 3, 2, true, None);
+    assert_eq!(
+        dropped, 1,
+        "only the degenerate `[0,2,2]` triangle drops; `A-out` vs `A-in` survive"
+    );
+    assert_eq!(m_col.tris, vec![[0, 1, 2], [0, 2, 1]]);
+    assert_eq!(l_col, vec![lbl_a_out, lbl_a_in]);
+}
+
+/// Pin 14 (I3a): `check_watertight_2manifold_per_operand` counts independent
+/// `(1 fwd, 1 rev)` interior diagonals of distinct `TriangleSideLabel` patches
+/// as distinct 1-cells in CW-complex Euler characteristic, while still
+/// rejecting intra-patch double-cover folds (`chi = 3`) loudly.
+#[test]
+fn per_operand_manifold_gate_distinguishes_cross_patch_interior_chord_from_fold() {
+    // Vertices 0..4: operand B's two patches (`B-out` and `B-in`) glued along
+    // 4-cycle equator 0-1-2-3, BOTH triangulated with interior chord `(0, 2)`.
+    // Vertices 4..8: operand A's valid closed tetrahedron.
+    let verts = vec![
+        pt(0.0, 0.0, 0.0),
+        pt(1.0, 0.0, 0.0),
+        pt(1.0, 1.0, 0.0),
+        pt(0.0, 1.0, 0.0),
+        pt(2.0, 0.0, 0.0),
+        pt(3.0, 0.0, 0.0),
+        pt(2.0, 1.0, 0.0),
+        pt(2.0, 0.0, 1.0),
+    ];
+    let tris = vec![
+        // B-out: boundary 2->1->0->3->2, interior diagonal (0, 2) = 1 fwd + 1 rev.
+        [0, 2, 1],
+        [0, 3, 2],
+        // B-in: boundary 0->1->2->3->0, interior diagonal (0, 2) = 1 fwd + 1 rev.
+        [0, 1, 2],
+        [0, 2, 3],
+        // A-out: closed tetrahedron on 4..8.
+        [4, 6, 5],
+        [4, 5, 7],
+        [5, 6, 7],
+        [6, 4, 7],
+    ];
+    let mesh = Mesh::new(verts, tris);
+    let attrs = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::B, 0),
+            attr(InputId::B, 0),
+            attr(InputId::B, 0),
+            attr(InputId::B, 0),
+            attr(InputId::A, 0),
+            attr(InputId::A, 1),
+            attr(InputId::A, 2),
+            attr(InputId::A, 3),
+        ],
+    };
+    let b_out = side_lbl(10, [false, false], [false, true]);
+    let b_in = side_lbl(11, [true, false], [false, true]);
+    let a_out = side_lbl(20, [false, false], [true, false]);
+
+    // 1. Distinct patches `B-out` and `B-in` each carrying `(0, 2)` as a
+    //    balanced interior diagonal form a genus-0 sphere (V=4, E_cw=6, F=4 => chi=2).
+    let split_labels = TriangleSideLabelMap {
+        labels: vec![b_out, b_out, b_in, b_in, a_out, a_out, a_out, a_out],
+    };
+    assert!(
+        crate::stage4_relocate::check_watertight_2manifold_per_operand(
+            &mesh,
+            &attrs,
+            &split_labels,
+            false,
+        )
+        .is_ok(),
+        "two distinct patches glued along equator 0-1-2-3 with independent interior chord (0,2) must pass with chi=2"
+    );
+
+    // 2. Identical geometry inside ONE patch (`b_out` on all four B triangles)
+    //    is an intra-patch double-cover fold (`fwd=2, rev=2` in one patch =>
+    //    E=5, chi=3) and must still reject with `NonManifoldOutput`.
+    let folded_labels = TriangleSideLabelMap {
+        labels: vec![b_out, b_out, b_out, b_out, a_out, a_out, a_out, a_out],
+    };
+    assert!(
+        matches!(
+            crate::stage4_relocate::check_watertight_2manifold_per_operand(
+                &mesh,
+                &attrs,
+                &folded_labels,
+                false,
+            ),
+            Err(crate::YangError::NonManifoldOutput)
+        ),
+        "intra-patch double-cover fold (chi=3) must still fail loudly"
     );
 }

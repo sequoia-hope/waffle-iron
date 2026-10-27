@@ -464,21 +464,19 @@ pub(crate) fn collapse_vertex_scoped(
     // mutual-reverse pairs (they pair with EACH OTHER). Dropping BOTH
     // preserves the watertight half-edge pairing and restores manifold
     // count-2 on the shared fan edges. On the full arrangement
-    // (`scope_by_side_label = true`), cancellation is scoped to `(surface,
-    // sheet_opposite)` so only intra-operand pleats cancel while cross-operand
-    // coplanar contact pairs stay intact until post-keep classification.
+    // (`scope_by_side_label = true`, Yang §4.4.2 `yang2025_hybrid_boolean.txt:572-578`),
+    // cancellation is scoped to the exact `TriangleSideLabel` (`cherchi_patch`,
+    // `inside`, `surface`, `sheet_opposite`) so opposite-winding pleats only
+    // cancel within the SAME patch — never a kept patch (`A-out`) against a
+    // dropped patch (`A-in`), nor across operands.
     {
-        type ScopeKey = ([bool; 2], Option<bool>);
+        type ScopeKey = Option<TriangleSideLabel>;
         let mut by_triple: std::collections::HashMap<([u32; 3], ScopeKey), Vec<usize>> =
             std::collections::HashMap::new();
         for (t, tri) in new_tris.iter().enumerate() {
             let mut s = *tri;
             s.sort_unstable();
-            let scope: ScopeKey = if scope_by_side_label {
-                (new_lbls[t].surface, new_lbls[t].sheet_opposite)
-            } else {
-                ([false, false], None)
-            };
+            let scope: ScopeKey = scope_by_side_label.then_some(new_lbls[t]);
             by_triple.entry((s, scope)).or_default().push(t);
         }
         // Cyclic-winding key: rotate the smallest index to the front; equal

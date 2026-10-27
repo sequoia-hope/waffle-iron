@@ -507,10 +507,15 @@ impl TriangleSideLabel {
 
     /// Whether a kept triangle's stored winding must be flipped for `op`
     /// (`Subtract` flips pure-B triangles; `[true, true]` overlap sheets carry
-    /// A's winding in `la.mesh` and keep it, matching Cherchi `booleans.cpp:1480`).
+    /// A's winding in `la.mesh` and keep it, matching Cherchi `booleans.cpp:1480`;
+    /// `Xor` flips triangles with any `inside` bit set, `booleans.cpp:1506`).
     #[allow(dead_code)]
     pub(crate) fn flip_winding_for_op(&self, op: cad_primitives::BoolOp) -> bool {
-        matches!(op, cad_primitives::BoolOp::Subtract) && !self.surface[0] && self.surface[1]
+        match op {
+            cad_primitives::BoolOp::Union | cad_primitives::BoolOp::Intersect => false,
+            cad_primitives::BoolOp::Subtract => !self.surface[0] && self.surface[1],
+            cad_primitives::BoolOp::Xor => self.inside[0] || self.inside[1],
+        }
     }
 
     /// Whether this triangle belongs to operand `input`'s closed arrangement shell.
