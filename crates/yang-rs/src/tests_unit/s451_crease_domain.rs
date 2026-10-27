@@ -2555,8 +2555,26 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
     let before = mesh.clone();
     let before_counts = edge_counts(&before);
     let (nv, nt) = (mesh.verts.len(), mesh.tris.len());
+    let mut side_labels = crate::brep::TriangleSideLabelMap {
+        labels: (0..nt)
+            .map(|i| crate::brep::TriangleSideLabel {
+                cherchi_patch: attribution.attributions[i]
+                    .map_or(0, |a| (a.input as u32) * 100 + a.face + 7),
+                inside: [
+                    false,
+                    attribution.attributions[i].is_some_and(|a| a.input == InputId::A),
+                ],
+                surface: [
+                    attribution.attributions[i].is_some_and(|a| a.input == InputId::A),
+                    attribution.attributions[i].is_some_and(|a| a.input == InputId::B),
+                ],
+            })
+            .collect(),
+    };
+    let before_side_labels = side_labels.clone();
 
-    let report = transit_emission_write(&mut mesh, &mut attribution, &fill).expect("written");
+    let report = transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &fill)
+        .expect("written");
 
     // Counts: two mints, |added| − |removed| more triangles, attribution
     // parallel, the removed slots overwritten and the rest appended.
@@ -2568,11 +2586,12 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
     let added: usize = fill.polygons.iter().map(|p| p.tris.len()).sum();
     assert_eq!(mesh.tris.len(), nt + added - fill.removed.len());
     assert_eq!(attribution.attributions.len(), mesh.tris.len());
+    assert_eq!(side_labels.len(), mesh.tris.len());
     assert_eq!(report.overwritten, fill.removed.len());
     assert_eq!(report.appended, added - fill.removed.len());
     assert_eq!((report.removed, report.added), (fill.removed.len(), added));
 
-    // Every survivor keeps its slot, its triangle and its attribution.
+    // Every survivor keeps its slot, its triangle, its attribution, and its side label.
     for t in 0..nt as u32 {
         if fill.removed.contains(&t) {
             continue;
@@ -2583,10 +2602,20 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
             attribution.lookup(t),
             "slot {t}"
         );
+        assert_eq!(
+            side_labels.lookup(t),
+            before_side_labels.lookup(t),
+            "survivor slot {t} keeps its side label"
+        );
     }
-    // Every fill triangle is in the mesh with its face, and no removed
-    // triangle's vertex set survives.
+    // Every fill triangle is in the mesh with its face and its face's side label,
+    // and no removed triangle's vertex set survives.
     for p in &fill.polygons {
+        let expected_lbl = crate::brep::TriangleSideLabel {
+            cherchi_patch: (p.face.0 as u32) * 100 + p.face.1 + 7,
+            inside: [false, p.face.0 == InputId::A],
+            surface: [p.face.0 == InputId::A, p.face.0 == InputId::B],
+        };
         for tri in &p.tris {
             let slot = mesh
                 .tris
@@ -2596,6 +2625,11 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
             assert_eq!(
                 attribution.lookup(slot as u32).map(|a| (a.input, a.face)),
                 Some(p.face)
+            );
+            assert_eq!(
+                side_labels.lookup(slot as u32),
+                expected_lbl,
+                "fill slot {slot} inherits its face's side label"
             );
         }
     }
@@ -2654,8 +2688,11 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
         transit_emission_write, EdgeIncidence, EmissionWriteFailure,
     };
     let (mut mesh, mut attribution) = fill_fixture(true);
+    let mut side_labels = crate::brep::TriangleSideLabelMap {
+        labels: vec![crate::brep::TriangleSideLabel::default(); mesh.tris.len()],
+    };
     let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
-    let before = (mesh.clone(), attribution.clone());
+    let before = (mesh.clone(), attribution.clone(), side_labels.clone());
 
     let mut bad = fill.clone();
     bad.edge_defects.push(EdgeIncidence {
@@ -2665,7 +2702,7 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
         expected: 2,
     });
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::CertificateFailed {
             what: "edge_defects"
         })
@@ -2673,13 +2710,13 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     let mut bad = fill.clone();
     bad.folded = 1;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::CertificateFailed { what: "folded" })
     );
     let mut bad = fill.clone();
     bad.notch_surface_agrees = Some(false);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::CertificateFailed {
             what: "notch_surface_agrees"
         })
@@ -2687,31 +2724,35 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     let mut bad = fill.clone();
     bad.chord[0].new_max = Some(f64::INFINITY);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::CertificateFailed { what: "chord" })
     );
     let mut bad = fill.clone();
     bad.lift_flips = 1;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::CertificateFailed { what: "lift_flips" })
     );
     let mut bad = fill.clone();
     bad.polygons.truncate(1);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &bad),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
         Err(EmissionWriteFailure::FewerAddedThanRemoved {
             added: bad.polygons[0].tris.len(),
             removed: fill.removed.len(),
         })
     );
-    assert_eq!((mesh.clone(), attribution.clone()), before, "untouched");
+    assert_eq!(
+        (mesh.clone(), attribution.clone(), side_labels.clone()),
+        before,
+        "untouched"
+    );
 
     // A vertex appended after planning makes the mint ids stale.
     mesh.verts.push(Point3::new(0.0, 0.0, 0.0));
     let next = mesh.verts.len() as u32;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &fill),
+        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &fill),
         Err(EmissionWriteFailure::MintIdsStale {
             planned: [fill.mints[0].0, fill.mints[1].0],
             next,

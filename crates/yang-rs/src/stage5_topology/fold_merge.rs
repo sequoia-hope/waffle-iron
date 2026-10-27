@@ -51,6 +51,7 @@ use super::*;
 pub(super) fn run_fold_merge_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
@@ -384,7 +385,7 @@ pub(super) fn run_fold_merge_passes(
         // upstream stages.
         let chi_pre =
             (chi_audit_enabled() && pre_uses.is_none()).then(|| tris_complex_stats(&mesh.tris));
-        match apply_rebuild_batch(mesh, attribution, &rebuilds) {
+        match apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
                 // in `rebuilds` were planned against it, so it lands only
@@ -526,7 +527,7 @@ pub(super) fn run_fold_merge_passes(
                 break;
             }
         }
-        let remap = compact_unreferenced_verts(mesh, relocations);
+        let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
         let (i2, inc2, cv2) = compute_phase_a(
             mesh,
             attribution,

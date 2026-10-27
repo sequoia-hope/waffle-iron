@@ -1,9 +1,11 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_construct_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
@@ -933,7 +935,7 @@ pub(super) fn run_construct_passes(
                 break;
             }
         }
-        match apply_rebuild_batch(mesh, attribution, &rebuilds) {
+        match apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
             Ok(()) => {
                 for &ei in &active {
                     let e = &eligible[ei];
@@ -978,7 +980,7 @@ pub(super) fn run_construct_passes(
             }
         }
 
-        let remap = compact_unreferenced_verts(mesh, relocations);
+        let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
         let (i2, inc2, cv2) = compute_phase_a(
             mesh,
             attribution,

@@ -63,6 +63,7 @@ mod s433_tangent_relocation;
 mod s434_chain_decimate;
 mod s434_output_restore;
 mod s441a_split_winding;
+mod s442_side_labels;
 mod s451_crease_domain;
 mod s451_interior_continue;
 mod s452_face_refine;

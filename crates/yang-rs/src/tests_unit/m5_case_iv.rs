@@ -1000,10 +1000,12 @@ pub(crate) fn kv15b_subresolution_intersection_segment_collapses() {
         vec![[0, 1, 3], [1, 2, 3]],
     );
     let mut attr = vec![None; 2];
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
     let map = kv15b_map(&[(0, 1)]);
     assert!(collapse_subresolution_intersection_segments(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &map,
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
@@ -1019,6 +1021,11 @@ pub(crate) fn kv15b_subresolution_intersection_segment_collapses() {
         "I1: the survivor keeps its own exact coordinates"
     );
     assert_eq!(attr.len(), 1, "attribution stays in lockstep with tris");
+    assert_eq!(
+        side_labels.len(),
+        1,
+        "side labels stay in lockstep with tris"
+    );
 }
 
 #[test]
@@ -1035,10 +1042,12 @@ pub(crate) fn kv15b_supraresolution_segment_untouched() {
         vec![[0, 1, 3], [1, 2, 3]],
     );
     let mut attr = vec![None; 2];
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
     let map = kv15b_map(&[(0, 1)]);
     assert!(!collapse_subresolution_intersection_segments(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &map,
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
@@ -1065,10 +1074,12 @@ pub(crate) fn kv15b_non_intersection_edge_untouched() {
         vec![[0, 1, 3], [1, 2, 3]],
     );
     let mut attr = vec![None; 2];
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
     let map = kv15b_map(&[(1, 2)]); // only the LONG edge is intersection
     assert!(!collapse_subresolution_intersection_segments(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &map,
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
@@ -1096,10 +1107,12 @@ pub(crate) fn kv15b_twin_chain_resolves_to_single_survivor() {
         vec![[0, 1, 4], [1, 2, 4], [2, 3, 4]],
     );
     let mut attr = vec![None; 3];
+    let mut side_labels = vec![TriangleSideLabel::default(); 3];
     let map = kv15b_map(&[(0, 1), (1, 2)]);
     assert!(collapse_subresolution_intersection_segments(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &map,
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
@@ -1691,10 +1704,12 @@ pub(crate) fn kv15b_resolved_length_regrows_past_band_stays() {
         vec![[0, 1, 4], [1, 2, 4], [2, 3, 4]],
     );
     let mut attr = vec![None; 3];
+    let mut side_labels = vec![TriangleSideLabel::default(); 3];
     let map = kv15b_map(&[(0, 1), (1, 2)]);
     assert!(collapse_subresolution_intersection_segments(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &map,
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
         &guard_cyl(0.0, 0.0, 1.0, 1.0),
@@ -2807,9 +2822,15 @@ pub(crate) fn kv15b_i1b_adopts_surface_incidence_richer_junction_coordinates() {
     );
     let att = |input: InputId, face: u32| Some(TriangleAttribution { input, face });
     let mut attr = vec![att(InputId::A, 0), att(InputId::B, 0), att(InputId::B, 1)];
+    let mut side_labels = vec![TriangleSideLabel::default(); 3];
     let map = kv15b_map(&[(0, 1)]);
     assert!(collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map, &a, &b
+        &mut mesh,
+        &mut attr,
+        &mut side_labels,
+        &map,
+        &a,
+        &b
     ));
     assert_eq!(
         mesh.verts[0], j,
@@ -2984,9 +3005,17 @@ pub(crate) fn kv15b_i1c_keeps_a_segment_joining_two_distinct_junctions() {
     );
     assert!(s1.iter().any(|s| !s2.contains(s)) && s2.iter().any(|s| !s1.contains(s)));
     let map: BTreeMap<(u32, u32), Curve> = kv15b_map(&[(0, 1)]);
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let before = (mesh.verts.clone(), mesh.tris.clone());
     assert!(
-        !collapse_subresolution_intersection_segments(&mut mesh, &mut attr, &map, &a, &b),
+        !collapse_subresolution_intersection_segments(
+            &mut mesh,
+            &mut attr,
+            &mut side_labels,
+            &map,
+            &a,
+            &b
+        ),
         "two distinct junctions 3.6e-8 apart are not a redundant curve sample: no collapse"
     );
     assert_eq!(
@@ -3010,8 +3039,14 @@ pub(crate) fn kv15b_i1c_keeps_a_segment_joining_two_distinct_junctions() {
         att(InputId::B, 0),
         att(InputId::B, 2),
     ];
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     assert!(collapse_subresolution_intersection_segments(
-        &mut mesh, &mut attr, &map, &a, &b
+        &mut mesh,
+        &mut attr,
+        &mut side_labels,
+        &map,
+        &a,
+        &b
     ));
     assert_eq!(
         mesh.verts[0], j1,

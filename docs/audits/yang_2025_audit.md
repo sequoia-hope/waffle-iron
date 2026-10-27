@@ -109,6 +109,12 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
   Case-IV phantom can't be ruled out by the update (cleanup §2a, C0117),
   and the reason §4.4.1 can't be "r_A = r_B = r" on two meshes.
   (`s44 F1`, `s43 F2`.)
+  *I1 landed 2026-10-27 (plumbing, byte-identical):* `TriangleSideLabel` /
+  `TriangleSideLabelMap` (`(cherchi_patch, inside, surface)`, separate from
+  `TriangleAttribution`) are carried 1:1 with `mesh.tris` through every
+  Stage-4/5 mutator and `debug_assert_eq!`-checked against `keep_set(op)` at
+  the `emit_topology` hand-off; §4.4.2 matrix rows remain unchanged in status
+  pending I3 and I2.
 - **O-2. Within Stage 4 the paper's order is not kept.** *Ledger N81.*
   - The §4.3 point removals and the Case-IV rule-out
     (`stage4_correct.rs:14274`, `:12975`, `stage5_topology.rs:4925`) run

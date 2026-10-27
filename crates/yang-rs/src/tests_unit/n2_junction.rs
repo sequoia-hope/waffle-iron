@@ -65,7 +65,14 @@ pub(crate) fn collapse_membrane_pleat_cancels_both_copies() {
             })
         })
         .collect();
-    collapse_vertex(&mut mesh, &mut attribution, 3, 2);
+    let mut side_labels: Vec<TriangleSideLabel> = (0..mesh.tris.len())
+        .map(|i| TriangleSideLabel {
+            cherchi_patch: i as u32,
+            inside: [false, false],
+            surface: [true, false],
+        })
+        .collect();
+    collapse_vertex(&mut mesh, &mut attribution, &mut side_labels, 3, 2);
     // The pleat's two gap slivers drop as degenerate; its two walls map
     // to the SAME sorted triple {0,1,2} with opposite windings — the
     // zero-volume flap — and must BOTH cancel. Only the bystander stays.
@@ -81,6 +88,14 @@ pub(crate) fn collapse_membrane_pleat_cancels_both_copies() {
             .collect::<Vec<_>>(),
         vec![4, 5, 6, 7],
         "attribution must drop the cancelled pair in lockstep"
+    );
+    assert_eq!(
+        side_labels
+            .iter()
+            .map(|l| l.cherchi_patch)
+            .collect::<Vec<_>>(),
+        vec![4, 5, 6, 7],
+        "side_labels must drop the cancelled pair in lockstep"
     );
     for ((a, b), n) in undirected_edge_counts(&mesh.tris) {
         assert_eq!(n, 2, "edge ({a},{b}) not manifold after cancellation");
@@ -98,7 +113,8 @@ pub(crate) fn collapse_same_winding_duplicate_is_kept() {
     tris.extend(bystander_tetra_tris());
     let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
     let mut attribution: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
-    collapse_vertex(&mut mesh, &mut attribution, 3, 2);
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
+    collapse_vertex(&mut mesh, &mut attribution, &mut side_labels, 3, 2);
     let dup_count = mesh
         .tris
         .iter()
@@ -148,7 +164,8 @@ pub(crate) fn collapse_without_duplicate_is_byte_identical() {
     ];
     let mut mesh = Mesh::new(verts.clone(), tris);
     let mut attribution: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
-    let dropped = collapse_vertex(&mut mesh, &mut attribution, 6, 5);
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let dropped = collapse_vertex(&mut mesh, &mut attribution, &mut side_labels, 6, 5);
     assert_eq!(dropped, 2, "exactly the two seam tents drop as degenerate");
     let expected: Vec<[u32; 3]> = vec![
         [1, 0, 4],

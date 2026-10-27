@@ -190,11 +190,66 @@ pub(crate) fn split_tri_at_edge(
     })
 }
 
+/// Combinatorial Fig-11(a) simple degenerate-triangle edge-split (§4.4.1(a),
+/// P0005): split long-edge neighbour `n_idx` across `(a, c)` at `b` into two
+/// triangles inheriting `n_idx`'s winding, attribution, and side label, and
+/// drop both the degenerate triangle `d_idx` and `n_idx`.
+pub(crate) fn resolve_simple_degenerate_split(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    d_idx: usize,
+    n_idx: usize,
+    edge_split: (u32, u32, u32),
+) {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "resolve_simple_degenerate_split: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
+    let (a, c, b) = edge_split;
+    let nt = mesh.tris[n_idx];
+    let (t1, t2) =
+        split_tri_at_edge(nt, a, c, b).expect("neighbour shares edge a-c, has a third vertex");
+    let n_attr = attr_vec.get(n_idx).copied().flatten();
+    let n_lbl = side_labels.get(n_idx).copied().unwrap_or_default();
+    let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
+    let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attr_vec.len());
+    let mut new_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
+    for (i, t) in mesh.tris.iter().enumerate() {
+        if i == d_idx || i == n_idx {
+            continue;
+        }
+        new_tris.push(*t);
+        new_attr.push(attr_vec.get(i).copied().flatten());
+        new_lbls.push(side_labels.get(i).copied().unwrap_or_default());
+    }
+    new_tris.push(t1);
+    new_attr.push(n_attr);
+    new_lbls.push(n_lbl);
+    new_tris.push(t2);
+    new_attr.push(n_attr);
+    new_lbls.push(n_lbl);
+    *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
+    *attr_vec = new_attr;
+    *side_labels = new_lbls;
+}
+
 pub(crate) fn resolve_mutual_degenerate_pair(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     m: &MutualPair,
 ) {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "resolve_mutual_degenerate_pair: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     let split = |parent: [u32; 3], u: u32, v: u32, ins: u32| -> ([u32; 3], [u32; 3]) {
         // Combinatorial Fig-11(a) split (P0005): the halves inherit the
         // parent's winding; no `orient_tri` proxy (see `split_tri_at_edge`).
@@ -205,22 +260,33 @@ pub(crate) fn resolve_mutual_degenerate_pair(
     let (h1, h2) = split(mesh.tris[m.nh], m.a, m.bh, m.bl);
     let nl_attr = attr_vec.get(m.nl).copied().flatten();
     let nh_attr = attr_vec.get(m.nh).copied().flatten();
+    let nl_lbl = side_labels.get(m.nl).copied().unwrap_or_default();
+    let nh_lbl = side_labels.get(m.nh).copied().unwrap_or_default();
     let drop = [m.t1, m.t2, m.nl, m.nh];
     let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
     let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attr_vec.len());
+    let mut new_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
     for (i, t) in mesh.tris.iter().enumerate() {
         if drop.contains(&i) {
             continue;
         }
         new_tris.push(*t);
         new_attr.push(attr_vec.get(i).copied().flatten());
+        new_lbls.push(side_labels.get(i).copied().unwrap_or_default());
     }
-    for (t, at) in [(l1, nl_attr), (l2, nl_attr), (h1, nh_attr), (h2, nh_attr)] {
+    for (t, at, lbl) in [
+        (l1, nl_attr, nl_lbl),
+        (l2, nl_attr, nl_lbl),
+        (h1, nh_attr, nh_lbl),
+        (h2, nh_attr, nh_lbl),
+    ] {
         new_tris.push(t);
         new_attr.push(at);
+        new_lbls.push(lbl);
     }
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
     *attr_vec = new_attr;
+    *side_labels = new_lbls;
 }
 
 /// PR-YR10 helper: edge-collapse `victim` onto `survivor` in `mesh` + the
@@ -237,11 +303,20 @@ pub(crate) fn resolve_mutual_degenerate_pair(
 pub(crate) fn collapse_vertex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     victim: u32,
     survivor: u32,
 ) -> usize {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "collapse_vertex: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
     let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attribution.len());
+    let mut new_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
     let mut dropped = 0usize;
     for (t, tri) in mesh.tris.iter().enumerate() {
         let mapped = [
@@ -255,6 +330,7 @@ pub(crate) fn collapse_vertex(
         }
         new_tris.push(mapped);
         new_attr.push(attribution.get(t).copied().flatten());
+        new_lbls.push(side_labels.get(t).copied().unwrap_or_default());
     }
     // Membrane cancellation (spec `yang_collapse_membrane_cancellation`):
     // identifying `victim` with `survivor` can turn the two-triangle pleat
@@ -305,11 +381,13 @@ pub(crate) fn collapse_vertex(
                 .collect();
             new_tris = keep.iter().map(|&t| new_tris[t]).collect();
             new_attr = keep.iter().map(|&t| new_attr[t]).collect();
+            new_lbls = keep.iter().map(|&t| new_lbls[t]).collect();
             dropped += cancel.len();
         }
     }
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
     *attribution = new_attr;
+    *side_labels = new_lbls;
     // EXPERIMENTAL probe (task #121, read-only, env-gated): did THIS collapse
     // mint a duplicate (double-cover) triangle pair?
     if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
@@ -424,6 +502,7 @@ pub(crate) fn is_relocation_coincidence(len: f64, scale: f64) -> bool {
 pub(crate) fn weld_coincident_relocated(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     a: &BRep,
     b: &BRep,
     moved: &std::collections::HashSet<u32>,
@@ -529,7 +608,7 @@ pub(crate) fn weld_coincident_relocated(
                         mesh.verts[survivor as usize]
                     );
                 }
-                collapse_vertex(mesh, attribution, victim, survivor);
+                collapse_vertex(mesh, attribution, side_labels, victim, survivor);
                 welded = true;
             }
             None => break,
@@ -566,6 +645,7 @@ pub(crate) fn weld_coincident_relocated(
 pub(crate) fn trim_beyond_corner_phantoms(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     moved: &std::collections::HashSet<u32>,
     minted: &std::collections::BTreeMap<u32, crate::boolean::MintProvenance>,
     d_eps: f64,
@@ -665,7 +745,7 @@ pub(crate) fn trim_beyond_corner_phantoms(
                                 d_j.abs()
                             );
                         }
-                        collapse_vertex(mesh, attribution, v, m);
+                        collapse_vertex(mesh, attribution, side_labels, v, m);
                         trimmed = true;
                         continue 'fixed_point;
                     }
@@ -718,11 +798,19 @@ pub(crate) fn trim_beyond_corner_phantoms(
 pub(crate) fn retriangulate_collapsed_fan_regions(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     brep_a: &BRep,
     brep_b: &BRep,
     moved: &std::collections::HashSet<u32>,
     minted: &std::collections::HashSet<u32>,
 ) -> bool {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "retriangulate_collapsed_fan_regions: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     use std::collections::{BTreeMap, BTreeSet};
     let probe = std::env::var_os("YANG_P3B_FANFIX_PROBE").is_some();
     if minted.is_empty() {
@@ -784,7 +872,16 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
             }
             attempted.insert(sig.clone());
             match repair_fan_cluster(
-                mesh, attr_vec, brep_a, brep_b, cluster, &edge_use, moved, minted, probe,
+                mesh,
+                attr_vec,
+                side_labels,
+                brep_a,
+                brep_b,
+                cluster,
+                &edge_use,
+                moved,
+                minted,
+                probe,
             ) {
                 Some(()) => {
                     if probe {
@@ -1008,6 +1105,7 @@ pub(crate) type SeamKeyPair = ((InputId, u32), (InputId, u32));
 pub(crate) fn repair_fan_cluster(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     brep_a: &BRep,
     brep_b: &BRep,
     cluster: &std::collections::BTreeSet<u32>,
@@ -1016,6 +1114,13 @@ pub(crate) fn repair_fan_cluster(
     minted: &std::collections::HashSet<u32>,
     probe: bool,
 ) -> Option<()> {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "repair_fan_cluster: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     use std::collections::{BTreeMap, BTreeSet, HashMap};
     let bail = |reason: &str| -> Option<()> {
         if probe {
@@ -1070,6 +1175,7 @@ pub(crate) fn repair_fan_cluster(
     // rebuild (bounded).
     struct RegionPlan {
         key: (InputId, u32),
+        side_label: TriangleSideLabel,
         boundary: std::collections::BTreeSet<(u32, u32)>,
         new_tris: Vec<[u32; 3]>,
     }
@@ -1958,8 +2064,14 @@ pub(crate) fn repair_fan_cluster(
                     new_tris.len()
                 );
             }
+            let side_label = rtris
+                .iter()
+                .next()
+                .and_then(|&ti| side_labels.get(ti).copied())
+                .unwrap_or_default();
             plans.push(RegionPlan {
                 key,
+                side_label,
                 boundary,
                 new_tris,
             });
@@ -1972,10 +2084,12 @@ pub(crate) fn repair_fan_cluster(
     // bails with the mesh untouched.
     let mut next_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
     let mut next_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attr_vec.len());
+    let mut next_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
     for ti in 0..mesh.tris.len() {
         if !in_regions.contains(&ti) {
             next_tris.push(mesh.tris[ti]);
             next_attr.push(attr_vec.get(ti).copied().flatten());
+            next_lbls.push(side_labels.get(ti).copied().unwrap_or_default());
         }
     }
     let mut new_edge_set: BTreeSet<(u32, u32)> = BTreeSet::new();
@@ -1991,6 +2105,7 @@ pub(crate) fn repair_fan_cluster(
             }
             next_tris.push(g);
             next_attr.push(Some(at));
+            next_lbls.push(plan.side_label);
         }
     }
     // Postcondition. Expected total multiplicity per edge:
@@ -2119,6 +2234,7 @@ pub(crate) fn repair_fan_cluster(
     }
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), next_tris);
     *attr_vec = next_attr;
+    *side_labels = next_lbls;
     Some(())
 }
 
@@ -2217,6 +2333,7 @@ pub(crate) fn carried_surfaces(
 pub(crate) fn collapse_subresolution_intersection_segments(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     a: &BRep,
     b: &BRep,
@@ -2352,7 +2469,7 @@ pub(crate) fn collapse_subresolution_intersection_segments(
                 d2.sqrt(),
             );
         }
-        collapse_vertex(mesh, attribution, victim, survivor);
+        collapse_vertex(mesh, attribution, side_labels, victim, survivor);
         redirect.insert(victim, survivor);
         any = true;
     }
@@ -2382,6 +2499,7 @@ pub(crate) fn collapse_subresolution_intersection_segments(
 pub(crate) fn collapse_subtauwork_mesh_edges(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
 ) -> bool {
     let mut edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
     for tri in &mesh.tris {
@@ -2422,7 +2540,7 @@ pub(crate) fn collapse_subtauwork_mesh_edges(
                 d2.sqrt(),
             );
         }
-        collapse_vertex(mesh, attribution, victim, survivor);
+        collapse_vertex(mesh, attribution, side_labels, victim, survivor);
         redirect.insert(victim, survivor);
         any = true;
     }
@@ -2448,7 +2566,15 @@ pub(crate) fn collapse_subtauwork_mesh_edges(
 pub(crate) fn compact_unreferenced_verts(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
+    side_labels: &[TriangleSideLabel],
 ) -> Option<Vec<Option<u32>>> {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "compact_unreferenced_verts: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     let n = mesh.verts.len();
     let mut referenced = vec![false; n];
     for tri in &mesh.tris {
@@ -2481,6 +2607,13 @@ pub(crate) fn compact_unreferenced_verts(
         })
         .collect();
     *mesh = Mesh::new(new_verts, new_tris);
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "compact_unreferenced_verts: side_labels ({}) must remain 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     // Remap (and drop) relocation keys: a relocation referencing a collapsed-away
     // (now-unreferenced) vertex is no longer in the mesh, so it is dropped.
     let remapped: Vec<(u32, f64)> = relocations
@@ -2592,9 +2725,17 @@ mod mutual_pair_tests {
     #[test]
     fn resolve_drops_the_quad_and_stays_watertight_with_the_fine_chain() {
         let (mut mesh, mut attrs, m) = pillow();
-        resolve_mutual_degenerate_pair(&mut mesh, &mut attrs, &m);
+        let mut side_labels: Vec<TriangleSideLabel> = (0..mesh.tris.len())
+            .map(|i| TriangleSideLabel {
+                cherchi_patch: i as u32,
+                inside: [i == 1, i == 4],
+                surface: [i != 4, i == 4],
+            })
+            .collect();
+        resolve_mutual_degenerate_pair(&mut mesh, &mut attrs, &mut side_labels, &m);
         assert_eq!(mesh.tris.len(), 8);
         assert_eq!(attrs.len(), 8);
+        assert_eq!(side_labels.len(), 8);
         assert_closed_coherent(&mesh.tris);
         for &t in &mesh.tris {
             assert!(!is_degen(&mesh, t), "degenerate tri {t:?} survived");

@@ -11,7 +11,7 @@
 use super::super::stage4_correct::{collapse_vertex, retriangulate_collapsed_fan_regions};
 use crate::{
     BRep, BRepEdge, BRepFace, BRepVertex, Curve, InputId, Mesh, Surface, TriangleAttribution,
-    Vector3,
+    TriangleSideLabel, Vector3,
 };
 use cad_primitives::Point3;
 use std::collections::{BTreeMap, HashSet};
@@ -208,11 +208,12 @@ fn fixture_strip_is_manifold_with_boundary() {
 /// DISTINCT kept vertices — no exact-duplicate rule can fire.
 fn collapsed_fixture() -> (Mesh, Vec<Option<TriangleAttribution>>, Ids) {
     let (mut mesh, mut attr, ids) = folded_strip_fixture();
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let (v1, v2, m1, m2) = (2u32, 3u32, 7u32, 8u32);
-    collapse_vertex(&mut mesh, &mut attr, v1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, v2, ids.gg);
-    collapse_vertex(&mut mesh, &mut attr, m1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, m2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m2, ids.gg);
     (mesh, attr, ids)
 }
 
@@ -233,18 +234,25 @@ fn stacked_collapses_manufacture_the_fold() {
 #[test]
 fn fan_fold_is_retriangulated_to_a_closed_complex() {
     let (mut mesh, mut attr, ids) = collapsed_fixture();
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let brep_a = one_face_brep(z_plane());
     let brep_b = one_face_brep(z_plane());
     let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
     let changed = retriangulate_collapsed_fan_regions(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &brep_a,
         &brep_b,
         &HashSet::new(),
         &minted,
     );
     assert!(changed, "the repair must fire on the folded cluster");
+    assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "side labels stay lockstep"
+    );
     for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {
         assert!(
             n == 1 || (n == 2 && fwd == 1 && rev == 1),
@@ -262,12 +270,14 @@ fn fan_fold_is_retriangulated_to_a_closed_complex() {
 #[test]
 fn mint_free_fold_is_left_alone() {
     let (mut mesh, mut attr, _) = collapsed_fixture();
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let brep_a = one_face_brep(z_plane());
     let brep_b = one_face_brep(z_plane());
     let before = mesh.tris.clone();
     let changed = retriangulate_collapsed_fan_regions(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &brep_a,
         &brep_b,
         &HashSet::new(),
@@ -280,6 +290,7 @@ fn mint_free_fold_is_left_alone() {
 #[test]
 fn unattributed_cluster_triangle_bails_without_mutation() {
     let (mut mesh, mut attr, ids) = collapsed_fixture();
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     // Strip the attribution of one triangle incident to the mint pair: the
     // repair has no surface to re-CDT in and must bail, mesh untouched.
     let ti = mesh
@@ -295,6 +306,7 @@ fn unattributed_cluster_triangle_bails_without_mutation() {
     let changed = retriangulate_collapsed_fan_regions(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &brep_a,
         &brep_b,
         &HashSet::new(),
@@ -336,11 +348,12 @@ fn cone_strip_fixture(reversed: bool) -> (Mesh, Vec<Option<TriangleAttribution>>
 
 fn run_cone_fold(reversed: bool) {
     let (mut mesh, mut attr, ids, cone) = cone_strip_fixture(reversed);
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let (v1, v2, m1, m2) = (2u32, 3u32, 7u32, 8u32);
-    collapse_vertex(&mut mesh, &mut attr, v1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, v2, ids.gg);
-    collapse_vertex(&mut mesh, &mut attr, m1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, m2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m2, ids.gg);
     let pg = edge_profile(&mesh)
         .get(&(ids.pp.min(ids.gg), ids.pp.max(ids.gg)))
         .copied()
@@ -360,6 +373,7 @@ fn run_cone_fold(reversed: bool) {
     let changed = retriangulate_collapsed_fan_regions(
         &mut mesh,
         &mut attr,
+        &mut side_labels,
         &brep_a,
         &brep_b,
         &HashSet::new(),
@@ -502,17 +516,24 @@ fn run_misordered(off: f64) -> (Mesh, Ids, u32, u32) {
             "pre edge {e:?} profile n={n} fwd={fwd} rev={rev}"
         );
     }
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let (v1, v2, m1, m2) = (2u32, 3u32, 7u32, 8u32);
-    collapse_vertex(&mut mesh, &mut attr, v1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, v2, ids.gg);
-    collapse_vertex(&mut mesh, &mut attr, m1, ids.pp);
-    collapse_vertex(&mut mesh, &mut attr, m2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, v2, ids.gg);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m1, ids.pp);
+    collapse_vertex(&mut mesh, &mut attr, &mut side_labels, m2, ids.gg);
     let brep_a = one_face_brep(z_plane());
     let brep_b = one_face_brep(y_plane());
     let minted: HashSet<u32> = [ids.pp, ids.gg].into_iter().collect();
     let moved: HashSet<u32> = [x1, x2].into_iter().collect();
     let changed = retriangulate_collapsed_fan_regions(
-        &mut mesh, &mut attr, &brep_a, &brep_b, &moved, &minted,
+        &mut mesh,
+        &mut attr,
+        &mut side_labels,
+        &brep_a,
+        &brep_b,
+        &moved,
+        &minted,
     );
     assert!(changed, "the repair must fire on the folded cluster");
     for (e, &(n, fwd, rev)) in &edge_profile(&mesh) {

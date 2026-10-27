@@ -532,15 +532,24 @@ pub(crate) use emit::*;
 use fold_merge::*;
 pub(crate) use patches::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn reconstruct_topology_stage4(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<ReconstructedTopology, YangError> {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "reconstruct_topology_stage4: side_labels ({}) must start 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
     crate::stage4_correct::mesh_dump_probe("s4-reconstruct entry", mesh, attribution);
     // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
@@ -761,6 +770,7 @@ pub(crate) fn reconstruct_topology_stage4(
         let (relocs, collapsed) = stage4_relocate_and_correct(
             mesh,
             attribution,
+            side_labels,
             a,
             b,
             minted_junction_keys,
@@ -803,7 +813,7 @@ pub(crate) fn reconstruct_topology_stage4(
             // so the emitted output mesh carries no dangling vertices (a global
             // V−E+F = 2 for a single closed shell). Strict no-op when there were
             // no danglers.
-            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
             let (i2, inc2, cv2) = compute_phase_a(
                 mesh,
                 attribution,
@@ -842,6 +852,7 @@ pub(crate) fn reconstruct_topology_stage4(
             let c_applied = run_construct_passes(
                 mesh,
                 attribution,
+                side_labels,
                 a,
                 b,
                 &mut infos,
@@ -858,6 +869,7 @@ pub(crate) fn reconstruct_topology_stage4(
             let m_applied = run_fold_merge_passes(
                 mesh,
                 attribution,
+                side_labels,
                 a,
                 b,
                 &mut infos,
@@ -957,6 +969,7 @@ pub(crate) fn reconstruct_topology_stage4(
             let c = collapse_subresolution_intersection_segments(
                 mesh,
                 &mut attr_vec,
+                &mut side_labels.labels,
                 &intersection_curves,
                 a,
                 b,
@@ -965,7 +978,7 @@ pub(crate) fn reconstruct_topology_stage4(
             c
         };
         if kv15b_collapsed {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
             let (i3, inc3, cv3) = compute_phase_a(
                 mesh,
                 attribution,
@@ -992,12 +1005,12 @@ pub(crate) fn reconstruct_topology_stage4(
         // touched. Byte-identical no-op when no such edge exists.
         let s194_collapsed = {
             let mut attr_vec = std::mem::take(&mut attribution.attributions);
-            let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec);
+            let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec, &mut side_labels.labels);
             attribution.attributions = attr_vec;
             c
         };
         if s194_collapsed {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations);
+            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
             let (i4, inc4, cv4) = compute_phase_a(
                 mesh,
                 attribution,
@@ -1087,6 +1100,31 @@ pub(crate) fn reconstruct_topology_stage4(
             }
         }
     }
+
+    // F1-I1 (`specs/yang_442_classify_after_update.md` §5 I1; Yang §4.4.2,
+    // `refs/text/yang2025_hybrid_boolean.txt:572-578`): at the Stage-4 hand-off
+    // to topology emission, `side_labels` must remain 1:1 with `mesh.tris` and
+    // `attribution` and re-derive today's kept set `(0..mesh.tris.len())`
+    // identically under `op`.
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "F1-I1 hand-off: side_labels ({}) drifted out of lockstep with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
+    debug_assert_eq!(
+        attribution.attributions.len(),
+        mesh.tris.len(),
+        "F1-I1 hand-off: attribution ({}) drifted out of lockstep with mesh.tris ({})",
+        attribution.attributions.len(),
+        mesh.tris.len(),
+    );
+    debug_assert_eq!(
+        side_labels.keep_set(op),
+        (0..mesh.tris.len()).collect::<Vec<_>>(),
+        "F1-I1 hand-off: carried side labels failed to re-derive today's kept set for {op:?}",
+    );
 
     emit_topology(
         mesh,

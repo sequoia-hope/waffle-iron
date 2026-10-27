@@ -135,6 +135,7 @@ pub use brep::{
     BRep, BRepEdge, BRepFace, BRepVertex, InputId, TessellationMap, TessellationSource,
     TriangleAttribution, TriangleAttributionMap, MATCH_TOLERANCE,
 };
+pub(crate) use brep::{TriangleSideLabel, TriangleSideLabelMap};
 pub use stage1_tessellate::patch_tessellators::{
     tessellate_sphere_patch, tessellate_sphere_patch_in_frame, tessellate_torus_patch,
 };

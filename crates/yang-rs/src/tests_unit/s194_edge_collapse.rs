@@ -33,7 +33,12 @@ fn subtauwork_twin_edge_collapses_and_flap_drops() {
         ],
     );
     let mut attr = vec![None; 3];
-    assert!(collapse_subtauwork_mesh_edges(&mut mesh, &mut attr));
+    let mut side_labels = vec![TriangleSideLabel::default(); 3];
+    assert!(collapse_subtauwork_mesh_edges(
+        &mut mesh,
+        &mut attr,
+        &mut side_labels
+    ));
     assert_eq!(
         mesh.tris,
         vec![[0, 2, 3], [0, 3, 4]],
@@ -44,6 +49,11 @@ fn subtauwork_twin_edge_collapses_and_flap_drops() {
         "I1: the survivor keeps its own exact coordinates"
     );
     assert_eq!(attr.len(), 2, "attribution stays in lockstep with tris");
+    assert_eq!(
+        side_labels.len(),
+        2,
+        "side labels stay in lockstep with tris"
+    );
 }
 
 /// Above-band edges are untouched. 1e-9 at unit scale is ≥ 500× the band
@@ -63,7 +73,12 @@ fn supratauwork_edge_untouched() {
     // Make (0,1) an actual mesh edge pair 1e-9 apart in x only.
     mesh.verts[1] = p(1.0e-9, 0.0, 0.0);
     let mut attr = vec![None; 2];
-    assert!(!collapse_subtauwork_mesh_edges(&mut mesh, &mut attr));
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
+    assert!(!collapse_subtauwork_mesh_edges(
+        &mut mesh,
+        &mut attr,
+        &mut side_labels
+    ));
     assert_eq!(mesh.tris, vec![[0, 1, 3], [1, 2, 3]], "mesh untouched");
 }
 
@@ -77,7 +92,12 @@ fn exact_zero_edge_untouched() {
         vec![[0, 1, 3], [1, 2, 3]],
     );
     let mut attr = vec![None; 2];
-    assert!(!collapse_subtauwork_mesh_edges(&mut mesh, &mut attr));
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
+    assert!(!collapse_subtauwork_mesh_edges(
+        &mut mesh,
+        &mut attr,
+        &mut side_labels
+    ));
     assert_eq!(
         mesh.tris,
         vec![[0, 1, 3], [1, 2, 3]],
@@ -104,7 +124,12 @@ fn unconnected_subtauwork_pair_untouched() {
         vec![[0, 2, 3], [1, 4, 5]],
     );
     let mut attr = vec![None; 2];
-    assert!(!collapse_subtauwork_mesh_edges(&mut mesh, &mut attr));
+    let mut side_labels = vec![TriangleSideLabel::default(); 2];
+    assert!(!collapse_subtauwork_mesh_edges(
+        &mut mesh,
+        &mut attr,
+        &mut side_labels
+    ));
     assert_eq!(
         mesh.verts.len(),
         6,

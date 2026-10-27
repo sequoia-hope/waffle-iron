@@ -18,6 +18,7 @@ use crate::*;
 pub(crate) fn sweep_reversed_intersections(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
     a: &BRep,
     b: &BRep,
     d_eps: f64,
@@ -319,7 +320,7 @@ pub(crate) fn sweep_reversed_intersections(
                         "[collapse-site] s4.5.3-reversal victim={victim} survivor={survivor}"
                     );
                 }
-                let dropped = collapse_vertex(mesh, attribution, victim, survivor);
+                let dropped = collapse_vertex(mesh, attribution, side_labels, victim, survivor);
                 if dropped == 0 {
                     // Nothing collapsed ⇒ cannot make progress on this
                     // reversal. LOUD STOP, naming the faces at the site (T7).

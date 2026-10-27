@@ -27,6 +27,16 @@ fn attribution_for(n: usize) -> Vec<Option<TriangleAttribution>> {
         .collect()
 }
 
+fn side_labels_for(n: usize) -> Vec<TriangleSideLabel> {
+    (0..n)
+        .map(|i| TriangleSideLabel {
+            cherchi_patch: i as u32,
+            inside: [false, false],
+            surface: [true, false],
+        })
+        .collect()
+}
+
 /// GREEN behaviour: two RELOCATED coincident twins (1e-7 apart, inside the
 /// 1.5e-7 unit-scale band) weld — the same collapse the `collapse_vertex`
 /// membrane test drives, but reached via the coincidence scan. The pleat
@@ -37,11 +47,13 @@ fn relocated_coincident_twin_welds() {
     tris.extend(bystander_tetra_tris());
     let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     // Both twin vertices were relocated onto an analytic curve.
     let moved: HashSet<u32> = [2u32, 3u32].into_iter().collect();
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &no_faces(),
         &no_faces(),
         &moved,
@@ -58,6 +70,11 @@ fn relocated_coincident_twin_welds() {
         attribution.len(),
         "attribution stays lockstep"
     );
+    assert_eq!(
+        mesh.tris.len(),
+        side_labels.len(),
+        "side labels stay lockstep"
+    );
 }
 
 /// SAFETY (I2): a genuinely SEPARATED relocated pair (0.1 apart — far above the
@@ -71,10 +88,12 @@ fn separated_relocated_pair_is_not_welded() {
     let before = tris.clone();
     let mut mesh = Mesh::new(verts, tris);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let moved: HashSet<u32> = [2u32, 3u32].into_iter().collect();
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &no_faces(),
         &no_faces(),
         &moved,
@@ -94,10 +113,12 @@ fn coincident_but_unrelocated_twin_is_not_welded() {
     let before = tris.clone();
     let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let moved: HashSet<u32> = HashSet::new(); // nothing was relocated
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &no_faces(),
         &no_faces(),
         &moved,
@@ -126,11 +147,13 @@ fn relocated_vert_welds_onto_minted_junction_mint_survives() {
     tris.push([2, 8, 9]); // witness tri anchored at the MOVED twin
     let mut mesh = Mesh::new(verts, tris);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let moved: HashSet<u32> = [2u32].into_iter().collect();
     let minted: HashSet<u32> = [3u32].into_iter().collect();
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &no_faces(),
         &no_faces(),
         &moved,
@@ -148,6 +171,11 @@ fn relocated_vert_welds_onto_minted_junction_mint_survives() {
         attribution.len(),
         "attribution stays lockstep"
     );
+    assert_eq!(
+        mesh.tris.len(),
+        side_labels.len(),
+        "side labels stay lockstep"
+    );
 }
 
 /// CONTRACT: a minted×minted sub-band pair is a mint-multiplicity violation
@@ -159,11 +187,13 @@ fn minted_pair_is_not_welded() {
     let before = tris.clone();
     let mut mesh = Mesh::new(membrane_fixture_verts(), tris);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let moved: HashSet<u32> = HashSet::new();
     let minted: HashSet<u32> = [2u32, 3u32].into_iter().collect();
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &no_faces(),
         &no_faces(),
         &moved,
@@ -255,10 +285,12 @@ fn coincident_pair_on_distinct_surfaces_is_not_welded() {
     let a = operand(gap);
     let mut mesh = fixture(gap);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let before = mesh.tris.clone();
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &a,
         &no_faces(),
         &moved,
@@ -275,9 +307,11 @@ fn coincident_pair_on_distinct_surfaces_is_not_welded() {
     let mut mesh = fixture(0.0);
     mesh.verts[1] = Point3::new(0.0, gap, 0.0);
     let mut attribution = attribution_for(mesh.tris.len());
+    let mut side_labels = side_labels_for(mesh.tris.len());
     let welded = weld_coincident_relocated(
         &mut mesh,
         &mut attribution,
+        &mut side_labels,
         &a,
         &no_faces(),
         &moved,

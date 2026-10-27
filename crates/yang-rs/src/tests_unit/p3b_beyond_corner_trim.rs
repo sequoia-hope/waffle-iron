@@ -68,9 +68,16 @@ fn minted_map() -> BTreeMap<u32, MintProvenance> {
 #[test]
 fn beyond_corner_phantom_trims_onto_mint() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-3,
+    );
     assert!(trimmed, "the beyond-corner phantom must trim");
     assert_eq!(
         mesh.tris,
@@ -78,6 +85,7 @@ fn beyond_corner_phantom_trims_onto_mint() {
         "pleat annihilates; witness re-anchored at the mint (survivor=0)"
     );
     assert_eq!(mesh.tris.len(), attribution.len(), "attribution lockstep");
+    assert_eq!(mesh.tris.len(), side_labels.len(), "side labels lockstep");
 }
 
 /// PATCH-SUBSET GUARD (the F0082 cap-ring lesson): the candidate carries a
@@ -86,6 +94,7 @@ fn beyond_corner_phantom_trims_onto_mint() {
 #[test]
 fn candidate_with_foreign_patch_is_not_trimmed() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     // The witness tri (candidate-incident, NOT mint-incident) belongs to a
     // different face — the F0082 cap-ring shape.
     attribution[2] = Some(TriangleAttribution {
@@ -94,8 +103,14 @@ fn candidate_with_foreign_patch_is_not_trimmed() {
     });
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-3,
+    );
     assert!(!trimmed, "a foreign-patch candidate must NOT trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -105,12 +120,20 @@ fn candidate_with_foreign_patch_is_not_trimmed() {
 #[test]
 fn reflex_owner_plane_is_not_trimmed() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let mut prov = convex_provenance();
     prov.owner_planes[0].trim_beyond = false;
     let minted: BTreeMap<u32, MintProvenance> = [(0u32, prov)].into_iter().collect();
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed = trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted, 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted,
+        1e-3,
+    );
     assert!(!trimmed, "reflex/ambiguous incidence must NOT trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -120,6 +143,7 @@ fn reflex_owner_plane_is_not_trimmed() {
 #[test]
 fn default_provenance_is_inert() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let minted: BTreeMap<u32, MintProvenance> = [(
         0u32,
         MintProvenance {
@@ -130,7 +154,14 @@ fn default_provenance_is_inert() {
     .collect();
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed = trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted, 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted,
+        1e-3,
+    );
     assert!(!trimmed, "degenerate placeholder provenance must be inert");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -141,11 +172,18 @@ fn default_provenance_is_inert() {
 #[test]
 fn over_corridor_candidate_is_not_trimmed() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
     // sinθ = 1 here, so the corridor is 2·d_ε = 2e-4 < dist 1e-3.
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-4);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-4,
+    );
     assert!(!trimmed, "an over-corridor candidate must NOT trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -156,10 +194,17 @@ fn over_corridor_candidate_is_not_trimmed() {
 #[test]
 fn off_other_plane_candidate_is_not_trimmed() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 1e-3));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-3,
+    );
     assert!(!trimmed, "an off-plane candidate must NOT trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -169,10 +214,17 @@ fn off_other_plane_candidate_is_not_trimmed() {
 #[test]
 fn sub_band_candidate_is_left_to_the_weld() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(5e-8, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = [1u32].into_iter().collect();
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-3,
+    );
     assert!(!trimmed, "a sub-band pair is weld territory, not trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }
@@ -182,10 +234,17 @@ fn sub_band_candidate_is_left_to_the_weld() {
 #[test]
 fn unmoved_candidate_is_not_trimmed() {
     let (mut mesh, mut attribution) = trim_fixture(Point3::new(1e-3, 0.0, 0.0));
+    let mut side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
     let before = mesh.tris.clone();
     let moved: HashSet<u32> = HashSet::new();
-    let trimmed =
-        trim_beyond_corner_phantoms(&mut mesh, &mut attribution, &moved, &minted_map(), 1e-3);
+    let trimmed = trim_beyond_corner_phantoms(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &moved,
+        &minted_map(),
+        1e-3,
+    );
     assert!(!trimmed, "an un-relocated candidate must NOT trim");
     assert_eq!(mesh.tris, before, "mesh byte-identical");
 }

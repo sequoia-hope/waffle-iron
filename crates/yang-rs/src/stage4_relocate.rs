@@ -2047,11 +2047,17 @@ pub(crate) fn membrane_orientation_sign(tri: [u32; 3], key: [u32; 3]) -> i8 {
 pub(crate) fn remove_doubled_membranes(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<crate::brep::TriangleSideLabel>,
 ) -> usize {
     debug_assert_eq!(
         attribution.len(),
         mesh.tris.len(),
         "attribution must be 1:1 with mesh.tris on entry"
+    );
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "side_labels must be 1:1 with mesh.tris on entry"
     );
     use std::collections::BTreeMap;
     // Group triangles by ascending-sorted vertex triple → (index, sign).
@@ -2111,8 +2117,13 @@ pub(crate) fn remove_doubled_membranes(
             .filter(|&i| !remove[i])
             .map(|i| attribution.get(i).copied().flatten())
             .collect();
+        let kept_labels: Vec<crate::brep::TriangleSideLabel> = (0..mesh.tris.len())
+            .filter(|&i| !remove[i])
+            .map(|i| side_labels.get(i).copied().unwrap_or_default())
+            .collect();
         *mesh = Mesh::new(std::mem::take(&mut mesh.verts), kept);
         *attribution = kept_attr;
+        *side_labels = kept_labels;
     }
     removed
 }
@@ -2240,8 +2251,16 @@ pub(crate) fn split_pinch_vertices(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
     attribution: &[Option<TriangleAttribution>],
+    side_labels: &[crate::brep::TriangleSideLabel],
     edge_pinch: bool,
 ) -> usize {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "split_pinch_vertices: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     use std::collections::BTreeMap;
     let n = mesh.verts.len();
     let mut incident: Vec<Vec<u32>> = vec![Vec::new(); n];

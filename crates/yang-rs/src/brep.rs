@@ -393,6 +393,124 @@ impl TriangleAttributionMap {
 }
 
 // =========================================================================
+// Roadmap F1 / I1 — per-triangle Stage-2 classification side record
+// =========================================================================
+
+/// Per-triangle Stage-2 classification side record (`specs/yang_442_classify_after_update.md`
+/// §5 I1; Yang et al. 2025 §4.4.2, `refs/text/yang2025_hybrid_boolean.txt:572-578`).
+///
+/// Threaded in lockstep with [`TriangleAttributionMap`] through every Stage-4/5
+/// mutator of `mesh.tris`, deliberately separate from [`TriangleAttribution`]
+/// (whose `PartialEq` is the patch flood-fill key).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TriangleSideLabel {
+    /// Cherchi arrangement patch id (`LabeledArrangement::patch[t]`).
+    pub cherchi_patch: u32,
+    /// Per-operand strict-interior bits `[inside_a, inside_b]`
+    /// (`LabeledArrangement::inside[t]`).
+    pub inside: [bool; 2],
+    /// Per-operand surface membership `[on_a, on_b]`
+    /// (`LabeledArrangement::surface[t]`; both `true` on a §4.5.5 overlap sheet).
+    pub surface: [bool; 2],
+}
+
+impl Default for TriangleSideLabel {
+    fn default() -> Self {
+        Self {
+            cherchi_patch: 0,
+            inside: [false, false],
+            surface: [true, false],
+        }
+    }
+}
+
+impl TriangleSideLabel {
+    /// Snapshot triangle `orig_t`'s side record from Stage 2's [`cherchi_rs::LabeledArrangement`].
+    pub(crate) fn from_arrangement(la: &cherchi_rs::LabeledArrangement, orig_t: usize) -> Self {
+        debug_assert_eq!(
+            la.num_inputs, 2,
+            "TriangleSideLabel::from_arrangement expects binary num_inputs == 2"
+        );
+        debug_assert!(
+            orig_t < la.patch.len(),
+            "TriangleSideLabel::from_arrangement: orig_t {orig_t} out of patch range {}",
+            la.patch.len()
+        );
+        let ins = &la.inside[orig_t];
+        debug_assert_eq!(ins.len(), 2, "inside bits must have length 2");
+        let surf = &la.surface[orig_t];
+        let on_a = surf.contains(&cherchi_rs::labeled_arrangement::InputId(0));
+        let on_b = surf.contains(&cherchi_rs::labeled_arrangement::InputId(1));
+        Self {
+            cherchi_patch: la.patch[orig_t],
+            inside: [ins[0], ins[1]],
+            surface: [on_a, on_b],
+        }
+    }
+
+    /// Evaluate Cherchi's binary op keep-rule (`LabeledArrangement::keep_tri`,
+    /// `crates/cherchi-rs/src/labeled_arrangement.rs:125-157`) from the carried
+    /// `(inside, surface)` bits alone.
+    pub(crate) fn keep_for_op(&self, op: cad_primitives::BoolOp) -> bool {
+        let inside_count = (self.inside[0] as usize) + (self.inside[1] as usize);
+        let xor_count = ((self.surface[0] != self.inside[0]) as usize)
+            + ((self.surface[1] != self.inside[1]) as usize);
+        match op {
+            cad_primitives::BoolOp::Union => inside_count == 0,
+            cad_primitives::BoolOp::Intersect => xor_count == 2,
+            cad_primitives::BoolOp::Subtract => {
+                (self.surface[0] && inside_count == 0)
+                    || (!self.surface[0] && self.inside[0] && inside_count == 1)
+            }
+            cad_primitives::BoolOp::Xor => inside_count == 0 || xor_count == 2,
+        }
+    }
+}
+
+/// Per-triangle side-label vector kept 1:1 with `mesh.tris` and
+/// [`TriangleAttributionMap`] across Stage 4/5 (`specs/yang_442_classify_after_update.md` §5 I1).
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub(crate) struct TriangleSideLabelMap {
+    pub(crate) labels: Vec<TriangleSideLabel>,
+}
+
+impl TriangleSideLabelMap {
+    #[allow(dead_code)]
+    pub(crate) fn empty() -> Self {
+        Self { labels: Vec::new() }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.labels.len()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.labels.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn lookup(&self, mesh_tri: u32) -> TriangleSideLabel {
+        debug_assert!(
+            (mesh_tri as usize) < self.labels.len(),
+            "TriangleSideLabelMap::lookup: tri {mesh_tri} out of range (len {})",
+            self.labels.len()
+        );
+        self.labels[mesh_tri as usize]
+    }
+
+    /// Indices of triangles kept by `op` according to their carried side labels,
+    /// in ascending triangle order (matching `LabeledArrangement::keep_set`).
+    pub(crate) fn keep_set(&self, op: cad_primitives::BoolOp) -> Vec<usize> {
+        self.labels
+            .iter()
+            .enumerate()
+            .filter_map(|(t, lbl)| lbl.keep_for_op(op).then_some(t))
+            .collect()
+    }
+}
+
+// =========================================================================
 // BRep
 // =========================================================================
 

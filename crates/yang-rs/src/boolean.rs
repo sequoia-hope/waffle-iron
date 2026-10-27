@@ -3041,6 +3041,17 @@ fn boolean_once_timed(
         attributions.push(Some(TriangleAttribution { input, face }));
     }
     let mut triangle_attribution = TriangleAttributionMap { attributions };
+    // F1-I1 (`specs/yang_442_classify_after_update.md` §5 I1; Yang §4.4.2,
+    // `refs/text/yang2025_hybrid_boolean.txt:572-578`): carry the per-triangle
+    // Stage-2 side labels `(cherchi_patch, inside, surface)` in lockstep with
+    // `triangle_attribution` through Stage 4/5 (kept out of
+    // `TriangleAttribution` so the flood key is unchanged).
+    let mut side_labels = crate::brep::TriangleSideLabelMap {
+        labels: orig_tri
+            .iter()
+            .map(|&orig_t| crate::brep::TriangleSideLabel::from_arrangement(&la, orig_t))
+            .collect(),
+    };
 
     // (6) Topology reconstruction + Stage-4 relocation (PR-YR10). Stage 4 may
     // relocate intersection vertices in-place (onto the exact curves) and, on a
@@ -3052,6 +3063,7 @@ fn boolean_once_timed(
     let (vertices, edges, faces, sources, face_attribution) = reconstruct_topology_stage4(
         &mut kept_submesh,
         &mut triangle_attribution,
+        &mut side_labels,
         a,
         b,
         op,

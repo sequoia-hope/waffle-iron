@@ -4,6 +4,7 @@ use super::*;
 pub(crate) fn corner_transit_apply(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     entry: &[[f64; 3]],
@@ -1830,7 +1831,9 @@ pub(crate) fn corner_transit_apply(
             return Ok(false);
         }
     }
-    if let Err(e) = crate::stage4_construct::apply_rebuild_batch(mesh, attribution, &rebuilds) {
+    if let Err(e) =
+        crate::stage4_construct::apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds)
+    {
         refuse(&format!("batch: {e:?}"));
         rollback(mesh);
         return Ok(false);

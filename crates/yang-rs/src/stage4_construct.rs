@@ -2591,11 +2591,20 @@ pub(crate) fn rebuild_group_fan(
 pub(crate) fn apply_rebuild_batch(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     rebuilds: &[PatchRebuild],
 ) -> Result<(), ConstructError> {
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "apply_rebuild_batch: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     let (n_verts, n_tris) = (mesh.verts.len() as u32, mesh.tris.len() as u32);
     let mut removed: BTreeSet<u32> = BTreeSet::new();
     let mut attrs_of: Vec<Option<TriangleAttribution>> = Vec::with_capacity(rebuilds.len());
+    let mut labels_of: Vec<crate::brep::TriangleSideLabel> = Vec::with_capacity(rebuilds.len());
     for r in rebuilds {
         if r.plan_verts != n_verts || r.plan_tris != n_tris {
             return Err(ConstructError::StalePlan {
@@ -2612,6 +2621,12 @@ pub(crate) fn apply_rebuild_batch(
             return Err(ConstructError::MixedAttribution { patch: r.patch });
         }
         attrs_of.push(first);
+        labels_of.push(
+            r.old_tris
+                .first()
+                .and_then(|&t| side_labels.labels.get(t as usize).copied())
+                .unwrap_or_default(),
+        );
         for &t in &r.old_tris {
             if !removed.insert(t) {
                 return Err(ConstructError::OverlappingBatch { tri: t });
@@ -2622,14 +2637,16 @@ pub(crate) fn apply_rebuild_batch(
     let added: usize = rebuilds.iter().map(|r| r.new_tris.len()).sum();
     let mut tris = Vec::with_capacity(mesh.tris.len() - removed.len() + added);
     let mut attrs = Vec::with_capacity(tris.capacity());
+    let mut labels = Vec::with_capacity(tris.capacity());
     for (t, tri) in mesh.tris.iter().enumerate() {
         if removed.contains(&(t as u32)) {
             continue;
         }
         tris.push(*tri);
         attrs.push(attribution.attributions[t]);
+        labels.push(side_labels.labels[t]);
     }
-    for (r, attr) in rebuilds.iter().zip(attrs_of) {
+    for ((r, attr), side_lbl) in rebuilds.iter().zip(attrs_of).zip(labels_of) {
         // I2e: append this rebuild's seed vertices and point its
         // `plan_verts + k` indices at the appended block. Every rebuild in
         // the batch was planned against the same pre-batch mesh (the
@@ -2648,10 +2665,12 @@ pub(crate) fn apply_rebuild_batch(
             }
             tris.push(out);
             attrs.push(attr);
+            labels.push(side_lbl);
         }
     }
     mesh.tris = tris;
     attribution.attributions = attrs;
+    side_labels.labels = labels;
     Ok(())
 }
 
@@ -3122,6 +3141,7 @@ pub(crate) fn directed_boundary(tris: &[[u32; 3]]) -> Vec<(u32, u32)> {
 pub(crate) fn update_patches(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     a: &crate::brep::BRep,
     b: &crate::brep::BRep,
 ) -> usize {
@@ -3255,7 +3275,7 @@ pub(crate) fn update_patches(
     if plans.is_empty() {
         return 0;
     }
-    let n = match apply_rebuild_batch(mesh, attribution, &plans) {
+    let n = match apply_rebuild_batch(mesh, attribution, side_labels, &plans) {
         Ok(()) => plans.len(),
         Err(_) => 0,
     };
@@ -4560,10 +4580,19 @@ mod tests {
         let mut attribution = TriangleAttributionMap {
             attributions: vec![attr(crate::brep::InputId::A, 7); mesh.tris.len()],
         };
-        apply_rebuild_batch(&mut mesh, &mut attribution, std::slice::from_ref(&r))
-            .expect("write-back");
+        let mut side_labels = crate::brep::TriangleSideLabelMap {
+            labels: vec![crate::brep::TriangleSideLabel::default(); mesh.tris.len()],
+        };
+        apply_rebuild_batch(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            std::slice::from_ref(&r),
+        )
+        .expect("write-back");
         assert_eq!(mesh.verts.len(), n_verts_before + n_seeds);
         assert_eq!(mesh.tris.len(), attribution.attributions.len());
+        assert_eq!(mesh.tris.len(), side_labels.len());
         for (k, p) in r.new_verts.iter().enumerate() {
             assert_eq!(
                 mesh.verts[n_verts_before + k],
@@ -4640,18 +4669,35 @@ mod tests {
             foreign_attr,
             foreign_attr,
         ];
+        let fan_lbl = crate::brep::TriangleSideLabel {
+            cherchi_patch: 3,
+            inside: [false, false],
+            surface: [true, false],
+        };
+        let foreign_lbl = crate::brep::TriangleSideLabel {
+            cherchi_patch: 9,
+            inside: [true, false],
+            surface: [false, true],
+        };
+        let mut side_labels = crate::brep::TriangleSideLabelMap {
+            labels: vec![fan_lbl, fan_lbl, fan_lbl, fan_lbl, foreign_lbl, foreign_lbl],
+        };
 
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
-        apply_rebuild_batch(&mut mesh, &mut attribution, &[r]).expect("write-back");
+        apply_rebuild_batch(&mut mesh, &mut attribution, &mut side_labels, &[r])
+            .expect("write-back");
 
         assert_eq!(mesh.tris.len(), 4, "2 foreign survivors + 2 replacements");
         assert_eq!(attribution.attributions.len(), 4, "lockstep");
+        assert_eq!(side_labels.len(), 4, "side_labels lockstep");
         assert_eq!(
             &attribution.attributions[..2],
             &[foreign_attr, foreign_attr]
         );
         assert_eq!(&attribution.attributions[2..], &[fan_attr, fan_attr]);
+        assert_eq!(&side_labels.labels[..2], &[foreign_lbl, foreign_lbl]);
+        assert_eq!(&side_labels.labels[2..], &[fan_lbl, fan_lbl]);
         assert!(
             !mesh.tris.iter().flatten().any(|&v| v == 4),
             "interior dropped"
@@ -4663,6 +4709,9 @@ mod tests {
         let mut mesh = square_fan_mesh();
         let mut attribution = TriangleAttributionMap::empty();
         attribution.attributions = vec![None; 4];
+        let mut side_labels = crate::brep::TriangleSideLabelMap {
+            labels: vec![crate::brep::TriangleSideLabel::default(); 4],
+        };
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
 
@@ -4671,14 +4720,27 @@ mod tests {
         grown.tris.push([0, 1, 2]);
         let mut grown_attr = TriangleAttributionMap::empty();
         grown_attr.attributions = vec![None; 5];
+        let mut grown_labels = crate::brep::TriangleSideLabelMap {
+            labels: vec![crate::brep::TriangleSideLabel::default(); 5],
+        };
         assert!(matches!(
-            apply_rebuild_batch(&mut grown, &mut grown_attr, std::slice::from_ref(&r),),
+            apply_rebuild_batch(
+                &mut grown,
+                &mut grown_attr,
+                &mut grown_labels,
+                std::slice::from_ref(&r),
+            ),
             Err(ConstructError::StalePlan { .. })
         ));
 
         // Overlap: the same patch twice in one batch.
         assert!(matches!(
-            apply_rebuild_batch(&mut mesh, &mut attribution, &[r.clone(), r],),
+            apply_rebuild_batch(
+                &mut mesh,
+                &mut attribution,
+                &mut side_labels,
+                &[r.clone(), r],
+            ),
             Err(ConstructError::OverlappingBatch { .. })
         ));
     }

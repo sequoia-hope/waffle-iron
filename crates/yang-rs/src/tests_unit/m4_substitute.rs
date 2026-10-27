@@ -195,7 +195,8 @@ pub(crate) fn split_pinch_vertices_leaves_open_fan_untouched() {
     let before_verts = mesh.verts.len();
     let before_tris = mesh.tris.clone();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &[], false);
+    let side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &[], &side_labels, false);
     assert_eq!(splits, 0, "open-fan vertex must not be split (I1 guard)");
     assert_eq!(
         mesh.verts.len(),
@@ -407,7 +408,14 @@ pub(crate) fn split_pinch_vertices_leaves_the_edge_pinch_untouched_by_default() 
     let before = mesh.tris.clone();
     let before_verts = mesh.verts.len();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &attribution, false);
+    let side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let splits = split_pinch_vertices(
+        &mut mesh,
+        &mut relocations,
+        &attribution,
+        &side_labels,
+        false,
+    );
     assert_eq!(splits, 0, "gate OFF: the edge pinch must not be split");
     assert_eq!(mesh.tris, before);
     assert_eq!(mesh.verts.len(), before_verts);
@@ -430,7 +438,14 @@ pub(crate) fn split_pinch_vertices_separates_a_certified_edge_pinch() {
     ];
     let before_verts = mesh.verts.len();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(&mut mesh, &mut relocations, &attribution, true);
+    let side_labels = vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let splits = split_pinch_vertices(
+        &mut mesh,
+        &mut relocations,
+        &attribution,
+        &side_labels,
+        true,
+    );
     assert_eq!(splits, 1, "vertex 0 splits once, into its two sheets");
     assert_eq!(mesh.verts.len(), before_verts + 1);
     // The copy carries IDENTICAL position bits (I2).

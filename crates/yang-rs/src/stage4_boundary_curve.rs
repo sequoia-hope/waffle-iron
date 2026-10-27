@@ -5160,6 +5160,7 @@ pub(crate) struct EmissionWriteReport {
 pub(crate) fn transit_emission_write(
     mesh: &mut Mesh,
     attribution: &mut crate::brep::TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
     fill: &TransitEmissionFill,
 ) -> Result<EmissionWriteReport, EmissionWriteFailure> {
     use EmissionWriteFailure as F;
@@ -5201,6 +5202,13 @@ pub(crate) fn transit_emission_write(
             attributions: attribution.attributions.len(),
         });
     }
+    debug_assert_eq!(
+        side_labels.len(),
+        mesh.tris.len(),
+        "transit_emission_write: side_labels ({}) must be 1:1 with mesh.tris ({})",
+        side_labels.len(),
+        mesh.tris.len(),
+    );
     let next = mesh.verts.len() as u32;
     let planned = [fill.mints[0].0, fill.mints[1].0];
     if fill
@@ -5223,13 +5231,40 @@ pub(crate) fn transit_emission_write(
         });
     }
 
+    // Pre-snapshot each added triangle's side label from the replaced slot of
+    // its face BEFORE overwriting `fill.removed` in place (otherwise an earlier
+    // polygon overwriting `fill.removed[0]` would clobber another face's old
+    // attribution and side label).
+    let added_labels: Vec<crate::brep::TriangleSideLabel> = added
+        .iter()
+        .map(|(_, face)| {
+            let want = Some(crate::brep::TriangleAttribution {
+                input: face.0,
+                face: face.1,
+            });
+            fill.removed
+                .iter()
+                .copied()
+                .find(|&tr| attribution.attributions[tr as usize] == want)
+                .map(|tr| side_labels.labels[tr as usize])
+                .or_else(|| {
+                    attribution
+                        .attributions
+                        .iter()
+                        .position(|&a| a == want)
+                        .map(|ti| side_labels.labels[ti])
+                })
+                .unwrap_or_default()
+        })
+        .collect();
+
     for (_, at) in &fill.mints {
         mesh.verts.push(*at);
     }
     mesh.verts[fill.site as usize] = fill.site_at;
     let mut overwritten = 0usize;
     let mut appended = 0usize;
-    for (i, (tri, face)) in added.iter().enumerate() {
+    for (i, ((tri, face), side_lbl)) in added.iter().zip(added_labels).enumerate() {
         let att = Some(crate::brep::TriangleAttribution {
             input: face.0,
             face: face.1,
@@ -5238,10 +5273,12 @@ pub(crate) fn transit_emission_write(
             let slot = fill.removed[i] as usize;
             mesh.tris[slot] = *tri;
             attribution.attributions[slot] = att;
+            side_labels.labels[slot] = side_lbl;
             overwritten += 1;
         } else {
             mesh.tris.push(*tri);
             attribution.attributions.push(att);
+            side_labels.labels.push(side_lbl);
             appended += 1;
         }
     }

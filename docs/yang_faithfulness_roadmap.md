@@ -81,9 +81,9 @@ classifies (`:572-578`). We classify the raw arrangement and update only
 the kept submesh. Every §4.4.1 increment built before this is fixed lands
 on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
 
-- [ ] **I1:** carry the per-triangle side labels through every Stage-4
+- [x] **I1:** carry the per-triangle side labels through every Stage-4
       mutator (byte-identical; a debug assertion re-derives today's kept
-      set).
+      set). *(Landed 2026-10-27.)*
 - [ ] **Measure:** Stage 4 on the full arrangement costs 1.6–1.7× the
       triangles and up to ~2.7× on the O(T²) passes. Time it on the corpus
       before the flip (`YANG_STAGE_TIME_PROBE`, `ASSAY_JOBS=1`).

@@ -761,6 +761,7 @@ pub(crate) fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
 pub(crate) fn stage4_relocate_and_correct(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -816,7 +817,13 @@ pub(crate) fn stage4_relocate_and_correct(
     // position-welded shell count fused each pair at that point. Counting
     // shells by EDGE adjacency reads the honest 4 shells / χ = 8.
     let mut no_relocs: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(mesh, &mut no_relocs, &attribution.attributions, true);
+    let splits = split_pinch_vertices(
+        mesh,
+        &mut no_relocs,
+        &attribution.attributions,
+        &side_labels.labels,
+        true,
+    );
     if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
         eprintln!("[edge-pinch] entry split {splits} vertex copies");
     }
@@ -829,6 +836,7 @@ pub(crate) fn stage4_relocate_and_correct(
     let out = stage4_relocate_and_correct_inner(
         mesh,
         attribution,
+        side_labels,
         a,
         b,
         minted_junction_keys,
@@ -954,6 +962,7 @@ pub(crate) fn stage4_relocate_and_correct(
 fn stage4_relocate_and_correct_inner(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
+    side_labels: &mut TriangleSideLabelMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -2958,6 +2967,7 @@ fn stage4_relocate_and_correct_inner(
                                                                             transit_emission_write(
                                                                                 mesh,
                                                                                 attribution,
+                                                                                side_labels,
                                                                                 fl,
                                                                             ) {
                                                                             Ok(rep) => {
@@ -4713,6 +4723,7 @@ fn stage4_relocate_and_correct_inner(
                             collapse_vertex(
                                 mesh,
                                 &mut attribution.attributions,
+                                &mut side_labels.labels,
                                 victim,
                                 plan.survivor,
                             );
@@ -4851,7 +4862,13 @@ fn stage4_relocate_and_correct_inner(
                         "[collapse-site] PR-KV9 junction-twin victim={victim} survivor={survivor}"
                     );
                 }
-                collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                collapse_vertex(
+                    mesh,
+                    &mut attr_vec,
+                    &mut side_labels.labels,
+                    victim,
+                    survivor,
+                );
                 collapsed_any = true;
             }
         }
@@ -4978,6 +4995,7 @@ fn stage4_relocate_and_correct_inner(
                 && weld_coincident_relocated(
                     mesh,
                     &mut attr_vec,
+                    &mut side_labels.labels,
                     a,
                     b,
                     &near_mint_moved,
@@ -5035,7 +5053,14 @@ fn stage4_relocate_and_correct_inner(
             }
         }
         if !minted_prov.is_empty()
-            && trim_beyond_corner_phantoms(mesh, &mut attr_vec, &moved, &minted_prov, d_eps)
+            && trim_beyond_corner_phantoms(
+                mesh,
+                &mut attr_vec,
+                &mut side_labels.labels,
+                &moved,
+                &minted_prov,
+                d_eps,
+            )
         {
             collapsed_any = true;
         }
@@ -5049,6 +5074,7 @@ fn stage4_relocate_and_correct_inner(
         if retriangulate_collapsed_fan_regions(
             mesh,
             &mut attr_vec,
+            &mut side_labels.labels,
             brep_a,
             brep_b,
             &moved,
@@ -5063,6 +5089,7 @@ fn stage4_relocate_and_correct_inner(
     let sweep_result = sweep_reversed_intersections(
         mesh,
         &mut attr_vec,
+        &mut side_labels.labels,
         a,
         b,
         d_eps,
@@ -5247,7 +5274,13 @@ fn stage4_relocate_and_correct_inner(
                             "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
                         );
                     }
-                    let dropped = collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                    let dropped = collapse_vertex(
+                        mesh,
+                        &mut attr_vec,
+                        &mut side_labels.labels,
+                        victim,
+                        survivor,
+                    );
                     last_merge = Some((victim, survivor, dropped as f64, mesh.tris.len()));
                     collapsed_any = true;
                 }
@@ -5326,7 +5359,15 @@ fn stage4_relocate_and_correct_inner(
             );
         }
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        if weld_coincident_relocated(mesh, &mut attr_vec, a, b, &moved, &minted_verts) {
+        if weld_coincident_relocated(
+            mesh,
+            &mut attr_vec,
+            &mut side_labels.labels,
+            a,
+            b,
+            &moved,
+            &minted_verts,
+        ) {
             collapsed_any = true;
         }
         attribution.attributions = attr_vec;
@@ -5340,7 +5381,7 @@ fn stage4_relocate_and_correct_inner(
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
     s4_lap("before-441-update", mesh);
-    if crate::stage4_construct::update_patches(mesh, attribution, a, b) > 0 {
+    if crate::stage4_construct::update_patches(mesh, attribution, side_labels, a, b) > 0 {
         collapsed_any = true;
     }
     s4_lap("441-update", mesh);
@@ -5552,7 +5593,12 @@ fn stage4_relocate_and_correct_inner(
                                 m.t1, m.t2, m.nl, m.nh, m.a, m.c, m.bl, m.bh
                             );
                         }
-                        resolve_mutual_degenerate_pair(mesh, &mut attr_vec, &m);
+                        resolve_mutual_degenerate_pair(
+                            mesh,
+                            &mut attr_vec,
+                            &mut side_labels.labels,
+                            &m,
+                        );
                         collapsed_any = true;
                         continue;
                     }
@@ -5832,32 +5878,17 @@ fn stage4_relocate_and_correct_inner(
                     }
                 );
             }
-            let nt = mesh.tris[n_idx];
             // Combinatorial Fig-11(a) split (P0005): the halves inherit N's
-            // winding by splicing `b` into N's cyclic order between `a` and
-            // `c`. The former geometric proxy (`orient_tri` of each half
-            // against N's area normal) inverted a needle half whose inserted
-            // point sat 2.7e-7 from `c` — see `split_tri_at_edge`.
-            let (t1, t2) = split_tri_at_edge(nt, a, c, b)
-                .expect("neighbour shares edge a-c, has a third vertex");
-            let n_attr = attr_vec.get(n_idx).copied().flatten();
-            // Rebuild tris + attribution, dropping D and N, appending the split.
-            let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len() + 1);
-            let mut new_attr: Vec<Option<TriangleAttribution>> =
-                Vec::with_capacity(attr_vec.len() + 1);
-            for (i, t) in mesh.tris.iter().enumerate() {
-                if i == d_idx || i == n_idx {
-                    continue;
-                }
-                new_tris.push(*t);
-                new_attr.push(attr_vec.get(i).copied().flatten());
-            }
-            new_tris.push(t1);
-            new_attr.push(n_attr);
-            new_tris.push(t2);
-            new_attr.push(n_attr);
-            *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
-            attr_vec = new_attr;
+            // winding, attribution, and side label by splicing `b` into N's
+            // cyclic order between `a` and `c`; drop D and N.
+            resolve_simple_degenerate_split(
+                mesh,
+                &mut attr_vec,
+                &mut side_labels.labels,
+                d_idx,
+                n_idx,
+                (a, c, b),
+            );
             collapsed_any = true;
         }
         attribution.attributions = attr_vec;
@@ -5932,7 +5963,7 @@ fn stage4_relocate_and_correct_inner(
     // from the mesh alone).
     let membranes_removed = {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let n = remove_doubled_membranes(mesh, &mut attr_vec);
+        let n = remove_doubled_membranes(mesh, &mut attr_vec, &mut side_labels.labels);
         attribution.attributions = attr_vec;
         n
     };
@@ -5951,8 +5982,13 @@ fn stage4_relocate_and_correct_inner(
     // over (deviation N78), so this late site runs the VERTEX-fan arm only
     // (C0058's tangent points); entry-only since 2026-10-03, its
     // `YANG_EDGE_PINCH_ENTRY_ONLY` opt-out deleted 2026-10-16.
-    let pinch_splits =
-        split_pinch_vertices(mesh, &mut relocations, &attribution.attributions, false);
+    let pinch_splits = split_pinch_vertices(
+        mesh,
+        &mut relocations,
+        &attribution.attributions,
+        &side_labels.labels,
+        false,
+    );
     if pinch_splits > 0 {
         collapsed_any = true;
     }
@@ -6015,7 +6051,7 @@ fn stage4_relocate_and_correct_inner(
     // the standard compact + Phase-A recompute.
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec);
+        let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec, &mut side_labels.labels);
         attribution.attributions = attr_vec;
         collapsed_any |= c;
     }
@@ -6343,7 +6379,14 @@ fn stage4_relocate_and_correct_inner(
     // fires when every certificate holds; any refusal leaves the mesh
     // untouched and the postcondition STOP below fires exactly as today.
     s4_lap("before-transit", mesh);
-    corner_transit_apply(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
+    corner_transit_apply(
+        mesh,
+        attribution,
+        side_labels,
+        brep_a,
+        brep_b,
+        &s4_entry_pos,
+    )?;
     s4_lap("transit", mesh);
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The

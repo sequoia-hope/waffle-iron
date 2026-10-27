@@ -44,10 +44,17 @@ pub(crate) fn doubled_membrane_heals_odd_chi_shell() {
     );
 
     let mut attr: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
-    let removed = remove_doubled_membranes(&mut mesh, &mut attr);
+    let mut side_labels: Vec<TriangleSideLabel> =
+        vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let removed = remove_doubled_membranes(&mut mesh, &mut attr, &mut side_labels);
     assert_eq!(removed, 2, "exactly the two fin triangles are removed");
     assert_eq!(mesh.tris.len(), 4, "only the tetra faces remain");
     assert_eq!(attr.len(), 4, "attribution stays 1:1 with the triangles");
+    assert_eq!(
+        side_labels.len(),
+        4,
+        "side labels stay 1:1 with the triangles"
+    );
 
     // After: the healed shell is a clean χ=2 manifold.
     assert!(
@@ -63,10 +70,17 @@ pub(crate) fn clean_shell_is_byte_identical() {
     let mut mesh = Mesh::new(tetra_verts(), tetra_tris());
     let before = mesh.tris.clone();
     let mut attr: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
-    let removed = remove_doubled_membranes(&mut mesh, &mut attr);
+    let mut side_labels: Vec<TriangleSideLabel> =
+        vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let removed = remove_doubled_membranes(&mut mesh, &mut attr, &mut side_labels);
     assert_eq!(removed, 0, "a clean shell has no membrane to remove");
     assert_eq!(mesh.tris, before, "clean shell must be byte-identical");
     assert_eq!(attr.len(), 4, "attribution untouched on the no-op path");
+    assert_eq!(
+        side_labels.len(),
+        4,
+        "side labels untouched on the no-op path"
+    );
 }
 
 /// P9 GUARD (adversary): two coincident triangles with the SAME winding are a
@@ -82,13 +96,16 @@ pub(crate) fn same_winding_duplicate_is_left_for_the_gate() {
     tris.push([1, 2, 4]); // SAME winding, not a membrane
     let mut mesh = Mesh::new(verts, tris);
     let mut attr: Vec<Option<TriangleAttribution>> = vec![None; mesh.tris.len()];
-    let removed = remove_doubled_membranes(&mut mesh, &mut attr);
+    let mut side_labels: Vec<TriangleSideLabel> =
+        vec![TriangleSideLabel::default(); mesh.tris.len()];
+    let removed = remove_doubled_membranes(&mut mesh, &mut attr, &mut side_labels);
     assert_eq!(
         removed, 0,
         "same-winding duplicate is not a cancelling fin — leave it loud"
     );
     assert_eq!(mesh.tris.len(), 6, "no triangles removed");
     assert_eq!(attr.len(), 6, "attribution untouched");
+    assert_eq!(side_labels.len(), 6, "side labels untouched");
 }
 
 /// I8 (attribution lockstep) — the R0051 op-3 mechanism (2026-09-07). The
@@ -101,6 +118,11 @@ pub(crate) fn same_winding_duplicate_is_left_for_the_gate() {
 pub(crate) fn membrane_removal_keeps_attribution_in_lockstep() {
     use crate::brep::InputId;
     let at = |input: InputId, face: u32| Some(TriangleAttribution { input, face });
+    let lbl = |patch: u32, surf_a: bool| TriangleSideLabel {
+        cherchi_patch: patch,
+        inside: [false, false],
+        surface: [surf_a, !surf_a],
+    };
     let mut verts = tetra_verts();
     verts.push(p(0.4, 0.4, 0.02)); // 4 = spur apex
                                    // Fin FIRST, then the tetra faces with distinct attributions, so the
@@ -121,8 +143,16 @@ pub(crate) fn membrane_removal_keeps_attribution_in_lockstep() {
         at(InputId::B, 4),
         at(InputId::B, 5),
     ];
+    let mut side_labels = vec![
+        lbl(30, false),
+        lbl(30, false),
+        lbl(10, true),
+        lbl(11, true),
+        lbl(24, false),
+        lbl(25, false),
+    ];
     let mut mesh = Mesh::new(verts, tris);
-    let removed = remove_doubled_membranes(&mut mesh, &mut attr);
+    let removed = remove_doubled_membranes(&mut mesh, &mut attr, &mut side_labels);
     assert_eq!(removed, 2);
     assert_eq!(
         mesh.tris,
@@ -139,6 +169,11 @@ pub(crate) fn membrane_removal_keeps_attribution_in_lockstep() {
         ],
         "each survivor keeps its OWN attribution — a mesh-only filter would \
          have handed [0,2,1] the fin's B:3 and [0,3,2] A:1"
+    );
+    assert_eq!(
+        side_labels,
+        vec![lbl(10, true), lbl(11, true), lbl(24, false), lbl(25, false)],
+        "each survivor keeps its OWN side label in lockstep"
     );
     assert!(check_watertight_2manifold(&mesh).is_ok());
 }
