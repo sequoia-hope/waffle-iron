@@ -31,9 +31,9 @@
 //! segment-segment test via Shewchuk exact `orient2d`. Mirrors `cinolib::orient2d`
 //! arg order (test point last in `orient2d(a, b, p)`).
 
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
 
-use super::points_are_collinear_3d;
+use super::{orient2d, points_are_collinear_3d, Sign};
 
 /// Location of a point relative to a 3D segment `s = (s0, s1)`.
 ///
@@ -83,17 +83,19 @@ pub enum SegSegIntersection {
     Overlap,
 }
 
-/// Exact `orient2d` sign as `i8` in {-1, 0, +1}, matching cinolib's
-/// `(det>0)?1:((det<0)?-1:0)` reduction (`predicates.cpp:594-597`).
+/// Exact `orient2d` sign as `i8` in {-1, 0, +1} via N24-certified [`orient2d`],
+/// matching cinolib's `(det>0)?1:((det<0)?-1:0)` reduction (`predicates.cpp:594-597`)
+/// while re-certifying `Zero` in rationals on subnormal determinants.
 /// Arg order mirrors `cinolib::orient2d(a, b, p)` — test point last.
 fn orient2d_sign(a: [f64; 2], b: [f64; 2], p: [f64; 2]) -> i8 {
-    let det = geometry_predicates::orient2d(a, b, p);
-    if det > 0.0 {
-        1
-    } else if det < 0.0 {
-        -1
-    } else {
-        0
+    match orient2d(
+        Point2::new(a[0], a[1]),
+        Point2::new(b[0], b[1]),
+        Point2::new(p[0], p[1]),
+    ) {
+        Sign::Positive => 1,
+        Sign::Negative => -1,
+        Sign::Zero => 0,
     }
 }
 
@@ -544,6 +546,34 @@ mod tests {
         assert_eq!(
             point_in_triangle_3d_loc(p, c, a, b),
             TriangleLocation::StrictlyInside
+        );
+    }
+
+    // ── Group 6: N24 / UL-04 subnormal zero-certification pin ─────────
+
+    #[test]
+    fn n24_subnormal_area_triangle_and_segment_locations() {
+        let a = pt(0.0, 0.0, 0.0);
+        let b = pt(1e-200, 0.0, 0.0);
+        let c = pt(0.0, 1e-200, 0.0);
+        let p_in = pt(2.5e-201, 2.5e-201, 0.0);
+        let p_out = pt(1e-200, 1e-200, 0.0);
+        assert_eq!(
+            point_in_triangle_3d_loc(p_in, a, b, c),
+            TriangleLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d_loc(p_out, a, b, c),
+            TriangleLocation::StrictlyOutside
+        );
+        assert_eq!(
+            segment_segment_intersect_3d(
+                pt(0.0, 0.0, 0.0),
+                pt(1e-200, 1e-200, 0.0),
+                pt(1e-200, 0.0, 0.0),
+                pt(0.0, 1e-200, 0.0),
+            ),
+            SegSegIntersection::Intersect
         );
     }
 }

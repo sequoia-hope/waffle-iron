@@ -124,7 +124,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N21 | DELEGATED (B) | PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals") |
 | N22 | DELEGATED (B) | Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision |
 | N23 | DELEGATED (B) | Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud |
-| N24 | DELEGATED (B) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
+| N24 | DELEGATED (B; UL-04 hardened 2026-10-27 across `collinearity.rs`, `point_in_triangle.rs`, `simplex_location.rs`) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
 | N25 | DELEGATED (B) | Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces |
 | N26 | DELEGATED (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
 | N27 | DELEGATED (B; scope widened to `Curve::Ellipse` 2026-10-27, F6; re-adjudicate at F5) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
@@ -198,14 +198,14 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N96 | **RESOLVED** (2026-10-18, found and fixed the same day; corpus 353C / 0W / 16E / 5EE / 0T, P0005 / P0020 / R0070 ERROR → CORRECT, zero drift) | The §4.5 domain certificate (T2) tested a crossing of a curved crease on its WHOLE circle / conic, not on the edge's arc — steps crossing a flank plane centimetres from a millimetre arc fired as leaving the face |
 | N97 | **RESOLVED** (2026-10-22, found and fixed the same day; corpus 356C / 0W / 13E / 5EE / 0T, R0049 / P0015 / P0029 ERROR → CORRECT, zero drift) | The cone ∩ plane relocation slid a vertex along its cone GENERATOR (azimuth kept) instead of taking §4.3.2's closest point on L_k = P_A ∩ P_B — unbounded slip along the section as the generators turn parallel to the plane |
 | N98 | OPEN (2026-10-27, literature check, reviewer-confirmed bug) | Stage-0 coplanar scan bounds ellipse-arc loops by their arc ENDPOINTS only (`stage0/coplanar_scan.rs:184-205` expands `Curve::Circle` alone though its comment says Circle/Ellipse), so an off-center coplanar partner can be missed and §4.5.5 skipped |
-| N99 | OPEN (2026-10-27, literature check, reviewer-confirmed exactness bug) | cherchi-rs `max_component_filtered` (`predicates/orientation.rs:82-108`) picks a projection axis with an f64 filter on RAW coordinates and one-eps margin: for a few-ULP sliver it returns an axis along which the exact normal is zero (reproduced with exact rationals); reached via `triangle_plane` (`soup.rs:395-400`, `:901`) |
+| N99 | **RESOLVED** (2026-10-27; certified Attene/FPG edge-diff filter `DELTA_CROSS * max_diff^2 + SUBNORMAL_GUARD` + doubled `2 * eps_n` margin + exact fallback + debug nonzero-normal assert; pinned by `n99_tc1_*` in `predicates/orientation.rs`) | cherchi-rs `max_component_filtered` (`predicates/orientation.rs:82-108`) picks a projection axis with an f64 filter on RAW coordinates and one-eps margin: for a few-ULP sliver it returns an axis along which the exact normal is zero (reproduced with exact rationals); reached via `triangle_plane` (`soup.rs:395-400`, `:901`) |
 | N100 | OPEN (2026-10-27, literature check; each item reviewer-confirmed as a code path, none yet tied to a measured case — each needs a corpus census before it is called WRONG) | Eight unledgered possible silent paths (zero-distance pair skip, no-witness single-candidate curve select, recover chord bail, by-edges outer cycle on sphere/torus, transit kept on an undetermined crease side, SurfacePair creases outside T2, Hyperbola/SurfacePair chains deaf to `edge_refine`, release-active Cherchi env switches) |
 | N101 | **RESOLVED** (2026-10-27, UL-02, reviewer-reproduced silent-wrong fixed and pinned) | `cherchi-rs` `perturb_ray_and_find_inters_tri` (`labeling/inside_out.rs`) tried only the C++ reference's fixed 8 single-ULP `nextafter` offsets; when a ray hit a foreign vertex whose spokes sat at exact multiples of 45° and `ray.v1`'s two off-axis coordinates had equal ULP, all 8 perturbed rays landed on spoke planes (`Sign::Zero`), returning `None` and silently dropping a true crossing as a graze (an inside patch kept `outside`, missed by `refute_inner_label_by_input_bounds`). Now expands `p∞` through primitive coprime `(da, db)` Chebyshev shells (`s = 1..=8`, preserving the 8 C++ offsets first) plus equiscaled ULP shells for mixed-binade / subnormal off-axis coordinates, and routes any forward (`t > 0`) full-disk vertex/edge crossing that still exhausts `f64` perturbation (certified by exact `orient2d` S¹/half-plane coverage) to `rational_ray_inner_label` |
 | N102 | **RESOLVED** (2026-10-27, UL-06, fixed and pinned) | `cherchi-rs` `find_ray_endpoints`'s generated-ray branch (`labeling/inside_out.rs`) never called `ray_grazes_foreign_input` (N69 covered the explicit-ray ladder only), so an all-border / implicit patch could still emit a generated ray lying in a foreign input's face plane; the generated-ray loop now runs `ray_grazes_foreign_input` under `graze_aware` and falls through via `NoExplicitRayOrigin` to `rational_ray_inner_label` when every generated candidate grazes |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-27, after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-27, after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -2023,7 +2023,7 @@ analysis); the deviation-policy memo (`cherchi_rs_cpp_deviation_policy`).
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
-**Where:** `cherchi-rs/src/predicates/orient.rs` (`orient3d`, `orient2d`).
+**Where:** `cherchi-rs/src/predicates/orient.rs` (`orient3d`, `orient2d`), and all explicit `orient2d` consumers routed through `predicates::orient2d`: `cherchi-rs/src/predicates/collinearity.rs` (`points_are_collinear_3d`), `cherchi-rs/src/predicates/point_in_triangle.rs` (`point_in_triangle_3d`, `point_in_triangle_2d`), and `cherchi-rs/src/predicates/simplex_location.rs` (`orient2d_sign`) (UL-04 hardened 2026-10-27 — zero raw `geometry_predicates::{orient2d, orient3d}` calls remain in `cherchi-rs` outside `orient.rs`).
 **C++ behavior:** the reference (and our former wrapper) trusts the
 Shewchuk-style adaptive predicate's 0.0 as a certified Zero. Shewchuk's
 exactness guarantee explicitly excludes UNDERFLOW: a determinant whose true
@@ -2045,7 +2045,7 @@ byte-identical; truly-degenerate inputs still certify Zero (now soundly).
 **Exactness direction:** STRENGTHENING (never diverges from the true sign;
 diverges from the C++ only where the C++ is unsound under underflow).
 **Oracles:** `orient.rs` group-0 unit tests (measured 4-point fixture +
-2D analog + true-coplanar guard); full cherchi suite + 18/18 sidecar
+2D analog + true-coplanar guard) + UL-04 subnormal pins (`collinearity::tests::n24_subnormal_area_triangle_is_not_collinear_and_survives_soup_prep`, `point_in_triangle::tests::n24_subnormal_area_triangle_classifies_interior_and_outside`, `simplex_location::tests::n24_subnormal_area_triangle_and_segment_locations`); full cherchi suite + 18/18 sidecar
 arrangement parity + fuzz differentials + full assay unchanged.
 
 ---
@@ -7174,19 +7174,62 @@ curve by its own extent (the scan should not enumerate curve types).
 
 ### N99 — cherchi-rs projection-axis filter decides on raw coordinates
 
-**Reference.** Cherchi 2020 picks the projection plane by the dominant
-component of the triangle normal; its exactness rests on the filtered bound
-over coordinate DIFFERENCES (Attene 2020 / FPG), not raw magnitudes.
-**Code.** `predicates/orientation.rs:82-108` `max_component_filtered` builds
-`max_var` from raw coordinates and accepts a single-`eps` margin. Reviewer
-reproduction (exact rationals): it returns `Axis::Z` for a triangle whose
-exact normal is (4.68e-17, -3.64e-17, 0) — a projection on which the triangle
-has zero area. Reached in production through `triangle_plane`
-(`arrangements/soup.rs:395-400`, used at `:901`); `earcut_linear`'s silent
-exit (`enforce.rs:711-744`, as in the C++) then amplifies it. No corpus case
-known. **Remediation:** filter on edge differences with a doubled margin and
-a subnormal guard, exact fallback otherwise; pin with the audit's TC-1 input.
-**State: OPEN.**
+**Reference.** Cherchi 2020 §4.2 / §4.2.1 (`refs/text/mesh_arrangement.txt:266-301`)
+picks the 2D projection plane by the dominant component of the triangle normal
+`n = (b - a) × (c - a)`. Per Attene 2020 App. A (`refs/text/attene-predicates.txt:579-585`,
+*"where b_j is the absolute value of either one of the input variables v_i or a
+difference v_a - v_b between two of them"*), Meyer & Pion 2008 FPG
+(`refs/text/meyer_pion2008_fpg.txt:161-189, 265-299, 658-705`), and Cherchi 2020
+App. A (`mesh_arrangement.txt:1020-1022`), the semi-static error bound on a
+cross-product component `(b_u - a_u)(c_v - a_v) - (b_v - a_v)(c_u - a_u)` MUST
+scale by `δ = max(|b - a|, |c - a|)` over the six coordinate differences
+(whereas §4.2.1's prose summary at `:298-299` misstated `δ` as the max over raw
+coordinates, under-bounding opposite-sign edge differences by up to `4×`), with
+underflow/overflow protection (`meyer_pion2008_fpg.txt:265-299`).
+
+**Code (before).** `predicates/orientation.rs:71-110` `max_component_filtered`
+built `max_var` from raw coordinates `max(|a|, |b|, |c|)`, multiplied by
+`4 * f64::EPSILON = 8.881784197001252e-16` (`< 8.88395e-16`), accepted a
+single-`eps` margin `az > ax + eps`, and omitted any subnormal/finiteness guard.
+On the audit's `TC-1` input (`a = (-0.65625, -0.84375, 0)`,
+`b = (0.65625 + 105u, 0.84375 + 135u, 0)`,
+`c = (0.65625 + 63u, 0.84375 + 81u, 0.25u)`, `u = 2^-53`), exact
+`n = (4.68375e-17, -3.64292e-17, 0)` has `n_z == 0` identically, yet
+`max_component_filtered` returned `Some(Axis::Z)` — projecting the triangle via
+`triangle_plane` (`arrangements/soup.rs:395-400`, `:901`) onto XY with exact
+zero area (amplified by `earcut_linear`'s silent exit at `enforce.rs:711-744`).
+
+**Fix (2026-10-27).** `max_component_filtered` (`crates/cherchi-rs/src/predicates/orientation.rs:139-179`)
+now computes `max_diff = max(|b - a|, |c - a|)` over the six edge-difference
+components, `eps_n = DELTA_CROSS * (max_diff * max_diff) + SUBNORMAL_GUARD`
+where `DELTA_CROSS = 8.886121005691226e-16` (`predicate-gen/src/fpg.rs:69-126`
+`Sfe::translation_input()` through `d0*d1 - d2*d3`, `Sfe::delta(2)`) and
+`SUBNORMAL_GUARD = 1e-300`, checks finiteness of `max_diff`, `margin`, and
+`|n_x|, |n_y|, |n_z|`, and requires the doubled comparison margin
+`margin = 2.0 * eps_n` (`ax > ay + margin && ax > az + margin`) so both noisy
+components are bounded and any accepted axis provably has `|n_i|_exact > eps_n > 0`.
+Uncertain inputs fall back to `max_component_exact` (`dashu::RBig`), and
+`max_component_in_triangle_normal` asserts in debug builds (`debug_assert!`)
+that the chosen axis has a nonzero exact normal component. Companion hardening
+(`UL-04` / `N24`): routed `collinearity.rs`, `point_in_triangle.rs`, and
+`simplex_location.rs` through `predicates::orient2d`.
+
+**Pins & verification.** RED-verified before the fix (`target/agy-logs/red.log`:
+5 failing pins, `max_component_filtered` returning `Some(Z)` on both `TC-1`
+witnesses). Unit pins in `predicates/orientation.rs`:
+`n99_tc1_o1_vertical_triangle_never_selects_zero_area_xy_plane`,
+`n99_tc1_subnormal_cross_product_matches_exact_axis`,
+`n99_overflow_edge_difference_falls_back_to_exact`,
+`n99_collinear_triangle_filtered_returns_none`, and
+`n99_debug_assert_catches_zero_exact_normal_component`. Suites: `cherchi-rs`
+700 passed / 0 failed / 4 ignored; `yang-rs` 1522 passed / 0 failed / 8 ignored.
+Corpus: **360C / 0W / 9E / 5EE / 0T over 374**, zero moved cases (contended 8-job
+900 s parallel run reported 358C / 0W / 9E / 5EE / 2T in 1520.68 s wall with
+`F0067` and `F0072` clipping at 900 s CPU under 24-thread SMT load; booked
+`single_case` re-checks passed `F0072: SUPPORTED_CORRECT (867.6s)` and
+`F0067: SUPPORTED_CORRECT (1091.2s)`, leaving the exact baseline 9 `ERROR` rows
+`F0064`, `C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`, `P0026`, `R0023`).
+**State: RESOLVED** (2026-10-27).
 
 ### N100 — possible silent paths found by the literature check
 

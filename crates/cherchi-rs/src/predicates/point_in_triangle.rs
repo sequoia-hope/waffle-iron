@@ -31,7 +31,9 @@
 //! intent (the strict AND-combine only applies to projections that
 //! carry discrimination info).
 
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
+
+use super::{orient2d, Sign};
 
 /// Classification of a point's location relative to a triangle.
 ///
@@ -93,9 +95,13 @@ pub fn point_in_triangle_3d(p: Point3, a: Point3, b: Point3, c: Point3) -> Point
     let mut all_inside = true;
     let mut any_non_degenerate = false;
     for (p2, a2, b2, c2) in projections {
-        // 2× signed triangle area; 0.0 iff a2/b2/c2 are collinear in 2D.
-        let area2 = geometry_predicates::orient2d(a2, b2, c2);
-        if area2 == 0.0 {
+        // 2× signed triangle area sign (N24-certified); Zero iff collinear in 2D.
+        let area2 = orient2d(
+            Point2::new(a2[0], a2[1]),
+            Point2::new(b2[0], b2[1]),
+            Point2::new(c2[0], c2[1]),
+        );
+        if area2 == Sign::Zero {
             continue;
         }
         any_non_degenerate = true;
@@ -120,7 +126,7 @@ pub fn point_in_triangle_3d(p: Point3, a: Point3, b: Point3, c: Point3) -> Point
     PointLocation::OnBoundary
 }
 
-/// 2D point-in-triangle primitive using Shewchuk's exact `orient2d`.
+/// 2D point-in-triangle primitive using N24-certified exact [`orient2d`].
 ///
 /// Used by [`point_in_triangle_3d`] in each cardinal projection;
 /// also exposed for direct testing.
@@ -137,14 +143,18 @@ pub(crate) fn point_in_triangle_2d(
     b: [f64; 2],
     c: [f64; 2],
 ) -> PointLocation {
-    // Three orient2d sign tests using Shewchuk's exact predicate.
-    let s_ab = geometry_predicates::orient2d(a, b, p);
-    let s_bc = geometry_predicates::orient2d(b, c, p);
-    let s_ca = geometry_predicates::orient2d(c, a, p);
+    let p_pt = Point2::new(p[0], p[1]);
+    let a_pt = Point2::new(a[0], a[1]);
+    let b_pt = Point2::new(b[0], b[1]);
+    let c_pt = Point2::new(c[0], c[1]);
+    // Three orient2d sign tests using N24-certified exact predicate.
+    let s_ab = orient2d(a_pt, b_pt, p_pt);
+    let s_bc = orient2d(b_pt, c_pt, p_pt);
+    let s_ca = orient2d(c_pt, a_pt, p_pt);
 
-    let any_zero = s_ab == 0.0 || s_bc == 0.0 || s_ca == 0.0;
-    let any_pos = s_ab > 0.0 || s_bc > 0.0 || s_ca > 0.0;
-    let any_neg = s_ab < 0.0 || s_bc < 0.0 || s_ca < 0.0;
+    let any_zero = s_ab == Sign::Zero || s_bc == Sign::Zero || s_ca == Sign::Zero;
+    let any_pos = s_ab == Sign::Positive || s_bc == Sign::Positive || s_ca == Sign::Positive;
+    let any_neg = s_ab == Sign::Negative || s_bc == Sign::Negative || s_ca == Sign::Negative;
 
     if any_zero {
         // On an edge or vertex — UNLESS mixed non-zero signs coexist,
@@ -396,5 +406,33 @@ mod tests {
         for _ in 0..100 {
             assert_eq!(point_in_triangle_3d(p, a, b, c), first);
         }
+    }
+
+    // ── Group 7: N24 / UL-04 subnormal zero-certification pin ─────────
+
+    #[test]
+    fn n24_subnormal_area_triangle_classifies_interior_and_outside() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1e-200, 0.0, 0.0);
+        let c = Point3::new(0.0, 1e-200, 0.0);
+        let p_in = Point3::new(2.5e-201, 2.5e-201, 0.0);
+        let p_out = Point3::new(1e-200, 1e-200, 0.0);
+        assert_eq!(
+            point_in_triangle_2d(
+                [2.5e-201, 2.5e-201],
+                [0.0, 0.0],
+                [1e-200, 0.0],
+                [0.0, 1e-200]
+            ),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p_in, a, b, c),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p_out, a, b, c),
+            PointLocation::StrictlyOutside
+        );
     }
 }

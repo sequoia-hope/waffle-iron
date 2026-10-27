@@ -10,13 +10,16 @@
 //! Cherchi 2020 §3 (cascaded filtered/exact predicates).
 //! Shewchuk 1997 §4.5 (adaptive orient2d).
 
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
 
-/// Three-point collinearity test in 3D using Shewchuk's exact `orient2d`
-/// on three orthogonal-axis-drop projections.
+use super::{orient2d, Sign};
+
+/// Three-point collinearity test in 3D using exact [`orient2d`] (Shewchuk
+/// adaptive precision + `N24` rational zero-certification) on three
+/// orthogonal-axis-drop projections.
 ///
-/// Returns `true` iff all three projection `orient2d` tests return
-/// exactly 0.0. See `specs/cherchi_rs_points_collinear.md` for the
+/// Returns `true` iff all three projection [`orient2d`] tests return
+/// [`Sign::Zero`]. See `specs/cherchi_rs_points_collinear.md` for the
 /// full contract.
 ///
 /// # Failure modes
@@ -25,12 +28,25 @@ use cad_primitives::Point3;
 pub fn points_are_collinear_3d(a: Point3, b: Point3, c: Point3) -> bool {
     // Drop each axis in turn. If any projection's orient2d is non-zero,
     // the three points span 2D in that plane and thus are not collinear in 3D.
-    // If all three projections return exactly 0, the points lie on a single
-    // line (or are degenerate-collinear: two or more coincident).
-    let drop_z = geometry_predicates::orient2d([a.x(), a.y()], [b.x(), b.y()], [c.x(), c.y()]);
-    let drop_y = geometry_predicates::orient2d([a.x(), a.z()], [b.x(), b.z()], [c.x(), c.z()]);
-    let drop_x = geometry_predicates::orient2d([a.y(), a.z()], [b.y(), b.z()], [c.y(), c.z()]);
-    drop_z == 0.0 && drop_y == 0.0 && drop_x == 0.0
+    // If all three projections return Sign::Zero (certified in rationals per
+    // N24 so subnormal determinants never underflow to a false Zero), the
+    // points lie on a single line (or are degenerate-collinear: two or more
+    // coincident).
+    orient2d(
+        Point2::new(a.x(), a.y()),
+        Point2::new(b.x(), b.y()),
+        Point2::new(c.x(), c.y()),
+    ) == Sign::Zero
+        && orient2d(
+            Point2::new(a.x(), a.z()),
+            Point2::new(b.x(), b.z()),
+            Point2::new(c.x(), c.z()),
+        ) == Sign::Zero
+        && orient2d(
+            Point2::new(a.y(), a.z()),
+            Point2::new(b.y(), b.z()),
+            Point2::new(c.y(), c.z()),
+        ) == Sign::Zero
 }
 
 /// Exact "strictly inside the open segment" test in 3D.
@@ -440,5 +456,25 @@ mod tests {
             "predicate must be symmetric in the two segment endpoints"
         );
         assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    // ── N24 / UL-04 subnormal zero-certification pin (audit TC-2) ────
+
+    #[test]
+    fn n24_subnormal_area_triangle_is_not_collinear_and_survives_soup_prep() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1e-200, 0.0, 0.0);
+        let c = Point3::new(0.0, 1e-200, 0.0);
+        assert!(!points_are_collinear_3d(a, b, c));
+        let (kept, _, _, _) = crate::arrangements::soup::remove_degenerate_and_duplicated_triangles(
+            &[a, b, c],
+            &[[0, 1, 2]],
+            &[vec![crate::InputId(0)]],
+        );
+        assert_eq!(
+            kept.len(),
+            1,
+            "valid non-collinear subnormal-area triangle must not be dropped"
+        );
     }
 }
