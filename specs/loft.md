@@ -351,6 +351,20 @@ Every increment is independently landable, keeps the workspace green, and carrie
 
 ## 6. Open Questions for the User
 
+> **Decisions (user, 2026-10-27).** Put to the user in prose: start loft now
+> alongside the faithfulness work; include L4 (unequal segment counts,
+> round-to-square, single-hole) in v1, ordered L1 → L2 → L3 → L5 → L6 → L4;
+> take this section's recommendations on degree (fixed `q = min(3, m − 1)`,
+> no degree knob), parameterization (P&T averaged chord-length, Eq. 10.8),
+> drawing silhouettes (`ProjectionDeclines` for `Surface::BSpline` interiors
+> in L1) and boolean scope (Option (a) until F5 lands — loud `NotSupported`
+> on a `Surface::BSpline` boolean operand, L7 rides on F5); and one change:
+> **no automatic centripetal retry** — a non-positive weight or a failed
+> chord-length interpolation is a loud typed refusal (P9/P10: one rule, no
+> fallback path). The user answered, verbatim: *"agree"*. The B-spline
+> algorithms of L1 live in `crates/cad-primitives` (reviewer amendment
+> above), so F5's non-analytic instance reuses them.
+
 Each decision point below is stated in prose with its literature and codebase grounding and a concrete engineering recommendation (`GEMINI.md` §3).
 
 1. **Boolean scope for v1 (`D14` boundary and disjoint multi-body combines):**
