@@ -206,8 +206,13 @@ cross-patch folds protect cases that F3's local loop must absorb first.
       24(b), N89 item 4 — resolved 2026-10-27).
 - [x] Stage-0 wall: the coincident cylinder (N89 item 5 → **N103** PROPOSED 2026-10-27: audited against §4.5.5 in `specs/yang_455_cosurface_cylinder.md`; shared-frame axial extents and identical overlap meshes on both operands fixed and pinned in `f6_coincident_cylinder.rs`. Open: unify with planar Stage 0 — co-dispatch, pre-Stage-1 weld with the #178 refusal, a 2D (rθ, z) overlay).
 - [x] Stage-0 coplanar scan bounds every curve by its own extent (N98 — RESOLVED 2026-10-27 via `geom::curve_aabb`).
+- [ ] *(Low priority, user 2026-10-27.)* Unify the coincident-cylinder
+      Stage 0 with planar Stage 0 (N103, OPEN — accepted in principle):
+      co-dispatch, pre-Stage-1 weld with the #178 refusal (retire PR-6's
+      post-arrangement weld and `zband` bucketing), and a 2D (rθ, z) overlay
+      in place of the axial-containment special case.
 - [ ] R0023's coplanar cap residue (M8 follow-up; Stage 0's n-ary refusal, N25 — not N17, corrected 2026-10-27; it now fails first as a kernel-v2 cap segment face with < 3 vertices).
-- **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N103 (PROPOSED), N10, N12,
+- **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N10, N12,
   N32, N36, N42, N43.
 
 ### F7 — Adjudicate what remains
@@ -260,3 +265,4 @@ the first known item.
 | 2026-10-27 | N99 FIXED: cherchi-rs projection-axis filter certified on edge differences with a doubled margin and subnormal guard, exact fallback otherwise; UL-04: every orient2d routes through the N24 exact-zero re-check | 63 | 138 | 360C / 0W / 9E / 5EE / 0T | 8b5072cf |
 | 2026-10-27 | F6 coincident-cylinder Stage 0 audited against §4.5.5 and ledgered as N103 (PROPOSED, N89 item 5; spec `specs/yang_455_cosurface_cylinder.md`); three defects fixed and pinned — shared-frame axial extents, identical overlap meshes on both operands (revolved bores), exact flush-rim check | 64 | 138 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-10-27 | N98 RESOLVED: the Stage-0 coplanar scan bounds every loop edge by its own swept extent (`geom::curve_aabb`, all Curve variants), 4.5.5-01 → FAITHFUL; N89 item 3 re-resolved: §4.5.3 sweep admits cycles by incidence, open-conic loops now reversal-tested (sweep-level pins) | 63 | 137 | 360C / 0W / 9E / 5EE / 0T | 12bc1594,ea6ecf24 |
+| 2026-10-27 | User sign-offs: N24 PERMANENT ("accept n24"); N103 accepted in principle, PROPOSED → OPEN with a low-priority F6 unification item | 62 | 137 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
