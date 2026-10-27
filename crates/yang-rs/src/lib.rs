@@ -102,7 +102,10 @@ pub(crate) use boolean::*;
 pub use boolean::{boolean, union_operands_strictly_disjoint};
 mod shell_contact;
 pub use shell_contact::{shell_contact_census, ShellContact};
+// §4.2.2 closed-form Gauss-map estimation and overlap filtering (F4 / N92;
+// spec `specs/yang_422_gauss_map_filter.md`).
 mod errors;
+pub mod gauss_map;
 mod geom;
 mod stage1_tessellate;
 mod stage3_ssi;

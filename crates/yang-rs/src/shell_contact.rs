@@ -179,6 +179,23 @@ pub(crate) fn triangle_distance(t: [Point3; 3], s: [Point3; 3]) -> f64 {
     best
 }
 
+/// Least Euclidean distance between segment `[p0, p1]` and 3D triangle `s`.
+fn segment_triangle_distance(p0: Point3, p1: Point3, s: [Point3; 3]) -> f64 {
+    if segment_intersects_triangle_3d(p0, p1, s[0], s[1], s[2])
+        == SegmentTriangleIntersection::Intersects
+    {
+        return 0.0;
+    }
+    let (a, b) = (p0.as_array(), p1.as_array());
+    let sa = s.map(|p| p.as_array());
+    let mut best = norm(sub(a, closest_on_triangle(a, sa[0], sa[1], sa[2])))
+        .min(norm(sub(b, closest_on_triangle(b, sa[0], sa[1], sa[2]))));
+    for j in 0..3 {
+        best = best.min(segment_segment_distance(a, b, sa[j], sa[(j + 1) % 3]));
+    }
+    best
+}
+
 /// Closest points of two segments (Ericson, Real-Time Collision Detection
 /// §5.1.9), clamped to both segments.
 fn segment_segment_closest(p1: V3, q1: V3, p2: V3, q2: V3) -> (V3, V3) {
@@ -292,6 +309,303 @@ pub(crate) struct ContactPair {
 /// overlap, §4.5.5's and the coincident-cylinder Stage 0's population) are
 /// not listed: they touch everywhere by construction. Sorted by `(tri_a,
 /// tri_b)`.
+/// Per-stage counters from [`contact_pairs_with_stats`] (exposed in-crate for
+/// §4.2.2 Gauss-map filter unit pins).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ContactCensusStats {
+    pub(crate) visited: usize,
+    pub(crate) box_rejected: usize,
+    pub(crate) coarse_rejected: usize,
+    pub(crate) intersecting: usize,
+    pub(crate) skipped: usize,
+    pub(crate) gauss_rejected: usize,
+    pub(crate) refined: usize,
+}
+
+#[derive(Copy, Clone)]
+struct NearCandidate {
+    t: u32,
+    s: u32,
+    d_coarse: f64,
+    reach: f64,
+}
+
+/// Bitmask `1 << k` (`k ∈ 0..3`) per triangle marking edges `(tri[k], tri[(k+1)%3])`
+/// that are NOT shared by exactly two triangles of the SAME face `tri_face[ti]`
+/// (i.e. true face-trim boundary edges; periodic seam edges have the same face
+/// on both sides and carry bit `0`).
+fn tri_trim_edge_mask(mesh: &crate::Mesh, tri_face: &[u32]) -> Vec<u8> {
+    let mut edges: Vec<((u32, u32, u32), u32, u8)> = Vec::with_capacity(mesh.tris.len() * 3);
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        let f = tri_face[ti];
+        for k in 0..3 {
+            let u = tri[k];
+            let v = tri[(k + 1) % 3];
+            edges.push(((f, u.min(v), u.max(v)), ti as u32, k as u8));
+        }
+    }
+    edges.sort_unstable();
+    let mut mask = vec![0u8; mesh.tris.len()];
+    let mut i = 0;
+    while i < edges.len() {
+        let key = edges[i].0;
+        let mut j = i + 1;
+        while j < edges.len() && edges[j].0 == key {
+            j += 1;
+        }
+        if j - i != 2 {
+            for e in &edges[i..j] {
+                mask[e.1 as usize] |= 1u8 << e.2;
+            }
+        }
+        i = j;
+    }
+    mask
+}
+
+#[inline]
+fn tris_share_vertex(a: [u32; 3], b: [u32; 3]) -> bool {
+    a[0] == b[0]
+        || a[0] == b[1]
+        || a[0] == b[2]
+        || a[1] == b[0]
+        || a[1] == b[1]
+        || a[1] == b[2]
+        || a[2] == b[0]
+        || a[2] == b[1]
+        || a[2] == b[2]
+}
+
+fn pair_touches_trim_within_reach(
+    pts_a: [Point3; 3],
+    mask_a: u8,
+    pts_b: [Point3; 3],
+    mask_b: u8,
+    reach: f64,
+) -> bool {
+    if mask_a != 0 {
+        for k in 0..3 {
+            if (mask_a & (1u8 << k)) != 0
+                && segment_triangle_distance(pts_a[k], pts_a[(k + 1) % 3], pts_b) <= reach
+            {
+                return true;
+            }
+        }
+    }
+    if mask_b != 0 {
+        for k in 0..3 {
+            if (mask_b & (1u8 << k)) != 0
+                && segment_triangle_distance(pts_b[k], pts_b[(k + 1) % 3], pts_a) <= reach
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[derive(Copy, Clone)]
+struct OperandView<'a> {
+    mesh: &'a crate::Mesh,
+    tri_face: &'a [u32],
+    set: &'a TriSet,
+}
+
+/// Yang 2025 §4.2.2 (`refs/text/yang2025_hybrid_boolean.txt:440-482` R;
+/// spec `specs/yang_422_gauss_map_filter.md`): prune connected `2d_ε`
+/// potential-intersection areas on each `(face_a, face_b)` whose regions are
+/// strictly interior (neither bordering a `d_coarse == 0` mesh crossing nor
+/// within `reach` of a face-trim boundary edge, where Sederberg 1989's closed
+/// intersection loop precondition does not hold — e.g. `P0021`) and whose
+/// conservative closed-form Gauss maps have no collinear normal pair.
+fn filter_candidates_by_gauss_map(
+    candidates: &[NearCandidate],
+    intersecting_pairs: &[(u32, u32)],
+    op_a: OperandView<'_>,
+    op_b: OperandView<'_>,
+) -> Vec<bool> {
+    let mut rejected = vec![false; candidates.len()];
+    if candidates.is_empty() {
+        return rejected;
+    }
+
+    let trim_a = tri_trim_edge_mask(op_a.mesh, op_a.tri_face);
+    let trim_b = tri_trim_edge_mask(op_b.mesh, op_b.tri_face);
+
+    let mut by_face: std::collections::BTreeMap<(u32, u32), Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (idx, c) in candidates.iter().enumerate() {
+        let key = (op_a.tri_face[c.t as usize], op_b.tri_face[c.s as usize]);
+        by_face.entry(key).or_default().push(idx);
+    }
+
+    // Index `d_coarse == 0` pairs per `(face_a, face_b)` by `mesh_a` vertex ONLY
+    // for face pairs that actually appear in `by_face`.
+    let mut inter_by_face: std::collections::BTreeMap<
+        (u32, u32),
+        std::collections::BTreeMap<u32, Vec<u32>>,
+    > = std::collections::BTreeMap::new();
+    for &(ta, sb) in intersecting_pairs {
+        let key = (op_a.tri_face[ta as usize], op_b.tri_face[sb as usize]);
+        if !by_face.contains_key(&key) {
+            continue;
+        }
+        let map = inter_by_face.entry(key).or_default();
+        for &va in &op_a.mesh.tris[ta as usize] {
+            map.entry(va).or_default().push(sb);
+        }
+    }
+
+    let mut gauss_cache_a: std::collections::BTreeMap<u32, crate::gauss_map::GaussMap> =
+        std::collections::BTreeMap::new();
+    let mut gauss_cache_b: std::collections::BTreeMap<u32, crate::gauss_map::GaussMap> =
+        std::collections::BTreeMap::new();
+
+    for (face_key, idxs) in &by_face {
+        let m = idxs.len();
+        let mut parent: Vec<usize> = (0..m).collect();
+        let find = |parent: &mut [usize], mut x: usize| -> usize {
+            while parent[x] != x {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
+            x
+        };
+
+        // Connect `(t, s)` and `(t', s')` when `t, t'` share a vertex in `mesh_a`
+        // and `s, s'` share a vertex in `mesh_b`.
+        let mut vert_a_slots: std::collections::BTreeMap<u32, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (slot, &cand_idx) in idxs.iter().enumerate() {
+            let c = candidates[cand_idx];
+            let tri_a = op_a.mesh.tris[c.t as usize];
+            let tri_b = op_b.mesh.tris[c.s as usize];
+            for &va in &tri_a {
+                let list = vert_a_slots.entry(va).or_default();
+                for &other_slot in list.iter() {
+                    let other_s = candidates[idxs[other_slot]].s as usize;
+                    if tris_share_vertex(tri_b, op_b.mesh.tris[other_s]) {
+                        let ra = find(&mut parent, slot);
+                        let rb = find(&mut parent, other_slot);
+                        if ra != rb {
+                            parent[rb] = ra;
+                        }
+                    }
+                }
+                list.push(slot);
+            }
+        }
+
+        let mut comps: std::collections::BTreeMap<usize, Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (slot, &cand_idx) in idxs.iter().enumerate() {
+            let root = find(&mut parent, slot);
+            comps.entry(root).or_default().push(cand_idx);
+        }
+
+        let inter_verts = inter_by_face.get(face_key);
+        for comp_idxs in comps.values() {
+            let mut strictly_interior = true;
+            for &cand_idx in comp_idxs {
+                let c = candidates[cand_idx];
+                let t = c.t as usize;
+                let s = c.s as usize;
+                if pair_touches_trim_within_reach(
+                    op_a.set.pts[t],
+                    trim_a[t],
+                    op_b.set.pts[s],
+                    trim_b[s],
+                    c.reach,
+                ) {
+                    strictly_interior = false;
+                    break;
+                }
+                if let Some(iv) = inter_verts {
+                    let tri_a = op_a.mesh.tris[t];
+                    let tri_b = op_b.mesh.tris[s];
+                    let borders_inter = tri_a.iter().any(|va| {
+                        iv.get(va).is_some_and(|sbs| {
+                            sbs.iter()
+                                .any(|&sb| tris_share_vertex(tri_b, op_b.mesh.tris[sb as usize]))
+                        })
+                    });
+                    if borders_inter {
+                        strictly_interior = false;
+                        break;
+                    }
+                }
+            }
+            if !strictly_interior {
+                continue;
+            }
+
+            let mut ta_list: Vec<u32> = comp_idxs.iter().map(|&i| candidates[i].t).collect();
+            ta_list.sort_unstable();
+            ta_list.dedup();
+            let mut sb_list: Vec<u32> = comp_idxs.iter().map(|&i| candidates[i].s).collect();
+            sb_list.sort_unstable();
+            sb_list.dedup();
+
+            let mut union_a: Option<crate::gauss_map::GaussMap> = None;
+            let mut ga_vec = Vec::with_capacity(ta_list.len());
+            for &t in &ta_list {
+                let gm = *gauss_cache_a.entry(t).or_insert_with(|| {
+                    let ti = t as usize;
+                    crate::gauss_map::GaussMap::from_triangle(
+                        &op_a.set.surf[ti],
+                        op_a.set.pts[ti].map(|p| p.as_array()),
+                    )
+                });
+                union_a = Some(match union_a {
+                    None => gm,
+                    Some(acc) => acc.union(&gm),
+                });
+                ga_vec.push(gm);
+            }
+
+            let mut union_b: Option<crate::gauss_map::GaussMap> = None;
+            let mut gb_vec = Vec::with_capacity(sb_list.len());
+            for &s in &sb_list {
+                let gm = *gauss_cache_b.entry(s).or_insert_with(|| {
+                    let si = s as usize;
+                    crate::gauss_map::GaussMap::from_triangle(
+                        &op_b.set.surf[si],
+                        op_b.set.pts[si].map(|p| p.as_array()),
+                    )
+                });
+                union_b = Some(match union_b {
+                    None => gm,
+                    Some(acc) => acc.union(&gm),
+                });
+                gb_vec.push(gm);
+            }
+
+            let overlaps = match (union_a, union_b) {
+                (Some(ua), Some(ub)) => {
+                    if !ua.overlaps(&ub) {
+                        false
+                    } else if ga_vec.len() * gb_vec.len() <= 256 {
+                        ga_vec
+                            .iter()
+                            .any(|ga| gb_vec.iter().any(|gb| ga.overlaps(gb)))
+                    } else {
+                        true
+                    }
+                }
+                _ => false,
+            };
+
+            if !overlaps {
+                for &cand_idx in comp_idxs {
+                    rejected[cand_idx] = true;
+                }
+            }
+        }
+    }
+
+    rejected
+}
+
 pub(crate) fn contact_pairs(
     mesh_a: &crate::Mesh,
     tri_face_a: &[u32],
@@ -301,6 +615,21 @@ pub(crate) fn contact_pairs(
     faces_b: &[crate::BRepFace],
     skip: &dyn Fn(u32, u32) -> bool,
 ) -> Result<Vec<ContactPair>, YangError> {
+    contact_pairs_with_stats(
+        mesh_a, tri_face_a, faces_a, mesh_b, tri_face_b, faces_b, skip,
+    )
+    .map(|(out, _)| out)
+}
+
+pub(crate) fn contact_pairs_with_stats(
+    mesh_a: &crate::Mesh,
+    tri_face_a: &[u32],
+    faces_a: &[crate::BRepFace],
+    mesh_b: &crate::Mesh,
+    tri_face_b: &[u32],
+    faces_b: &[crate::BRepFace],
+    skip: &dyn Fn(u32, u32) -> bool,
+) -> Result<(Vec<ContactPair>, ContactCensusStats), YangError> {
     let cost = std::env::var_os("YANG_T6_COST_PROBE").is_some();
     let t0 = cost.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE), never set in wasm
     let set_a = TriSet::from_parts(mesh_a, tri_face_a, faces_a)?;
@@ -318,15 +647,16 @@ pub(crate) fn contact_pairs(
     let max_dev_b = set_b.dev.iter().copied().fold(0.0, f64::max);
     let probe = std::env::var_os("YANG_T6_PROBE").is_some();
     let t1 = cost.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE), never set in wasm
-    let (mut n_visited, mut n_box, mut n_coarse, mut n_intersecting, mut n_skipped, mut n_refined) =
-        (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
-    let mut out = Vec::new();
+    let mut stats = ContactCensusStats::default();
+    let mut intersecting_pairs: Vec<(u32, u32)> = Vec::new();
+    let mut candidates: Vec<NearCandidate> = Vec::new();
+
     #[allow(clippy::needless_range_loop)] // `t` indexes five parallel per-triangle vectors
     for t in 0..set_a.pts.len() {
         let pad = set_a.dev[t] + max_dev_b + band;
         bvh_b.for_each_near(set_a.lo[t], set_a.hi[t], pad, |s| {
             let s = s as usize;
-            n_visited += 1;
+            stats.visited += 1;
             if set_a.surf[t] == set_b.surf[s] {
                 return;
             }
@@ -334,7 +664,7 @@ pub(crate) fn contact_pairs(
             if (0..3).any(|k| {
                 set_a.lo[t][k] > set_b.hi[s][k] + reach || set_b.lo[s][k] > set_a.hi[t][k] + reach
             }) {
-                n_box += 1;
+                stats.box_rejected += 1;
                 return;
             }
             let d_coarse = triangle_distance(set_a.pts[t], set_b.pts[s]);
@@ -346,21 +676,20 @@ pub(crate) fn contact_pairs(
             // its exact pieces to the leaf (four gear cases hit the 900 s
             // budget on 2026-10-14 before this line).
             if d_coarse == 0.0 {
-                n_intersecting += 1;
+                stats.intersecting += 1;
+                intersecting_pairs.push((t as u32, s as u32));
                 return;
             }
             if d_coarse > reach {
-                n_coarse += 1;
+                stats.coarse_rejected += 1;
                 if probe {
-                    eprintln!("[t6] a{t}(f{}) b{s}(f{}) coarse d={d_coarse:.4e} > reach {reach:.4e}", tri_face_a[t], tri_face_b[s]);
+                    eprintln!(
+                        "[t6] a{t}(f{}) b{s}(f{}) coarse d={d_coarse:.4e} > reach {reach:.4e}",
+                        tri_face_a[t], tri_face_b[s]
+                    );
                 }
                 return;
             }
-            let piece = |set: &TriSet, i: usize| Piece {
-                pts: set.pts[i].map(|p| p.as_array()),
-                surf: set.surf[i],
-                dev: set.dev[i],
-            };
             // The caller's cheap verdict first (T6: a pair whose one-rings
             // the arrangement already joined can never be a MISSED
             // intersection). Without it, a pair BESIDE a real crossing — its
@@ -368,45 +697,96 @@ pub(crate) fn contact_pairs(
             // themselves — refines exhaustively to the depth limit: F0055
             // (a 1e4-scale model) spent 112 s on 21 such pairs.
             if skip(t as u32, s as u32) {
-                n_skipped += 1;
+                stats.skipped += 1;
                 return;
             }
-            n_refined += 1;
-            let touch = pieces_cross_point(piece(&set_a, t), piece(&set_b, s), band, CROSS_REFINE_DEPTH);
-            if probe {
-                let (x, y, d2) = triangle_closest_pair(set_a.pts[t], set_b.pts[s]);
-                eprintln!(
-                    "[t6] a{t}(f{}) b{s}(f{}) coarse d={d_coarse:.4e} pair-d={d2:.4e} reach {reach:.4e} devs {:.3e}/{:.3e} touch={:?} x={x:?} y={y:?}",
-                    tri_face_a[t], tri_face_b[s], set_a.dev[t], set_b.dev[s], touch.map(|(_, r)| r)
-                );
-            }
-            if let Some((point, leaf_reach)) = touch {
-                out.push(ContactPair {
-                    tri_a: t as u32,
-                    tri_b: s as u32,
-                    point,
-                    reach: leaf_reach,
-                });
-            }
+            candidates.push(NearCandidate {
+                t: t as u32,
+                s: s as u32,
+                d_coarse,
+                reach,
+            });
         });
     }
+
+    let gauss_rejected = filter_candidates_by_gauss_map(
+        &candidates,
+        &intersecting_pairs,
+        OperandView {
+            mesh: mesh_a,
+            tri_face: tri_face_a,
+            set: &set_a,
+        },
+        OperandView {
+            mesh: mesh_b,
+            tri_face: tri_face_b,
+            set: &set_b,
+        },
+    );
+
+    let piece = |set: &TriSet, i: usize| Piece {
+        pts: set.pts[i].map(|p| p.as_array()),
+        surf: set.surf[i],
+        dev: set.dev[i],
+    };
+    let mut out = Vec::new();
+    for (idx, c) in candidates.iter().enumerate() {
+        let t = c.t as usize;
+        let s = c.s as usize;
+        if gauss_rejected[idx] {
+            stats.gauss_rejected += 1;
+            if probe {
+                eprintln!(
+                    "[t6] a{t}(f{}) b{s}(f{}) coarse d={:.4e} reach {:.4e} gauss-rejected",
+                    tri_face_a[t], tri_face_b[s], c.d_coarse, c.reach
+                );
+            }
+            continue;
+        }
+        stats.refined += 1;
+        let touch =
+            pieces_cross_point(piece(&set_a, t), piece(&set_b, s), band, CROSS_REFINE_DEPTH);
+        if probe {
+            let (x, y, d2) = triangle_closest_pair(set_a.pts[t], set_b.pts[s]);
+            eprintln!(
+                "[t6] a{t}(f{}) b{s}(f{}) coarse d={:.4e} pair-d={d2:.4e} reach {:.4e} devs {:.3e}/{:.3e} touch={:?} x={x:?} y={y:?}",
+                tri_face_a[t], tri_face_b[s], c.d_coarse, c.reach, set_a.dev[t], set_b.dev[s], touch.map(|(_, r)| r)
+            );
+        }
+        if let Some((point, leaf_reach)) = touch {
+            out.push(ContactPair {
+                tri_a: c.t,
+                tri_b: c.s,
+                point,
+                reach: leaf_reach,
+            });
+        }
+    }
+
     out.sort_by_key(|p| (p.tri_a, p.tri_b));
     if let (Some(t0), Some(t1)) = (t0, t1) {
         eprintln!(
-            "[t6-cost] tris {}×{} sets+bvh {:.3}s, pairs {:.3}s: visited {n_visited} \
-             (box-rejected {n_box}, coarse-rejected {n_coarse}, intersecting {n_intersecting}, \
-             skipped {n_skipped}, refined {n_refined}) → {} contacts; max dev a {:.3e} b {:.3e}, \
+            "[t6-cost] tris {}×{} sets+bvh {:.3}s, pairs {:.3}s: visited {} \
+             (box-rejected {}, coarse-rejected {}, intersecting {}, \
+             skipped {}, gauss-rejected {}, refined {}) → {} contacts; max dev a {:.3e} b {:.3e}, \
              band {band:.3e}",
             set_a.pts.len(),
             set_b.pts.len(),
             t1.duration_since(t0).as_secs_f64(),
             t1.elapsed().as_secs_f64(),
+            stats.visited,
+            stats.box_rejected,
+            stats.coarse_rejected,
+            stats.intersecting,
+            stats.skipped,
+            stats.gauss_rejected,
+            stats.refined,
             out.len(),
             set_a.dev.iter().copied().fold(0.0, f64::max),
             max_dev_b,
         );
     }
-    Ok(out)
+    Ok((out, stats))
 }
 
 /// Where the exact surface pieces over `t` and `s` CROSS: refine as

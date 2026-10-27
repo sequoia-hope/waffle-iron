@@ -156,8 +156,8 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
 - [ ] Tangency by Newton (`:489-492`), small-loop tracing (`:598-601`),
       Fig. 10(c) seeding, and contacts below the model band (N91). The
       cylinder×cylinder Stage-1 tangent mint retires.
-- [ ] §4.2.2 Gauss-map overlap filter with the closed-form maps of the
-      analytic surfaces (N92).
+- [x] §4.2.2 Gauss-map overlap filter with the closed-form maps of the
+      analytic surfaces (N92; `specs/yang_422_gauss_map_filter.md`, 2026-10-27).
 - [ ] §4.3.4 refinement for every curve, optimizing from the surfaces'
       parameter midpoints, with no 4096 cap (matrix M-8, N7 amendment).
 - [ ] T6 detection floor from the paper's d_ε (N89 item 2).
