@@ -535,6 +535,8 @@ fn n89_item3_sweep_visits_and_corrects_all_hyperbola_prism_cone_loop() {
         &HashSet::new(),
         &entry_pos,
         &BTreeMap::new(),
+        false,
+        None,
     )
     .expect("sweep_reversed_intersections on 4-Hyperbola prism×cone loop");
 
@@ -662,6 +664,8 @@ fn n89_item3_sweep_visits_and_corrects_all_parabola_lens_loop() {
         &HashSet::new(),
         &entry_pos,
         &BTreeMap::new(),
+        false,
+        None,
     )
     .expect("sweep_reversed_intersections on 2-Parabola lens loop");
 
