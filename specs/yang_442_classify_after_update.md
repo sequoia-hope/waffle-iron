@@ -129,6 +129,32 @@ and I3 both need.
   8. `split_pinch_vertices` (`stage4_relocate.rs`) and `compact_unreferenced_verts` (`stage4_correct/collapse.rs`) — rewrite vertex indices inside `mesh.tris` in place without adding, removing, or reordering triangle slots; take `&[TriangleSideLabel]` and `debug_assert_eq!(side_labels.len(), mesh.tris.len())`. (Vertex-only `&mut Mesh` helpers `apply_boundary_relocations` and `corner_transit_apply`'s rollback closure leave `mesh.tris` untouched.)
 - **Hand-off assertion & pins:** In `reconstruct_topology_stage4` (`stage5_topology.rs`), immediately before `emit_topology`, `debug_assert_eq!` verifies `side_labels.len() == mesh.tris.len() == attribution.attributions.len()` and `side_labels.keep_set(op) == (0..mesh.tris.len()).collect::<Vec<_>>()`. Unit pins in `crates/yang-rs/src/tests_unit/s442_side_labels.rs` (plus `s451_crease_domain.rs` and `stage4_construct.rs` inline tests); debug `yang-rs` (1521 passed, 0 failed) and `kernel-v2` (869 passed, 0 failed) green; canonical release corpus `360C / 0W / 9E / 5EE / 0T` over 374 (0 moved cases, `928.7s` wall vs 2026-10-25 `~930s`).
 
+### Pre-I3 cost measurement (2026-10-27)
+
+Measured at `cae429f2` (post-I1, pre-I3) under booked isolation (`ASSAY_JOBS=1`,
+`ASSAY_CASE_TIMEOUT_SECS=900`, `YANG_STAGE_TIME_PROBE=1`, `YANG_KEEP_PROBE=1`,
+`cargo test --release -p test-harness --test assay_kv2 single_case -- --ignored --exact --nocapture`)
+across six corpus cases spanning arrangement sizes (`344` to `804,340` triangles):
+
+| Case (wall) | Op / rung | `la tris` ($T_{\text{full}}$) | `kept` | Stage-4 entry `tris` ($T_{\text{s4}}$) | $r = T_{\text{full}} / T_{\text{s4}}$ ($r^2$) | Verbatim `[stage-time]` & `[s4-lap]` | Projected $O(T^2)$ $\Delta t$ |
+|---|---|---:|---:|---:|---:|---|---:|
+| `C0058` (`56.84s`, 2 replays + check) | `Union` natural | `344` | `204` | `204` | `1.69×` (`2.84×`) | `total=0.05s pre_s2=0.00 s2=0.03 keep_resolve=0.00 s4_emit=0.02` (`441-update 0.00s`) | `+<0.1s` |
+| `P0003` (`0.45s`) | `Subtract` natural | `584` | `96` | `96` | `6.08×` (`37.0×`) | `total=0.02s pre_s2=0.00 s2=0.02 keep_resolve=0.00 s4_emit=0.00` | `+<0.1s` |
+| | `Subtract` `iter 0 k=2` | `1788` | `142` | `142` | `12.59×` (`158.5×`) | `total=0.04s pre_s2=0.00 s2=0.04 keep_resolve=0.00 s4_emit=0.00` | `+<0.1s` |
+| `P0053` (`8.33s`) | `Subtract` natural (STOP) | `4740` | `3058` | `3058` | `1.55×` (`2.40×`) | `STOPped total=0.55s pre_s2=0.07 s2=0.38 keep_resolve=0.04` | `+0.1s` |
+| | `Subtract` `iter 0 k=2` (STOP) | `4792` | `3062` | `3062` | `1.56×` (`2.45×`) | `STOPped total=0.56s pre_s2=0.07 s2=0.37 keep_resolve=0.04` (`before-3c-merge 0.02s 441-update 0.01s before-transit 0.01s`) | `+0.1s` |
+| | `Subtract` `iter 1 k=2` | `5136` | `3196` | `3196` | `1.61×` (`2.58×`) | `total=3.46s pre_s2=0.07 s2=0.40 keep_resolve=0.04 s4_emit=2.96` (`phase-a 0.01s before-3c-merge 0.01s 441-update 0.01s before-transit 0.01s`; rest is `emit_topology`, which stays kept-only) | `+<0.2s` |
+| `R0085` (`250.44s`, 2 replays of 2-op tree) | Op 1 `Union` natural (STOP) | `33395` | `27467` | `26838` | `1.24×` (`1.55×`) | `STOPped total=32.71s/37.42s pre_s2=4.61/4.95 s2=2.27/2.41 keep_resolve=18.50/20.63` (`before-3c-merge 7.11s/9.15s 441-update 0.06s/0.07s`) | `+4.5s`/replay |
+| | Op 1 `Union` `iter 0 k=8` | `143800` | `137214` | `136484` | `1.05×` (`1.11×`) | `total=16.60s/19.37s pre_s2=6.22/6.98 s2=4.07/4.30 keep_resolve=0.84/0.92 s4_emit=5.47/7.15` (`phase-a 0.19s/0.20s before-3c-merge 3.85s/4.94s 441-update 0.26s/0.33s before-transit 0.31s/0.42s`) | `+0.8s`/replay |
+| | Op 2 `Union` natural | `25968` | `19770` | `19230` | `1.35×` (`1.82×`) | `total=46.12s/47.55s pre_s2=28.43/29.69 s2=13.21/13.40 keep_resolve=1.99/1.97 s4_emit=2.50/2.49` (`phase-a 0.13s before-3c-merge 0.88s 441-update 0.18s before-transit 0.16s/0.15s`) | `+2.0s`/replay |
+| `R0044` (`430.91s`) | `Union` natural (STOP) | `102588` | `100212` | `100212` | `1.024×` (`1.048×`) | `STOPped total=26.62s pre_s2=0.17 s2=1.29 keep_resolve=0.08` (`phase-a 0.15s before-3c-merge 23.91s 441-update 0.28s before-transit 0.26s transit 0.07s`) | `+1.2s` |
+| | `Union` `iter 0 k=4` | `403684` | `396142` | `396142` | `1.019×` (`1.038×`) | `total=77.98s pre_s2=0.58 s2=5.10 keep_resolve=0.38 s4_emit=71.87` (`phase-a 0.66s before-3c-merge 61.46s 441-update 2.07s before-transit 1.42s transit 0.54s`) | `+2.7s` |
+| | `Union` `iter 1 k=2` | `804340` | `789910` | `789910` | `1.018×` (`1.037×`) | `total=151.48s pre_s2=1.18 s2=35.10 keep_resolve=0.86 s4_emit=114.18` (`phase-a 1.55s before-3c-merge 81.70s 441-update 8.56s before-transit 4.07s transit 0.25s`) | `+4.2s` |
+| `F0067` (`547.56s`, 2 replays of 9-op tree) | Ops 1–8 `Union` | `72..11108` | `72..11108` | `72..10528` | `1.00–1.06×` (`≤1.11×`) | Ops 1–7 `s4_emit=0.00..0.05s`; Op 8 `total=10.21s/10.33s s2=4.28/4.31 s4_emit=0.16/0.17` | `+<0.1s`/replay |
+| | Op 9 `Union` natural + `iter 0..3 k=2` | `15450..17158` | `15450..17158` | `13544..15052` | `1.14×` (`1.30×`) | `total=42.92s..58.64s pre_s2=9.95..14.67 s2=29.66..40.89 keep_resolve=2.19..2.57 s4_emit=0.54..1.23` (`before-3c-merge 0.02..0.17s 441-update 0.09..0.16s`; `1906..2106` `[InputId(0), InputId(1)]` overlap-sheet tris retained through Stage 4 under I3) | `+1.7s`/replay |
+
+**Feasibility verdict:** On the two slowest corpus cases (`F0067` at `547.56s`, dominated by Stage 2 `s2=29.66..40.89s`/rung with `s4_emit ≤ 1.23s`; `R0044` at `430.91s`, where `Union` already retains `98.2%` of the `804,340`-triangle arrangement so $r = 1.018\times$, $r^2 = 1.037\times$), even worst-case $O(T^2)$ scaling on every Stage-4 pass adds `< 9s` per case (`~551s` and `~439s`), leaving `> 340s` of headroom below the `900s` corpus timeout. Higher full/kept ratios occur on `Subtract` cases where a large cutter lies mostly outside the target (`P0003`: `12.59×` at `1788 / 142`; `P0053`: `1.61×` at `5136 / 3196`), where Stage 4 itself runs in `< 0.05s`. I3 is feasible within the `900s` budget without early-outs.
+
 **I3 — Stage 4 on the full arrangement, keep afterwards.** Stage 4 receives
 the welded full `la.mesh` with N4 attribution on every triangle and I1's
 labels; the keep, the winding flip and the membrane rule run after it;

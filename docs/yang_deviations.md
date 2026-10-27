@@ -6542,7 +6542,20 @@ corpus byte-identical (`360C / 0W / 9E / 5EE / 0T` over 374, 0 moved cases,
 wall `928.7s` vs `~930s`). Classification order itself remains unchanged until
 I3.
 
-**State: OPEN** (found 2026-10-16; remediation: the O-1 design spec; I1 landed 2026-10-27 — plumbing, byte-identical).
+**Progress (2026-10-27) — Pre-I3 cost measurement completed.** Timed Stage 4 and
+counted full-arrangement (`la tris`) vs Stage-4 entry (`tris=...`) triangles at
+`cae429f2` (`ASSAY_JOBS=1`, `ASSAY_CASE_TIMEOUT_SECS=900`,
+`YANG_STAGE_TIME_PROBE=1`, `YANG_KEEP_PROBE=1`, `--release single_case`) across
+six cases spanning sizes (full table in
+`specs/yang_442_classify_after_update.md` §5):
+- `C0058` (`56.84s`): `la tris 344 kept 204` (`tris=204`, `1.69×`), `s4_emit=0.02s` (`total=0.05s s2=0.03`).
+- `P0003` (`0.45s`): natural `la tris 584 kept 96` (`tris=96`, `6.08×`), `iter 0 k=2` `la tris 1788 kept 142` (`tris=142`, `12.59×`), `s4_emit=0.00s` (`total=0.02s` / `0.04s`).
+- `P0053` (`8.33s`): natural `la tris 4740 kept 3058` (`1.55×`, STOP `0.55s`), `iter 0 k=2` `la tris 4792 kept 3062` (`1.56×`, STOP `0.56s`), `iter 1 k=2` `la tris 5136 kept 3196` (`tris=3196`, `1.61×`, `total=3.46s s2=0.40 s4_emit=2.96`, `[s4-lap]` passes `≤ 0.01s` each).
+- `R0085` (`250.44s`, 2 replays): Op 1 natural `la tris 33395 kept 27467` (`tris=26838`, `1.24×`, `before-3c-merge 7.11s/9.15s`, STOP `32.71s/37.42s`); Op 1 `iter 0 k=8` `la tris 143800 kept 137214` (`tris=136484`, `1.05×`, `s4_emit=5.47s/7.15s`, `before-3c-merge 3.85s/4.94s`); Op 2 `la tris 25968 kept 19770` (`tris=19230`, `1.35×`, `s4_emit=2.50s/2.49s`, `total=46.12s/47.55s` dominated by `pre_s2=28.43s/29.69s` + `s2=13.21s/13.40s`).
+- `R0044` (`430.91s`): natural `la tris 102588 kept 100212` (`tris=100212`, `1.024×`, `before-3c-merge 23.91s`, STOP `26.62s`); `iter 0 k=4` `la tris 403684 kept 396142` (`tris=396142`, `1.019×`, `s4_emit=71.87s`, `before-3c-merge 61.46s 441-update 2.07s before-transit 1.42s`); `iter 1 k=2` `la tris 804340 kept 789910` (`tris=789910`, `1.018×`, `s4_emit=114.18s`, `before-3c-merge 81.70s 441-update 8.56s before-transit 4.07s`). Even at $O(T^2)$ (`1.037×`), `R0044` adds `< 9s` (`~439s` vs `900s` budget).
+- `F0067` (`547.56s`, 2 replays): Ops 1–8 `la tris 72..11108` (`s4_emit ≤ 0.17s`); Op 9 (`natural` + `iter 0..3 k=2`) `la tris 15450..17158 kept 15450..17158` (`tris=13544..15052` after `1906..2106` overlap-sheet membrane drops, `1.14×`), `s4_emit=0.54..1.23s` out of `total=42.92..58.64s` (`s2=29.66..40.89s`). I3 is well within the `900s` corpus budget.
+
+**State: OPEN** (found 2026-10-16; remediation: the O-1 design spec; I1 and pre-I3 cost measurement landed 2026-10-27).
 
 ### N81 — Within Stage 4 the §4.3 point removals and the Case-IV rule-out run after §4.5.3 and §4.4.1, and §4.4.1 runs in three places (matrix O-2)
 

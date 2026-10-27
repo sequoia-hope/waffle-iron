@@ -84,9 +84,13 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
 - [x] **I1:** carry the per-triangle side labels through every Stage-4
       mutator (byte-identical; a debug assertion re-derives today's kept
       set). *(Landed 2026-10-27.)*
-- [ ] **Measure:** Stage 4 on the full arrangement costs 1.6–1.7× the
+- [x] **Measure:** Stage 4 on the full arrangement costs 1.6–1.7× the
       triangles and up to ~2.7× on the O(T²) passes. Time it on the corpus
-      before the flip (`YANG_STAGE_TIME_PROBE`, `ASSAY_JOBS=1`).
+      before the flip (`YANG_STAGE_TIME_PROBE`, `ASSAY_JOBS=1`). *(Measured
+      2026-10-27 across C0058, P0003, P0053, R0085, R0044, F0067 — largest
+      cases R0044 430.91s at 1.018× and F0067 547.56s at 1.14× stay >340s
+      below the 900s ceiling; see `specs/yang_442_classify_after_update.md` §5
+      and N80.)*
 - [ ] **I3:** Stage 4 on the full welded arrangement; keep, winding flip and
       membrane rule after it. The flood key becomes `(attribution, cherchi
       patch)`, curve incidence is deduped per operand, and a per-operand
