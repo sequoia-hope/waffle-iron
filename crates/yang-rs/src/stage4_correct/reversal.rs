@@ -96,55 +96,38 @@ pub(crate) fn sweep_reversed_intersections(
                 if cycle.len() < 3 {
                     continue;
                 }
-                // PR-YR11 widened Circle-only to `all_conic`; spec §3c widens
-                // again to PER-SITE eligibility: any cycle containing at
-                // least one intersection edge is scanned, and the site tests
-                // skip every position whose incident edges are not BOTH
-                // intersection edges of one curve (real face boundaries mix
-                // solid edges with seam runs — whole-cycle gates never fire on
-                // them). M5 torus arm (2026-09-22, R0032): the typed
-                // PROCEDURAL surface-pair edge joins the population; its site
-                // test is the tangent-order arm (`conic_param_deltas`), never
-                // the angle band.
-                let any_intersection = cycle.iter().any(|&(s, e)| {
+                // Yang et al. 2025 §4.5.3 (`refs/text/yang2025_hybrid_boolean.txt:679-689,
+                // 718-751`, Fig. 15; ledger N89 item 3): admit every boundary cycle that
+                // contains at least one cross-operand (`A × B`) intersection edge by
+                // Phase-A incidence alone, uniformly across all `Curve` variants (typed
+                // `Circle`/`Ellipse`/`Parabola`/`Hyperbola`/`LineSegment`/`SurfacePair`
+                // and untyped pair-relocated edges alike; `build_intersection_curves`
+                // requires `A × B` incidence, so this subsumes both typed and untyped
+                // intersection runs without enumerating curve types).
+                let any_cross_incidence = cycle.iter().any(|&(s, e)| {
                     let key = if s < e { (s, e) } else { (e, s) };
-                    matches!(
-                        curves.get(&key),
-                        Some(Curve::Circle { .. })
-                            | Some(Curve::Ellipse { .. })
-                            | Some(Curve::LineSegment)
-                            | Some(Curve::SurfacePair { .. })
-                    )
+                    incidence.get(&key).is_some_and(|entries| {
+                        entries.iter().any(|&(i, _)| i == InputId::A)
+                            && entries.iter().any(|&(i, _)| i == InputId::B)
+                    })
                 });
-                // Spec `yang_453_pair_chain_reversal` §3: an UNTYPED
-                // both-input edge (a pair-relocated intersection edge — e.g.
-                // torus∩cylinder) also qualifies the cycle; a fully-quartic
-                // boundary has no typed edge at all.
-                let any_pair = cycle.iter().any(|&(s, e)| {
-                    let key = if s < e { (s, e) } else { (e, s) };
-                    !curves.contains_key(&key)
-                        && incidence.get(&key).is_some_and(|entries| {
-                            entries.iter().any(|&(i, _)| i == InputId::A)
-                                && entries.iter().any(|&(i, _)| i == InputId::B)
-                        })
-                });
-                if !(any_intersection || any_pair) {
+                if !any_cross_incidence {
                     continue;
                 }
-                // Spec §3c final scope: ALL-CONIC cycles take the angle band
-                // at every site; in MIXED cycles only straight-run sites (both
-                // incident edges LineSegment) take it. Conic sites inside
-                // mixed cycles are DISPROVEN twice for the band (spec §3c P10
-                // records: a 7-gon's 51° corners exceed it — `corner_in_band`
-                // adversary — and overlay-adjacent conic runs repair
-                // unsupported Stage-0 crossings into silent geometry, the
-                // hole-rim pin); they take the exact parameter order instead.
+                // Spec §3c final scope + N89 item 3: ALL-CONIC cycles (every edge a
+                // planar conic — `geom::curve_plane(c).is_some()`, covering closed
+                // `Circle`/`Ellipse` rings and multi-arc `Parabola`/`Hyperbola` loops
+                // alike without a curve-variant list) take the §4.5.3 angle band at
+                // every single-curve site; in MIXED cycles only straight-run sites
+                // (both incident edges `LineSegment`) take the band while conic sites
+                // take exact parameter order (`mixed_cycle_shared_conic` — spec §3c P10
+                // records: a 7-gon's 51° corners exceed it and overlay-adjacent conic
+                // runs repair unsupported Stage-0 crossings into silent geometry).
                 let all_conic = cycle.iter().all(|&(s, e)| {
                     let key = if s < e { (s, e) } else { (e, s) };
-                    matches!(
-                        curves.get(&key),
-                        Some(Curve::Circle { .. }) | Some(Curve::Ellipse { .. })
-                    )
+                    curves
+                        .get(&key)
+                        .is_some_and(|c| crate::geom::curve_plane(c).is_some())
                 });
                 let mut sorted: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
                 sorted.sort_unstable();
@@ -188,9 +171,50 @@ pub(crate) fn sweep_reversed_intersections(
                     vs[(k + 1) % m],
                 )
             };
-            let start = (0..m).find(|&k| end_at(&raw, k)).unwrap_or(0);
-            let verts: Vec<u32> = (0..m).map(|k| raw[(start + k) % m]).collect();
-            let endpoint: Vec<bool> = (0..m).map(|k| end_at(&verts, k)).collect();
+            let start_opt = (0..m).find(|&k| end_at(&raw, k));
+            let (verts, endpoint) = if let Some(start) = start_opt {
+                let verts: Vec<u32> = (0..m).map(|k| raw[(start + k) % m]).collect();
+                let endpoint: Vec<bool> = (0..m).map(|k| end_at(&verts, k)).collect();
+                (verts, endpoint)
+            } else {
+                // Zero topological corners (`end_at == false` around the entire
+                // cycle: `rank < 3` everywhere and one shared curve `c0`). A
+                // periodic conic (`conic_param_periodic` — `S¹`) legitimately
+                // closes with no endpoints; a non-periodic open conic
+                // (`!conic_param_periodic` — `ℝ`, cf. `stage4_splice::order_along_curve`)
+                // cannot wrap periodically, so its parameter extrema `[t_min, t_max]`
+                // bound the open arc (preserving any scaffold closing chord while
+                // keeping interior arc vertices live in the §4.5.3 sweep).
+                let e0 = cycle[0];
+                let key0 = if e0.0 < e0.1 { e0 } else { (e0.1, e0.0) };
+                if let Some(c0) = curves.get(&key0).filter(|c| !conic_param_periodic(c)) {
+                    let params: Option<Vec<f64>> = raw
+                        .iter()
+                        .map(|&v| conic_param(c0, mesh.verts[v as usize]).filter(|t| t.is_finite()))
+                        .collect();
+                    if let Some(ts) = params {
+                        let k_min = (0..m)
+                            .min_by(|&a, &b| {
+                                ts[a].total_cmp(&ts[b]).then_with(|| raw[a].cmp(&raw[b]))
+                            })
+                            .unwrap_or(0);
+                        let k_max = (0..m)
+                            .max_by(|&a, &b| {
+                                ts[a].total_cmp(&ts[b]).then_with(|| raw[a].cmp(&raw[b]))
+                            })
+                            .unwrap_or(0);
+                        let verts: Vec<u32> = (0..m).map(|k| raw[(k_min + k) % m]).collect();
+                        let mut endpoint = vec![false; m];
+                        endpoint[0] = true;
+                        endpoint[(k_max + m - k_min) % m] = true;
+                        (verts, endpoint)
+                    } else {
+                        (raw, vec![false; m])
+                    }
+                } else {
+                    (raw, vec![false; m])
+                }
+            };
             for i in 0..m {
                 let p_b = verts[(i + m - 1) % m];
                 let p_r = verts[i];
@@ -1533,18 +1557,13 @@ pub(crate) fn angle_site_tangent(
         }
         None => {}
     }
-    // Exact conic tangent at p_r. Find the Circle OR Ellipse this edge carries
-    // (PR-YR11: ellipse edges compute the ellipse tangent). Prefer the current
-    // edge `(p_r, p_n)`; fall back to the previous edge `(p_b, p_r)`.
+    // Exact conic tangent at p_r (Yang §4.5.3, Fig. 15; ledger N89 item 3).
+    // Prefer the current edge `(p_r, p_n)`; fall back to `(p_b, p_r)` (the two
+    // are equal at any surviving single-curve site after the junction guard
+    // above). Admits all planar conics (`Circle`, `Ellipse`, `Parabola`,
+    // `Hyperbola`) without filtering by `Curve` variant.
     let key2 = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
-    let conic = match curves.get(&key) {
-        Some(c @ (Curve::Circle { .. } | Curve::Ellipse { .. })) => Some(*c),
-        _ => match curves.get(&key2) {
-            Some(c @ (Curve::Circle { .. } | Curve::Ellipse { .. })) => Some(*c),
-            _ => None,
-        },
-    };
-    let Some(conic) = conic else {
+    let Some(&conic) = curves.get(&key).or_else(|| curves.get(&key2)) else {
         return Some(None);
     };
     let tan_c = match conic {
@@ -1554,11 +1573,13 @@ pub(crate) fn angle_site_tangent(
             axis_dir,
             focal_length,
         } => {
-            // PR-YR22: parabola tangent `d/dt point(t) = (t/(2f))·axis_dir +
-            // (normal × axis_dir)`, evaluated at the conjugate-axis coordinate
-            // `t = (p_r − vertex)·(normal × axis_dir)` (the same tag the Stage-4
-            // parabola loop stores). Defensively correct even though the open-arc
-            // parabola section is excluded from the closed-loop `all_conic` sweep.
+            // PR-YR22 / N89 item 3: parabola tangent `d/dt point(t) =
+            // (t/(2f))·axis_dir + (normal × axis_dir)`, evaluated at the
+            // conjugate-axis coordinate `t = (p_r − vertex)·(normal × axis_dir)`
+            // matching `geom::parabola_point` / `geom::parabola_param`.
+            if !(focal_length.is_finite() && focal_length > 0.0) {
+                return Some(None);
+            }
             let n = normalize3(normal.as_array());
             let ax = normalize3(axis_dir.as_array());
             let conj = [
@@ -1629,13 +1650,18 @@ pub(crate) fn angle_site_tangent(
             semi_transverse,
             semi_conjugate,
         } => {
-            // PR-YR23: hyperbola tangent `d/dt point(t) = a·sinh(t)·major +
-            // b·cosh(t)·(normal × major_axis)`, evaluated at the tag
+            // PR-YR23 / N89 item 3: hyperbola tangent `d/dt point(t) =
+            // a·sinh(t)·major + b·cosh(t)·(normal × major_axis)`, evaluated at
             // `t = asinh(v_coord / b)` with `v_coord = (p_r − center)·
-            // (normal × major_axis)` (the same tag the Stage-4 hyperbola loop
-            // stores). Defensively correct even though the open-arc hyperbola
-            // section is excluded from the closed-loop `all_conic` sweep
-            // (which selects only Circle/Ellipse), so this arm is never reached.
+            // (normal × major_axis)` matching `geom::hyperbola_point` /
+            // `geom::hyperbola_param`.
+            if !(semi_transverse.is_finite()
+                && semi_transverse > 0.0
+                && semi_conjugate.is_finite()
+                && semi_conjugate > 0.0)
+            {
+                return Some(None);
+            }
             let n = normalize3(normal.as_array());
             let maj = normalize3(major_axis.as_array());
             let conj = [
@@ -1657,8 +1683,9 @@ pub(crate) fn angle_site_tangent(
             ])
         }
         Curve::LineSegment => return Some(None),
-        // M5: a surface-pair curve is pre-filtered out before this match (only
-        // Circle/Ellipse reach here); defensive `false` like `LineSegment`.
+        // M5: a `SurfacePair` site is routed through `SiteTest::ParamOrder`'s
+        // `n_a × n_b` tangent arm (`all_conic` is `false` for non-planar curves);
+        // defensive `Some(None)` if `angle_site_tangent` is called directly.
         Curve::SurfacePair { .. } => return Some(None),
     };
     Some(Some(tan_c))

@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
-| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24 then REOPENED 2026-10-27 — the sweep's cycle admission still skips all-open-conic loops; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap (REOPENED), ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
@@ -6704,18 +6704,34 @@ Each is OPEN, each small; recorded together so none is invisible.
    sub-band loops are never sites (§4.2 `:499-501` seeds both; see N91). The
    Fig. 7 caption's "d_ε = 0.05d" AABB expansion (`:425-431`) is replaced by
    per-triangle exact deviation (low weight). Matrix 4.2-05, 4.2-10.
-3. **~~Parabola and Hyperbola curves are never reversal-tested.~~ RESOLVED (2026-10-24).**
-   `mixed_cycle_shared_conic` (`stage4_correct/reversal.rs`) previously returned
-   `None` for `Parabola` and `Hyperbola`, so the §4.5.3 site was skipped (`:742-745`
-   says every C). `conic_param`, `conics_equal_up_to_normal_sign`,
-   `mixed_cycle_shared_conic`, and `conic_param_deltas` now cover both open conic
-   variants (`Parabola` via `crate::geom::parabola_param`, `Hyperbola` via
-   `crate::geom::hyperbola_param`), and the `YANG_441_OPEN_CONIC_PARAM` kill switch
-   was deleted. Adding `Parabola` to `conic_param` also bounds `Parabola` crease
-   edges by their arc interval in `CreaseArc::contains` (`stage4_boundary_curve.rs`)
-   and `inside_span` (`boolean/failures.rs`). Pinned by
-   `tests_unit/i13_junction_overrun.rs::conic_param_and_reversal_cover_parabola_and_hyperbola`.
-   Matrix 4.5.3-08 → FAITHFUL.
+3. **~~Parabola and Hyperbola curves are never reversal-tested.~~ RESOLVED (2026-10-24; REOPENED 2026-10-27; RE-RESOLVED 2026-10-27).**
+   *2026-10-24:* `conic_param`, `conics_equal_up_to_normal_sign`,
+   `mixed_cycle_shared_conic`, and `conic_param_deltas` covered `Parabola`
+   (`crate::geom::parabola_param`) and `Hyperbola` (`crate::geom::hyperbola_param`),
+   deleting `YANG_441_OPEN_CONIC_PARAM` and bounding `Parabola` crease edges in
+   `CreaseArc::contains` (`stage4_boundary_curve.rs`) and `inside_span`
+   (`boolean/failures.rs`).
+   *2026-10-27 reopen + fix:* the literature check caught that
+   `sweep_reversed_intersections` (`stage4_correct/reversal.rs`) still filtered
+   cycle admission by a curve-variant list omitting `Parabola`/`Hyperbola` and
+   pre-filtered `angle_site_tangent` to `Circle | Ellipse` (leaving the open-conic
+   tangent arms dead). Cycle admission (`reversal.rs:107-116`,
+   `any_cross_incidence`) now admits every cycle containing a cross-operand
+   (`A × B`) edge by Phase-A incidence alone without enumerating curve types,
+   `all_conic` (`:126-131`) checks `geom::curve_plane(c).is_some()`, a
+   zero-corner cycle on a single non-periodic conic (`!conic_param_periodic`,
+   `:174-217`, cf. `stage4_splice::order_along_curve`) bounds its open arc by
+   `[t_min, t_max]` while sweeping interior arc vertices, and
+   `angle_site_tangent` (`:1566-1684`) activates the live `Parabola` (`:1570`)
+   and `Hyperbola` (`:1646`) tangent arms. Pinned through
+   `sweep_reversed_intersections` by
+   `tests_unit/i13_junction_overrun.rs::n89_item3_sweep_visits_and_corrects_all_hyperbola_prism_cone_loop`
+   (4-hyperbola prism × cone lateral loop),
+   `::n89_item3_sweep_visits_and_corrects_all_parabola_lens_loop` (2-parabola
+   oblique-plane × cone lens loop), and helper pin
+   `::conic_param_and_reversal_cover_parabola_and_hyperbola`. Matrix `4.5.3-08`
+   and `4.5.3-04` remain `PARTIAL` (`LineSegment` `incidence.len() != 2` skip and
+   analytic-conic derivative / mixed-cycle `ParamOrder` substitution).
 4. **~~Ellipse-edged planar faces are a Stage-0 `face-unsupported` wall~~ RESOLVED (2026-10-27, roadmap F6).**
    `mixed_planar_face` and `mixed_face_polygon_2d` (`stage0/frame.rs:1017`,
    `:1061`) now admit planar faces whose outer and hole loops are closed
@@ -7153,17 +7169,34 @@ independent reviewer, and false claims were removed before merge. Matrix
 not-faithful went 100 → 139 (rows graded FAITHFUL that were not); no geometry
 changed. Entries:
 
-### N89 item 3 — REOPENED
+### N89 item 3 — REOPENED (RE-RESOLVED 2026-10-27)
 
 The 2026-10-24 fix made the conic helpers cover Parabola/Hyperbola, but the
 §4.5.3 sweep's CYCLE ADMISSION (`stage4_correct/reversal.rs:109-121`,
-`any_intersection`) still lists only Circle/Ellipse, and `any_pair` requires
+`any_intersection`) still listed only Circle/Ellipse, and `any_pair` required
 `!curves.contains_key`, so a loop made only of open conics (e.g. a prism with
 sides parallel to a cone's axis piercing its lateral face: four hyperbolas)
-is never reversal-tested. The 10-24 pin calls the helpers directly, not the
-sweep. The Parabola/Hyperbola tangent arms at `:1540-1546` are dead for the
-same reason. Remediation: admit by incidence, not by curve type, and pin it
-through the sweep. **State: OPEN.**
+was never reversal-tested. The 10-24 pin called the helpers directly, not the
+sweep. The Parabola/Hyperbola tangent arms at `:1540-1546` were dead for the
+same reason.
+**Resolution (2026-10-27):** Replaced `any_intersection` + `any_pair` in
+`stage4_correct/reversal.rs:107-116` with `any_cross_incidence` (admitting any
+cycle containing at least one cross-operand `A × B` edge in Phase-A `incidence`,
+uniform across typed and untyped curves without enumerating `Curve` variants),
+replaced the `Circle | Ellipse` variant match in `all_conic` (`:126-131`) with
+`geom::curve_plane(c).is_some()`, bounded zero-corner cycles on a single
+non-periodic conic (`!conic_param_periodic`, `:174-217`, cf.
+`stage4_splice::order_along_curve`) by their `[t_min, t_max]` arc extrema while
+sweeping interior arc vertices, and removed the `Circle | Ellipse` pre-filter
+in `angle_site_tangent` (`:1566-1684`) so the `Parabola` (`:1570`) and
+`Hyperbola` (`:1646`) tangent arms are live (with finite-positive parameter
+guards). Pinned directly through `sweep_reversed_intersections` (verified red
+first) by
+`crates/yang-rs/src/tests_unit/i13_junction_overrun.rs::n89_item3_sweep_visits_and_corrects_all_hyperbola_prism_cone_loop`
+and `::n89_item3_sweep_visits_and_corrects_all_parabola_lens_loop`. Matrix rows
+`4.5.3-08` and `4.5.3-04` remain `PARTIAL` (the remaining `LineSegment`
+`incidence.len() != 2` skip and conic parameter-derivative / mixed-cycle
+`ParamOrder` substitution are documented on those rows). **State: RESOLVED (2026-10-27).**
 
 ### N98 — Stage-0 coplanar scan bounds ellipse arcs by their endpoints
 
