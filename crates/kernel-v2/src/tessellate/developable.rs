@@ -1425,7 +1425,7 @@ fn tessellate_developable_patch(
         })
         .collect();
     // 3D positions per pool index (for the M1 grid-degeneracy flip pass).
-    let pool_p3: Vec<[f64; 3]> = pool_node.iter().map(|&nd| nodes[nd].pos).collect();
+    let mut pool_p3: Vec<[f64; 3]> = pool_node.iter().map(|&nd| nodes[nd].pos).collect();
     // Branch C4: any CDT rejection (coincident verts / crossing constraints /
     // zero area) is a loud typed failure — never a fallback (P9). The M1
     // grid-degeneracy flip pass (spec §6b) runs BEFORE pass 4 refinement.
@@ -1459,8 +1459,21 @@ fn tessellate_developable_patch(
             );
         }
     }
-    let (cdt_tris, slits) =
+    let (mut cdt_tris, slits) =
         triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
+    insert_graded_hole_collars(
+        &mut pool_p2,
+        &mut pool_node,
+        &mut pool_p3,
+        &mut nodes,
+        &mut cdt_tris,
+        &outer_cdt,
+        &holes_cdt,
+        &slits,
+        w_facet,
+        &surface_point,
+    )
+    .map_err(fail)?;
     // Work nodes on a SPUR (M3d slit): the trace of another sheet tangent to
     // this face along a line. See `SPUR_FACET_FRACTION` below.
     let spur_w: std::collections::BTreeSet<usize> =
@@ -2450,6 +2463,734 @@ fn tessellate_developable_patch(
     Ok(())
 }
 
+/// Insert concentric dyadic Steiner collar rings around interior hole loops
+/// whose boundary edge spacing `ds_0` is much finer than `w_facet`
+/// (`4 * ds_0 < w_facet`), maintaining exact 2D orientation and Delaunay
+/// edge quality via incremental Lawson flips.
+///
+/// Without graded interior Steiner nodes, an interior hole with `N` sub-facet
+/// edges (e.g. a §4.3.3/§4.3.4 small closed intersection loop on `C0116` or
+/// `C0118`) fans `N` high-aspect needle triangles directly to the patch rims;
+/// Pass-4 Rivara LEPP + `lift_inverts` (`specs/kv9_f2b_lift_faithful_refinement.md`
+/// §6) then bisects all `N` ribbons across the full barrel height. Coarsening
+/// `ds_k = 2^k ds_0` up to `w_facet` confines the fine spacing to a narrow
+/// geometric collar around the hole while leaving patches without fine holes
+/// byte-identical.
+#[allow(clippy::too_many_arguments)]
+fn insert_graded_hole_collars(
+    pool_p2: &mut Vec<Point2>,
+    pool_node: &mut Vec<usize>,
+    pool_p3: &mut Vec<[f64; 3]>,
+    nodes: &mut Vec<PatchNode>,
+    cdt_tris: &mut Vec<[u32; 3]>,
+    outer_cdt: &[u32],
+    holes_cdt: &[Vec<u32>],
+    slits: &[[u32; 2]],
+    w_facet: f64,
+    surface_point: &dyn Fn(f64, f64) -> [f64; 3],
+) -> Result<(), &'static str> {
+    if holes_cdt.is_empty() || cdt_tris.is_empty() || !(w_facet.is_finite() && w_facet > 0.0) {
+        return Ok(());
+    }
+
+    let dist2_2d = |a: Point2, b: Point2| -> f64 {
+        let dx = a.x() - b.x();
+        let dy = a.y() - b.y();
+        dx * dx + dy * dy
+    };
+    let pt_seg_dist2 = |p: Point2, a: Point2, b: Point2| -> f64 {
+        let dx = b.x() - a.x();
+        let dy = b.y() - a.y();
+        let l2 = dx * dx + dy * dy;
+        if l2 <= 1e-30 {
+            return dist2_2d(p, a);
+        }
+        let t = (((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / l2).clamp(0.0, 1.0);
+        let qx = a.x() + t * dx;
+        let qy = a.y() + t * dy;
+        (p.x() - qx).powi(2) + (p.y() - qy).powi(2)
+    };
+
+    let mut fine_holes: Vec<(usize, f64, f64)> = Vec::new();
+    for (hi, h_ids) in holes_cdt.iter().enumerate() {
+        let m = h_ids.len();
+        if m < 3 {
+            continue;
+        }
+        let mut perim = 0.0_f64;
+        for i in 0..m {
+            let a = pool_p2[h_ids[i] as usize];
+            let b = pool_p2[h_ids[(i + 1) % m] as usize];
+            perim += dist2_2d(a, b).sqrt();
+        }
+        let ds0 = perim / (m as f64);
+        if ds0 > 0.0 && ds0 * 4.0 < w_facet {
+            fine_holes.push((hi, perim, ds0));
+        }
+    }
+    if fine_holes.is_empty() {
+        return Ok(());
+    }
+
+    // Collect boundary/slit segments with per-group AABBs.
+    struct SegGroup {
+        min_x: f64,
+        max_x: f64,
+        min_y: f64,
+        max_y: f64,
+        pts: Vec<Point2>,
+        segs: Vec<(Point2, Point2)>,
+    }
+    let build_ring_group = |ids: &[u32]| -> SegGroup {
+        let rm = ids.len();
+        let mut pts = Vec::with_capacity(rm);
+        let mut segs = Vec::with_capacity(rm);
+        let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+        for i in 0..rm {
+            let a = pool_p2[ids[i] as usize];
+            let b = pool_p2[ids[(i + 1) % rm] as usize];
+            min_x = min_x.min(a.x());
+            max_x = max_x.max(a.x());
+            min_y = min_y.min(a.y());
+            max_y = max_y.max(a.y());
+            pts.push(a);
+            segs.push((a, b));
+        }
+        SegGroup {
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            pts,
+            segs,
+        }
+    };
+    let outer_group = build_ring_group(outer_cdt);
+    let mut hole_groups: Vec<SegGroup> = Vec::with_capacity(holes_cdt.len());
+    for h_ids in holes_cdt {
+        hole_groups.push(build_ring_group(h_ids));
+    }
+    let slit_group = if slits.is_empty() {
+        None
+    } else {
+        let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+        let mut segs = Vec::with_capacity(slits.len());
+        for &[sa, sb] in slits {
+            let (a, b) = (pool_p2[sa as usize], pool_p2[sb as usize]);
+            min_x = min_x.min(a.x()).min(b.x());
+            max_x = max_x.max(a.x()).max(b.x());
+            min_y = min_y.min(a.y()).min(b.y());
+            max_y = max_y.max(a.y()).max(b.y());
+            segs.push((a, b));
+        }
+        Some(SegGroup {
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            pts: Vec::new(),
+            segs,
+        })
+    };
+
+    let clears_group = |q: Point2, grp: &SegGroup, rad: f64, rad2: f64| -> bool {
+        if q.x() < grp.min_x - rad
+            || q.x() > grp.max_x + rad
+            || q.y() < grp.min_y - rad
+            || q.y() > grp.max_y + rad
+        {
+            return true;
+        }
+        grp.segs
+            .iter()
+            .all(|&(sa, sb)| pt_seg_dist2(q, sa, sb) >= rad2)
+    };
+    let outside_all_holes = |q: Point2| -> bool {
+        for hg in &hole_groups {
+            if q.x() >= hg.min_x
+                && q.x() <= hg.max_x
+                && q.y() >= hg.min_y
+                && q.y() <= hg.max_y
+                && hg.pts.len() >= 3
+                && exact2d::point_strictly_inside(q, &hg.pts)
+            {
+                return false;
+            }
+        }
+        true
+    };
+
+    let height_floor = render_height_floor(pool_p3.iter());
+    let mut ring_batches: Vec<(f64, Vec<Point2>)> = Vec::new();
+    let mut fine_hole_extents: Vec<(usize, f64)> = Vec::with_capacity(fine_holes.len());
+    let mut belt_vmin = f64::INFINITY;
+    let mut belt_vmax = f64::NEG_INFINITY;
+
+    for &(hi, perim, ds0) in &fine_holes {
+        let hg = &hole_groups[hi];
+        let h_pts = &hg.pts;
+        let m = h_pts.len();
+        let mut area2 = 0.0_f64;
+        let mut seg_len = Vec::with_capacity(m);
+        let mut cum_s = Vec::with_capacity(m + 1);
+        cum_s.push(0.0);
+        for i in 0..m {
+            let a = h_pts[i];
+            let b = h_pts[(i + 1) % m];
+            area2 += a.x() * b.y() - b.x() * a.y();
+            let l = dist2_2d(a, b).sqrt();
+            seg_len.push(l);
+            cum_s.push(cum_s[i] + l);
+        }
+        let out_sign = if area2 <= 0.0 { 1.0 } else { -1.0 };
+        let mut e_nrm: Vec<[f64; 2]> = Vec::with_capacity(m);
+        for i in 0..m {
+            let a = h_pts[i];
+            let b = h_pts[(i + 1) % m];
+            let l = seg_len[i];
+            if l > 1e-30 {
+                e_nrm.push([
+                    out_sign * (-(b.y() - a.y())) / l,
+                    out_sign * (b.x() - a.x()) / l,
+                ]);
+            } else {
+                e_nrm.push([0.0, 0.0]);
+            }
+        }
+        let mut v_nrm: Vec<[f64; 2]> = Vec::with_capacity(m);
+        for i in 0..m {
+            let prev = e_nrm[(i + m - 1) % m];
+            let cur = e_nrm[i];
+            let sx = prev[0] + cur[0];
+            let sy = prev[1] + cur[1];
+            let sl = (sx * sx + sy * sy).sqrt();
+            if sl > 1e-12 {
+                v_nrm.push([sx / sl, sy / sl]);
+            } else {
+                v_nrm.push(cur);
+            }
+        }
+
+        let target_max = 0.85 * w_facet;
+        let ds_min = (4.0 * height_floor).max(2.0 * ds0).min(target_max);
+        let mut offset = 0.0_f64;
+        for k in 0..=24_i32 {
+            let ds_k = (ds_min * 2.0_f64.powi(k)).min(target_max);
+            offset += 0.85 * ds_k;
+            let tube_len = perim + 2.0 * std::f64::consts::PI * offset;
+            let n_k = ((tube_len / ds_k).round() as usize).clamp(12, 2048);
+            let phase = if k % 2 == 1 { 0.5 } else { 0.0 };
+            let own_clear = 0.55 * offset;
+            let own_clear2 = own_clear * own_clear;
+            let other_clear = 0.45 * ds_k.min(offset);
+            let other_clear2 = other_clear * other_clear;
+            let self_clear2 = (0.45 * ds_k).powi(2);
+            let mut ring_pts: Vec<Point2> = Vec::with_capacity(n_k);
+
+            for j in 0..n_k {
+                let s_target = ((j as f64 + phase) / (n_k as f64)) * perim;
+                let seg_i = cum_s
+                    .partition_point(|&cs| cs <= s_target)
+                    .saturating_sub(1)
+                    .min(m - 1);
+                let t = if seg_len[seg_i] > 1e-30 {
+                    ((s_target - cum_s[seg_i]) / seg_len[seg_i]).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let next_i = (seg_i + 1) % m;
+                let bx = h_pts[seg_i].x() + t * (h_pts[next_i].x() - h_pts[seg_i].x());
+                let by = h_pts[seg_i].y() + t * (h_pts[next_i].y() - h_pts[seg_i].y());
+                let nx = v_nrm[seg_i][0] + t * (v_nrm[next_i][0] - v_nrm[seg_i][0]);
+                let ny = v_nrm[seg_i][1] + t * (v_nrm[next_i][1] - v_nrm[seg_i][1]);
+                let nl = (nx * nx + ny * ny).sqrt();
+                if nl <= 1e-12 {
+                    continue;
+                }
+                let q = Point2::new(bx + offset * (nx / nl), by + offset * (ny / nl));
+                if q.x() <= outer_group.min_x
+                    || q.x() >= outer_group.max_x
+                    || q.y() <= outer_group.min_y
+                    || q.y() >= outer_group.max_y
+                {
+                    continue;
+                }
+                if ring_pts.iter().any(|&rp| dist2_2d(q, rp) < self_clear2) {
+                    continue;
+                }
+                if !clears_group(q, &outer_group, other_clear, other_clear2) {
+                    continue;
+                }
+                if let Some(sg) = &slit_group {
+                    if !clears_group(q, sg, other_clear, other_clear2) {
+                        continue;
+                    }
+                }
+                let mut ok = true;
+                for (ohi, ohg) in hole_groups.iter().enumerate() {
+                    let (rad, rad2) = if ohi == hi {
+                        (own_clear, own_clear2)
+                    } else {
+                        (other_clear, other_clear2)
+                    };
+                    if !clears_group(q, ohg, rad, rad2) {
+                        ok = false;
+                        break;
+                    }
+                }
+                if !ok || !outside_all_holes(q) {
+                    continue;
+                }
+                ring_pts.push(q);
+            }
+            if !ring_pts.is_empty() {
+                ring_batches.push((ds_k, ring_pts));
+            }
+            if ds_k >= target_max - 1e-12 {
+                break;
+            }
+        }
+        fine_hole_extents.push((hi, offset));
+        belt_vmin = belt_vmin.min(hg.min_y - offset - 1.2 * w_facet);
+        belt_vmax = belt_vmax.max(hg.max_y + offset + 1.2 * w_facet);
+    }
+
+    // Coarse-to-fine candidate schedule:
+    // 1. Staggered `0.90 * w_facet` horizontal rows (dense `0.85 * w_facet` inside
+    //    `[belt_vmin, belt_vmax]` around the fine hole(s), bounded `dv_outer` outside)
+    //    so every outer-rim-to-interior triangle has `|Δu| < w_facet` and zero high-aspect
+    //    generator ribbons reach the collar.
+    // 2. Collar rings sorted from largest `ds_k` down to smallest `ds_k` (`k_max -> 0`).
+    let mut candidates: Vec<(Point2, f64)> = Vec::new();
+    {
+        let du = 0.90 * w_facet;
+        let dv_belt = 0.85 * w_facet;
+        let v_span = (outer_group.max_y - outer_group.min_y).max(0.0);
+        let dv_outer = (4.0 * w_facet).max(v_span / 16.0);
+        let grid_clear = 0.45 * w_facet;
+        let grid_clear2 = grid_clear * grid_clear;
+        let mut v_cur = outer_group.min_y + 0.6 * w_facet;
+        let v_end = outer_group.max_y - 0.6 * w_facet;
+        let mut row_idx = 0usize;
+        while v_cur <= v_end {
+            let phase_u = if row_idx % 2 == 1 { 0.5 * du } else { 0.0 };
+            let mut row_pts: Vec<Point2> = Vec::new();
+            let mut u_cur = outer_group.min_x + 0.5 * w_facet + phase_u;
+            let u_end = outer_group.max_x - 0.45 * w_facet;
+            while u_cur <= u_end {
+                let q = Point2::new(u_cur, v_cur);
+                let mut ok = clears_group(q, &outer_group, grid_clear, grid_clear2);
+                if ok {
+                    if let Some(sg) = &slit_group {
+                        ok = clears_group(q, sg, grid_clear, grid_clear2);
+                    }
+                }
+                if ok {
+                    for (ohi, ohg) in hole_groups.iter().enumerate() {
+                        if !clears_group(q, ohg, grid_clear, grid_clear2) {
+                            ok = false;
+                            break;
+                        }
+                        if let Some(&(_, col_off)) =
+                            fine_hole_extents.iter().find(|&&(fhi, _)| fhi == ohi)
+                        {
+                            let excl = (col_off - 0.25 * w_facet).max(grid_clear);
+                            if !clears_group(q, ohg, excl, excl * excl) {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if ok && outside_all_holes(q) {
+                    row_pts.push(q);
+                }
+                u_cur += du;
+            }
+            if row_idx % 2 == 1 {
+                row_pts.reverse();
+            }
+            let min_sep2 = (0.35 * du).powi(2);
+            for q in row_pts {
+                candidates.push((q, min_sep2));
+            }
+            let in_belt = v_cur + dv_belt >= belt_vmin && v_cur <= belt_vmax;
+            v_cur += if in_belt {
+                dv_belt
+            } else if v_cur < belt_vmin {
+                dv_outer.min((belt_vmin - v_cur).max(dv_belt))
+            } else {
+                dv_outer
+            };
+            row_idx += 1;
+        }
+    }
+
+    ring_batches.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (ds_k, pts) in ring_batches {
+        let min_sep2 = (0.35 * ds_k).powi(2);
+        for q in pts {
+            candidates.push((q, min_sep2));
+        }
+    }
+    if candidates.is_empty() {
+        return Ok(());
+    }
+
+    let mut fixed_edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    let add_ring = |ring: &[u32], set: &mut std::collections::BTreeSet<(u32, u32)>| {
+        let rm = ring.len();
+        for i in 0..rm {
+            let (a, b) = (ring[i], ring[(i + 1) % rm]);
+            set.insert((a.min(b), a.max(b)));
+        }
+    };
+    add_ring(outer_cdt, &mut fixed_edges);
+    for h_ids in holes_cdt {
+        add_ring(h_ids, &mut fixed_edges);
+    }
+    for &[sa, sb] in slits {
+        fixed_edges.insert((sa.min(sb), sa.max(sb)));
+    }
+
+    let ukey = |a: u32, b: u32| -> (u32, u32) { (a.min(b), a.max(b)) };
+    let mut edge_adj: std::collections::BTreeMap<(u32, u32), [Option<usize>; 2]> =
+        std::collections::BTreeMap::new();
+    let adj_insert = |adj: &mut std::collections::BTreeMap<(u32, u32), [Option<usize>; 2]>,
+                      a: u32,
+                      b: u32,
+                      ti: usize| {
+        let entry = adj.entry(ukey(a, b)).or_insert([None, None]);
+        if entry[0].is_none() || entry[0] == Some(ti) {
+            entry[0] = Some(ti);
+        } else {
+            entry[1] = Some(ti);
+        }
+    };
+    let adj_remove = |adj: &mut std::collections::BTreeMap<(u32, u32), [Option<usize>; 2]>,
+                      a: u32,
+                      b: u32,
+                      ti: usize| {
+        let k = ukey(a, b);
+        if let Some(entry) = adj.get_mut(&k) {
+            if entry[0] == Some(ti) {
+                entry[0] = entry[1].take();
+            } else if entry[1] == Some(ti) {
+                entry[1] = None;
+            }
+            if entry[0].is_none() && entry[1].is_none() {
+                adj.remove(&k);
+            }
+        }
+    };
+
+    for (ti, t) in cdt_tris.iter().enumerate() {
+        adj_insert(&mut edge_adj, t[0], t[1], ti);
+        adj_insert(&mut edge_adj, t[1], t[2], ti);
+        adj_insert(&mut edge_adj, t[2], t[0], ti);
+    }
+
+    let tri_refused = |pa: [f64; 3], pb: [f64; 3], pc: [f64; 3]| -> bool {
+        f32_render_degenerate(pa, pb, pc) || render_subresolution_triangle(pa, pb, pc, height_floor)
+    };
+    let locate_seed = |q: Point2,
+                       ti: usize,
+                       tris: &[[u32; 3]],
+                       p2: &[Point2],
+                       fixed: &std::collections::BTreeSet<(u32, u32)>,
+                       adj: &std::collections::BTreeMap<(u32, u32), [Option<usize>; 2]>|
+     -> Option<Vec<usize>> {
+        let t = tris[ti];
+        let (pa, pb, pc) = (p2[t[0] as usize], p2[t[1] as usize], p2[t[2] as usize]);
+        let min_x = pa.x().min(pb.x()).min(pc.x());
+        let max_x = pa.x().max(pb.x()).max(pc.x());
+        let min_y = pa.y().min(pb.y()).min(pc.y());
+        let max_y = pa.y().max(pb.y()).max(pc.y());
+        if q.x() < min_x || q.x() > max_x || q.y() < min_y || q.y() > max_y {
+            return None;
+        }
+        let o0 = exact2d::orient2d(pa, pb, q);
+        let o1 = exact2d::orient2d(pb, pc, q);
+        let o2 = exact2d::orient2d(pc, pa, q);
+        if o0 == std::cmp::Ordering::Greater
+            && o1 == std::cmp::Ordering::Greater
+            && o2 == std::cmp::Ordering::Greater
+        {
+            return Some(vec![ti]);
+        }
+        // Collinear hit on a single non-fixed interior edge -> 2-triangle seed.
+        let eq_edge = match (o0, o1, o2) {
+            (
+                std::cmp::Ordering::Equal,
+                std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Greater,
+            ) => Some((t[0], t[1])),
+            (
+                std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Equal,
+                std::cmp::Ordering::Greater,
+            ) => Some((t[1], t[2])),
+            (
+                std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Greater,
+                std::cmp::Ordering::Equal,
+            ) => Some((t[2], t[0])),
+            _ => None,
+        }?;
+        let ek = ukey(eq_edge.0, eq_edge.1);
+        if fixed.contains(&ek) {
+            return None;
+        }
+        let tj = adj
+            .get(&ek)
+            .and_then(|pair| pair.iter().flatten().copied().find(|&c| c != ti))?;
+        let tb = tris[tj];
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (u, v) = (tb[i], tb[j]);
+            if ukey(u, v) == ek {
+                continue;
+            }
+            if exact2d::orient2d(p2[u as usize], p2[v as usize], q) != std::cmp::Ordering::Greater {
+                return None;
+            }
+        }
+        Some(vec![ti, tj])
+    };
+
+    let extract_cavity_boundary =
+        |cav: &[usize],
+         tris: &[[u32; 3]],
+         fixed: &std::collections::BTreeSet<(u32, u32)>,
+         adj: &std::collections::BTreeMap<(u32, u32), [Option<usize>; 2]>|
+         -> Vec<(u32, u32, usize)> {
+            let mut bnd = Vec::with_capacity(cav.len() + 2);
+            for &ct in cav {
+                let t = tris[ct];
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    let (ea, eb) = (t[i], t[j]);
+                    let ek = ukey(ea, eb);
+                    let twin_in_cav = if fixed.contains(&ek) {
+                        false
+                    } else {
+                        adj.get(&ek)
+                            .and_then(|pair| pair.iter().flatten().copied().find(|&c| c != ct))
+                            .is_some_and(|nb| cav.contains(&nb))
+                    };
+                    if !twin_in_cav {
+                        bnd.push((ea, eb, ct));
+                    }
+                }
+            }
+            bnd
+        };
+
+    let valid_star_disk =
+        |cav: &[usize], bnd: &[(u32, u32, usize)], q: Point2, p2: &[Point2]| -> bool {
+            let b = bnd.len();
+            if b < 3 || cav.len() + 2 != b {
+                return false;
+            }
+            for &(ea, eb, _) in bnd {
+                if exact2d::orient2d(p2[ea as usize], p2[eb as usize], q)
+                    != std::cmp::Ordering::Greater
+                {
+                    return false;
+                }
+            }
+            // Verify single closed boundary cycle (`B == V_bnd` and one connected loop).
+            let mut cur = bnd[0].0;
+            let start = cur;
+            for step in 0..b {
+                let mut next_v: Option<u32> = None;
+                for &(ea, eb, _) in bnd {
+                    if ea == cur {
+                        if next_v.is_some() {
+                            return false; // pinched boundary vertex (out-degree > 1)
+                        }
+                        next_v = Some(eb);
+                    }
+                }
+                let Some(nv) = next_v else {
+                    return false;
+                };
+                cur = nv;
+                if cur == start {
+                    return step + 1 == b;
+                }
+            }
+            false
+        };
+
+    let mut hint_ti = 0usize;
+    let mut cav: Vec<usize> = Vec::with_capacity(32);
+    for (q, min_sep2) in candidates {
+        let mut seed_opt: Option<Vec<usize>> = None;
+        if hint_ti < cdt_tris.len() {
+            let mut cur = hint_ti;
+            for _ in 0..128 {
+                if let Some(s) = locate_seed(q, cur, cdt_tris, pool_p2, &fixed_edges, &edge_adj) {
+                    seed_opt = Some(s);
+                    break;
+                }
+                let t = cdt_tris[cur];
+                let mut worst_e: Option<(u32, u32, f64)> = None;
+                for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                    let (va, vb) = (t[i], t[j]);
+                    let (pa, pb) = (pool_p2[va as usize], pool_p2[vb as usize]);
+                    let cross =
+                        (pb.x() - pa.x()) * (q.y() - pa.y()) - (pb.y() - pa.y()) * (q.x() - pa.x());
+                    if cross < 0.0 && worst_e.is_none_or(|w| cross < w.2) {
+                        worst_e = Some((va, vb, cross));
+                    }
+                }
+                let Some((va, vb, _)) = worst_e else {
+                    break;
+                };
+                let ek = ukey(va, vb);
+                if fixed_edges.contains(&ek) {
+                    break;
+                }
+                let next = edge_adj
+                    .get(&ek)
+                    .and_then(|adj| adj.iter().flatten().copied().find(|&cand| cand != cur));
+                let Some(nxt) = next else {
+                    break;
+                };
+                cur = nxt;
+            }
+        }
+        if seed_opt.is_none() {
+            for ti in 0..cdt_tris.len() {
+                if let Some(s) = locate_seed(q, ti, cdt_tris, pool_p2, &fixed_edges, &edge_adj) {
+                    seed_opt = Some(s);
+                    break;
+                }
+            }
+        }
+        let Some(seed) = seed_opt else {
+            continue;
+        };
+
+        // Expand exact constrained Bowyer-Watson Delaunay cavity around `seed`.
+        cav.clear();
+        cav.extend_from_slice(&seed);
+        let mut head = 0usize;
+        while head < cav.len() && cav.len() < 64 {
+            let ct = cav[head];
+            head += 1;
+            let t = cdt_tris[ct];
+            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+                let ek = ukey(t[i], t[j]);
+                if fixed_edges.contains(&ek) {
+                    continue;
+                }
+                let Some(nb) = edge_adj
+                    .get(&ek)
+                    .and_then(|pair| pair.iter().flatten().copied().find(|&c| c != ct))
+                else {
+                    continue;
+                };
+                if cav.contains(&nb) {
+                    continue;
+                }
+                let nt = cdt_tris[nb];
+                if exact2d::incircle(
+                    pool_p2[nt[0] as usize],
+                    pool_p2[nt[1] as usize],
+                    pool_p2[nt[2] as usize],
+                    q,
+                ) == std::cmp::Ordering::Greater
+                {
+                    cav.push(nb);
+                    if cav.len() >= 64 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Enforce minimum vertex spacing against all cavity vertices.
+        if cav.iter().any(|&ct| {
+            cdt_tris[ct]
+                .iter()
+                .any(|&vi| dist2_2d(pool_p2[vi as usize], q) < min_sep2)
+        }) {
+            continue;
+        }
+
+        // Prune any cavity triangle whose boundary edge is not strictly star-visible from `q`.
+        let mut bnd = extract_cavity_boundary(&cav, cdt_tris, &fixed_edges, &edge_adj);
+        while cav.len() > seed.len() {
+            let bad_owner = bnd.iter().find_map(|&(ea, eb, owner)| {
+                (!seed.contains(&owner)
+                    && exact2d::orient2d(pool_p2[ea as usize], pool_p2[eb as usize], q)
+                        != std::cmp::Ordering::Greater)
+                    .then_some(owner)
+            });
+            let Some(bad) = bad_owner else {
+                break;
+            };
+            cav.retain(|&c| c != bad);
+            bnd = extract_cavity_boundary(&cav, cdt_tris, &fixed_edges, &edge_adj);
+        }
+
+        if !valid_star_disk(&cav, &bnd, q, pool_p2) {
+            cav.clear();
+            cav.extend_from_slice(&seed);
+            bnd = extract_cavity_boundary(&cav, cdt_tris, &fixed_edges, &edge_adj);
+            if !valid_star_disk(&cav, &bnd, q, pool_p2) {
+                continue;
+            }
+        }
+
+        let pos = surface_point(q.x(), q.y());
+        if bnd
+            .iter()
+            .any(|&(ea, eb, _)| tri_refused(pool_p3[ea as usize], pool_p3[eb as usize], pos))
+        {
+            continue;
+        }
+
+        let node_idx = nodes.len();
+        nodes.push(PatchNode { p2: q, pos });
+        let p_idx = pool_p2.len() as u32;
+        pool_p2.push(q);
+        pool_node.push(node_idx);
+        pool_p3.push(pos);
+
+        for &ct in &cav {
+            let tr = cdt_tris[ct];
+            adj_remove(&mut edge_adj, tr[0], tr[1], ct);
+            adj_remove(&mut edge_adj, tr[1], tr[2], ct);
+            adj_remove(&mut edge_adj, tr[2], tr[0], ct);
+        }
+
+        let c_len = cav.len();
+        for (bi, &(ea, eb, _)) in bnd.iter().enumerate() {
+            let new_tri = [ea, eb, p_idx];
+            let slot = if bi < c_len {
+                let s = cav[bi];
+                cdt_tris[s] = new_tri;
+                s
+            } else {
+                let s = cdt_tris.len();
+                cdt_tris.push(new_tri);
+                s
+            };
+            adj_insert(&mut edge_adj, new_tri[0], new_tri[1], slot);
+            adj_insert(&mut edge_adj, new_tri[1], new_tri[2], slot);
+            adj_insert(&mut edge_adj, new_tri[2], new_tri[0], slot);
+        }
+        hint_ti = cav[0];
+    }
+
+    grid_degeneracy_flip_pass(cdt_tris, pool_p2, pool_p3, &|i, j| {
+        fixed_edges.contains(&(i.min(j), i.max(j)))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2547,5 +3288,111 @@ mod tests {
         assert!(!iso.active);
         let (a, b) = (Point2::new(1.0, 2.0), Point2::new(4.0, 6.0));
         assert_eq!(iso.dist2(a, b), 25.0);
+    }
+
+    #[test]
+    fn graded_hole_collar_shields_micro_hole_and_leaves_coarse_hole_untouched() {
+        let r = 0.3_f64;
+        let w_facet = 0.03_f64;
+        let surf = |u: f64, v: f64| -> [f64; 3] {
+            let th = u / r;
+            [r * th.cos(), r * th.sin(), v]
+        };
+
+        let build_case = |hole_r: f64, hole_n: usize| {
+            let mut pool_p2 = Vec::new();
+            let mut pool_node = Vec::new();
+            let mut pool_p3 = Vec::new();
+            let mut nodes = Vec::new();
+            let mut push_pt = |u: f64, v: f64| -> u32 {
+                let p2 = Point2::new(u, v);
+                let pos = surf(u, v);
+                let nid = nodes.len();
+                nodes.push(PatchNode { p2, pos });
+                let idx = pool_p2.len() as u32;
+                pool_p2.push(p2);
+                pool_node.push(nid);
+                pool_p3.push(pos);
+                idx
+            };
+
+            let mut outer_cdt = Vec::new();
+            let n_rim = 60usize;
+            for i in 0..=n_rim {
+                let u = -0.9 + 1.8 * (i as f64) / (n_rim as f64);
+                outer_cdt.push(push_pt(u, 0.0));
+            }
+            for i in 0..=n_rim {
+                let u = 0.9 - 1.8 * (i as f64) / (n_rim as f64);
+                outer_cdt.push(push_pt(u, 3.0));
+            }
+
+            // CW interior hole centered at (0.0, 1.5).
+            let mut hole_cdt = Vec::with_capacity(hole_n);
+            for i in 0..hole_n {
+                let ang = -2.0 * std::f64::consts::PI * (i as f64) / (hole_n as f64);
+                hole_cdt.push(push_pt(hole_r * ang.cos(), 1.5 + hole_r * ang.sin()));
+            }
+            let holes_cdt = vec![hole_cdt];
+            let (tris, slits) =
+                triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
+                    .expect("initial cdt");
+            (
+                pool_p2, pool_node, pool_p3, nodes, tris, outer_cdt, holes_cdt, slits,
+            )
+        };
+
+        // 1. Coarse hole (`ds0 ≈ 0.026`, `4 * ds0 > w_facet`): untouched.
+        let (mut p2, mut pn, mut p3, mut nds, mut tris, outer, holes, slits) = build_case(0.05, 12);
+        let n_before = p2.len();
+        insert_graded_hole_collars(
+            &mut p2, &mut pn, &mut p3, &mut nds, &mut tris, &outer, &holes, &slits, w_facet, &surf,
+        )
+        .expect("coarse hole");
+        assert_eq!(p2.len(), n_before, "coarse hole must remain byte-identical");
+
+        // 2. Micro-hole (`hole_r = 6e-5`, `ds0 ≈ 1.57e-5 << w_facet`, C0118 class):
+        //    hole vertices are shielded by concentric collars (no rim-length spokes),
+        //    every triangle is strictly CCW, and total 2D area is preserved.
+        let (mut p2, mut pn, mut p3, mut nds, mut tris, outer, holes, slits) =
+            build_case(6.0e-5, 24);
+        let hole_set: std::collections::BTreeSet<u32> = holes[0].iter().copied().collect();
+        let area_sum = |ts: &[[u32; 3]], pts: &[Point2]| -> f64 {
+            ts.iter()
+                .map(|t| {
+                    let (a, b, c) = (pts[t[0] as usize], pts[t[1] as usize], pts[t[2] as usize]);
+                    0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x()))
+                })
+                .sum()
+        };
+        let area_before = area_sum(&tris, &p2);
+        insert_graded_hole_collars(
+            &mut p2, &mut pn, &mut p3, &mut nds, &mut tris, &outer, &holes, &slits, w_facet, &surf,
+        )
+        .expect("micro hole collar");
+        let area_after = area_sum(&tris, &p2);
+        assert!(
+            (area_after - area_before).abs() < 1e-11,
+            "domain area drifted: before={area_before} after={area_after}"
+        );
+        let mut max_hole_spoke = 0.0_f64;
+        for &t in &tris {
+            let (a, b, c) = (p2[t[0] as usize], p2[t[1] as usize], p2[t[2] as usize]);
+            assert_eq!(
+                exact2d::orient2d(a, b, c),
+                std::cmp::Ordering::Greater,
+                "every post-collar triangle must be strictly CCW"
+            );
+            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                if hole_set.contains(&u) || hole_set.contains(&v) {
+                    let d = chart_dist2(p2[u as usize], p2[v as usize]).sqrt();
+                    max_hole_spoke = max_hole_spoke.max(d);
+                }
+            }
+        }
+        assert!(
+            max_hole_spoke < 5.0e-4,
+            "micro-hole must be shielded from far rims (max incident edge = {max_hole_spoke:e})"
+        );
     }
 }

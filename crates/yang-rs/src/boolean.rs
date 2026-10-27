@@ -1857,7 +1857,7 @@ fn boolean_once_timed(
 
     StageTimer::mark(timer, "pre_s2");
     // (1) Stage 2: full labeled arrangement.
-    let la = backend
+    let mut la = backend
         .labeled_arrangement(mesh_a, mesh_b)
         .map_err(YangError::MeshBooleanFailed)?;
     StageTimer::mark(timer, "s2");
@@ -1902,10 +1902,45 @@ fn boolean_once_timed(
     // Stage-1 `tri_face` when Stage 0 did not re-tessellate, else the Stage-0
     // re-tessellated meshes' maps. Consumed by the KV15 weld eligibility
     // below and by the Stage-6 N4 provenance attribution.
-    let (tri_face_a, tri_face_b): (&[u32], &[u32]) = match &stage0 {
+    let (tri_face_a_init, tri_face_b_init): (&[u32], &[u32]) = match &stage0 {
         Some(s0) => (&s0.tri_face_a, &s0.tri_face_b),
         None => (a.tri_face(), b.tri_face()),
     };
+    // §4.2.2 + §4.3.3 + §4.3.4 + §4.4.1 (`yang2025_hybrid_boolean.txt:440-446` R,
+    // `:567-593` L, `:546-570` R; ledger N91 + N92): detect uncaptured `< 2d_ε`
+    // non-crossing candidate areas admitted by closed-form Gauss-map overlap,
+    // trace and §4.3.4-refine closed small intersection loops by Bajaj et al.
+    // 1988 marching, splice `r_A = r_B = r` + Fig. 11(c) interior cap vertices
+    // via local chart CDT, and re-run Stage 2 on the updated meshes.
+    let small_loop_update = crate::stage4_small_loop::resolve_and_splice_small_loops(
+        a,
+        mesh_a,
+        tri_face_a_init,
+        b,
+        mesh_b,
+        tri_face_b_init,
+        &la,
+    );
+    let (mesh_a, tri_face_a, mesh_b, tri_face_b): (&Mesh, &[u32], &Mesh, &[u32]) =
+        match &small_loop_update {
+            Some(upd) => {
+                la = backend
+                    .labeled_arrangement(&upd.mesh_a, &upd.mesh_b)
+                    .map_err(YangError::MeshBooleanFailed)?;
+                crate::stage4_small_loop::register_spliced_loop_edges_in_arrangement(
+                    &mut la,
+                    &upd.loop_chords,
+                    upd.scale,
+                );
+                (
+                    &upd.mesh_a,
+                    upd.tri_face_a.as_slice(),
+                    &upd.mesh_b,
+                    upd.tri_face_b.as_slice(),
+                )
+            }
+            None => (mesh_a, tri_face_a_init, mesh_b, tri_face_b_init),
+        };
     // §4.3 trigger T6 (`boolean::failures`, spec `yang_452_refinement_loop.md`
     // §3 "T6"): "if the two meshes do not intersect but are within the
     // distance tolerance d_ε" — every cross-operand contact pair (exact
@@ -2305,9 +2340,9 @@ fn boolean_once_timed(
                     let (mut fa, mut fb): (Option<usize>, Option<usize>) = (None, None);
                     for &(inp, raw_t) in &la.source[orig_t] {
                         let (map, slot) = if inp == LaInputId(0) {
-                            (&s0.tri_face_a, &mut fa)
+                            (tri_face_a, &mut fa)
                         } else {
-                            (&s0.tri_face_b, &mut fb)
+                            (tri_face_b, &mut fb)
                         };
                         if let Some(&f) = map.get(raw_t as usize) {
                             if f != u32::MAX {

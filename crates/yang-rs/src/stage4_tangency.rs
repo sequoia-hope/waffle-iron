@@ -22,6 +22,7 @@
 //! `Cone`, `Torus`) are handled uniformly through pole-free, arc-length-scaled
 //! [`LocalSurfaceChart`]s with zero surface-type-pair branching.
 
+use crate::gauss_map::GaussMap;
 use crate::shell_contact::{triangle_closest_pair, triangle_distance, Bvh, TriSet};
 use crate::stage4_relocate::{
     s43_tangency_census_log, surface_anchor_magnitude, surface_distance_and_normal,
@@ -31,30 +32,30 @@ use crate::{normalize3, ortho_basis, BRep, Point3, Surface, Vector3};
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
-type V3 = [f64; 3];
+pub(crate) type V3 = [f64; 3];
 
 #[inline]
-fn dot3(a: V3, b: V3) -> f64 {
+pub(crate) fn dot3(a: V3, b: V3) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 #[inline]
-fn sub3(a: V3, b: V3) -> V3 {
+pub(crate) fn sub3(a: V3, b: V3) -> V3 {
     [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 }
 
 #[inline]
-fn add3(a: V3, b: V3) -> V3 {
+pub(crate) fn add3(a: V3, b: V3) -> V3 {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
 
 #[inline]
-fn scale3(a: V3, s: f64) -> V3 {
+pub(crate) fn scale3(a: V3, s: f64) -> V3 {
     [a[0] * s, a[1] * s, a[2] * s]
 }
 
 #[inline]
-fn cross3(a: V3, b: V3) -> V3 {
+pub(crate) fn cross3(a: V3, b: V3) -> V3 {
     [
         a[1] * b[2] - a[2] * b[1],
         a[2] * b[0] - a[0] * b[2],
@@ -63,12 +64,12 @@ fn cross3(a: V3, b: V3) -> V3 {
 }
 
 #[inline]
-fn norm3(a: V3) -> f64 {
+pub(crate) fn norm3(a: V3) -> f64 {
     dot3(a, a).sqrt()
 }
 
 #[inline]
-fn mag3(a: V3) -> f64 {
+pub(crate) fn mag3(a: V3) -> f64 {
     a[0].abs().max(a[1].abs()).max(a[2].abs())
 }
 
@@ -341,6 +342,24 @@ impl LocalSurfaceChart {
         }
     }
 
+    /// Maximum single-triangle-edge span `(max_du, max_dv)` before an edge
+    /// straddles a periodic branch cut in `(u, v)`. Zero-curvature linear
+    /// coordinates (`Plane` `(u, v)`, `Cylinder`/`Cone` ruling `v`) are
+    /// non-periodic (`f64::INFINITY`).
+    pub(crate) fn max_non_wrapping_edge_delta(&self) -> (f64, f64) {
+        match *self {
+            Self::Plane { .. } => (f64::INFINITY, f64::INFINITY),
+            Self::Sphere { radius, .. } => (2.2 * radius, 2.2 * radius),
+            Self::Cylinder { radius, .. } => (2.2 * radius, f64::INFINITY),
+            Self::Cone { u_scale, .. } => (2.2 * u_scale, f64::INFINITY),
+            Self::Torus {
+                u_scale,
+                minor_radius,
+                ..
+            } => (2.2 * u_scale, 2.2 * minor_radius),
+        }
+    }
+
     /// Evaluate position, tangent vectors, unit outward normal, and normal
     /// derivatives at `(u, v)`.
     pub(crate) fn eval(&self, u: f64, v: f64) -> Option<ChartEval> {
@@ -608,7 +627,7 @@ impl LocalSurfaceChart {
 ///
 /// Orthogonalizes columns of `W` directly without forming `A^T A`, preserving
 /// full `f64` relative accuracy on small singular values near tangency.
-fn thin_svd<const M: usize, const N: usize>(
+pub(crate) fn thin_svd<const M: usize, const N: usize>(
     a: [[f64; N]; M],
 ) -> ([[f64; N]; M], [f64; N], [[f64; N]; N]) {
     let mut w = a;
@@ -702,7 +721,7 @@ fn thin_svd<const M: usize, const N: usize>(
 
 /// Converged solution of Appendix C's two-point parametric Newton
 /// (`D(u, v, s, t) = s_1(u, v) - s_2(s, t) = 0`).
-#[allow(dead_code)] // Wired into small-loop tracing in Step 3; unit-pinned in Step 2.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ParametricPairSolution {
     pub(crate) point: Point3,
@@ -757,7 +776,7 @@ impl TangentSolution {
 
 /// §4.3.3 classification of an isolated candidate seed (`:535-540` R,
 /// `:567-573` L, `:745` R).
-#[allow(dead_code)] // Wired into small-loop detection in Step 3; unit-pinned in Step 2.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SeedOptimizationResult {
     /// Converged to a tangent point (`∠(n_A, ±n_B) <= 10^{-6}` rad).
@@ -772,14 +791,19 @@ pub(crate) enum SeedOptimizationResult {
 }
 
 #[inline]
-fn collinear_angle_rad(na: V3, nb: V3) -> f64 {
+pub(crate) fn collinear_angle_rad(na: V3, nb: V3) -> f64 {
     let cx = norm3(cross3(na, nb));
     let dt = dot3(na, nb).abs();
     cx.atan2(dt)
 }
 
 #[inline]
-fn coincidence_floor(p_a: Point3, p_b: Point3, s_a: Surface, s_b: Surface) -> (f64, f64) {
+pub(crate) fn coincidence_floor(
+    p_a: Point3,
+    p_b: Point3,
+    s_a: Surface,
+    s_b: Surface,
+) -> (f64, f64) {
     let scale = mag3(p_a.as_array())
         .max(mag3(p_b.as_array()))
         .max(surface_anchor_magnitude(s_a))
@@ -789,11 +813,122 @@ fn coincidence_floor(p_a: Point3, p_b: Point3, s_a: Surface, s_b: Surface) -> (f
     (tau, scale)
 }
 
+/// Express a 3D tangent-plane vector `w` in `(su, sv)` coordinates via a `2 × 2`
+/// Gram solve.
+#[inline]
+fn solve_in_tangent_frame(su: V3, sv: V3, w: V3) -> [f64; 2] {
+    let g00 = dot3(su, su);
+    let g01 = dot3(su, sv);
+    let g11 = dot3(sv, sv);
+    let det = g00 * g11 - g01 * g01;
+    if det.abs() <= 1e-24 {
+        return [0.0, 0.0];
+    }
+    let r0 = dot3(su, w);
+    let r1 = dot3(sv, w);
+    [(g11 * r0 - g01 * r1) / det, (g00 * r1 - g01 * r0) / det]
+}
+
+/// Second-order quadratic step escaping a Sederberg collinear-normal interpenetration
+/// extremum (`∇(‖D‖²/2) = 0`, `D = δ n_A ≠ 0`, `n_A = ±n_B`; Sederberg et al. 1989,
+/// `yang2025_hybrid_boolean.txt:442-446` R).
+///
+/// Along a unit common-tangent direction `ŵ`, `n_A · (s_A(t ŵ) - s_B(t ŵ)) =
+/// δ - ½ (ŵ^T M_rel ŵ) t² + O(t³)`. When `M_rel` has an eigenvalue `λ` with
+/// `λ · δ > 0`, the surfaces interpenetrate in a closed loop around the extremum
+/// and `t = √(2 δ / λ)` steps directly onto the loop; when `λ · δ <= 0` for both
+/// eigenvalues, the surfaces are locally separated (Case IV) and `None` is returned.
+#[allow(clippy::too_many_arguments)]
+fn quadratic_collinear_loop_escape(
+    chart_a: &LocalSurfaceChart,
+    chart_b: &LocalSurfaceChart,
+    x_cur: [f64; 4],
+    ea: &ChartEval,
+    eb: &ChartEval,
+    d_vec: V3,
+    gap: f64,
+    step_cap: f64,
+) -> Option<[f64; 4]> {
+    if collinear_angle_rad(ea.normal, eb.normal) > 1e-4 {
+        return None;
+    }
+    let sigma_sign = if dot3(ea.normal, eb.normal) >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    };
+    let delta_n = dot3(d_vec, ea.normal);
+    if delta_n.abs() <= 1e-16 {
+        return None;
+    }
+    let b0 = normalize3(ea.su);
+    let b1 = normalize3(sub3(ea.sv, scale3(b0, dot3(ea.sv, b0))));
+    let mut m = [[0.0; 2]; 2];
+    for (col, basis_vec) in [b0, b1].into_iter().enumerate() {
+        let ca = solve_in_tangent_frame(ea.su, ea.sv, basis_vec);
+        let cb = solve_in_tangent_frame(eb.su, eb.sv, basis_vec);
+        let dna = add3(scale3(ea.nu, ca[0]), scale3(ea.nv, ca[1]));
+        let dnb = add3(scale3(eb.nu, cb[0]), scale3(eb.nv, cb[1]));
+        let d_rel = sub3(dna, scale3(dnb, sigma_sign));
+        m[0][col] = dot3(b0, d_rel);
+        m[1][col] = dot3(b1, d_rel);
+    }
+    let m00 = m[0][0];
+    let m11 = m[1][1];
+    let m01 = 0.5 * (m[0][1] + m[1][0]);
+    let tr = m00 + m11;
+    let diff = m00 - m11;
+    let disc = (diff * diff + 4.0 * m01 * m01).sqrt();
+    let eigs = [0.5 * (tr + disc), 0.5 * (tr - disc)];
+
+    // Pick the interpenetrating principal direction (`lam * delta_n > 0`) with
+    // largest `|lam|` so the step `√(2 δ / λ)` to the loop's minor-axis vertex
+    // is minimal.
+    let mut best_lam: Option<f64> = None;
+    for lam in eigs {
+        if lam * delta_n > 1e-18 && best_lam.is_none_or(|prev| lam.abs() > prev.abs()) {
+            best_lam = Some(lam);
+        }
+    }
+    let lam = best_lam?;
+    let v2d = if m01.abs() > 1e-15 * (m00.abs() + m11.abs() + disc) {
+        let vx = m01;
+        let vy = lam - m00;
+        let vn = vx.hypot(vy);
+        [vx / vn, vy / vn]
+    } else if (lam - m00).abs() <= (lam - m11).abs() {
+        [1.0, 0.0]
+    } else {
+        [0.0, 1.0]
+    };
+
+    let t_step = (2.0 * delta_n / lam).sqrt().min(step_cap);
+    let w_vec = scale3(add3(scale3(b0, v2d[0]), scale3(b1, v2d[1])), t_step);
+    let ca = solve_in_tangent_frame(ea.su, ea.sv, w_vec);
+    let cb = solve_in_tangent_frame(eb.su, eb.sv, w_vec);
+    for sign in [1.0, -1.0] {
+        let x_try = [
+            x_cur[0] + sign * ca[0],
+            x_cur[1] + sign * ca[1],
+            x_cur[2] + sign * cb[0],
+            x_cur[3] + sign * cb[1],
+        ];
+        if let (Some(ta), Some(tb)) = (
+            chart_a.eval(x_try[0], x_try[1]),
+            chart_b.eval(x_try[2], x_try[3]),
+        ) {
+            if norm3(sub3(ta.point, tb.point)) < 0.9 * gap {
+                return Some(x_try);
+            }
+        }
+    }
+    None
+}
+
 /// Yang et al. 2025 §4.3.1 & Appendix C (`yang2025_hybrid_boolean.txt:479-492` R,
 /// `:1232-1250` R): minimum-norm parametric Newton solving
 /// `D(u, v, s, t) = s_1(u, v) - s_2(s, t) = 0` via
 /// `∇D ∇D^T a_k = s_2 - s_1`, `x_{k+1} = x_k + ∇D^T a_k`.
-#[allow(dead_code)] // Wired into small-loop tracing in Step 3; unit-pinned in Step 2.
 pub(crate) fn solve_parametric_pair_newton(
     p_seed: Point3,
     q_seed: Point3,
@@ -859,13 +994,21 @@ pub(crate) fn solve_parametric_pair_newton(
         ];
 
         // Stationarity check: `∇(‖D‖²/2) = A · D = 0` at a strictly positive
-        // separation certifies non-intersecting surfaces (Case IV).
+        // separation is either a Sederberg collinear-normal interpenetration
+        // extremum inside a closed small loop (escaped in one second-order
+        // step) or non-intersecting surfaces (Case IV).
         let mut grad_sq = 0.0;
         for row in &a_mat {
             let g = row[0] * d_vec[0] + row[1] * d_vec[1] + row[2] * d_vec[2];
             grad_sq += g * g;
         }
         if grad_sq.sqrt() <= 1e-13 * gap.max(tau) {
+            if let Some(x_esc) = quadratic_collinear_loop_escape(
+                &chart_a, &chart_b, x, &ea, &eb, d_vec, gap, step_cap,
+            ) {
+                x = x_esc;
+                continue;
+            }
             return try_accept(x, &ea, &eb, gap);
         }
 
@@ -1022,8 +1165,8 @@ fn solve_tangent_with_sign(
     max_drift: Option<f64>,
 ) -> Option<TangentSolution> {
     const MAX_ITERS: usize = 36;
-    let gap_machine_tol = 16.0 * f64::EPSILON * scale;
-    let ang_machine_tol = 64.0 * f64::EPSILON;
+    let gap_machine_tol = 4.0 * f64::EPSILON * scale;
+    let ang_machine_tol = 8.0 * f64::EPSILON;
     let try_accept = |x_cur: [f64; 4],
                       ea: &ChartEval,
                       eb: &ChartEval,
@@ -1273,7 +1416,6 @@ fn classify_isolated_curvature(ea: &ChartEval, eb: &ChartEval, sigma_sign: f64) 
 /// `:567-573` L, `:745` R): optimize an isolated seed pair `(p_seed, q_seed)`
 /// on `(s_a, s_b)` and classify the outcome into `Tangent`, `CurvePoint`
 /// (small-loop seed), or `NoIntersection`.
-#[allow(dead_code)] // Wired into small-loop detection in Step 3; unit-pinned in Step 2.
 pub(crate) fn solve_and_classify_seed(
     p_seed: Point3,
     q_seed: Point3,
@@ -1423,6 +1565,14 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
             if d > reach {
                 return;
             }
+            // §4.2.2 (`yang2025_hybrid_boolean.txt:440-446` R, Fig. 10(b)
+            // `:489-491` L): a surface tangency requires `n_A = ±n_B`; prune
+            // non-overlapping closed-form Gauss maps before Newton.
+            let gm_a = GaussMap::from_triangle(&surf_a, set_a.pts[ta_idx].map(|p| p.as_array()));
+            let gm_b = GaussMap::from_triangle(&surf_b, set_b.pts[tb_idx].map(|p| p.as_array()));
+            if !gm_a.overlaps(&gm_b) {
+                return;
+            }
             let (pa, pb, _) = triangle_closest_pair(set_a.pts[ta_idx], set_b.pts[tb_idx]);
             let seeds = pair_seeds.entry((fa, fb)).or_default();
             let dedup_r2 = (0.25 * reach).powi(2);
@@ -1455,12 +1605,17 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
                 continue;
             }
             let qa = sol.point.as_array();
-            if found.iter().any(|existing| {
+            if let Some(existing) = found.iter_mut().find(|existing| {
                 dot3(
                     sub3(existing.point.as_array(), qa),
                     sub3(existing.point.as_array(), qa),
                 ) <= merge_tol2
             }) {
+                let err_new = sol.surface_gap + scale * sol.normal_angle_rad;
+                let err_old = existing.surface_gap + scale * existing.normal_angle_rad;
+                if err_new < err_old {
+                    *existing = sol;
+                }
                 continue;
             }
             found.push(sol);

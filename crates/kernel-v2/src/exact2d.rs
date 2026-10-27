@@ -31,6 +31,10 @@ pub(crate) fn r(x: f64) -> RBig {
 /// cascade structure as cherchi-rs's predicates.)
 const ORIENT2D_ERRBOUND_A: f64 = (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON;
 
+/// Shewchuk's static forward-error bound for the 2D incircle determinant
+/// (`iccerrboundA = (10 + 96ε)·ε`, ε = 2⁻⁵³; Shewchuk 1997 §4.4).
+const INCIRCLE_ERRBOUND_A: f64 = (10.0 + 96.0 * f64::EPSILON) * f64::EPSILON;
+
 /// Orientation of `c` relative to the directed line `a → b`:
 /// `Greater` = left, `Less` = right, `Equal` = collinear.
 ///
@@ -59,6 +63,60 @@ pub(crate) fn orient2d(a: Point2, b: Point2, c: Point2) -> Ordering {
     let det = (r(b.x()) - r(a.x())) * (r(c.y()) - r(a.y()))
         - (r(b.y()) - r(a.y())) * (r(c.x()) - r(a.x()));
     det.cmp(&RBig::ZERO)
+}
+
+/// Exact 2D incircle decision procedure for a CCW triangle `(a, b, c)` and
+/// query point `d`: `Greater` = `d` strictly inside the circumcircle of
+/// `(a, b, c)`, `Less` = strictly outside, `Equal` = cocircular.
+///
+/// Uses Shewchuk's `iccerrboundA` fast filter with lossless `RBig` fallback.
+pub(crate) fn incircle(a: Point2, b: Point2, c: Point2, d: Point2) -> Ordering {
+    let adx = a.x() - d.x();
+    let bdx = b.x() - d.x();
+    let cdx = c.x() - d.x();
+    let ady = a.y() - d.y();
+    let bdy = b.y() - d.y();
+    let cdy = c.y() - d.y();
+
+    let bdxcdy = bdx * cdy;
+    let cdxbdy = cdx * bdy;
+    let alift = adx * adx + ady * ady;
+
+    let cdxady = cdx * ady;
+    let adxcdy = adx * cdy;
+    let blift = bdx * bdx + bdy * bdy;
+
+    let adxbdy = adx * bdy;
+    let bdxady = bdx * ady;
+    let clift = cdx * cdx + cdy * cdy;
+
+    let det = alift * (bdxcdy - cdxbdy) + blift * (cdxady - adxcdy) + clift * (adxbdy - bdxady);
+    let permanent = (bdxcdy.abs() + cdxbdy.abs()) * alift
+        + (cdxady.abs() + adxcdy.abs()) * blift
+        + (adxbdy.abs() + bdxady.abs()) * clift;
+    if det.is_finite() && permanent.is_finite() {
+        let bound = INCIRCLE_ERRBOUND_A * permanent;
+        if det > bound {
+            return Ordering::Greater;
+        }
+        if det < -bound {
+            return Ordering::Less;
+        }
+    }
+
+    let radx = r(a.x()) - r(d.x());
+    let rbdx = r(b.x()) - r(d.x());
+    let rcdx = r(c.x()) - r(d.x());
+    let rady = r(a.y()) - r(d.y());
+    let rbdy = r(b.y()) - r(d.y());
+    let rcdy = r(c.y()) - r(d.y());
+    let ralift = &radx * &radx + &rady * &rady;
+    let rblift = &rbdx * &rbdx + &rbdy * &rbdy;
+    let rclift = &rcdx * &rcdx + &rcdy * &rcdy;
+    let rdet = ralift * (&rbdx * &rcdy - &rcdx * &rbdy)
+        + rblift * (&rcdx * &rady - &radx * &rcdy)
+        + rclift * (&radx * &rbdy - &rbdx * &rady);
+    rdet.cmp(&RBig::ZERO)
 }
 
 /// Spike test at vertex `b` of the path `a → b → c`: the incident edges
@@ -732,5 +790,20 @@ mod arc_predicate_tests {
         assert!(point_on_closed_arc(p(3.0, 4.0), a, b, c, 5.0)); // interior (on circle, arc side)
         assert!(!point_on_closed_arc(p(5.0, 0.0), a, b, c, 5.0)); // on circle, wrong span
         assert!(!point_on_closed_arc(p(1.0, 1.0), a, b, c, 5.0)); // not on circle
+    }
+
+    #[test]
+    fn incircle_exact_across_scales_and_cocircular() {
+        let (a, b, c) = (p(1.0, 0.0), p(0.0, 1.0), p(-1.0, 0.0));
+        assert_eq!(incircle(a, b, c, p(0.0, 0.0)), Ordering::Greater);
+        assert_eq!(incircle(a, b, c, p(0.0, -1.0)), Ordering::Equal);
+        assert_eq!(incircle(a, b, c, p(0.0, -2.0)), Ordering::Less);
+
+        // Shifted micro-scale circle where plain-f64 lift cancels (RBig fallback).
+        let (ox, oy, h) = (3.0_f64, 1.5_f64, 2.0_f64.powi(-20));
+        let (sa, sb, sc) = (p(ox + h, oy), p(ox, oy + h), p(ox - h, oy));
+        assert_eq!(incircle(sa, sb, sc, p(ox, oy)), Ordering::Greater);
+        assert_eq!(incircle(sa, sb, sc, p(ox, oy - h)), Ordering::Equal);
+        assert_eq!(incircle(sa, sb, sc, p(ox, oy - 2.0 * h)), Ordering::Less);
     }
 }

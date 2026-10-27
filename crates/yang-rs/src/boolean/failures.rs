@@ -506,6 +506,9 @@ impl<'m> RingCapture<'m> {
     }
 
     pub(crate) fn captured(&self, tri_a: u32, tri_b: u32) -> bool {
+        if self.joined.contains(&(tri_a, tri_b)) {
+            return true;
+        }
         self.rings(tri_a, tri_b).2
     }
 }

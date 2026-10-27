@@ -130,7 +130,9 @@ mod stage5_output_refine;
 mod stage5_seam_merge;
 mod stage5_topology;
 pub(crate) use stage5_topology::*;
+pub mod gauss_map;
 mod stage4_relocate;
+pub(crate) mod stage4_small_loop;
 pub(crate) mod stage4_tangency;
 pub use brep::{
     BRep, BRepEdge, BRepFace, BRepVertex, InputId, TessellationMap, TessellationSource,

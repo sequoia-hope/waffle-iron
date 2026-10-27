@@ -790,6 +790,11 @@ pub(crate) fn build_intersection_curves(
         Some(edge_provenance.contains(&(ka.min(kb), ka.max(kb))))
     };
     let mut probe_counts = [0usize; 6]; // [seen, confirmed, c_len, c_same_input, c_onboth, c_other]
+    type SsiPairCacheEntry = (
+        (Surface, Surface),
+        Result<Vec<ssi_rs::SsiCurve>, ssi_rs::SsiError>,
+    );
+    let mut ssi_cache: Vec<SsiPairCacheEntry> = Vec::new();
     for (&(s, e), entries) in incidence {
         let prov = prov_of(s, e);
         if probe_on {
@@ -1091,11 +1096,22 @@ pub(crate) fn build_intersection_curves(
             reason,
         })?;
 
-        let returned =
-            ssi_rs::intersect(&q0, &q1).map_err(|err| YangError::SsiRefinementFailed {
-                edge: (s, e),
-                reason: SsiRefinementError::IntersectFailed(err),
-            })?;
+        let cached_res = if let Some((_, res)) = ssi_cache
+            .iter()
+            .find(|((a0, a1), _)| *a0 == surf0 && *a1 == surf1)
+        {
+            res.clone()
+        } else {
+            let res = ssi_rs::intersect(&q0, &q1);
+            if ssi_cache.len() < 64 {
+                ssi_cache.push(((surf0, surf1), res.clone()));
+            }
+            res
+        };
+        let returned = cached_res.map_err(|err| YangError::SsiRefinementFailed {
+            edge: (s, e),
+            reason: SsiRefinementError::IntersectFailed(err),
+        })?;
 
         // PR-F3b: a `Line` candidate's membership band carries the propagated
         // factor `r/√(r² − d²)` (the radial chord deficit measured in the

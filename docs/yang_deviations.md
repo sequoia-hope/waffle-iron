@@ -190,8 +190,8 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
-| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2 & 2b: §4.3 tangency-point Newton landed and Stage-1 `cyl_cyl_tangent_points` closed form retired) | Tangent points, small loops and sub-band contacts are not resolved; isolated 0D tangency Newton (`stage4_tangency.rs`) landed and `cyl_cyl_tangent_points` retired, small-loop tracing and Fig. 10(c) seeding open |
-| N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
+| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–3: §4.3 tangency-point Newton landed, Stage-1 `cyl_cyl_tangent_points` retired, and `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT landed) | Tangent points, small loops and sub-band contacts: isolated 0D tangency Newton (`stage4_tangency.rs`) and non-crossing small-loop resolution (`gauss_map.rs`, `stage4_small_loop.rs`, `C0116`, sub-band `C0118`) landed; Fig. 10(c) barycenter seeding + curve-redundancy removal follow in Step 4 |
+| N92 | **RESOLVED** (2026-10-27, roadmap F4 Step 3; folded into N91 from parked branch `agy/f4-n92-gaussmap` `1519f6ed`) | Closed-form conservative `GaussMap` (`crates/yang-rs/src/gauss_map.rs`, all 5 analytic surfaces) is wired in its §4.2.2 (`:440-446` R, Fig. 10(b) `:489-491` L) role as the admission test for `< 2d_ε` non-crossing small-loop / tangency candidate areas (`stage4_small_loop.rs`, `stage4_tangency.rs`) with zero trim-boundary exemption (`C0116` admitted unconditionally; orthogonal proximity pruned); Bézier Theorem 4.1 remains out of scope under D14 |
 | N93 | OPEN (2026-10-16, matrix M-6; 2026-10-27: Stage-1 `d(T)` (`BRep::tri_dt`) + loud `DtError` certificate check LIVE; inner Theorem A.2 `ω + d < d_ε` subdivision open under F5 item 3 / N5 / N61) | Stage 1 computes and checks `d(T)` per triangle (`BRep::tri_dt`), while inner `≤ d_ε` certification awaits Theorem A.2 sub-patch subdivision |
 | N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
@@ -206,7 +206,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-27, after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-27, F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -4386,7 +4386,7 @@ The 24 Case D missing triangles are presumably the ones spade chose differently 
 
 #### D13 — Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones
 
-**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11); moot within the analytic-primitive scope; revisit together with D14/NURBS.
+**State:** HISTORICAL — cites legacy `crates/kernel/` (DELETED 2026-06-11). Closed-form conservative `GaussMap` for all five analytic surfaces landed 2026-10-27 under **N92** (`crates/yang-rs/src/gauss_map.rs`); only the Bézier control-net Theorem 4.1 half remains out of scope with D14/NURBS.
 
 **Status:** OPEN. NOT signed off.
 
@@ -6973,8 +6973,31 @@ strictly scale-covariant (`0.25·reach`, `TAU_MODEL·(1+scale)`). Suites: `yang-
 et al.) 8 / 0. Canonical corpus (release, 8 jobs, 900 s; wall 1112.02 s):
 **360C / 0W / 9E / 5EE / 0T over 374**, zero category moves (all five Steinmetz
 saddle-tangency cases `C0058`, `F0056`, `F0057`, `F0058`, `F0060` hold
-`SUPPORTED_CORRECT`) and zero `results.json` drift. Next increments: wire N92
-`GaussMap` + Bajaj small-loop tracing (Step 3), and Fig. 10(c) seeding (Step 4).
+`SUPPORTED_CORRECT`) and zero `results.json` drift.
+
+**Amendment (2026-10-27, roadmap F4 Step 3 — `GaussMap` admission + Bajaj
+small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local
+chart CDT landed).** Extracted the closed-form conservative `GaussMap`
+primitive for all five analytic surfaces (`crates/yang-rs/src/gauss_map.rs`)
+from parked branch `agy/f4-n92-gaussmap` (`1519f6ed`) and built
+`crates/yang-rs/src/stage4_small_loop.rs`:
+1. Detects connected `< 2d_ε` non-crossing triangle proximity areas uncaptured
+   by the Stage-2 arrangement (`§4.2.1` Eq. (1) `:456-461` L) and admits them
+   unconditionally by `GaussMap::overlaps` (`§4.2.2` `:440-446` R, zero
+   trim-boundary exemption — resolving **N92**).
+2. Optimizes each admitted seed on `(S_A, S_B)` via `solve_and_classify_seed`
+   with a second-order Sederberg collinear-normal interpenetration escape
+   (`quadratic_collinear_loop_escape`), traces closed interior small loops from
+   `CurvePoint` seeds via Bajaj et al. 1988 curvature-adaptive marching +
+   orthogonal-plane Newton correction (`§4.3.3` `:567-573` L, `:598-601`), and
+   refines every chord by parameter-midpoint Newton until
+   `paper_chain_sample_redundant` holds (`§4.3.4` `:575-593` L).
+3. Solves exact Fig. 11(c) interior surface cap points `c_a ∈ S_A`, `c_b ∈ S_B`
+   along the loop's common normal axis (`solve_common_axis_interior_caps`) and
+   splices `r_A = r_B = r` + near-vertex clearance + interior caps into both
+   Stage-1 meshes via local chart CDT (`§4.4.1` `:546-570` R).
+Next increment: exact Fig. 10(c) barycenter seeding + `:502-505` L
+curve-redundancy removal (Step 4).
 **State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
@@ -7012,8 +7035,24 @@ in the paper is the admission test for small closed loops that no mesh
 crossing reveals (§4.2.2 `:440-446` with §4.3 small-loop tracing
 `:598-601`), so it is built with N91 as that test, starting from the parked
 branch, and the trim-boundary question is decided there against a real
-small-loop customer (C0116's strictly interior contacts). **State: OPEN**,
-resolved with N91.
+small-loop customer (C0116's strictly interior contacts).
+
+**Resolution (2026-10-27, roadmap F4 Step 3).** `crates/yang-rs/src/gauss_map.rs`
+(`GaussMap::from_uv_rect`, `from_triangle`, `from_triangles`, `overlaps` across
+`Plane`, `Cylinder`, `Cone`, `Sphere`, `Torus`) is now live in its §4.2.2
+(`:440-446` R, Fig. 10(b) `:489-491` L, §5.6 `:1033-1035` R) role as the
+admission test for `< 2d_ε` non-crossing small-loop and tangency candidate
+areas (`stage4_small_loop::discover_small_loop_candidate_areas`,
+`stage4_tangency::discover_operand_pair_tangent_points_newton`). Decided
+against real customer `C0116` (`specs/yang_43_tangency_newton.md` §4.3): by
+Sederberg et al. 1989 (`:442-446` R), every strictly interior closed loop
+encloses a collinear normal pair `n_A = ±n_B` regardless of whether its
+surrounding coarse strip triangles touch the face's outer rims (`C0116` is
+admitted unconditionally with zero trim-boundary exemption, while open
+trim-clipped arcs like `P0021` remain on `shell_contact::contact_pairs` T6).
+Pins: `crates/yang-rs/src/tests_unit/s422_gauss_map.rs`. Matrix rows `4.2-12`,
+`4.2-13`, `5.6-02` → `FAITHFUL`; `M-4` resolved.
+**State: RESOLVED.**
 
 ### N93 — Stage 1 neither computes d(T) nor certifies d_ε (matrix M-6)
 
