@@ -495,22 +495,23 @@ test.describe('Agent link authoring (Phase 1)', () => {
 	});
 
 	test('G2: a user rebuild holding the engine longer than 10 s refuses the call as rebuilding', async ({ page }) => {
-		// The F0064 rebuild is ~25 s locally and has exceeded 120 s on a loaded
-		// CI runner (run 35911043322, 2026-09-23): the margins are generous.
-		// 2026-10-14: the kernel's §4.5.2 loop now re-runs F0064's last union to
-		// its refinement ceiling (two real crossings at a cap rim it cannot
-		// resolve; the natural body stands) — the native rebuild went 47.7 s →
-		// ~97 s and the 240 s wait below timed out on three CI runs out of five
-		// (docs/yang_tail_triage.md §"2026-10-14 (retirement)"). This test pins
-		// the engine-lock refusal, not rebuild speed: the wait doubles with it.
+		// The fixture is a user rebuild that reliably holds the engine longer
+		// than the agent's 10 s wait. It must be a case the kernel finishes
+		// CORRECTLY: until 2026-10-27 this was F0064, the corpus's one open
+		// ERROR, whose last union runs the §4.5.2 loop to its ceiling — every
+		// change to the loop's cost moved this wait (47.7 s → ~97 s on
+		// 2026-10-14; ×3.6 in WASM, 64 s → 228 s, when the ceiling went to
+		// density 16 on 2026-10-25, and three relay runs timed out). F0063 is a
+		// CORRECT 10-feature case at ~26 s in WASM locally. This test pins the
+		// engine-lock refusal, not rebuild speed.
 		test.setTimeout(600000);
 		const crashes = collectCrashErrors(page);
 		await pairAgent(page, relay, AGENT);
-		// Loading a five-extrude gear stack is one ~25 s LoadProject rebuild through the user path.
-		const f0064 = readFileSync(new URL('../cases/assay/F0064.waffle', import.meta.url), 'utf8');
+		// Loading F0063 is one ~26 s LoadProject rebuild through the user path.
+		const fixture = readFileSync(new URL('../cases/assay/F0063.waffle', import.meta.url), 'utf8');
 		await page.evaluate((json) => {
 			void window.__waffle.loadProject(json);
-		}, f0064);
+		}, fixture);
 		await page.waitForFunction(() => window.__waffle.getEngineLockHolder() === 'user', null, { timeout: 10000 });
 		await page.evaluate(() => window.__waffle.recordEngineSends(true));
 
