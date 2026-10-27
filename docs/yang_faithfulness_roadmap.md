@@ -227,3 +227,4 @@ the first known item.
 | date | milestone step | debt | matrix not-faithful | corpus | commit |
 |---|---|---|---|---|---|
 | 2026-10-27 | roadmap adopted (baseline) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | — |
+| 2026-10-27 | F0 scoreboard script; F1 I1 side labels through Stage 4 (byte-identical, wall 928.7 s) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | ed1c3658, 13f7fe05 |
