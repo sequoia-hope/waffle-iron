@@ -51,13 +51,13 @@ Refreshed 2026-10-27 (after the literature check, `docs/audits/lit_check_2026_10
 
 | slice | rows | FAITHFUL | PARTIAL | DEVIATES | MISSING | ORDER | SILENT | N/A |
 |---|---|---|---|---|---|---|---|---|
-| §3, §4.1, App. A — discretization | 43 | 6 | 15 | 10 | 2 | 2 | 0 | 8 |
+| §3, §4.1, App. A — discretization | 43 | 7 | 16 | 10 | 1 | 1 | 0 | 8 |
 | §4.2, App. B, §5.6 — mesh intersection | 31 | 4 | 10 | 8 | 2 | 0 | 1 | 6 |
 | §4.3 — intersection optimization | 25 | 3 | 7 | 11 | 3 | 1 | 0 | 0 |
 | §4.4 — mesh updating, Booleans | 28 | 5 | 15 | 5 | 1 | 2 | 0 | 0 |
 | §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 3 | 14 | 6 | 2 | 1 | 6 | 0 |
 | §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 10 | 16 | 4 | 0 | 2 | 3 | 0 |
-| **total** | **194** | **31** | **77** | **44** | **10** | **8** | **10** | **14** |
+| **total** | **194** | **32** | **78** | **44** | **9** | **7** | **10** | **14** |
 
 Eighteen rows said UNLEDGERED outright when the matrix was written, and the
 cross-cutting findings below added more that only show up across slices.
