@@ -1008,11 +1008,12 @@ pub(crate) fn face_polygon_2d_tessellated(
     Some((poly, corners, BTreeMap::new(), Vec::new()))
 }
 
-/// Is `fi` a MIXED planar face (spec `m8_mixed_loop_coplanar_overlay` §2):
-/// `Surface::Plane`, not a disc, not annular, every loop edge's curve ∈
-/// {`LineSegment`, `Circle`}, at least one `Circle`? Ellipse edges stay the
-/// `face-unsupported` wall — chord-interior overlay vertices are minted onto
-/// the exact CIRCLE ([`RimChordCtx`]); there is no ellipse mint.
+/// Is `fi` a MIXED planar face (spec `m8_mixed_loop_coplanar_overlay` §2;
+/// extended in F6 / N89 item 4 per Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`
+/// and §5.5 Fig. 24(b) `:962-966` to `Curve::Ellipse` loops and arcs):
+/// `Surface::Plane`, not a pure circle disc or circle annulus, every loop
+/// spliceable from `LineSegment`, `Circle`, `Ellipse`, and `SurfacePair`, with
+/// at least one curved edge.
 pub(crate) fn mixed_planar_face(brep: &BRep, fi: usize) -> bool {
     let f = &brep.faces()[fi];
     if !matches!(f.surface, Surface::Plane { .. }) {
@@ -1022,21 +1023,34 @@ pub(crate) fn mixed_planar_face(brep: &BRep, fi: usize) -> bool {
         return false;
     }
     let mut any_curved = false;
-    for &e in std::iter::once(&f.outer_loop)
-        .chain(f.inner_loops.iter())
-        .flatten()
-    {
-        match brep.edges()[e as usize].curve {
-            Curve::LineSegment => {}
-            // M5 torus arm increment 3a (spec `m5_surface_pair_curve.md`
-            // "Torus × plane" 3a): a procedural surface-pair chain a prior
-            // boolean left on a planar face (the cap∩torus spiric, a plane
-            // operand) is a Stage-1 chain like an arc's, and the overlay
-            // samples it the same way. A pair chord the overlay SUBDIVIDES
-            // walls loudly in `collect_mixed_crossings` (no exact-curve
-            // minting for a pair edge yet).
-            Curve::Circle { .. } | Curve::SurfacePair { .. } => any_curved = true,
-            _ => return false,
+    for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+        if lp.is_empty() {
+            return false;
+        }
+        if lp.len() == 1 {
+            let ed = &brep.edges()[lp[0] as usize];
+            match ed.curve {
+                Curve::Circle { .. } | Curve::Ellipse { .. } if ed.start == ed.end => {
+                    any_curved = true;
+                    continue;
+                }
+                _ => return false,
+            }
+        }
+        for &e in lp {
+            let ed = &brep.edges()[e as usize];
+            match ed.curve {
+                Curve::LineSegment => {}
+                // M5 torus arm increment 3a (`SurfacePair`) + F6 / N89 item 4
+                // (`Ellipse`, Yang 2025 §4.5.5 `:718-732` / Fig. 24(b)
+                // `:962-966`): Stage-1 chain-backed open curved edges.
+                Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::SurfacePair { .. }
+                    if ed.start != ed.end =>
+                {
+                    any_curved = true;
+                }
+                _ => return false,
+            }
         }
     }
     any_curved
@@ -1065,7 +1079,7 @@ pub(crate) fn mixed_face_polygon_2d(
     let is_curved = |e_idx: u32| {
         matches!(
             brep.edges()[e_idx as usize].curve,
-            Curve::Circle { .. } | Curve::SurfacePair { .. }
+            Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::SurfacePair { .. }
         )
     };
 

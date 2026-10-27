@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
-| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24) | Seven smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-24, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24; item 4 RESOLVED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-24, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
@@ -6676,10 +6676,32 @@ Each is OPEN, each small; recorded together so none is invisible.
    and `inside_span` (`boolean/failures.rs`). Pinned by
    `tests_unit/i13_junction_overrun.rs::conic_param_and_reversal_cover_parabola_and_hyperbola`.
    Matrix 4.5.3-08 → FAITHFUL.
-4. **Ellipse-edged planar faces are a Stage-0 `face-unsupported` wall**
-   (`stage0/frame.rs:1016` doc, `overlay_face_supported`); the paper's own
-   Fig. 24(b) benchmark (24 elliptical cylinders with coplanar caps, §5.5
-   `:962-966`) cannot run. Matrix 4.5.5-05, 5.5-03.
+4. **~~Ellipse-edged planar faces are a Stage-0 `face-unsupported` wall~~ RESOLVED (2026-10-27, roadmap F6).**
+   `mixed_planar_face` and `mixed_face_polygon_2d` (`stage0/frame.rs:1017`,
+   `:1061`) now admit planar faces whose outer and hole loops are closed
+   1-edge `Circle | Ellipse` rings or multi-edge loops mixing `LineSegment`
+   and open `Circle | Ellipse | SurfacePair` arcs (§4.5.5 `:718-732`, Fig. 16
+   `:752-760`). `RimCurve::Ellipse` (`stage0/rim_chords.rs:29`, `:240`
+   `mixed_chord_ctxs`, `:359` `resolve_rim_chord_vertex`, `:1480`
+   `collect_mixed_crossings`, `:1866` `settle_rim_chain_order`) resolves
+   partner-edge crossings via the exact `RBig` rational quadratic in the
+   normalized ellipse chart `(u, v) = (((p − c)·m)/a, ((p − c)·w)/b)` and
+   sweep x-events by closed-form affine-radial projection onto the exact
+   ellipse, propagating shared split points into incident lateral faces via
+   `rim_overrides` (`stage1_tessellate.rs:1201`) while preserving exact
+   analytic `Curve::Ellipse` / `Curve::EllipseArc` boundaries and leaving
+   `stage0/reloc.rs` untouched. Pinned by
+   `crates/kernel-v2/tests/f6_ellipse_coplanar.rs`
+   (`smallest_ellipse_cap_coplanar_repro_via_adapter`,
+   `coplanar_ellipse_caps_preserve_exact_ellipse_arcs_in_arena`,
+   `fig24b_4_rotated_elliptical_cap_cylinders_sequential_union`,
+   `fig24b_24_rotated_elliptical_cap_cylinders_sequential_union` — the 24
+   coplanar-capped elliptical-cylinder sequential union of §5.5 Fig. 24(b),
+   `:962-966`) and
+   `tests_unit/s0_pair_chain_mixed_admission.rs::ellipse_chord_crossing_and_x_event_mint_on_the_exact_ellipse`.
+   Corpus held at 360C / 0W / 9E / 5EE / 0T over 374 (zero moves). Matrix
+   4.5.5-05 amended (remains PARTIAL on remaining non-ellipse refusals),
+   5.5-03 → FAITHFUL.
 5. **The coincident-cylinder Stage 0** (`stage0/cylinder.rs:416`
    `coincident_cylinder_stage0`) extends §4.5.5 to coincident cylinders
    with no entry (N25 covers plane groups only).

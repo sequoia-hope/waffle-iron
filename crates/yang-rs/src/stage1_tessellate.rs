@@ -1244,6 +1244,39 @@ pub(crate) fn stage1_tessellate_once(
                 }
                 Ok(t)
             };
+            let c = center.as_array();
+            let maj = normalize3(major_axis.as_array());
+            let mindir = crate::geom::ellipse_frame(normal, major_axis);
+            let nu = normalize3(normal.as_array());
+            let r_min = major_radius.min(minor_radius);
+            let validate_override = |pt: Point3,
+                                     uni_step: f64|
+             -> Result<(f64, [u64; 3]), YangError> {
+                let sp = pt.as_array();
+                let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
+                let along = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+                let u_ax = (w[0] * maj[0] + w[1] * maj[1] + w[2] * maj[2]) / major_radius;
+                let v_ax = (w[0] * mindir[0] + w[1] * mindir[1] + w[2] * mindir[2]) / minor_radius;
+                let rho = u_ax.hypot(v_ax);
+                let band = 1e-9 * (1.0 + major_radius);
+                let rho_band = if r_min > 0.0 { band / r_min } else { 0.0 };
+                let rho_sagitta = 1.0 - (uni_step / 2.0).cos();
+                if !rho.is_finite()
+                    || rho - 1.0 > rho_band
+                    || 1.0 - rho > rho_sagitta + rho_band
+                    || along.abs() > band
+                {
+                    return Err(YangError::MalformedTopology(format!(
+                        "ellipse edge {e_idx}: chord override ({},{},{}) is off the \
+                         ellipse (normalized radius {rho} vs 1.0 sagitta {rho_sagitta}, \
+                         axial {along})",
+                        sp[0], sp[1], sp[2]
+                    )));
+                }
+                let t_ov = v_ax.atan2(u_ax);
+                let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
+                Ok((t_ov, key))
+            };
             if e.start != e.end {
                 // ---- Minor-arc chain ----
                 let t0 = param_of(e.start)?;
@@ -1256,19 +1289,112 @@ pub(crate) fn stage1_tessellate_once(
                 }
                 let m = ((sweep * n_seg as f64) / two_pi).ceil() as usize;
                 let m = m.max(2);
-                let mut chain: Vec<u32> = Vec::with_capacity(m + 1);
+                let mut slots: Vec<(f64, Option<Point3>)> = (1..m)
+                    .map(|k| (sweep * (k as f64) / (m as f64), None))
+                    .collect();
+                if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
+                    // F6 / N89 item 4 (Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`,
+                    // Fig. 24(b) `:962-966`): Stage-0 coplanar overlap crossings
+                    // on an ellipse arc join its shared Stage-1 chain, mirroring
+                    // the Circle arc override contract above.
+                    let uni_step = sweep / (m as f64);
+                    let merge_tol = uni_step * 1.0e-6;
+                    let start_v = out_verts[e.start as usize].as_array();
+                    let end_v = out_verts[e.end as usize].as_array();
+                    let start_key = [
+                        start_v[0].to_bits(),
+                        start_v[1].to_bits(),
+                        start_v[2].to_bits(),
+                    ];
+                    let end_key = [end_v[0].to_bits(), end_v[1].to_bits(), end_v[2].to_bits()];
+                    let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
+                    let mut merged_slots: std::collections::BTreeMap<usize, [u64; 3]> =
+                        std::collections::BTreeMap::new();
+                    for &pt in extra {
+                        let (t_ov, key) = validate_override(pt, uni_step)?;
+                        if key == start_key || key == end_key {
+                            continue;
+                        }
+                        let off = (t_ov - t0).rem_euclid(two_pi);
+                        if off >= sweep - merge_tol {
+                            return Err(YangError::MalformedTopology(format!(
+                                "ellipse edge {e_idx}: arc-chord override at param-offset {off} \
+                                 is outside the arc sweep {sweep}"
+                            )));
+                        }
+                        let k_near = (off / uni_step).round();
+                        if (off - k_near * uni_step).abs() <= merge_tol {
+                            let k_slot = k_near as usize;
+                            if k_slot == 0 {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "ellipse edge {e_idx}: arc-chord override at param-offset \
+                                     {off} coincides with the arc-start endpoint but differs in \
+                                     bits (B-Rep vertex is authoritative; merge refused)"
+                                )));
+                            }
+                            let theta = t0 + (k_slot as f64) * uni_step;
+                            let up = ellipse_point(
+                                center,
+                                normal,
+                                major_axis,
+                                major_radius,
+                                minor_radius,
+                                theta,
+                            )
+                            .as_array();
+                            let sp = pt.as_array();
+                            let d2 = (sp[0] - up[0]).powi(2)
+                                + (sp[1] - up[1]).powi(2)
+                                + (sp[2] - up[2]).powi(2);
+                            let tau = cad_primitives::TAU_MODEL;
+                            if d2 >= tau * tau {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "ellipse edge {e_idx}: arc-chord override at param-offset \
+                                     {off} coincides with uniform sample k={k_slot} but is {} \
+                                     away (≥ TAU_MODEL {tau}) — real-scale coincidence (merge \
+                                     refused)",
+                                    d2.sqrt()
+                                )));
+                            }
+                            if let Some(prev) = merged_slots.get(&k_slot) {
+                                if *prev == key {
+                                    continue;
+                                }
+                                if !inserted_keys.contains(&key) {
+                                    inserted_keys.push(key);
+                                    slots.push((off, Some(pt)));
+                                }
+                                continue;
+                            }
+                            slots[k_slot - 1].1 = Some(pt);
+                            merged_slots.insert(k_slot, key);
+                            continue;
+                        }
+                        if inserted_keys.contains(&key) {
+                            continue;
+                        }
+                        inserted_keys.push(key);
+                        slots.push((off, Some(pt)));
+                    }
+                    slots.sort_by(|a, b| match a.0.total_cmp(&b.0) {
+                        std::cmp::Ordering::Equal => match (&a.1, &b.1) {
+                            (Some(pa), Some(pb)) => {
+                                exact_rim_ccw_tiebreak(c, maj, mindir, *pa, *pb)
+                            }
+                            _ => std::cmp::Ordering::Equal,
+                        },
+                        o => o,
+                    });
+                }
+                let mut chain: Vec<u32> = Vec::with_capacity(slots.len() + 2);
                 chain.push(e.start);
-                for k in 1..m {
-                    let t = t0 + sweep * (k as f64) / (m as f64);
+                for &(off, ov) in &slots {
+                    let t = t0 + off;
+                    let pt = ov.unwrap_or_else(|| {
+                        ellipse_point(center, normal, major_axis, major_radius, minor_radius, t)
+                    });
                     let vi = out_verts.len() as u32;
-                    out_verts.push(ellipse_point(
-                        center,
-                        normal,
-                        major_axis,
-                        major_radius,
-                        minor_radius,
-                        t,
-                    ));
+                    out_verts.push(pt);
                     sources.push(TessellationSource::BRepEdge {
                         edge: e_idx as u32,
                         t,
@@ -1280,24 +1406,128 @@ pub(crate) fn stage1_tessellate_once(
             } else {
                 // ---- Full ellipse: closed seam-anchored ring ----
                 let t0 = param_of(e.start)?;
-                let mut ring: Vec<u32> = Vec::with_capacity(n_seg);
-                ring.push(e.start);
-                for k in 1..n_seg {
-                    let t = t0 + two_pi * (k as f64) / (n_seg as f64);
-                    let vi = out_verts.len() as u32;
-                    out_verts.push(ellipse_point(
-                        center,
-                        normal,
-                        major_axis,
-                        major_radius,
-                        minor_radius,
-                        t,
-                    ));
-                    sources.push(TessellationSource::BRepEdge {
-                        edge: e_idx as u32,
-                        t,
+                enum EllipseSlot {
+                    Uniform(usize),
+                    Override(Point3),
+                }
+                let mut slots: Vec<(f64, EllipseSlot)> = (0..n_seg)
+                    .map(|k| {
+                        (
+                            two_pi * (k as f64) / (n_seg as f64),
+                            EllipseSlot::Uniform(k),
+                        )
+                    })
+                    .collect();
+                if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
+                    let uni_step = two_pi / (n_seg as f64);
+                    let merge_tol = uni_step * 1.0e-6;
+                    let sv = out_verts[e.start as usize].as_array();
+                    let seam_key = [sv[0].to_bits(), sv[1].to_bits(), sv[2].to_bits()];
+                    let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
+                    let mut merged_slots: std::collections::BTreeMap<usize, [u64; 3]> =
+                        std::collections::BTreeMap::new();
+                    for &pt in extra {
+                        let (t_ov, key) = validate_override(pt, uni_step)?;
+                        let off = (t_ov - t0).rem_euclid(two_pi);
+                        let k_near = (off / uni_step).round();
+                        if (off - k_near * uni_step).abs() <= merge_tol {
+                            let k_slot = (k_near as usize) % n_seg;
+                            if k_slot == 0 {
+                                if key == seam_key {
+                                    continue;
+                                }
+                                return Err(YangError::MalformedTopology(format!(
+                                    "ellipse edge {e_idx}: rim-crossing override at param-offset \
+                                     {off} coincides with the seam vertex but differs in bits \
+                                     (B-Rep vertex is authoritative; merge refused)"
+                                )));
+                            }
+                            let theta = t0 + (k_slot as f64) * uni_step;
+                            let up = ellipse_point(
+                                center,
+                                normal,
+                                major_axis,
+                                major_radius,
+                                minor_radius,
+                                theta,
+                            )
+                            .as_array();
+                            let sp = pt.as_array();
+                            let d2 = (sp[0] - up[0]).powi(2)
+                                + (sp[1] - up[1]).powi(2)
+                                + (sp[2] - up[2]).powi(2);
+                            let tau = cad_primitives::TAU_MODEL;
+                            if d2 >= tau * tau {
+                                return Err(YangError::MalformedTopology(format!(
+                                    "ellipse edge {e_idx}: rim-crossing override at param-offset \
+                                     {off} coincides with uniform sample k={k_slot} but is {} \
+                                     away (≥ TAU_MODEL {tau}) — real-scale coincidence (merge \
+                                     refused)",
+                                    d2.sqrt()
+                                )));
+                            }
+                            if let Some(prev) = merged_slots.get(&k_slot) {
+                                if *prev == key {
+                                    continue;
+                                }
+                                if !inserted_keys.contains(&key) {
+                                    inserted_keys.push(key);
+                                    slots.push((off, EllipseSlot::Override(pt)));
+                                }
+                                continue;
+                            }
+                            slots[k_slot] = (slots[k_slot].0, EllipseSlot::Override(pt));
+                            merged_slots.insert(k_slot, key);
+                            continue;
+                        }
+                        if inserted_keys.contains(&key) {
+                            continue;
+                        }
+                        inserted_keys.push(key);
+                        slots.push((off, EllipseSlot::Override(pt)));
+                    }
+                    slots.sort_by(|a, b| match a.0.total_cmp(&b.0) {
+                        std::cmp::Ordering::Equal => match (&a.1, &b.1) {
+                            (EllipseSlot::Override(pa), EllipseSlot::Override(pb)) => {
+                                exact_rim_ccw_tiebreak(c, maj, mindir, *pa, *pb)
+                            }
+                            _ => std::cmp::Ordering::Equal,
+                        },
+                        ord => ord,
                     });
-                    ring.push(vi);
+                }
+                let mut ring: Vec<u32> = Vec::with_capacity(slots.len());
+                for (off, slot) in slots {
+                    match slot {
+                        EllipseSlot::Uniform(0) => ring.push(e.start),
+                        EllipseSlot::Uniform(_) => {
+                            let t = t0 + off;
+                            let vi = out_verts.len() as u32;
+                            out_verts.push(ellipse_point(
+                                center,
+                                normal,
+                                major_axis,
+                                major_radius,
+                                minor_radius,
+                                t,
+                            ));
+                            sources.push(TessellationSource::BRepEdge {
+                                edge: e_idx as u32,
+                                t,
+                            });
+                            ring.push(vi);
+                        }
+                        EllipseSlot::Override(pt) => {
+                            let t = t0 + off;
+                            let vi = out_verts.len() as u32;
+                            out_verts.push(pt);
+                            sources.push(TessellationSource::BRepEdge {
+                                edge: e_idx as u32,
+                                t,
+                            });
+                            ring.push(vi);
+                        }
+                    }
                 }
                 rim_rings.insert(e_idx as u32, ring);
             }

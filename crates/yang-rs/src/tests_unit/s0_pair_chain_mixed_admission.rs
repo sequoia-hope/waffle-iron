@@ -342,17 +342,18 @@ fn a_pair_chain_takes_a_minted_override_in_order_and_refuses_an_off_curve_one() 
     );
 }
 
-/// The admission is ONLY for a pair chain beside lines / circles on a plane;
-/// an ellipse or hyperbola loop is still outside the mixed class (unchanged),
-/// and a non-planar face never qualifies.
+/// F6 / N89 item 4 (Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`,
+/// Fig. 24(b) `:962-966`) admitted `Curve::Ellipse` into the mixed planar
+/// class, replacing the earlier ellipse refusal pinned here; `Curve::Hyperbola`
+/// / `Curve::Parabola` and non-planar surfaces remain outside the mixed class.
 #[test]
 fn the_mixed_class_still_refuses_other_curves_and_curved_surfaces() {
-    let mut b = cap_with_spiric_edge();
-    // Same loop, the curved edge an ellipse: not admitted.
+    let b0 = cap_with_spiric_edge();
+    // Same loop, the curved edge an ellipse: now ADMITTED (F6 / N89 item 4).
     let (verts, mut edges, faces) = (
-        b.vertices().to_vec(),
-        b.edges().to_vec(),
-        b.faces().to_vec(),
+        b0.vertices().to_vec(),
+        b0.edges().to_vec(),
+        b0.faces().to_vec(),
     );
     edges[2].curve = Curve::Ellipse {
         center: Point3::new(0.0, 0.0, 0.0),
@@ -361,9 +362,156 @@ fn the_mixed_class_still_refuses_other_curves_and_curved_surfaces() {
         major_radius: 2.0 + 0.75_f64.sqrt(),
         minor_radius: 2.0 + 0.75_f64.sqrt(),
     };
-    b = BRep::new(verts, edges, faces).expect("valid");
-    assert!(!mixed_planar_face(&b, 0));
-    assert!(!overlay_face_supported(&b, 0));
+    let b_ell = BRep::new(verts.clone(), edges.clone(), faces.clone()).expect("valid");
+    assert!(mixed_planar_face(&b_ell, 0));
+    assert!(overlay_face_supported(&b_ell, 0));
+
+    // Hyperbola on a planar loop (symmetric about x = y so both (rho, 0, 0)
+    // and (0, rho, 0) sit on the +u branch): still refused.
+    let rho = 2.0 + 0.75_f64.sqrt();
+    let s2 = std::f64::consts::FRAC_1_SQRT_2;
+    let u_end = (rho + 2.0) * s2;
+    let v_end = rho * s2;
+    edges[2].curve = Curve::Hyperbola {
+        center: Point3::new(-1.0, -1.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        major_axis: Vector3::new(s2, s2, 0.0),
+        semi_transverse: 1.0,
+        semi_conjugate: v_end / (u_end * u_end - 1.0).sqrt(),
+    };
+    let b_hyp = BRep::new(verts.clone(), edges, faces).expect("valid");
+    assert!(!mixed_planar_face(&b_hyp, 0));
+    assert!(!overlay_face_supported(&b_hyp, 0));
+
+    // Non-planar surface (cylinder lateral face 0): refused.
+    let (cv, ce, cf) = rt_cylinder(0.0, 2.0, 1.0);
+    let b_curved = BRep::new(cv, ce, cf).expect("valid cylinder B-Rep");
+    assert!(!mixed_planar_face(&b_curved, 0));
+    assert!(!overlay_face_supported(&b_curved, 0));
+}
+
+/// F6 / N89 item 4: an ellipse-arc chord split by another input's edge (exact
+/// quadratic crossing) and by a sweep x-event (affine-radial projection) both
+/// mint points ON the exact ellipse in the canonical plane, and Stage 1's
+/// `Curve::Ellipse` chain pre-pass splices them in parameter order.
+#[test]
+fn ellipse_chord_crossing_and_x_event_mint_on_the_exact_ellipse() {
+    let (a, b_semi) = (2.5_f64, 1.5_f64);
+    let verts = vec![
+        BRepVertex {
+            point: Point3::new(a, 0.0, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(0.0, b_semi, 0.0),
+        },
+        BRepVertex {
+            point: Point3::new(4.0, 4.0, 0.0),
+        },
+    ];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 2,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 2,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+        BRepEdge {
+            start: 1,
+            end: 0,
+            curve: Curve::Ellipse {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                major_axis: Vector3::new(1.0, 0.0, 0.0),
+                major_radius: a,
+                minor_radius: b_semi,
+            },
+        },
+    ];
+    let faces = vec![BRepFace {
+        surface: plane_z0(),
+        outer_loop: vec![0, 1, 2],
+        inner_loops: vec![],
+        reversed: false,
+    }];
+    let brep = BRep::new(verts.clone(), edges.clone(), faces.clone()).expect("valid");
+    let frame = canonical_frame(&brep, 0).expect("planar frame");
+    let coords: Vec<Point3> = brep.vertices().iter().map(|v| v.point).collect();
+    let (poly, _, _, masks) =
+        face_polygon_2d_tessellated(&brep, 0, &coords, &frame).expect("tessellated");
+    let ctx0 = &mixed_chord_ctxs(&brep, &poly, &masks, &[], &frame)[0];
+
+    // 1. Pure x-event midpoint of the first ellipse chord:
+    let (cs, ce) = &ctx0.chords[0];
+    let two = dashu::rational::RBig::from(2);
+    let mid_ex = ExactPoint2 {
+        x: (&cs.x + &ce.x) / &two,
+        y: (&cs.y + &ce.y) / &two,
+    };
+    let (mx, my) = (mid_ex.x.to_f64().value(), mid_ex.y.to_f64().value());
+    let xev = match resolve_rim_chord_vertex(ctx0, &mid_ex, mx, my, &frame) {
+        RimResolve::OnCircle {
+            point,
+            crossing: false,
+            host: None,
+        } => point,
+        _ => panic!("expected pure x-event ellipse mint"),
+    };
+    let xp = xev.as_array();
+    let ell_res = (xp[0] / a).powi(2) + (xp[1] / b_semi).powi(2) - 1.0;
+    assert!(
+        ell_res.abs() < 1e-13 && xp[2].abs() < 1e-15,
+        "x-event mint must sit on the exact ellipse: res={ell_res:e}, p={xp:?}"
+    );
+
+    // 2. Exact crossing of the second ellipse chord's midpoint with a radial
+    // line from the ellipse center (0,0,0) through that chord midpoint:
+    let (cs1, ce1) = &ctx0.chords[1];
+    let q = ExactPoint2 {
+        x: (&cs1.x + &ce1.x) / &two,
+        y: (&cs1.y + &ce1.y) / &two,
+    };
+    let (cu, cv) = frame.project(Point3::new(0.0, 0.0, 0.0));
+    let c_ex = ExactPoint2::from_f64(cu, cv).unwrap();
+    let far = ExactPoint2 {
+        x: &c_ex.x + (&q.x - &c_ex.x) * &two,
+        y: &c_ex.y + (&q.y - &c_ex.y) * &two,
+    };
+    let mut ctx_cross = mixed_chord_ctxs(&brep, &poly, &masks, &[], &frame)
+        .into_iter()
+        .next()
+        .unwrap();
+    ctx_cross.other_segs = vec![(c_ex, far)];
+    let (qx, qy) = (q.x.to_f64().value(), q.y.to_f64().value());
+    let cp = match resolve_rim_chord_vertex(&ctx_cross, &q, qx, qy, &frame) {
+        RimResolve::OnCircle {
+            point,
+            crossing: true,
+            host: Some(0),
+        } => point,
+        _ => panic!("expected exact ellipse∩line crossing mint"),
+    };
+    let cpa = cp.as_array();
+    let q3 = frame.lift(qx, qy).as_array();
+    // Must lie on the exact ellipse AND stay collinear with the radial host line
+    // through (0,0,0) and q3!
+    let cp_res = (cpa[0] / a).powi(2) + (cpa[1] / b_semi).powi(2) - 1.0;
+    let host_cross = cpa[0] * q3[1] - cpa[1] * q3[0];
+    assert!(
+        cp_res.abs() < 1e-13 && host_cross.abs() < 1e-13 && cpa[2].abs() < 1e-15,
+        "crossing mint {cpa:?} must lie on ellipse (res={cp_res:e}) and host line (cross={host_cross:e})"
+    );
+
+    // 3. Stage 1 splices both overrides into the ellipse edge's chain:
+    let mut ov: BTreeMap<u32, Vec<Point3>> = BTreeMap::new();
+    ov.insert(2, vec![xev, cp]);
+    let t_base = stage1_tessellate(&verts, &edges, &faces).expect("base tess");
+    let t_ov = crate::stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
+        .expect("ov tess");
+    assert_eq!(t_ov.chains[&2].len(), t_base.chains[&2].len() + 2);
 }
 
 /// `planes_coincide`: the two faces of a coplanar pair — one plane carried

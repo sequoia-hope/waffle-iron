@@ -31,6 +31,16 @@ pub(crate) enum RimCurve {
     /// bit-exact coplanar input) so both minting branches stay in the cap
     /// plane, and the exact radius.
     Circle { center: Point3, radius: f64 },
+    /// An exact ellipse / ellipse-arc boundary on the planar face (F6 / N89
+    /// item 4, Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`,
+    /// Fig. 24(b) `:962-966`): center snapped onto the canonical plane, with
+    /// exact major-axis direction and semi-axes `(major_radius, minor_radius)`.
+    Ellipse {
+        center: Point3,
+        major_axis: [f64; 3],
+        major_radius: f64,
+        minor_radius: f64,
+    },
     /// A procedural surface-pair chain on the face — the cap∩torus spiric a
     /// prior boolean left there; one operand IS the face's plane (K8), so
     /// every point of the plane on the other operand is on the curve.
@@ -42,28 +52,63 @@ impl RimChordCtx {
     pub(crate) fn circle(&self) -> Option<(Point3, f64)> {
         match self.curve {
             RimCurve::Circle { center, radius } => Some((center, radius)),
+            RimCurve::Ellipse { .. } | RimCurve::Pair { .. } => None,
+        }
+    }
+
+    /// The rim ellipse `(center, major_axis, major_radius, minor_radius)`, if
+    /// this context is one.
+    pub(crate) fn ellipse(&self) -> Option<(Point3, [f64; 3], f64, f64)> {
+        match self.curve {
+            RimCurve::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => Some((center, major_axis, major_radius, minor_radius)),
+            RimCurve::Circle { .. } | RimCurve::Pair { .. } => None,
+        }
+    }
+
+    /// Star-shaped conic center for exact rational angular-order policing
+    /// (`settle_rim_chain_order`): both circles and ellipses are strictly
+    /// star-shaped about `center` with affine-invariant orientation sign.
+    pub(crate) fn star_center(&self) -> Option<Point3> {
+        match self.curve {
+            RimCurve::Circle { center, .. } | RimCurve::Ellipse { center, .. } => Some(center),
             RimCurve::Pair { .. } => None,
         }
     }
 
     /// The curved operand of a pair context (the one that is not the
-    /// face's plane). `None` for a circle, or a pair of two planes.
+    /// face's plane). `None` for a circle/ellipse, or a pair of two planes.
     fn pair_partner(&self) -> Option<Surface> {
         match self.curve {
             RimCurve::Pair { a, b } => [a, b]
                 .into_iter()
                 .find(|s| !matches!(s, Surface::Plane { .. })),
-            RimCurve::Circle { .. } => None,
+            RimCurve::Circle { .. } | RimCurve::Ellipse { .. } => None,
         }
     }
 
     /// The sagitta bound `chord² / (8 r)` of a chord of length `len` with its
-    /// foot near `at`: `r` the rim radius, or for a pair the curved
-    /// operand's smallest local radius there (the same scale the pair's
-    /// Stage-1 chain bound is sized from). `None` at a degenerate point.
+    /// foot near `at`: `r` the rim radius, the ellipse's minimum radius of
+    /// curvature `b² / a`, or for a pair the curved operand's smallest local
+    /// radius there (the same scale the pair's Stage-1 chain bound is sized
+    /// from). `None` at a degenerate point.
     pub(crate) fn chord_sagitta(&self, len: f64, at: Point3) -> Option<f64> {
         let r = match self.curve {
             RimCurve::Circle { radius, .. } => radius,
+            RimCurve::Ellipse {
+                major_radius,
+                minor_radius,
+                ..
+            } => {
+                if major_radius <= 0.0 {
+                    return None;
+                }
+                (minor_radius * minor_radius) / major_radius
+            }
             RimCurve::Pair { .. } => {
                 crate::stage1_tessellate::surface_pair_local_scale(self.pair_partner()?, at)?
             }
@@ -249,6 +294,20 @@ pub(crate) fn mixed_chord_ctxs(
             Curve::Circle { center, radius, .. } => RimCurve::Circle {
                 center: frame.snap(center),
                 radius,
+            },
+            // F6 / N89 item 4 (Yang 2025 §4.5.5 `:718-732`, Fig. 24(b)
+            // `:962-966`): exact ellipse / ellipse-arc chord minting.
+            Curve::Ellipse {
+                center,
+                major_axis,
+                major_radius,
+                minor_radius,
+                ..
+            } => RimCurve::Ellipse {
+                center: frame.snap(center),
+                major_axis: major_axis.as_array(),
+                major_radius,
+                minor_radius,
             },
             // Increment 3a: a surface-pair chain's split points are minted
             // on the pair curve (one operand is this face's plane).
@@ -445,6 +504,113 @@ pub(crate) fn resolve_rim_chord_vertex(
             None => RimResolve::NoIntersection,
         };
     }
+    // F6 / N89 item 4 (Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`,
+    // Fig. 24(b) `:962-966`): exact ellipse∩line and affine-radial minting on
+    // the canonical plane. Under the affine chart `(u, v) = (((p − c)·m)/a,
+    // ((p − c)·w)/b)` the ellipse is the unit circle `u² + v² = 1` and lines
+    // map to lines, so both branches match the Circle path algebraically.
+    if let Some((center, major_axis, major_radius, minor_radius)) = ctx.ellipse() {
+        if major_radius <= 0.0 || minor_radius <= 0.0 {
+            return RimResolve::NotOnChord;
+        }
+        let maj3 = normalize3(major_axis);
+        let mu = maj3[0] * frame.e1[0] + maj3[1] * frame.e1[1] + maj3[2] * frame.e1[2];
+        let mv = maj3[0] * frame.e2[0] + maj3[1] * frame.e2[1] + maj3[2] * frame.e2[2];
+        let mlen = mu.hypot(mv);
+        if mlen == 0.0 || !mlen.is_finite() {
+            return RimResolve::NotOnChord;
+        }
+        let (mx, my) = (mu / mlen, mv / mlen);
+        let (cu, cv) = frame.project(center);
+
+        if let Some((si, s2, dx, dy)) = crossing {
+            let (Some(cc), Ok(ra), Ok(rb), Ok(rmx), Ok(rmy)) = (
+                ExactPoint2::from_f64(cu, cv),
+                rat(major_radius),
+                rat(minor_radius),
+                rat(mx),
+                rat(my),
+            ) else {
+                return RimResolve::NotOnChord;
+            };
+            let fx = &s2.x - &cc.x;
+            let fy = &s2.y - &cc.y;
+            let u0 = (&fx * &rmx + &fy * &rmy) / &ra;
+            let v0 = (&fy * &rmx - &fx * &rmy) / &rb;
+            let du = (&dx * &rmx + &dy * &rmy) / &ra;
+            let dv = (&dy * &rmx - &dx * &rmy) / &rb;
+            let a_q = &du * &du + &dv * &dv;
+            if a_q == RBig::ZERO {
+                return RimResolve::NotOnChord;
+            }
+            let b_q = (&du * &u0 + &dv * &v0) * RBig::from(2);
+            let c_q = &u0 * &u0 + &v0 * &v0 - RBig::ONE;
+            let disc = &b_q * &b_q - RBig::from(4) * (&a_q * &c_q);
+            if disc < RBig::ZERO {
+                return RimResolve::NoIntersection;
+            }
+            let a_f = a_q.to_f64().value();
+            let b_f = b_q.to_f64().value();
+            let c_f = c_q.to_f64().value();
+            let sq = disc.to_f64().value().sqrt();
+            let qq = if b_f >= 0.0 {
+                -(b_f + sq) / 2.0
+            } else {
+                -(b_f - sq) / 2.0
+            };
+            let (t1, t2) = if qq != 0.0 {
+                (qq / a_f, c_f / qq)
+            } else {
+                (0.0, 0.0)
+            };
+            let (sxf, syf) = (s2.x.to_f64().value(), s2.y.to_f64().value());
+            let (dxf, dyf) = (dx.to_f64().value(), dy.to_f64().value());
+            let p_at = |t: f64| [sxf + t * dxf, syf + t * dyf];
+            let (csx, csy) = (cs.x.to_f64().value(), cs.y.to_f64().value());
+            let (cdxf, cdyf) = (cdx.to_f64().value(), cdy.to_f64().value());
+            let clen2 = cdxf * cdxf + cdyf * cdyf;
+            let t_chord = |pp: [f64; 2]| ((pp[0] - csx) * cdxf + (pp[1] - csy) * cdyf) / clen2;
+            let d2q = |pp: [f64; 2]| (pp[0] - qx) * (pp[0] - qx) + (pp[1] - qy) * (pp[1] - qy);
+            let (p1, p2) = (p_at(t1), p_at(t2));
+            let in1 = (0.0..=1.0).contains(&t_chord(p1));
+            let in2 = (0.0..=1.0).contains(&t_chord(p2));
+            let chosen = match (in1, in2) {
+                (true, false) => p1,
+                (false, true) => p2,
+                _ => {
+                    if d2q(p1) <= d2q(p2) {
+                        p1
+                    } else {
+                        p2
+                    }
+                }
+            };
+            return RimResolve::OnCircle {
+                point: frame.lift(chosen[0], chosen[1]),
+                crossing: true,
+                host: Some(si),
+            };
+        }
+
+        // Pure x-event subdivision: affine-radial projection onto the exact
+        // ellipse in the canonical plane (preserves `ellipse_param` order).
+        let (rx, ry) = (qx - cu, qy - cv);
+        let u = (rx * mx + ry * my) / major_radius;
+        let v = (-rx * my + ry * mx) / minor_radius;
+        let n = u.hypot(v);
+        if n == 0.0 || !n.is_finite() {
+            return RimResolve::NotOnChord;
+        }
+        let (un, vn) = (u / n, v / n);
+        let ex = cu + major_radius * un * mx - minor_radius * vn * my;
+        let ey = cv + major_radius * un * my + minor_radius * vn * mx;
+        return RimResolve::OnCircle {
+            point: frame.lift(ex, ey),
+            crossing: false,
+            host: None,
+        };
+    }
+
     let Some((center, radius)) = ctx.circle() else {
         return RimResolve::NotOnChord;
     };
@@ -1337,7 +1503,7 @@ pub(crate) fn collect_mixed_crossings(
         }
         for &e in &curved {
             let be = &brep.edges()[e as usize];
-            if be.start == be.end {
+            if be.start == be.end && matches!(be.curve, Curve::Circle { .. }) {
                 // Full-circle loop: the ring IS this edge's polyline — the
                 // disc-rim propagation applies wholesale (own + opposite rim
                 // of the cylinder found via `lateral_for_cap`). No split
@@ -1347,8 +1513,9 @@ pub(crate) fn collect_mixed_crossings(
                 collect_ring_crossings(brep, e, ring, overlay, coords, &[], rim_overrides)?;
                 continue;
             }
-            // ARC: gather split points strictly interior to THIS edge's
-            // chords ((chord index, exact parameter) sorted — boundary order).
+            // ARC / closed-Ellipse / SurfacePair: gather split points strictly
+            // interior to THIS edge's chords ((chord index, exact parameter)
+            // sorted — boundary order).
             let mut found: Vec<(usize, RBig, Point3)> = Vec::new();
             for i in 0..n {
                 if mask[i] != Some(e) {
@@ -1391,20 +1558,20 @@ pub(crate) fn collect_mixed_crossings(
             }
             found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
             let pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
-            if matches!(be.curve, Curve::SurfacePair { .. }) {
-                // Increment 3a (spec `m5_surface_pair_curve.md` "Torus ×
-                // plane" 3a): the overlay subdivided a surface-pair chord.
-                // Its split points were minted ON the pair curve at the
-                // resolve step (`resolve_rim_chord_vertex`'s pair branches);
-                // they join the pair edge's shared Stage-1 chain, which BOTH
-                // faces incident to the edge splice (`loop_polyline` — a
-                // pair-bounded face is never a structured strip), so one
-                // insertion keeps the seam conformal.
+            if matches!(be.curve, Curve::Ellipse { .. } | Curve::SurfacePair { .. }) {
+                // Increment 3a (`SurfacePair`) + F6 / N89 item 4 (`Ellipse`,
+                // Yang 2025 §4.5.5 `yang2025_hybrid_boolean.txt:724-729`):
+                // split points were minted ON the exact curve at the resolve
+                // step (`resolve_rim_chord_vertex`); they join the edge's
+                // shared Stage-1 chain, which BOTH incident faces splice via
+                // `loop_polyline` (neither `Ellipse` nor `SurfacePair` ever
+                // bounds an index-paired 2-arc strip), keeping the seam
+                // conformal.
                 for &pt in &pts {
                     let r = rim_overrides.push_own(e, pt);
                     if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                         eprintln!(
-                            "[mixed-cross] face={fi} pair-edge={e} pt={:?} own {r:?}",
+                            "[mixed-cross] face={fi} chain-edge={e} pt={:?} own {r:?}",
                             pt.as_array()
                         );
                     }
@@ -1709,10 +1876,11 @@ pub(crate) fn settle_rim_chain_order(
 ) -> usize {
     let rat2 = |u: f64, v: f64| ExactPoint2::from_f64(u, v);
     for ctx in ctxs {
-        // Angular order about a center is a CIRCLE's check; a pair chain has
+        // Angular order about a center applies to star-shaped conics (circles
+        // and ellipses — affine-invariant orientation sign); a pair chain has
         // no center (its split mints are nearest-point / host-line roots,
         // and a leap stays the loud downstream residue).
-        let Some((center, _)) = ctx.circle() else {
+        let Some(center) = ctx.star_center() else {
             continue;
         };
         let (cu, cv) = frame.project(center);

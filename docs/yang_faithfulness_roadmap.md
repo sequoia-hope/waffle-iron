@@ -185,8 +185,9 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 
 ### F6 — Stage 0 and output emission (§4.5.5, §4.4.2 restoration)
 
-- [ ] Stage-0 walls: the ellipse-bounded planar face (the paper's own Fig.
-      24(b), N89 item 4) and the coincident cylinder (N89 item 5).
+- [x] Stage-0 wall: the ellipse-bounded planar face (the paper's own Fig.
+      24(b), N89 item 4 — resolved 2026-10-27).
+- [ ] Stage-0 wall: the coincident cylinder (N89 item 5).
 - [ ] R0023's coplanar cap residue (M8 follow-up, deviation N17's wall).
 - **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N10, N12,
   N32, N36, N42, N43.
