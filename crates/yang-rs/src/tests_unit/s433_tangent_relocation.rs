@@ -220,14 +220,12 @@ pub(crate) fn s433_nearest_point_does_not_reach_the_tangent_point() {
 }
 
 // =========================================================================
-// The §4.3.3 closed form (spec §6): `cyl_cyl_tangent_points`. Two cylinders
-// are tangent where their (radial) normals are collinear, so the shared
-// direction is `m = ±(û × v̂)/|û × v̂|` and the pair is tangent iff
-// `s_A·R_A − s_B·R_B = δ`, the signed axis offset along `m`. Every expectation
-// below is derived from the configuration, not transcribed.
+// Yang §4.3.1 + §4.3.3 isolated cylinder×cylinder tangency points via
+// parametric Newton (`discover_operand_pair_tangent_points_newton`, retiring
+// the former cylinder-only closed form `cyl_cyl_tangent_points`, roadmap
+// F4 / N91, `refs/text/yang2025_hybrid_boolean.txt:489-492`, `:518-540` R).
+// Every expectation below is derived from the configuration, not transcribed.
 // =========================================================================
-
-use crate::boolean::cyl_cyl_tangent_points;
 
 fn cyl(p: [f64; 3], d: [f64; 3], r: f64) -> (Point3, Vector3, f64) {
     (
@@ -235,6 +233,108 @@ fn cyl(p: [f64; 3], d: [f64; 3], r: f64) -> (Point3, Vector3, f64) {
         Vector3::new(d[0], d[1], d[2]),
         r,
     )
+}
+
+fn canonical_cyl_tube((ap, ad, radius): (Point3, Vector3, f64)) -> BRep {
+    let ap_arr = ap.as_array();
+    let u = normalize3(ad.as_array());
+    let (lo, hi) = (-3.0, 3.0);
+    let p_lo = [
+        ap_arr[0] + lo * u[0],
+        ap_arr[1] + lo * u[1],
+        ap_arr[2] + lo * u[2],
+    ];
+    let p_hi = [
+        ap_arr[0] + hi * u[0],
+        ap_arr[1] + hi * u[1],
+        ap_arr[2] + hi * u[2],
+    ];
+    let (e1v, _) = ortho_basis(Vector3::new(u[0], u[1], u[2]));
+    let e1 = e1v.as_array();
+    let v0 = Point3::new(
+        p_lo[0] + radius * e1[0],
+        p_lo[1] + radius * e1[1],
+        p_lo[2] + radius * e1[2],
+    );
+    let v1 = Point3::new(
+        p_hi[0] + radius * e1[0],
+        p_hi[1] + radius * e1[1],
+        p_hi[2] + radius * e1[2],
+    );
+    let neg_u = [-u[0], -u[1], -u[2]];
+    let d_lo = -(neg_u[0] * p_lo[0] + neg_u[1] * p_lo[1] + neg_u[2] * p_lo[2]);
+    let d_hi = -(u[0] * p_hi[0] + u[1] * p_hi[1] + u[2] * p_hi[2]);
+    BRep::new(
+        vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }],
+        vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(p_lo[0], p_lo[1], p_lo[2]),
+                    normal: Vector3::new(neg_u[0], neg_u[1], neg_u[2]),
+                    radius,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(p_hi[0], p_hi[1], p_hi[2]),
+                    normal: Vector3::new(u[0], u[1], u[2]),
+                    radius,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+        ],
+        vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: ap,
+                    axis_dir: ad,
+                    radius,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(neg_u[0], neg_u[1], neg_u[2]),
+                    d: d_lo,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(u[0], u[1], u[2]),
+                    d: d_hi,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ],
+    )
+    .expect("valid canonical cylinder tube B-Rep")
+}
+
+fn discover_cyl_tube_tangent_points(
+    a: (Point3, Vector3, f64),
+    b: (Point3, Vector3, f64),
+) -> Vec<Point3> {
+    let brep_a = canonical_cyl_tube(a);
+    let brep_b = canonical_cyl_tube(b);
+    crate::stage4_tangency::discover_operand_pair_tangent_points_newton(&brep_a, &brep_b)
+        .get(&(0, 0))
+        .map(|sols| sols.iter().map(|s| s.point).collect())
+        .unwrap_or_default()
 }
 
 /// C0058: equal radii, axes crossing at (0,0,1) at 30°. The common normal is
@@ -245,15 +345,15 @@ pub(crate) fn s433_equal_radius_crossing_axes_give_two_tangent_points() {
     let beta: f64 = std::f64::consts::FRAC_PI_6;
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], R);
     let b = cyl([0.0, 0.0, 1.0], [beta.sin(), 0.0, beta.cos()], R);
-    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    let pts = discover_cyl_tube_tangent_points(a, b);
     assert_eq!(pts.len(), 2, "got {pts:?}");
     for p in &pts {
-        assert!(p.x().abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15, "{p:?}");
+        assert!(p.x().abs() < 1e-14 && (p.z() - 1.0).abs() < 1e-14, "{p:?}");
     }
     let mut ys: Vec<f64> = pts.iter().map(Point3::y).collect();
     ys.sort_by(f64::total_cmp);
     assert!(
-        (ys[0] + R).abs() < 1e-15 && (ys[1] - R).abs() < 1e-15,
+        (ys[0] + R).abs() < 1e-14 && (ys[1] - R).abs() < 1e-14,
         "{ys:?}"
     );
 }
@@ -264,11 +364,11 @@ pub(crate) fn s433_equal_radius_crossing_axes_give_two_tangent_points() {
 pub(crate) fn s433_perpendicular_equal_radius_gives_two_tangent_points() {
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.2);
     let b = cyl([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.2);
-    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    let pts = discover_cyl_tube_tangent_points(a, b);
     assert_eq!(pts.len(), 2, "got {pts:?}");
     for p in &pts {
         assert!(
-            p.x().abs() < 1e-15 && p.z().abs() < 1e-15 && (p.y().abs() - 0.2).abs() < 1e-15,
+            p.x().abs() < 1e-14 && p.z().abs() < 1e-14 && (p.y().abs() - 0.2).abs() < 1e-14,
             "{p:?}"
         );
     }
@@ -281,7 +381,7 @@ pub(crate) fn s433_perpendicular_equal_radius_gives_two_tangent_points() {
 pub(crate) fn s433_unequal_radius_crossing_axes_are_not_tangent() {
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.4);
     let b = cyl([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.25);
-    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    let pts = discover_cyl_tube_tangent_points(a, b);
     assert!(pts.is_empty(), "got {pts:?}");
 }
 
@@ -294,11 +394,11 @@ pub(crate) fn s433_offset_axes_touch_when_offset_equals_the_radius_difference() 
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], ra);
     // û × v̂ = ŷ for v̂ = x̂; offset B's axis along +ŷ by exactly R_A − R_B.
     let b = cyl([0.0, ra - rb, 1.0], [1.0, 0.0, 0.0], rb);
-    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    let pts = discover_cyl_tube_tangent_points(a, b);
     assert_eq!(pts.len(), 1, "got {pts:?}");
     let p = pts[0];
     assert!(
-        p.x().abs() < 1e-15 && (p.y() - ra).abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15,
+        p.x().abs() < 1e-14 && (p.y() - ra).abs() < 1e-14 && (p.z() - 1.0).abs() < 1e-14,
         "{p:?}"
     );
 }
@@ -311,17 +411,19 @@ pub(crate) fn s433_near_tangency_beyond_the_rounding_band_is_refused() {
     let (ra, rb) = (0.4f64, 0.25f64);
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], ra);
     let b = cyl([0.0, ra - rb + 1e-6, 1.0], [1.0, 0.0, 0.0], rb);
-    let pts = cyl_cyl_tangent_points(a, b).expect("non-parallel axes");
+    let pts = discover_cyl_tube_tangent_points(a, b);
     assert!(pts.is_empty(), "got {pts:?}");
 }
 
-/// PARALLEL axes are tangent along a whole GENERATOR, not at isolated points —
-/// `None` from the POINT form; the generator form below owns them.
+/// PARALLEL axes are tangent along a whole GENERATOR (`rank(J_tan) == 3`,
+/// `TangencyKind::TangentCurve`), not at isolated 0D points (`rank == 4`), so
+/// `discover_operand_pair_tangent_points_newton` returns empty and the
+/// generator form below owns them.
 #[test]
 pub(crate) fn s433_parallel_axes_return_none() {
     let a = cyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
     let b = cyl([0.6, 0.0, 0.0], [0.0, 0.0, 1.0], 0.3);
-    assert!(cyl_cyl_tangent_points(a, b).is_none());
+    assert!(discover_cyl_tube_tangent_points(a, b).is_empty());
 }
 
 // =========================================================================
@@ -409,8 +511,8 @@ pub(crate) fn s433_generator_declines_coaxial_and_crossing_axes() {
     assert!(cyl_cyl_tangent_generator(a, coaxial).is_none());
     let crossing = cyl([0.0, 0.5, 1.0], [1.0, 0.0, 0.0], 0.5);
     assert!(cyl_cyl_tangent_generator(a, crossing).is_none());
-    // …and the point form does own that crossing pair.
-    assert!(cyl_cyl_tangent_points(a, crossing).is_some());
+    // …and the §4.3 Newton point solver does own that crossing pair.
+    assert!(!discover_cyl_tube_tangent_points(a, crossing).is_empty());
 }
 
 // =========================================================================

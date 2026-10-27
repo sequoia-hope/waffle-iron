@@ -181,7 +181,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; I3b `boolean_once` flip gated on F2 / N2+N81 per §3(d) STOP on `R0063` and `tangency_pinch_split`) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
 | N81 | OPEN (2026-10-16, matrix O-2; 2026-10-27: confirmed prerequisite for N80 I3b — pre-CDT 2D relabelling and Stage-5 index-parity decimation break dropped patches and torus seam feet when Stage 4 runs on the full arrangement) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
-| N82 | OPEN (2026-10-16, matrix O-3) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent boost), before the arrangement |
+| N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
 | N85 | OPEN (2026-10-16, matrix U-1; 2026-10-27: Step-1 census landed + Step-3 switch measured at `356C / 0W / 13E / 5EE / 0T`, stopped & reverted on 4 `SUPPORTED_CORRECT → ERROR` regressions `F0084, P0007, P0046, R0032` gated on F2/F3 + Stage-4 readback lockstep; spec `yang_41_deps_from_bbox.md`) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
@@ -190,7 +190,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
-| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Step 2: §4.3 tangency-point Newton landed) | Tangent points, small loops and sub-band contacts are not resolved; isolated 0D tangency Newton landed (`stage4_tangency.rs`), Stage-1 `cyl_cyl` closed-form retirement, small-loop tracing and Fig. 10(c) seeding open |
+| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2 & 2b: §4.3 tangency-point Newton landed and Stage-1 `cyl_cyl_tangent_points` closed form retired) | Tangent points, small loops and sub-band contacts are not resolved; isolated 0D tangency Newton (`stage4_tangency.rs`) landed and `cyl_cyl_tangent_points` retired, small-loop tracing and Fig. 10(c) seeding open |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6; 2026-10-27: Stage-1 `d(T)` (`BRep::tri_dt`) + loud `DtError` certificate check LIVE; inner Theorem A.2 `ω + d < d_ε` subdivision open under F5 item 3 / N5 / N61) | Stage 1 computes and checks `d(T)` per triangle (`BRep::tri_dt`), while inner `≤ d_ε` certification awaits Theorem A.2 sub-patch subdivision |
 | N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
@@ -6612,8 +6612,14 @@ conformal junction sampling (`boolean.rs:1091`) and the tangent boost
 and are absent from the cleanup's substitution table.
 
 **Remediation.** Cleanup §2 gains rows for the three; each retires into the
-§4.4.1 update once it identifies the junctions itself. **State: OPEN**
-(found 2026-10-16).
+§4.4.1 update once it identifies the junctions itself. *2026-10-27 (roadmap F4
+Step 2b):* the cylinder × cylinder 0D point-tangency closed form
+`cyl_cyl_tangent_points` (`boolean/tangency.rs`) is retired and deleted,
+replaced by mesh-seeded §4.3 parametric Newton
+(`stage4_tangency::discover_operand_pair_tangent_points_newton`); the Stage-1
+canonical-tube ruling carrier (`tangent_point_face_overrides` + 1D parallel
+`mint_generator` / `mint_crossing_rulings`) remains under F2 until §4.4.1
+post-optimization mesh updating owns it. **State: OPEN** (found 2026-10-16).
 
 ### N83 — §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh, and skips cone, sphere and torus charts (matrix O-4)
 
@@ -6949,10 +6955,27 @@ central differences; `C0058` 30° Steinmetz, Viviani `R_A - R_B`, external
 torus–plane outer kiss, inner Booth-lemniscate saddle and bottom tangent circle;
 `C0116` `CurvePoint` classification). Suites: `yang-rs` 1,526 / 0, `kernel-v2`
 869 / 0. Canonical corpus (release, 8 jobs, 900 s; wall 1092.1 s): **360C / 0W
-/ 9E / 5EE / 0T over 374**, zero category moves and zero detail drift. Next
-increments: retire Stage-1 `cyl_cyl_tangent_points` closed form, wire N92
-`GaussMap` + Bajaj small-loop tracing, and add Fig. 10(c) seeding. **State:
-OPEN.**
+/ 9E / 5EE / 0T over 374**, zero category moves and zero detail drift.
+
+**Amendment (2026-10-27, roadmap F4 Step 2b — Stage-1 `cyl_cyl_tangent_points`
+closed form retired).** Deleted `cyl_cyl_tangent_points` from
+`crates/yang-rs/src/boolean/tangency.rs` and wired `tangent_overrides`
+(`tangency.rs:604`) to query `stage4_tangency::discover_operand_pair_tangent_points_newton`
+(`refs/text/yang2025_hybrid_boolean.txt:489-492`, `:518-540` R) for non-parallel
+canonical cylinder tubes, while keeping the 1D parallel-axis `mint_generator`
+and `mint_crossing_rulings` arms (`P0026`'s adjudicated minted 1D tangency
+stays `ERROR`). Updated the six `s433_*` point-tangency pins in
+`tests_unit/s433_tangent_relocation.rs` (plus `s433_generator_declines_coaxial_and_crossing_axes`)
+to drive `discover_operand_pair_tangent_points_newton`, and made seed
+deduplication / root merging in `discover_operand_pair_tangent_points_newton`
+strictly scale-covariant (`0.25·reach`, `TAU_MODEL·(1+scale)`). Suites: `yang-rs`
+1,526 / 0 (8 ignored), `kv9_cyl_cyl_special` (`steinmetz_union_exact_volume`
+et al.) 8 / 0. Canonical corpus (release, 8 jobs, 900 s; wall 1112.02 s):
+**360C / 0W / 9E / 5EE / 0T over 374**, zero category moves (all five Steinmetz
+saddle-tangency cases `C0058`, `F0056`, `F0057`, `F0058`, `F0060` hold
+`SUPPORTED_CORRECT`) and zero `results.json` drift. Next increments: wire N92
+`GaussMap` + Bajaj small-loop tracing (Step 3), and Fig. 10(c) seeding (Step 4).
+**State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
 

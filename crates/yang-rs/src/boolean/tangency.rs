@@ -26,9 +26,13 @@
 //! produces the four alternating A,B,A,B sectors the exact geometry has.
 //!
 //! Scope (fail-closed — a missed mint is status quo, never worse):
-//! - CYLINDER × CYLINDER only. Non-parallel axes touch at isolated POINTS
-//!   ([`cyl_cyl_tangent_points`]); parallel axes touch along a whole
-//!   GENERATOR ([`cyl_cyl_tangent_generator`]) — a line pinch whose output is
+//! - CYLINDER × CYLINDER Stage-1 ruling carriers. Non-parallel axes touch at
+//!   isolated POINTS discovered by §4.3 parametric Newton
+//!   ([`crate::stage4_tangency::discover_operand_pair_tangent_points_newton`],
+//!   `refs/text/yang2025_hybrid_boolean.txt:489-492`, `:518-540` R — retiring
+//!   the former cylinder-only closed form `cyl_cyl_tangent_points`); parallel
+//!   axes touch along a whole GENERATOR ([`cyl_cyl_tangent_generator`]) — a
+//!   line pinch whose output is
 //!   the F0060 class (per-sheet edge duplication, `split_pinch_vertices`), and
 //!   whose Stage-1 half is the SAME idea: give both prisms a RULING on the
 //!   exact tangent line, with identical bits on all four rims, so the exact
@@ -38,100 +42,13 @@
 //! - both faces the CANONICAL TUBE vocabulary `line_edge_cylinder_face_pierce`
 //!   already uses (hole-free, outer loop = exactly two full-circle rims), so
 //!   axial containment is exact via the rim planes;
-//! - EXACT tangency only: the admissibility identity below must hold within the
+//! - EXACT tangency only: the admissibility identity must hold within the
 //!   `TAU_WORK·(1+scale)` ROUNDING band — never `TAU_MODEL`, which would fuse
 //!   a real sub-resolution gap into a tangency (the R0053 lesson).
 
 use crate::*;
 
 use std::collections::BTreeMap;
-
-/// The exact surface-tangency points of two cylinders.
-///
-/// A cylinder's unit normal at a surface point is the radial direction from its
-/// axis, which is perpendicular to that axis. The two surfaces are tangent
-/// where their normals are collinear, so the shared radial direction `m` is
-/// perpendicular to BOTH axes:  `m = ±(û × v̂)/|û × v̂|` (hence the non-parallel
-/// requirement). Write `f_A`, `f_B` for the feet of the axes' common
-/// perpendicular, so `f_B − f_A = δ·m` with `δ = (b − a)·m`, and expand a
-/// candidate `p` in the (independent) basis `{û, v̂, m}` anchored at `f_A`:
-///
-/// ```text
-///   p − s_A·R_A·m ∈ L_A   ⟹   β = 0 and γ = s_A·R_A
-///   p − s_B·R_B·m ∈ L_B   ⟹   α = 0 and γ − s_B·R_B = δ
-/// ```
-///
-/// The axial components therefore vanish and the pair is tangent **iff**
-///
-/// ```text
-///   s_A·R_A − s_B·R_B = δ        (s_A, s_B ∈ {−1, +1})
-/// ```
-///
-/// in which case `p = f_A + s_A·R_A·m` — one point per admissible sign pair.
-/// Flipping `m` maps `(s_A, s_B, δ) → (−s_A, −s_B, −δ)`, so fixing `m` and
-/// scanning the four sign pairs enumerates every solution. Equal radii with
-/// intersecting axes (`δ = 0`, `s_A = s_B = ±1`) give the TWO Steinmetz
-/// tangency points; `δ = R_A − R_B` gives one.
-///
-/// `None` for parallel axes (`|û × v̂|` below the collinearity floor): those are
-/// tangent along a generator, not at isolated points.
-pub(crate) fn cyl_cyl_tangent_points(
-    (ap1, ad1, r1): (Point3, Vector3, f64),
-    (ap2, ad2, r2): (Point3, Vector3, f64),
-) -> Option<Vec<Point3>> {
-    let u = normalize3(ad1.as_array());
-    let v = normalize3(ad2.as_array());
-    let n = [
-        u[1] * v[2] - u[2] * v[1],
-        u[2] * v[0] - u[0] * v[2],
-        u[0] * v[1] - u[1] * v[0],
-    ];
-    let n_len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    // The same collinearity floor the junction transversality gates use: below
-    // it the axes are parallel and the contact, if any, is a generator.
-    if n_len < 1e-9 {
-        return None;
-    }
-    let m = [n[0] / n_len, n[1] / n_len, n[2] / n_len];
-    let (a, b) = (ap1.as_array(), ap2.as_array());
-    let w0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-    let delta = w0[0] * m[0] + w0[1] * m[1] + w0[2] * m[2];
-    // Foot of the common perpendicular on L_A (standard skew-line closest
-    // point): t = ((w0 × v̂) · n) / |n|².
-    let w0xv = [
-        w0[1] * v[2] - w0[2] * v[1],
-        w0[2] * v[0] - w0[0] * v[2],
-        w0[0] * v[1] - w0[1] * v[0],
-    ];
-    let t = (w0xv[0] * n[0] + w0xv[1] * n[1] + w0xv[2] * n[2]) / (n_len * n_len);
-    let f_a = [a[0] + t * u[0], a[1] + t * u[1], a[2] + t * u[2]];
-
-    let scale = f_a
-        .iter()
-        .chain([r1, r2, delta].iter())
-        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
-    // ROUNDING band (KV10 identity), never TAU_MODEL: this decides whether the
-    // pair is EXACTLY tangent, and a model-scale band here would fuse a real
-    // sub-resolution gap into a tangency (R0053).
-    let band = cad_primitives::TAU_WORK * (1.0 + scale);
-
-    let mut out: Vec<Point3> = Vec::new();
-    let mut seen: Vec<[u64; 3]> = Vec::new();
-    for (sa, sb) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
-        if (sa * r1 - sb * r2 - delta).abs() > band {
-            continue;
-        }
-        let g = sa * r1;
-        let p = [f_a[0] + g * m[0], f_a[1] + g * m[1], f_a[2] + g * m[2]];
-        let key = [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()];
-        if seen.contains(&key) {
-            continue;
-        }
-        seen.push(key);
-        out.push(Point3::new(p[0], p[1], p[2]));
-    }
-    Some(out)
-}
 
 /// The exact surface-tangency GENERATOR of two cylinders with PARALLEL axes.
 ///
@@ -625,9 +542,11 @@ fn is_exact_coordinate_axis(u: [f64; 3]) -> bool {
 ///
 /// Per-pair gates, all fail-closed:
 /// 1. both faces canonical tubes ([`tube_axial_span`]);
-/// 2. exact tangency within the rounding band ([`cyl_cyl_tangent_points`]);
+/// 2. exact isolated tangency within the rounding band discovered by §4.3
+///    parametric Newton
+///    ([`crate::stage4_tangency::discover_operand_pair_tangent_points_newton`]);
 /// 3. on-surface postcondition `TAU_EVAL·(1+scale)` against BOTH cylinders (a
-///    violation is a producer fault in the closed form, not a near-miss);
+///    violation is a producer fault in the solver, not a near-miss);
 /// 4. axial containment strictly inside BOTH tubes with the rim margin
 ///    `TAU_MODEL·(1+scale)` — a tangency AT a rim is a corner of higher order
 ///    (the rim-junction vehicle), never a mid-face mint.
@@ -692,6 +611,9 @@ fn tangent_overrides(
     let mut out_a = TangentOverrides::default();
     let mut out_b = TangentOverrides::default();
     let probe = std::env::var_os("YANG_TANGENT_INSERT_PROBE").is_some();
+    let mut newton_tangents: Option<
+        BTreeMap<(u32, u32), Vec<crate::stage4_tangency::TangentSolution>>,
+    > = None;
 
     for (fa_idx, fa) in a.faces().iter().enumerate() {
         let Surface::Cylinder {
@@ -717,7 +639,15 @@ fn tangent_overrides(
             let Some(tube_b) = tube_axial_span(fb, b) else {
                 continue;
             };
-            let Some(pts) = cyl_cyl_tangent_points((apa, ada, ra), (apb, adb, rb)) else {
+            let u_ax = normalize3(ada.as_array());
+            let v_ax = normalize3(adb.as_array());
+            let n_ax = [
+                u_ax[1] * v_ax[2] - u_ax[2] * v_ax[1],
+                u_ax[2] * v_ax[0] - u_ax[0] * v_ax[2],
+                u_ax[0] * v_ax[1] - u_ax[1] * v_ax[0],
+            ];
+            let n_ax_len = (n_ax[0] * n_ax[0] + n_ax[1] * n_ax[1] + n_ax[2] * n_ax[2]).sqrt();
+            if n_ax_len < 1e-9 {
                 // Parallel axes: a GENERATOR tangency, if any. Same channel,
                 // rim samples only — a line needs no face-interior point.
                 mint_generator(
@@ -735,11 +665,22 @@ fn tangent_overrides(
                     probe,
                 );
                 continue;
-            };
+            }
             if generator_only {
                 continue;
             }
-            for p in pts {
+            // Yang §4.3.1 + §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:489-492`,
+            // `:518-540` R): mesh-seeded parametric Newton across the operand
+            // pair, retiring the former cylinder×cylinder point closed form.
+            let newton_map = newton_tangents.get_or_insert_with(|| {
+                crate::stage4_tangency::discover_operand_pair_tangent_points_newton(a, b)
+            });
+            let sols = newton_map
+                .get(&(fa_idx as u32, fb_idx as u32))
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            for sol in sols {
+                let p = sol.point;
                 let pa = p.as_array();
                 let scale = pa.iter().fold(0.0f64, |m, &c| m.max(c.abs()));
                 // (3) On-surface postcondition against both cylinders.

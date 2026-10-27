@@ -1371,7 +1371,6 @@ pub(crate) fn solve_isolated_tangent_point_near(
 ///
 /// Keyed by `(face_idx_a, face_idx_b)` with deterministic deduplicated
 /// `Point3` vectors. Uses zero surface-type-pair closed forms.
-#[allow(dead_code)] // Wired into Stage-1 tangency in Step 2b; unit-pinned in Step 2.
 pub(crate) fn discover_operand_pair_tangent_points_newton(
     a: &BRep,
     b: &BRep,
@@ -1392,8 +1391,7 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
         .chain(set_b.lo.iter())
         .chain(set_b.hi.iter())
         .flat_map(|v| v.iter())
-        .fold(0.0_f64, |m, &c| m.max(c.abs()))
-        .max(1.0);
+        .fold(0.0_f64, |m, &c| m.max(c.abs()));
     let band = 2.0 * cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
     let max_dev_b = set_b.dev.iter().copied().fold(0.0_f64, f64::max);
     let bvh_b = Bvh::new(&set_b);
@@ -1427,7 +1425,7 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
             }
             let (pa, pb, _) = triangle_closest_pair(set_a.pts[ta_idx], set_b.pts[tb_idx]);
             let seeds = pair_seeds.entry((fa, fb)).or_default();
-            let dedup_r2 = (reach.max(1e-3) * 0.25).powi(2);
+            let dedup_r2 = (0.25 * reach).powi(2);
             let already_near = seeds.iter().any(|&(sa, sb)| {
                 let da = sub3(sa.as_array(), pa);
                 let db = sub3(sb.as_array(), pb);
@@ -1442,7 +1440,7 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
         });
     }
 
-    let merge_tol = (1e-7 * (1.0 + scale)).max(100.0 * cad_primitives::TAU_WORK * (1.0 + scale));
+    let merge_tol = cad_primitives::TAU_MODEL * (1.0 + scale);
     let merge_tol2 = merge_tol * merge_tol;
 
     for ((fa, fb), seeds) in pair_seeds {

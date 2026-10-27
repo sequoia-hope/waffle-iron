@@ -280,8 +280,8 @@ fn crossing_pair(r: f64, h: f64, theta_deg: f64) -> (BRep, BRep) {
 /// into a neighbour. Measured on the C0058-authored pair: one tangency survives
 /// bit-exactly in the output B-Rep, the other is absorbed into a vertex
 /// 7.663e-3 away (well inside the model's own chord band). The mint is pinned
-/// where it is exactly certifiable instead — `cyl_cyl_tangent_points` in
-/// `tests_unit::s433_tangent_relocation`, kernel-v2's
+/// where it is exactly certifiable instead — `discover_operand_pair_tangent_points_newton`
+/// in `tests_unit::s433_tangent_relocation` / `tests_unit::s43_tangency_newton`, kernel-v2's
 /// `kv9_cyl_cyl_special::steinmetz_union_exact_volume` (RED without it), and the
 /// corpus.
 ///
