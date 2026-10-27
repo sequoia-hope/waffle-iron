@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
-| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24 then REOPENED 2026-10-27 — the sweep's cycle admission still skips all-open-conic loops; item 4 RESOLVED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap (REOPENED), ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24 then REOPENED 2026-10-27 — the sweep's cycle admission still skips all-open-conic loops; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, Parabola/Hyperbola reversal gap (REOPENED), ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
@@ -202,10 +202,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N100 | OPEN (2026-10-27, literature check; each item reviewer-confirmed as a code path, none yet tied to a measured case — each needs a corpus census before it is called WRONG) | Eight unledgered possible silent paths (zero-distance pair skip, no-witness single-candidate curve select, recover chord bail, by-edges outer cycle on sphere/torus, transit kept on an undetermined crease side, SurfacePair creases outside T2, Hyperbola/SurfacePair chains deaf to `edge_refine`, release-active Cherchi env switches) |
 | N101 | **RESOLVED** (2026-10-27, UL-02, reviewer-reproduced silent-wrong fixed and pinned) | `cherchi-rs` `perturb_ray_and_find_inters_tri` (`labeling/inside_out.rs`) tried only the C++ reference's fixed 8 single-ULP `nextafter` offsets; when a ray hit a foreign vertex whose spokes sat at exact multiples of 45° and `ray.v1`'s two off-axis coordinates had equal ULP, all 8 perturbed rays landed on spoke planes (`Sign::Zero`), returning `None` and silently dropping a true crossing as a graze (an inside patch kept `outside`, missed by `refute_inner_label_by_input_bounds`). Now expands `p∞` through primitive coprime `(da, db)` Chebyshev shells (`s = 1..=8`, preserving the 8 C++ offsets first) plus equiscaled ULP shells for mixed-binade / subnormal off-axis coordinates, and routes any forward (`t > 0`) full-disk vertex/edge crossing that still exhausts `f64` perturbation (certified by exact `orient2d` S¹/half-plane coverage) to `rational_ray_inner_label` |
 | N102 | **RESOLVED** (2026-10-27, UL-06, fixed and pinned) | `cherchi-rs` `find_ray_endpoints`'s generated-ray branch (`labeling/inside_out.rs`) never called `ray_grazes_foreign_input` (N69 covered the explicit-ray ladder only), so an all-border / implicit patch could still emit a generated ray lying in a foreign input's face plane; the generated-ray loop now runs `ray_grazes_foreign_input` under `graze_aware` and falls through via `NoExplicitRayOrigin` to `rational_ray_inner_label` when every generated candidate grazes |
+| N103 | PROPOSED (2026-10-27, roadmap F6 / N89 item 5; awaits a prose sign-off — A15.7) | Extension of §4.5.5 to a coincident surface pair the paper does not name: coincident cylinders (`stage0/cylinder.rs`, `boolean.rs` PR-5/PR-6, `stage3_ssi.rs`); paper names coplanar planes only (`:718-732`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-27, after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-27, after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -6742,9 +6743,14 @@ Each is OPEN, each small; recorded together so none is invisible.
    Corpus held at 360C / 0W / 9E / 5EE / 0T over 374 (zero moves). Matrix
    4.5.5-05 amended (remains PARTIAL on remaining non-ellipse refusals),
    5.5-03 → FAITHFUL.
-5. **The coincident-cylinder Stage 0** (`stage0/cylinder.rs:416`
+5. ~~**The coincident-cylinder Stage 0** (`stage0/cylinder.rs:416`
    `coincident_cylinder_stage0`) extends §4.5.5 to coincident cylinders
-   with no entry (N25 covers plane groups only).
+   with no entry (N25 covers plane groups only).~~ **LEDGERED as N103
+   (PROPOSED, 2026-10-27, roadmap F6):** audited step-by-step against §4.5.5
+   (`:718-732`) and planar Stage 0 in `specs/yang_455_cosurface_cylinder.md`,
+   customer-censused across crate tests and the 374-case release corpus via
+   `YANG_CYL_STAGE0_CENSUS=<file>`, and given dedicated entry **N103** below
+   (awaits prose user sign-off under A15.7).
 6. **The §4.5.3 overtake arms** (the R0059 straight-run arm and P0036's
    carried-curve sibling) are recorded only as N29 amendments; they bypass
    the curve-endpoint guard and the paper-order removal of Phase 2a.
@@ -7353,3 +7359,115 @@ routes the patch to `rational_ray_inner_label`.
 `ul06_all_generated_rays_grazing_falls_through_to_rational_ray`. Corpus:
 `360C / 0W / 9E / 5EE / 0T` over 374 (`0` moved cases).
 **State: RESOLVED** (2026-10-27).
+
+### N103 — Extension of §4.5.5 to a coincident surface pair the paper does not name: coincident cylinders (`stage0/cylinder.rs`)
+
+**Paper.** §4.5.5 *"Coplanar Surfaces"* (`refs/text/yang2025_hybrid_boolean.txt:718-732`,
+Fig. 16 `:752-760`), §5 tolerances (`:743-745`), and §5.5 (`:956-966, :1027-1033`).
+Every statement in §4.5.5 names coplanar **planes** only (*"check coplanar
+planes and perform 2D Boolean operations before mesh discretizations"*,
+*"trimmed common planar surface"*). Its stated reason — *"our discretization
+method does not maintain coplanarity in triangle meshes because of
+floating-point error"* (`:719-721`) — applies equally (and geometrically at
+chord-sagitta scale $s = r(1 - \cos(\pi/N)) \le d_\varepsilon$, not merely
+ULP rounding) to two `Surface::Cylinder` faces sharing the same analytic
+cylinder: independent Stage-1 prism segment counts $N$, shifted seam azimuths,
+non-conformal axial spans, or opposite rim-circle normals ($\pm\hat{a}$) cause
+the two inscribed $N$-gon prisms to cross or fail to share overlap triangles
+(sidecar-discriminated in `crates/cherchi-rs/tests/task28_plug_in_bore.rs` as
+non-watertight on both `cherchi-rs` and upstream C++ Cherchi). However, the
+paper does not name coincident curved surfaces.
+
+**Where.** Spec & full step-by-step audit: `specs/yang_455_cosurface_cylinder.md`.
+- `crates/yang-rs/src/stage0/cylinder.rs`: `project_extent_to_axis` (`:50`),
+  `detect_coincident_cylinder_pairs` (`:66`),
+  `detect_coincident_cylinder_groups` (`:289`), `coincident_cylinder_stage0`
+  (`:496`), `cluster_rim_rings` (`:783`), `ring_point_sets_identical` (`:982`),
+  `rebuild_cluster_with_rings` (`:1011`), `build_conformal_outer_mesh`
+  (`:1098`), `band_strip` (`:1187`), and N4 provenance helpers
+  (`smallest_covering_arc`, `arc_contains`, `cluster_face_arcs`;
+  `specs/n4_coincident_cylinder_provenance.md`).
+- `crates/yang-rs/src/boolean.rs`: `:1206-1209` (`coincident_cylinder_stage0`
+  dispatched only when planar `stage0_preprocess` returns `None`), `:1220`
+  (`detect_coincident_cylinder_pairs` unconditional scan), `:2072-2144` (PR-6
+  post-arrangement `TAU_WORK * (1 + max_coord)` vertex weld on `PairCylinder`),
+  `:2339-2362` (PR-5 multi-label cylinder membrane keep/drop).
+- `crates/yang-rs/src/boolean/predicates.rs:136-195` (`centroid_on_cylinder`,
+  `cylinders_are_coincident`), `crates/yang-rs/src/stage3_ssi.rs:1037-1056`
+  (SSI skip on coincident cylinders), `crates/yang-rs/src/stage4_correct.rs:485-513`
+  (`SurfKey` cylinder arm in `merge_same_plane_patches`), and
+  `crates/yang-rs/src/shell_contact.rs:297-313` (identical-`Surface` skip,
+  matrix `4.2-11`).
+
+**Comparison against §4.5.5's five steps and planar Stage 0 (`specs/yang_455_cosurface_cylinder.md` §3–§4).**
+1. *Pre-discretization detection:* Runs before Stage 2 (probing Stage 1 twice
+   at shared $N = \max(N_A, N_B)$), but is preempted whenever planar
+   `stage0_preprocess` returns `Some(_)`. Uses `band = max(TAU_MODEL, scale·TAU_WORK)`
+   without planar Stage 0's `weld_coplanar_planes` (**N79**), without `#178`'s
+   loud `SubResolutionCoplanarGap` STOP on `(band/100, band]` (**N57**), without
+   an intra-solid near-coincident STOP, and with unscaled `‖ad_a × ad_b‖ <= band`
+   instead of `sin * extent <= band`.
+2. *2D $(u, v)$ overlay with periodic seam:* No general $(r\theta, z)$ 2D
+   overlay exists (contrast planar `RBig` `coplanar_overlay.rs`). Admission is
+   restricted to `groups.len() == 1`, `opposite == true` (cavity bore vs. solid
+   wall), full-$2\pi$ 2-ring walls on both operands, and 1D axial containment
+   within `band`; periodic $2\pi$ wrap-around is handled by sorting ring
+   vertices by `atan2(y, x).rem_euclid(2π)` and wrapping `smallest_covering_arc`
+   past $2\pi$. Out-of-scope cylinder pairs silently return `Ok(None)` rather
+   than planar Stage 0's loud `CoplanarFacesUnsupported` (**N17**).
+3. *Three-way segmentation:* Collapses under full-$\theta$ axial containment to
+   1D $z$-bands ($\text{cont-only} = \emptyset$, $\text{Overlap} = [\text{ov\_lo}, \text{ov\_hi}]$,
+   $\text{outer-only}$ = flanking $z$-bands outside `band`), using float `band`
+   rather than exact rational `RBig` and `zband = 1e-9 * max(|z|, 1)` ring
+   bucketing.
+4. *Common surface & identical overlap meshes:* Forces shared rim $N$ (with
+   one convergent pass across mixed 1-circle × $k$-arc clusters where
+   `stage1_tessellate.rs:792` rounds arc counts via `ceil(sweep * N / 2π)`),
+   appends literal `Point3` copies of interior `cont_rings` into `outer_mesh`,
+   pairs columns within `tol = 0.25 * (2π / N)`, and attributes arc-patch
+   provenance (**N4**). **Audit-discovered defects — RESOLVED 2026-10-27 in
+   the companion F6 commit** (pinned by `stage0/cylinder.rs::cylinder_pair_tests`
+   and `crates/kernel-v2/tests/f6_coincident_cylinder.rs`, verified RED → GREEN):
+   (a) axial extents were computed in each face's *local* `(axis_point, axis_dir)`
+   frame without projecting onto the shared axis frame, falsely matching
+   disjoint extruded cylinders and falsely rejecting contained revolved /
+   opposite-axis cylinders — fixed via `project_extent_to_axis` across
+   `cluster_cylinder_faces`, `detect_coincident_cylinder_pairs`, and
+   `detect_coincident_cylinder_groups`; (b) `outer_mesh` rebuilt the overlap
+   strip via `band_strip` while `cont_mesh` kept `cont_tess.tris` verbatim,
+   leaving skew crossed quad diagonals whenever `cont`'s top rim circle normal
+   opposed `g.axis_dir` (every revolved bore washer and mixed-arc bore) —
+   fixed by rebuilding **both** `outer_mesh` and `cont_mesh` through the shared
+   `rebuild_cluster_with_rings` (`band_strip` in `(g.axis_point, g.axis_dir)`);
+   and (c) flush boundary rings (`r.z <= z_lo + band` or `r.z >= z_hi - band`)
+   skipped `band_strip` without verifying identical ring vertex coordinates —
+   fixed by checking exact `f64 ==` coordinate-set equality
+   (`ring_point_sets_identical`, zero tolerance band) and always routing both
+   clusters through `band_strip`.
+5. *Overlap boundaries as intersection curves:* Identical overlap triangles
+   pocket-dedup in `cherchi-rs` into multi-label sheets; PR-6 fuses sub-`TAU_WORK`
+   rim twins; `boolean.rs:2339` drops or keeps the sheet by `(BoolOp, opposite)`
+   within `max(d_ε(a), d_ε(b), band)` (centroid distance only, no `la.source`
+   face-pair check); dropped-membrane borders resolve in Stage 3 as exact
+   `Cylinder × Plane` `Curve::Circle`s, while kept-membrane `Cylinder × Cylinder`
+   chords skip `ssi_rs` (`stage3_ssi.rs:1037`).
+
+**Measured customers** (`YANG_CYL_STAGE0_CENSUS=<file>`, registered in
+`docs/kernel_probe_registry.md`):
+- **374-case categorized release corpus** (`360C / 0W / 9E / 5EE / 0T`, wall
+  `975.1s`): **`0 / 374` cases** reach `coincident_cylinder_stage0` (`STAGE0_HANDLED`
+  or `STAGE0_NONE` with `groups.len() >= 1`). `detect_coincident_cylinder_pairs`
+  fires on **`2 / 374` cases (`C0044`, `C0048`)**, both cap-to-cap flush
+  cylinder stacks with zero 2D cylindrical overlap preempted by planar Stage 0.
+- **Crate & `.waffle` test suites** (`yang-rs` `1522 / 0`, `kernel-v2` `872 / 0`,
+  `gear_flange_union`, `user_case_probe`): `STAGE0_HANDLED` fires on **2 real
+  solid booleans** (`test-harness::gear_flange_union::gear_flange_union_builds_full_height`
+  on `err.waffle` and `yang-rs::m8cyl_plug_in_bore::plug_in_bore_union_is_watertight`)
+  plus **2 lateral-only unit tests** in `stage0/cylinder.rs`; `STAGE0_NONE`
+  fires on **2 `kernel-v2::kv13_provenance` tests** (`not_opposite`,
+  `multi_group`); `DETECT_PAIRS` alone fires on **6 additional tests** (2 unit
+  tests + 4 cap-to-cap stack tests).
+
+**State: PROPOSED** (2026-10-27, roadmap F6 / N89 item 5 — an extension of
+§4.5.5 to a coincident surface pair the paper does not name; awaits a prose
+sign-off from the user under A15.7).

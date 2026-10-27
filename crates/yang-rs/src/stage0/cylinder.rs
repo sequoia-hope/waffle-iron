@@ -20,12 +20,62 @@ use super::*;
 /// meshes because the gear's bore wall and the flange's outer wall are the
 /// identical analytic cylinder); we only need to tell `boolean()` whether that
 /// internal sheet survives the op.
+/// Append one print-only census line to `YANG_CYL_STAGE0_CENSUS=<file>`, keyed
+/// by `ASSAY_CASE` (subprocess-safe under `ASSAY_JOBS`, where child stderr goes
+/// to `/dev/null`). Silent and zero-cost when `YANG_CYL_STAGE0_CENSUS` is unset.
+fn cyl_stage0_census_log(event: &str) {
+    let Some(path) = std::env::var_os("YANG_CYL_STAGE0_CENSUS") else {
+        return;
+    };
+    use std::io::Write as _;
+    let tag = std::env::var("ASSAY_CASE").unwrap_or_else(|_| {
+        std::thread::current()
+            .name()
+            .unwrap_or("-")
+            .replace(' ', "_")
+    });
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{tag} {event}");
+    }
+}
+
+/// Project an axial extent `[lo, hi]` measured along `(src_ap, src_ad)` onto
+/// the target canonical axis `(dst_ap, dst_ad)` (both `src_ad` and `dst_ad`
+/// unit-normalized). On collinear axes `p_axis(t_src) = src_ap + t_src·src_ad`
+/// has parameter `t_dst = (src_ap - dst_ap)·dst_ad + (src_ad·dst_ad)·t_src`.
+pub(crate) fn project_extent_to_axis(
+    src_ap: [f64; 3],
+    src_ad: [f64; 3],
+    src_ext: [f64; 2],
+    dst_ap: [f64; 3],
+    dst_ad: [f64; 3],
+) -> [f64; 2] {
+    let shift = (src_ap[0] - dst_ap[0]) * dst_ad[0]
+        + (src_ap[1] - dst_ap[1]) * dst_ad[1]
+        + (src_ap[2] - dst_ap[2]) * dst_ad[2];
+    let dir_dot = src_ad[0] * dst_ad[0] + src_ad[1] * dst_ad[1] + src_ad[2] * dst_ad[2];
+    let t0 = shift + dir_dot * src_ext[0];
+    let t1 = shift + dir_dot * src_ext[1];
+    [t0.min(t1), t0.max(t1)]
+}
+
 pub(crate) fn detect_coincident_cylinder_pairs(a: &BRep, b: &BRep) -> Vec<PairCylinder> {
     let cyls_a = cylinder_faces(a);
     let cyls_b = cylinder_faces(b);
     let mut out = Vec::new();
     for ca in &cyls_a {
         for cb in &cyls_b {
+            let cb_ext_in_a = project_extent_to_axis(
+                cb.axis_point,
+                cb.axis_dir,
+                cb.extent,
+                ca.axis_point,
+                ca.axis_dir,
+            );
             // Scale-relative band over both cylinders' geometry (axis points,
             // radii, and the axial-extent endpoints). Mirrors the planar
             // `near_coplanar_band`: `TAU_MODEL.max(scale·TAU_WORK)`.
@@ -38,6 +88,7 @@ pub(crate) fn detect_coincident_cylinder_pairs(a: &BRep, b: &BRep) -> Vec<PairCy
                 .chain(std::iter::once(&cb.radius))
                 .chain(ca.extent.iter())
                 .chain(cb.extent.iter())
+                .chain(cb_ext_in_a.iter())
             {
                 scale = scale.max(v.abs());
             }
@@ -46,11 +97,12 @@ pub(crate) fn detect_coincident_cylinder_pairs(a: &BRep, b: &BRep) -> Vec<PairCy
             if !cylinders_coincident(ca, cb, band) {
                 continue;
             }
-            // Axial extents must overlap (band-inflated) — two coaxial,
-            // equal-radius cylinders that do not overlap along the axis share
-            // no surface region.
+            // Axial extents must overlap (band-inflated) in `ca`'s shared axis
+            // frame (N103 / Yang §4.5.5 `:718-732`) — two coaxial, equal-radius
+            // cylinders with distinct `axis_point` origins that do not overlap
+            // in world space share no surface region.
             let (lo_a, hi_a) = (ca.extent[0], ca.extent[1]);
-            let (lo_b, hi_b) = (cb.extent[0], cb.extent[1]);
+            let (lo_b, hi_b) = (cb_ext_in_a[0], cb_ext_in_a[1]);
             if lo_a > hi_b + band || lo_b > hi_a + band {
                 continue;
             }
@@ -67,6 +119,15 @@ pub(crate) fn detect_coincident_cylinder_pairs(a: &BRep, b: &BRep) -> Vec<PairCy
                 opposite,
             });
         }
+    }
+    if !out.is_empty() && std::env::var_os("YANG_CYL_STAGE0_CENSUS").is_some() {
+        let opp_cnt = out.iter().filter(|p| p.opposite).count();
+        cyl_stage0_census_log(&format!(
+            "DETECT_PAIRS total={} opposite={} same_sense={}",
+            out.len(),
+            opp_cnt,
+            out.len() - opp_cnt
+        ));
     }
     out
 }
@@ -234,6 +295,13 @@ pub(crate) fn detect_coincident_cylinder_groups(
     let mut out = Vec::new();
     for ca in &clusters_a {
         for cb in &clusters_b {
+            let cb_ext_in_a = project_extent_to_axis(
+                cb.axis_point,
+                cb.axis_dir,
+                cb.extent,
+                ca.axis_point,
+                ca.axis_dir,
+            );
             let mut scale = 0.0_f64;
             for v in ca
                 .axis_point
@@ -243,6 +311,7 @@ pub(crate) fn detect_coincident_cylinder_groups(
                 .chain(std::iter::once(&cb.radius))
                 .chain(ca.extent.iter())
                 .chain(cb.extent.iter())
+                .chain(cb_ext_in_a.iter())
             {
                 scale = scale.max(v.abs());
             }
@@ -265,7 +334,7 @@ pub(crate) fn detect_coincident_cylinder_groups(
                 continue;
             }
             let (lo_a, hi_a) = (ca.extent[0], ca.extent[1]);
-            let (lo_b, hi_b) = (cb.extent[0], cb.extent[1]);
+            let (lo_b, hi_b) = (cb_ext_in_a[0], cb_ext_in_a[1]);
             if lo_a > hi_b + band || lo_b > hi_a + band {
                 continue;
             }
@@ -276,7 +345,7 @@ pub(crate) fn detect_coincident_cylinder_groups(
                 axis_dir: ca.axis_dir,
                 band,
                 extent_a: ca.extent,
-                extent_b: cb.extent,
+                extent_b: cb_ext_in_a,
                 opposite: ca.reversed != cb.reversed,
             });
         }
@@ -303,18 +372,29 @@ pub(crate) fn cluster_cylinder_faces(brep: &BRep) -> Vec<CylCluster> {
     let faces = cylinder_faces_indexed(brep);
     let mut clusters: Vec<CylCluster> = Vec::new();
     for (fi, cf) in &faces {
-        let mut scale = 0.0_f64;
-        for v in cf
-            .axis_point
-            .iter()
-            .chain(std::iter::once(&cf.radius))
-            .chain(cf.extent.iter())
-        {
-            scale = scale.max(v.abs());
-        }
-        let band = cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
         let mut matched = false;
         for cl in clusters.iter_mut() {
+            let cf_ext_in_cl = project_extent_to_axis(
+                cf.axis_point,
+                cf.axis_dir,
+                cf.extent,
+                cl.axis_point,
+                cl.axis_dir,
+            );
+            let mut scale = 0.0_f64;
+            for v in cl
+                .axis_point
+                .iter()
+                .chain(cf.axis_point.iter())
+                .chain(std::iter::once(&cl.radius))
+                .chain(std::iter::once(&cf.radius))
+                .chain(cl.extent.iter())
+                .chain(cf.extent.iter())
+                .chain(cf_ext_in_cl.iter())
+            {
+                scale = scale.max(v.abs());
+            }
+            let band = cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
             let rep = CylFace {
                 axis_point: cl.axis_point,
                 axis_dir: cl.axis_dir,
@@ -324,8 +404,8 @@ pub(crate) fn cluster_cylinder_faces(brep: &BRep) -> Vec<CylCluster> {
             };
             if cl.reversed == cf.reversed && cylinders_coincident(&rep, cf, band) {
                 cl.faces.push(*fi);
-                cl.extent[0] = cl.extent[0].min(cf.extent[0]);
-                cl.extent[1] = cl.extent[1].max(cf.extent[1]);
+                cl.extent[0] = cl.extent[0].min(cf_ext_in_cl[0]);
+                cl.extent[1] = cl.extent[1].max(cf_ext_in_cl[1]);
                 matched = true;
                 break;
             }
@@ -435,6 +515,12 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         }
     }
     if groups.len() != 1 {
+        if !groups.is_empty() {
+            cyl_stage0_census_log(&format!(
+                "STAGE0_NONE reason=multi_group n={}",
+                groups.len()
+            ));
+        }
         // Increment 1: exactly one coincident-cylinder GROUP. Zero → not our
         // case; >1 → a later increment (n-ary coincidence).
         return Ok(None);
@@ -447,6 +533,10 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         if probe {
             eprintln!("[cylst0] group not opposite");
         }
+        cyl_stage0_census_log(&format!(
+            "STAGE0_NONE reason=not_opposite fa={:?} fb={:?}",
+            g.faces_a, g.faces_b
+        ));
         return Ok(None);
     }
     let (lo_a, hi_a) = (g.extent_a[0], g.extent_a[1]);
@@ -462,6 +552,9 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
             if probe {
                 eprintln!("[cylst0] partial overlap a=[{lo_a},{hi_a}] b=[{lo_b},{hi_b}]");
             }
+            cyl_stage0_census_log(&format!(
+                "STAGE0_NONE reason=partial_overlap ea=[{lo_a:.6},{hi_a:.6}] eb=[{lo_b:.6},{hi_b:.6}]"
+            ));
             return Ok(None);
         }
     };
@@ -480,7 +573,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         .and_then(|r| r.first().map(|ring| ring.ids.len()));
     let n_b = cluster_rim_rings(&probe0_b, &g.faces_b, g.axis_point, g.axis_dir)
         .and_then(|r| r.first().map(|ring| ring.ids.len()));
-    let shared_n = match (n_a, n_b) {
+    let mut shared_n = match (n_a, n_b) {
         // Case-IV phantom guard: a forced rim N on either operand folds into
         // the shared N (a finer N is always chord-valid).
         (Some(na), Some(nb)) => na
@@ -491,10 +584,13 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
             if probe {
                 eprintln!("[cylst0] could not extract cluster ring N (na={n_a:?} nb={n_b:?})");
             }
+            cyl_stage0_census_log(&format!(
+                "STAGE0_NONE reason=no_ring_n na={n_a:?} nb={n_b:?}"
+            ));
             return Ok(None);
         }
     };
-    let tess_a = crate::stage1_tessellate_with_standing_overrides(
+    let mut tess_a = crate::stage1_tessellate_with_standing_overrides(
         &verts_a,
         a.edges(),
         a.faces(),
@@ -504,7 +600,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         a.face_refine(),
         Some(shared_n),
     )?;
-    let tess_b = crate::stage1_tessellate_with_standing_overrides(
+    let mut tess_b = crate::stage1_tessellate_with_standing_overrides(
         &verts_b,
         b.edges(),
         b.faces(),
@@ -514,6 +610,43 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         b.face_refine(),
         Some(shared_n),
     )?;
+    // Multi-arc clusters round each arc's segment count up via
+    // `ceil(sweep * n_seg / 2π)` (`stage1_tessellate.rs:792`), so e.g. a
+    // 4-quarter-arc bore at `shared_n = 13` emits `4 * ceil(13/4) = 16` ring
+    // vertices while a 1-face circle shaft emits `13`. Converge both operands
+    // to the larger actual ring count so §4.5.5 identical-overlap-mesh (`:727-728`)
+    // holds across mixed 1-circle × k-arc clusters.
+    if let (Some(ra), Some(rb)) = (
+        cluster_rim_rings(&tess_a, &g.faces_a, g.axis_point, g.axis_dir),
+        cluster_rim_rings(&tess_b, &g.faces_b, g.axis_point, g.axis_dir),
+    ) {
+        if let (Some(r0a), Some(r0b)) = (ra.first(), rb.first()) {
+            let converged_n = r0a.ids.len().max(r0b.ids.len());
+            if r0a.ids.len() != r0b.ids.len() && converged_n > shared_n {
+                shared_n = converged_n;
+                tess_a = crate::stage1_tessellate_with_standing_overrides(
+                    &verts_a,
+                    a.edges(),
+                    a.faces(),
+                    a.standing_rim(),
+                    a.standing_face(),
+                    a.standing_face_constraints(),
+                    a.face_refine(),
+                    Some(shared_n),
+                )?;
+                tess_b = crate::stage1_tessellate_with_standing_overrides(
+                    &verts_b,
+                    b.edges(),
+                    b.faces(),
+                    b.standing_rim(),
+                    b.standing_face(),
+                    b.standing_face_constraints(),
+                    b.face_refine(),
+                    Some(shared_n),
+                )?;
+            }
+        }
+    }
 
     let outer_tess = if outer_is_a { &tess_a } else { &tess_b };
     let outer_faces = if outer_is_a { &g.faces_a } else { &g.faces_b };
@@ -524,12 +657,18 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
     };
     let cont_tess = if outer_is_a { &tess_b } else { &tess_a };
     let cont_faces = if outer_is_a { &g.faces_b } else { &g.faces_a };
+    let cont_reversed = if outer_is_a {
+        b.faces()[g.faces_b[0]].reversed
+    } else {
+        a.faces()[g.faces_a[0]].reversed
+    };
 
     let Some(outer_rings) = cluster_rim_rings(outer_tess, outer_faces, g.axis_point, g.axis_dir)
     else {
         if probe {
             eprintln!("[cylst0] outer cluster rings None");
         }
+        cyl_stage0_census_log("STAGE0_NONE reason=outer_rings_none");
         return Ok(None);
     };
     let Some(cont_rings) = cluster_rim_rings(cont_tess, cont_faces, g.axis_point, g.axis_dir)
@@ -537,6 +676,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         if probe {
             eprintln!("[cylst0] cont cluster rings None");
         }
+        cyl_stage0_census_log("STAGE0_NONE reason=cont_rings_none");
         return Ok(None);
     };
     // Increment 1: each clustered wall presents exactly 2 aggregate rim rings.
@@ -548,6 +688,11 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
                 cont_rings.len()
             );
         }
+        cyl_stage0_census_log(&format!(
+            "STAGE0_NONE reason=ring_count outer={} cont={}",
+            outer_rings.len(),
+            cont_rings.len()
+        ));
         return Ok(None);
     }
 
@@ -567,12 +712,30 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         if probe {
             eprintln!("[cylst0] build_conformal_outer_mesh None");
         }
+        cyl_stage0_census_log("STAGE0_NONE reason=conformal_mesh_none");
         return Ok(None);
     };
-    let cont_mesh = Mesh::new(cont_tess.verts.clone(), cont_tess.tris.clone());
-    // N4: the contained mesh IS `cont_tess` unchanged → its face map is the
-    // direct inversion of the face ranges (every triangle a real Stage-1 face).
-    let cont_tri_face = invert_face_tri_ranges(cont_tess);
+    // Yang §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:727-728`, N103):
+    // rebuild the contained solid's coincident-cylinder cluster through the
+    // EXACT same `band_strip` in `(g.axis_point, g.axis_dir)` (preserving its
+    // cap-shared rim vertex indices and N4 arc-patch provenance) so every quad
+    // on the overlap band chooses the identical diagonal on BOTH operands,
+    // regardless of each solid's `Curve::Circle` rim-normal sense.
+    let Some((cont_mesh, cont_tri_face)) = rebuild_cluster_with_rings(
+        cont_tess,
+        cont_faces,
+        cont_tess.verts.clone(),
+        &cont_rings,
+        g.axis_point,
+        g.axis_dir,
+        cont_reversed,
+    ) else {
+        if probe {
+            eprintln!("[cylst0] rebuild_cluster_with_rings(cont) None");
+        }
+        cyl_stage0_census_log("STAGE0_NONE reason=cont_conformal_mesh_none");
+        return Ok(None);
+    };
 
     let (mesh_a, mesh_b, tri_face_a, tri_face_b) = if outer_is_a {
         (outer_mesh, cont_mesh, outer_tri_face, cont_tri_face)
@@ -592,6 +755,10 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
             mesh_b.tris.len(),
         );
     }
+    cyl_stage0_census_log(&format!(
+        "STAGE0_HANDLED outer_is_a={outer_is_a} fa={:?} fb={:?} ea=[{lo_a:.6},{hi_a:.6}] eb=[{lo_b:.6},{hi_b:.6}] N={shared_n}",
+        g.faces_a, g.faces_b
+    ));
 
     debug_assert_eq!(tri_face_a.len(), mesh_a.tris.len(), "tri_face_a 1:1");
     debug_assert_eq!(tri_face_b.len(), mesh_b.tris.len(), "tri_face_b 1:1");
@@ -628,6 +795,7 @@ pub(crate) fn cluster_rim_rings(
             + (p[2] - axis_point[2]) * au[2]
     };
     let azof = |p: [f64; 3]| -> f64 {
+        let p = p.map(|c| if c == 0.0 { 0.0 } else { c });
         let w = [
             p[0] - axis_point[0],
             p[1] - axis_point[1],
@@ -635,7 +803,14 @@ pub(crate) fn cluster_rim_rings(
         ];
         let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
         let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
-        y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
+        let x = if x == 0.0 { 0.0 } else { x };
+        let y = if y == 0.0 { 0.0 } else { y };
+        let az = y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+        if az == 0.0 {
+            0.0
+        } else {
+            az
+        }
     };
 
     // Collect unique cluster vertices (deduped across the arc faces — adjacent
@@ -753,6 +928,7 @@ pub(crate) fn cluster_face_arcs(
     let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(au[0], au[1], au[2]));
     let (e1, e2) = (e1.as_array(), e2.as_array());
     let azof = |p: [f64; 3]| -> f64 {
+        let p = p.map(|c| if c == 0.0 { 0.0 } else { c });
         let w = [
             p[0] - axis_point[0],
             p[1] - axis_point[1],
@@ -760,7 +936,14 @@ pub(crate) fn cluster_face_arcs(
         ];
         let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
         let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
-        y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
+        let x = if x == 0.0 { 0.0 } else { x };
+        let y = if y == 0.0 { 0.0 } else { y };
+        let az = y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+        if az == 0.0 {
+            0.0
+        } else {
+            az
+        }
     };
     let mut arcs = Vec::new();
     for &fi in outer_faces {
@@ -781,6 +964,121 @@ pub(crate) fn cluster_face_arcs(
         }
     }
     arcs
+}
+
+/// Canonical `f64 ==` coordinate key matching `cherchi-rs`'s soup vertex
+/// interning (`cherchi-rs/src/arrangements/soup.rs:224`): `-0.0` and `+0.0`
+/// share `0u64`; zero tolerance band.
+fn canonical_pt_bits(p: Point3) -> [u64; 3] {
+    p.as_array()
+        .map(|x| if x == 0.0 { 0u64 } else { x.to_bits() })
+}
+
+/// True iff `r_a` and `r_b` carry the exact same multiset of `f64 ==` vertex
+/// coordinates (no tolerance band). Required when a contained boundary ring is
+/// flush with an outer rim ring (`|r.z - z_outer| <= band`): replacing a
+/// cap-shared outer rim would tear the incident cap, while keeping non-equal
+/// flush rings would violate §4.5.5 (`:727-728`) identical-overlap-mesh.
+fn ring_point_sets_identical(
+    r_a: &ConformalRing,
+    verts_a: &[Point3],
+    r_b: &ConformalRing,
+    verts_b: &[Point3],
+) -> bool {
+    if r_a.ids.len() != r_b.ids.len() {
+        return false;
+    }
+    let mut ka: Vec<[u64; 3]> = r_a
+        .ids
+        .iter()
+        .map(|&v| canonical_pt_bits(verts_a[v as usize]))
+        .collect();
+    let mut kb: Vec<[u64; 3]> = r_b
+        .ids
+        .iter()
+        .map(|&v| canonical_pt_bits(verts_b[v as usize]))
+        .collect();
+    ka.sort_unstable();
+    kb.sort_unstable();
+    ka == kb
+}
+
+/// Replace `cluster_faces`'s Stage-1 triangles in `tess` with the banded strip
+/// over `rings` (sorted by `z`), keeping all other faces' triangles and N4
+/// provenance verbatim. Shared by BOTH `outer_mesh` and `cont_mesh` so every
+/// overlap quad is triangulated with the identical diagonal in `(axis_point,
+/// axis_dir)` (§4.5.5 `:727-728`, N103).
+fn rebuild_cluster_with_rings(
+    tess: &crate::Stage1Tess,
+    cluster_faces: &[usize],
+    verts: Vec<Point3>,
+    rings: &[ConformalRing],
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+    reversed: bool,
+) -> Option<(Mesh, Vec<u32>)> {
+    let mut in_cluster = vec![false; tess.tris.len()];
+    for &fi in cluster_faces {
+        let range = tess.face_tri_ranges.get(fi)?.clone();
+        for slot in in_cluster.iter_mut().take(range.end).skip(range.start) {
+            *slot = true;
+        }
+    }
+    let face_of = invert_face_tri_ranges(tess);
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut tri_face: Vec<u32> = Vec::new();
+    for (i, tri) in tess.tris.iter().enumerate() {
+        if !in_cluster[i] {
+            tris.push(*tri);
+            tri_face.push(face_of[i]);
+        }
+    }
+    let single_face = (cluster_faces.len() == 1).then(|| cluster_faces[0] as u32);
+    let arcs = if single_face.is_some() {
+        Vec::new()
+    } else {
+        cluster_face_arcs(tess, cluster_faces, axis_point, axis_dir)
+    };
+    let face_at = |mid: f64| -> u32 {
+        if let Some(f) = single_face {
+            return f;
+        }
+        for &(fi, s, e) in &arcs {
+            if arc_contains(mid, s, e) {
+                return fi;
+            }
+        }
+        u32::MAX
+    };
+    let probe = std::env::var_os("CYLST0_PROBE").is_some();
+    if probe {
+        eprintln!(
+            "[cylst0] all rings z = {:?}",
+            rings.iter().map(|r| r.z).collect::<Vec<_>>()
+        );
+    }
+    for w in rings.windows(2) {
+        if band_strip(
+            &w[0],
+            &w[1],
+            &verts,
+            axis_point,
+            axis_dir,
+            reversed,
+            &mut tris,
+            &face_at,
+            &mut tri_face,
+        )
+        .is_none()
+        {
+            if probe {
+                eprintln!("[cylst0] band_strip None at z=[{},{}]", w[0].z, w[1].z);
+            }
+            return None;
+        }
+    }
+    debug_assert_eq!(tri_face.len(), tris.len(), "cluster tri_face 1:1 with tris");
+    Some((Mesh::new(verts, tris), tri_face))
 }
 
 /// Build the OUTER solid's conformal mesh: every face is its Stage-1
@@ -827,15 +1125,6 @@ pub(crate) fn build_conformal_outer_mesh(
     let (z_lo, z_hi) = (outer_rings[0].z, outer_rings[outer_rings.len() - 1].z);
     let _ = (ov_lo, ov_hi);
     for r in cont_rings {
-        // Insert the contained solid's rim rings that sit STRICTLY between the
-        // outer rims (the overlap-band boundary; a ring AT an outer rim would be
-        // a duplicate). The outer ring span IS the overlap geometry — using the
-        // extracted ring z-levels (not the loop-vertex extent) is the reliable
-        // truth, since a wall's tessellated rims can sit at different axial
-        // params than its loop vertices' aggregate extent.
-        if r.z <= z_lo + band || r.z >= z_hi - band {
-            continue;
-        }
         // Equal ring size required for the banded strip (Increment 1: same N).
         if r.ids.len() != outer_rings[0].ids.len() {
             if std::env::var_os("CYLST0_PROBE").is_some() {
@@ -847,6 +1136,23 @@ pub(crate) fn build_conformal_outer_mesh(
             }
             return None;
         }
+        // Flush with an outer rim (`r.z <= z_lo + band` or `r.z >= z_hi - band`):
+        // verify exact `f64 ==` coordinate-set equality against that outer rim
+        // (`ring_point_sets_identical`, zero tolerance band) rather than
+        // assuming flush rims match (N103 / §4.5.5 `:727-728`).
+        if r.z <= z_lo + band {
+            if !ring_point_sets_identical(r, &cont_tess.verts, &outer_rings[0], &outer_tess.verts) {
+                return None;
+            }
+            continue;
+        }
+        if r.z >= z_hi - band {
+            let hi_ring = &outer_rings[outer_rings.len() - 1];
+            if !ring_point_sets_identical(r, &cont_tess.verts, hi_ring, &outer_tess.verts) {
+                return None;
+            }
+            continue;
+        }
         let mut ids = Vec::with_capacity(r.ids.len());
         for &v in &r.ids {
             let idx = verts.len() as u32;
@@ -857,85 +1163,15 @@ pub(crate) fn build_conformal_outer_mesh(
     }
     all.sort_by(|a, b| a.z.partial_cmp(&b.z).unwrap());
 
-    // If nothing was inserted (extents equal, no interior boundary) the outer
-    // lateral is already conformal with the contained one — no rebuild needed.
-    // The mesh IS `outer_tess.tris` unchanged, so its face map is the direct
-    // inversion of the face ranges.
-    if all.len() == outer_rings.len() {
-        let tri_face = invert_face_tri_ranges(outer_tess);
-        return Some((Mesh::new(verts, outer_tess.tris.clone()), tri_face));
-    }
-
-    // Rebuild: keep all faces' triangles EXCEPT the coincident-cylinder cluster
-    // faces (the arc patches), whose triangles are replaced by the re-banded
-    // full-θ strip below.
-    let mut in_cluster = vec![false; outer_tess.tris.len()];
-    for &fi in outer_faces {
-        let range = outer_tess.face_tri_ranges.get(fi)?.clone();
-        for slot in in_cluster.iter_mut().take(range.end).skip(range.start) {
-            *slot = true;
-        }
-    }
-    // N4: face map built in lockstep with `tris`. Non-cluster triangles keep
-    // their Stage-1 owning face; band-strip triangles are attributed by azimuth.
-    let face_of = invert_face_tri_ranges(outer_tess);
-    let mut tris: Vec<[u32; 3]> = Vec::new();
-    let mut tri_face: Vec<u32> = Vec::new();
-    for (i, tri) in outer_tess.tris.iter().enumerate() {
-        if !in_cluster[i] {
-            tris.push(*tri);
-            tri_face.push(face_of[i]);
-        }
-    }
-    // Per band-strip column midpoint azimuth → the arc-patch cluster face that
-    // covers it. Single-face cluster: trivially that face (the full-θ wall).
-    let single_face = (outer_faces.len() == 1).then(|| outer_faces[0] as u32);
-    let arcs = if single_face.is_some() {
-        Vec::new()
-    } else {
-        cluster_face_arcs(outer_tess, outer_faces, axis_point, axis_dir)
-    };
-    let face_at = |mid: f64| -> u32 {
-        if let Some(f) = single_face {
-            return f;
-        }
-        for &(fi, s, e) in &arcs {
-            if arc_contains(mid, s, e) {
-                return fi;
-            }
-        }
-        u32::MAX // no covering arc → geometric fallback (P9-safe)
-    };
-    // Banded strip over consecutive z-rings.
-    let probe = std::env::var_os("CYLST0_PROBE").is_some();
-    if probe {
-        eprintln!(
-            "[cylst0] all rings z = {:?}",
-            all.iter().map(|r| r.z).collect::<Vec<_>>()
-        );
-    }
-    for w in all.windows(2) {
-        if band_strip(
-            &w[0],
-            &w[1],
-            &verts,
-            axis_point,
-            axis_dir,
-            reversed,
-            &mut tris,
-            &face_at,
-            &mut tri_face,
-        )
-        .is_none()
-        {
-            if probe {
-                eprintln!("[cylst0] band_strip None at z=[{},{}]", w[0].z, w[1].z);
-            }
-            return None;
-        }
-    }
-    debug_assert_eq!(tri_face.len(), tris.len(), "outer tri_face 1:1 with tris");
-    Some((Mesh::new(verts, tris), tri_face))
+    rebuild_cluster_with_rings(
+        outer_tess,
+        outer_faces,
+        verts,
+        &all,
+        axis_point,
+        axis_dir,
+        reversed,
+    )
 }
 
 /// Connect two cylinder rings (`lo`, `hi`) into a watertight quad strip, pairing
@@ -967,7 +1203,9 @@ pub(crate) fn band_strip(
     let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(au[0], au[1], au[2]));
     let (e1, e2) = (e1.as_array(), e2.as_array());
     let azof = |vi: u32| -> f64 {
-        let p = verts[vi as usize].as_array();
+        let p = verts[vi as usize]
+            .as_array()
+            .map(|c| if c == 0.0 { 0.0 } else { c });
         let w = [
             p[0] - axis_point[0],
             p[1] - axis_point[1],
@@ -975,7 +1213,14 @@ pub(crate) fn band_strip(
         ];
         let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
         let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
-        y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
+        let x = if x == 0.0 { 0.0 } else { x };
+        let y = if y == 0.0 { 0.0 } else { y };
+        let az = y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+        if az == 0.0 {
+            0.0
+        } else {
+            az
+        }
     };
     let mut lo_s: Vec<(f64, u32)> = lo.ids.iter().map(|&v| (azof(v), v)).collect();
     let mut hi_s: Vec<(f64, u32)> = hi.ids.iter().map(|&v| (azof(v), v)).collect();
@@ -1317,5 +1562,220 @@ mod cylinder_pair_tests {
             r.is_ok(),
             "coincident_cylinder_stage0 must never error here"
         );
+    }
+
+    /// Build a minimal cylinder B-Rep with explicit `axis_point`, `axis_dir`,
+    /// and independent bottom/top `Curve::Circle` normals (allowing tests to
+    /// construct `extrude`'s local-origin cylinders and `revolve`'s mirrored
+    /// inner-bore rim senses).
+    fn cylinder_brep_with_frame(
+        radius: f64,
+        (z0, z1): (f64, f64),
+        (axis_point, axis_dir): (Point3, Vector3),
+        (rim0_normal, rim1_normal): (Vector3, Vector3),
+        reversed: bool,
+    ) -> BRep {
+        let v0 = BRepVertex {
+            point: Point3::new(radius, 0.0, z0),
+        };
+        let v1 = BRepVertex {
+            point: Point3::new(radius, 0.0, z1),
+        };
+        let rim0 = BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z0),
+                normal: rim0_normal,
+                radius,
+            },
+        };
+        let rim1 = BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z1),
+                normal: rim1_normal,
+                radius,
+            },
+        };
+        let face = BRepFace {
+            surface: Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            },
+            outer_loop: vec![0, 1],
+            inner_loops: vec![],
+            reversed,
+        };
+        BRep::new(vec![v0, v1], vec![rim0, rim1], vec![face]).expect("build framed cylinder brep")
+    }
+
+    fn canon_pt_bits(p: Point3) -> [u64; 3] {
+        p.as_array()
+            .map(|x| if x == 0.0 { 0u64 } else { x.to_bits() })
+    }
+
+    /// Canonical key of an oriented triangle `[u, v, w]` up to cyclic shift.
+    fn oriented_tri_key(mesh: &Mesh, tri: [u32; 3], flip: bool) -> [[u64; 3]; 3] {
+        let [a, b, c] = if flip { [tri[0], tri[2], tri[1]] } else { tri };
+        let ka = canon_pt_bits(mesh.verts[a as usize]);
+        let kb = canon_pt_bits(mesh.verts[b as usize]);
+        let kc = canon_pt_bits(mesh.verts[c as usize]);
+        let r0 = [ka, kb, kc];
+        let r1 = [kb, kc, ka];
+        let r2 = [kc, ka, kb];
+        r0.min(r1).min(r2)
+    }
+
+    #[test]
+    fn axis_extents_are_projected_into_shared_axis_frame() {
+        // 1. Disjoint extruded cylinders: A spans z∈[0, 5] with axis_point=(0,0,0)
+        //    (local extent [0, 5]) and B spans z∈[10, 15] with axis_point=(0,0,10)
+        //    (ALSO local extent [0, 5]!). In world space they are separated by 5.0
+        //    along Z, so neither pair nor group detection may match them.
+        let zp = Vector3::new(0.0, 0.0, 1.0);
+        let zn = Vector3::new(0.0, 0.0, -1.0);
+        let a_disj = cylinder_brep_with_frame(
+            2.0,
+            (0.0, 5.0),
+            (Point3::new(0.0, 0.0, 0.0), zp),
+            (zn, zp),
+            true,
+        );
+        let b_disj = cylinder_brep_with_frame(
+            2.0,
+            (10.0, 15.0),
+            (Point3::new(0.0, 0.0, 10.0), zp),
+            (zn, zp),
+            false,
+        );
+        assert!(
+            detect_coincident_cylinder_pairs(&a_disj, &b_disj).is_empty(),
+            "disjoint z∈[0,5] and z∈[10,15] cylinders must not emit a PairCylinder"
+        );
+        assert!(
+            detect_coincident_cylinder_groups(&a_disj, &b_disj).is_empty(),
+            "disjoint z∈[0,5] and z∈[10,15] cylinders must not emit a CoincidentCylinderGroup"
+        );
+
+        // 2. Contained cylinder with distinct axis_point AND negated axis_dir:
+        //    Outer shaft A spans z∈[-5, 5] with axis_point=(0,0,-5), axis_dir=+Z
+        //    (local extent [0, 10]). Contained bore B spans z∈[-2, 2] with
+        //    axis_point=(0,0,0), axis_dir=-Z (local extent [-2, 2]). In A's frame,
+        //    B's axial extent is [3, 7] ⊂ [0, 10].
+        let a_outer = cylinder_brep_with_frame(
+            2.0,
+            (-5.0, 5.0),
+            (Point3::new(0.0, 0.0, -5.0), zp),
+            (zn, zp),
+            false,
+        );
+        let b_cont = cylinder_brep_with_frame(
+            2.0,
+            (-2.0, 2.0),
+            (Point3::new(0.0, 0.0, 0.0), zn),
+            (zp, zn),
+            true,
+        );
+        let groups = detect_coincident_cylinder_groups(&a_outer, &b_cont);
+        assert_eq!(groups.len(), 1, "contained cylinder must form 1 group");
+        assert!(
+            (groups[0].extent_a[0] - 0.0).abs() < 1e-12
+                && (groups[0].extent_a[1] - 10.0).abs() < 1e-12
+                && (groups[0].extent_b[0] - 3.0).abs() < 1e-12
+                && (groups[0].extent_b[1] - 7.0).abs() < 1e-12,
+            "both extents must be in group.axis_point/axis_dir frame: ea={:?} eb={:?}",
+            groups[0].extent_a,
+            groups[0].extent_b
+        );
+        let s0 = coincident_cylinder_stage0(&a_outer, &b_cont)
+            .expect("must not error")
+            .expect("contained cylinder with offset origin / negated axis must be handled");
+        let a_keys: std::collections::BTreeSet<[[u64; 3]; 3]> = s0
+            .mesh_a
+            .tris
+            .iter()
+            .map(|&t| oriented_tri_key(&s0.mesh_a, t, false))
+            .collect();
+        for &tb in &s0.mesh_b.tris {
+            let key_opp = oriented_tri_key(&s0.mesh_b, tb, true);
+            assert!(
+                a_keys.contains(&key_opp),
+                "every overlap triangle of contained mesh_b must appear in mesh_a \
+                 with exact opposite winding (§4.5.5 identical overlap mesh)"
+            );
+        }
+    }
+
+    #[test]
+    fn stage0_overlap_tris_are_bit_identical_for_revolve_bore_and_flush_rims() {
+        let zp = Vector3::new(0.0, 0.0, 1.0);
+        let zn = Vector3::new(0.0, 0.0, -1.0);
+        let org = Point3::new(0.0, 0.0, 0.0);
+
+        // 1. Defect A: outer solid wall z∈[0, 5] vs contained `revolve`-style
+        //    inner bore wall z∈[1, 4] (`reversed = true`, bottom rim +Z, top rim -Z,
+        //    which Stage 1 splits along the opposite quad diagonal). Stage 0 must
+        //    rebuild BOTH clusters via `band_strip` so all 2N overlap triangles are
+        //    bit-for-bit identical opposite-winding triples.
+        let outer = cylinder_brep_with_frame(2.0, (0.0, 5.0), (org, zp), (zn, zp), false);
+        let rev_bore = cylinder_brep_with_frame(2.0, (1.0, 4.0), (org, zp), (zp, zn), true);
+        let s0 = coincident_cylinder_stage0(&outer, &rev_bore)
+            .expect("must not error")
+            .expect("revolve-style inner bore must be handled by coincident_cylinder_stage0");
+        let outer_keys: std::collections::BTreeSet<[[u64; 3]; 3]> = s0
+            .mesh_a
+            .tris
+            .iter()
+            .map(|&t| oriented_tri_key(&s0.mesh_a, t, false))
+            .collect();
+        assert!(!s0.mesh_b.tris.is_empty());
+        for &tb in &s0.mesh_b.tris {
+            let key_opp = oriented_tri_key(&s0.mesh_b, tb, true);
+            assert!(
+                outer_keys.contains(&key_opp),
+                "revolve-bore overlap triangle missing bit-identical twin in outer mesh"
+            );
+        }
+
+        // 2. Defect B (mismatched flush rim coordinates): equal-extent z∈[0, 5]
+        //    where A's top rim uses +Z (`ortho_basis(+Z)`) and B's top rim uses -Z
+        //    (`ortho_basis(-Z)` → 2–16 ULP coordinate mismatch at z=5). Because
+        //    replacing a flush cap-shared rim ring would tear the incident cap,
+        //    `coincident_cylinder_stage0` must decline (`Ok(None)`) rather than
+        //    emit non-identical overlap meshes.
+        let equal_bore_mismatched =
+            cylinder_brep_with_frame(2.0, (0.0, 5.0), (org, zp), (zp, zn), true);
+        let r_mismatch = coincident_cylinder_stage0(&outer, &equal_bore_mismatched)
+            .expect("must not error on mismatched flush rims");
+        assert!(
+            r_mismatch.is_none(),
+            "flush rims whose vertex coordinates are not f64-equal must decline cleanly"
+        );
+
+        // 3. Defect B (identical flush rim coordinates): equal-extent z∈[0, 5]
+        //    with identical rim normals (so flush rim vertex sets match bit-for-bit)
+        //    must succeed AND emit bit-for-bit identical opposite-winding triangles.
+        let equal_bore_matched =
+            cylinder_brep_with_frame(2.0, (0.0, 5.0), (org, zp), (zn, zp), true);
+        let s0_eq = coincident_cylinder_stage0(&outer, &equal_bore_matched)
+            .expect("must not error")
+            .expect("equal-extent cylinders with bit-identical rims must be handled");
+        let eq_a_keys: std::collections::BTreeSet<[[u64; 3]; 3]> = s0_eq
+            .mesh_a
+            .tris
+            .iter()
+            .map(|&t| oriented_tri_key(&s0_eq.mesh_a, t, false))
+            .collect();
+        assert_eq!(s0_eq.mesh_a.tris.len(), s0_eq.mesh_b.tris.len());
+        for &tb in &s0_eq.mesh_b.tris {
+            let key_opp = oriented_tri_key(&s0_eq.mesh_b, tb, true);
+            assert!(
+                eq_a_keys.contains(&key_opp),
+                "equal-extent overlap triangle must match bit-for-bit"
+            );
+        }
     }
 }

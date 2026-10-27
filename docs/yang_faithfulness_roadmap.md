@@ -204,10 +204,10 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 
 - [x] Stage-0 wall: the ellipse-bounded planar face (the paper's own Fig.
       24(b), N89 item 4 — resolved 2026-10-27).
-- [ ] Stage-0 wall: the coincident cylinder (N89 item 5).
+- [x] Stage-0 wall: the coincident cylinder (N89 item 5 → **N103** PROPOSED 2026-10-27: audited against §4.5.5 in `specs/yang_455_cosurface_cylinder.md`; shared-frame axial extents and identical overlap meshes on both operands fixed and pinned in `f6_coincident_cylinder.rs`. Open: unify with planar Stage 0 — co-dispatch, pre-Stage-1 weld with the #178 refusal, a 2D (rθ, z) overlay).
 - [ ] Stage-0 coplanar scan bounds every curve by its own extent (N98; ellipse arcs are bounded by their endpoints today).
 - [ ] R0023's coplanar cap residue (M8 follow-up; Stage 0's n-ary refusal, N25 — not N17, corrected 2026-10-27; it now fails first as a kernel-v2 cap segment face with < 3 vertices).
-- **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N10, N12,
+- **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N103 (PROPOSED), N10, N12,
   N32, N36, N42, N43.
 
 ### F7 — Adjudicate what remains
@@ -258,3 +258,4 @@ the first known item.
 | 2026-10-27 | F5 Steps 1–2: Stage-1 d_ε census vs model AABB; d(T) computed and certified per triangle at Stage 1 (N93; 4.1-24 ORDER → FAITHFUL, 4.1-26 MISSING → PARTIAL). Step 3 (N85, d_ε from the model AABB) trialled and PARKED: it regresses P0046, R0032, P0007, F0084 until F2/F3/Stage-4 land | 64 | 138 | 360C / 0W / 9E / 5EE / 0T | 9919de2c, 9b76ad7d, 718d4f0c, 6240cf30 |
 | 2026-10-27 | UL-02 / UL-06 silent-wrong FIXED in cherchi-rs ray cast (N101, N102 RESOLVED): the C++ eight one-ULP perturbations first, then coprime multi-ULP shells, then an exact full-disk certificate routes an unresolved crossing to the rational classifier; the generated ray now checks foreign-plane grazes | 64 | 138 | 360C / 0W / 9E / 5EE / 0T | 2cb63916 |
 | 2026-10-27 | N99 FIXED: cherchi-rs projection-axis filter certified on edge differences with a doubled margin and subnormal guard, exact fallback otherwise; UL-04: every orient2d routes through the N24 exact-zero re-check | 63 | 138 | 360C / 0W / 9E / 5EE / 0T | 8b5072cf |
+| 2026-10-27 | F6 coincident-cylinder Stage 0 audited against §4.5.5 and ledgered as N103 (PROPOSED, N89 item 5; spec `specs/yang_455_cosurface_cylinder.md`); three defects fixed and pinned — shared-frame axial extents, identical overlap meshes on both operands (revolved bores), exact flush-rim check | 64 | 138 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
