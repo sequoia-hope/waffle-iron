@@ -47,17 +47,17 @@ with a pin named in its `pin` column.
 
 ## Summary
 
-Refreshed 2026-10-27 to the live row tallies by `./scripts/faithfulness_score.sh` (mixed-status cells `4.2-18` `DEVIATES + ORDER`, `4.3-19` `PARTIAL + ORDER` and `4.4-15` `PARTIAL / SILENT` are counted under their primary leading token; since 2026-10-16 row `4.5.1-03` moved `N/A` → `PARTIAL` on 2026-10-22 under N90/N97 and row `4.5.3-08` moved `PARTIAL` → `FAITHFUL` on 2026-10-24 under N89 item 3).
+Refreshed 2026-10-27 (after the literature check, `docs/audits/lit_check_2026_10/`: every row re-read against the paper and the code, each status change independently reviewed — not-faithful 100 → 139, no geometry changed) to the live row tallies by `./scripts/faithfulness_score.sh` (mixed-status cells `4.2-18` `DEVIATES + ORDER`, `4.3-19` `PARTIAL + ORDER` and `4.4-15` `PARTIAL / SILENT` are counted under their primary leading token; since 2026-10-16 row `4.5.1-03` moved `N/A` → `PARTIAL` on 2026-10-22 under N90/N97 and row `4.5.3-08` moved `PARTIAL` → `FAITHFUL` on 2026-10-24 under N89 item 3).
 
 | slice | rows | FAITHFUL | PARTIAL | DEVIATES | MISSING | ORDER | SILENT | N/A |
 |---|---|---|---|---|---|---|---|---|
-| §3, §4.1, App. A — discretization | 43 | 10 | 11 | 8 | 3 | 2 | 1 | 8 |
-| §4.2, App. B, §5.6 — mesh intersection | 31 | 9 | 6 | 7 | 2 | 0 | 1 | 6 |
-| §4.3 — intersection optimization | 25 | 8 | 4 | 9 | 3 | 1 | 0 | 0 |
-| §4.4 — mesh updating, Booleans | 28 | 10 | 10 | 4 | 1 | 2 | 1 | 0 |
-| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 7 | 5 | 3 | 0 | 6 | 0 |
-| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 20 | 7 | 4 | 0 | 1 | 3 | 0 |
-| **total** | **194** | **68** | **45** | **37** | **12** | **6** | **12** | **14** |
+| §3, §4.1, App. A — discretization | 43 | 6 | 15 | 10 | 2 | 2 | 0 | 8 |
+| §4.2, App. B, §5.6 — mesh intersection | 31 | 4 | 10 | 8 | 2 | 0 | 1 | 6 |
+| §4.3 — intersection optimization | 25 | 3 | 7 | 11 | 3 | 1 | 0 | 0 |
+| §4.4 — mesh updating, Booleans | 28 | 5 | 15 | 5 | 1 | 2 | 0 | 0 |
+| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 3 | 14 | 6 | 2 | 1 | 6 | 0 |
+| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 10 | 16 | 4 | 0 | 2 | 3 | 0 |
+| **total** | **194** | **31** | **77** | **44** | **10** | **8** | **10** | **14** |
 
 Eighteen rows said UNLEDGERED outright when the matrix was written, and the
 cross-cutting findings below added more that only show up across slices.

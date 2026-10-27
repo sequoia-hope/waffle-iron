@@ -205,7 +205,8 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 - [x] Stage-0 wall: the ellipse-bounded planar face (the paper's own Fig.
       24(b), N89 item 4 — resolved 2026-10-27).
 - [ ] Stage-0 wall: the coincident cylinder (N89 item 5).
-- [ ] R0023's coplanar cap residue (M8 follow-up, deviation N17's wall).
+- [ ] Stage-0 coplanar scan bounds every curve by its own extent (N98; ellipse arcs are bounded by their endpoints today).
+- [ ] R0023's coplanar cap residue (M8 follow-up; Stage 0's n-ary refusal, N25 — not N17, corrected 2026-10-27; it now fails first as a kernel-v2 cap segment face with < 3 vertices).
 - **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N10, N12,
   N32, N36, N42, N43.
 
@@ -253,3 +254,4 @@ the first known item.
 | 2026-10-27 | F0 scoreboard script; F1 I1 side labels through Stage 4 (byte-identical, wall 928.7 s) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | ed1c3658, 13f7fe05 |
 | 2026-10-27 | F6 Stage-0 ellipse-bounded planar face (N89 item 4; 5.5-03 → FAITHFUL; Fig. 24(b) 4- and 24-cylinder unions closed solids, exact volume); N92 parked into N91 | 64 | 99 | 360C / 0W / 9E / 5EE / 0T | 8f538a57, 0943381b, d0bd7be4 |
 | 2026-10-27 | D14 reopened by the user → OPEN, resolved by F5 (generic parametric-surface interface + first non-analytic instance); row 3-06 N/A → MISSING | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-10-27 | Literature check: every matrix row re-read against the paper and the code, each change independently reviewed (not-faithful 100 → 139, no geometry changed); N13/N15/N17 RESOLVED; N89 item 3 REOPENED; N98, N99 (bugs) and N100 (eight possible silent paths, census needed) added | 64 | 139 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

@@ -53,14 +53,14 @@ and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
 They are ROADMAP ITEMS, not bugs:
 
 - **Coplanar boolean inputs** the §4.5.5 Stage-0 overlay cannot resolve —
-  the typed `coplanar input face pair` wall stays LOUD (deviation N17). From
-  2026-09-22 (F0064 and F0072 converted) no corpus case hit it; since
-  2026-10-13 (P0057) **R0023 is its one honest customer**: the §4.3.3
-  piercing-edge dip arm now keeps the 0.131-deep sliver a cutter edge
-  leaves on a 150 mm cylinder (the N = 11 chord mesh had silently consumed
-  the whole body), and the next op's coplanar cap union declines at the
-  n-ary `mixed-arc-lateral-unpaired` residue (an arc-bounded coplanar
-  lateral) — the named M8 follow-up
+  the typed `coplanar input face pair` wall stays LOUD. Two different
+  refusals share that text (`map_yang_error`, `kernel-v2/src/boolean/mod.rs`):
+  cherchi-rs's coplanar deferral (N17, RESOLVED 2026-10-27 — nothing
+  constructs it any more) and Stage 0's n-ary refusals (N25). R0023's
+  2026-10-13 wall was Stage 0's `mixed-arc-lateral-unpaired` (N25, the named
+  M8 follow-up), NOT N17; R0023 now fails earlier, as kernel-v2
+  `TessellationFailed { FaceId(9), "outer loop has fewer than 3 vertices" }`
+  (a cap segment face)
 - **Holed revolve profiles** and **arc/spline profiles without a chord
   polygon** — typed `NotSupported` at profile staging (no corpus case)
 - **Fillet / chamfer / shell** — deferred indefinitely (see below)
