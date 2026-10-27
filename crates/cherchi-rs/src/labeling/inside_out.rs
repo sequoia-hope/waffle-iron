@@ -228,46 +228,66 @@ where
         match find_ray_endpoints(&search, patch, patch_surface_label, pi) {
             Ok(ray) => {
                 let candidates = candidates_for(&ray);
-                let sorted = prune_intersections_and_sort_along_ray(
+                let label = match prune_intersections_and_sort_along_ray(
                     soup,
                     &ray,
                     patch_surface_label,
                     &candidates,
-                )?;
-                let label = analyze_sorted_intersections(soup, &ray, &sorted, pi)?;
-                // KV9-F1 diagnosis probe (read-only, env-gated): per-patch
-                // ray + sorted-hit + verdict census.
-                if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
-                    eprintln!(
-                        "[inout-probe] patch {pi} ({} tris, surface {:?}): ray {:?} \
-                         from ({},{},{}) hits {} -> inner {:?}",
-                        patch.len(),
-                        patch_surface_label,
-                        ray.dir,
-                        ray.v0.x(),
-                        ray.v0.y(),
-                        ray.v0.z(),
-                        sorted.len(),
+                )? {
+                    PruneOutcome::Sorted(sorted) => {
+                        let label = analyze_sorted_intersections(soup, &ray, &sorted, pi)?;
+                        // KV9-F1 diagnosis probe (read-only, env-gated): per-patch
+                        // ray + sorted-hit + verdict census.
+                        if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
+                            eprintln!(
+                                "[inout-probe] patch {pi} ({} tris, surface {:?}): ray {:?} \
+                                 from ({},{},{}) hits {} -> inner {:?}",
+                                patch.len(),
+                                patch_surface_label,
+                                ray.dir,
+                                ray.v0.x(),
+                                ray.v0.y(),
+                                ray.v0.z(),
+                                sorted.len(),
+                                label
+                            );
+                            for &ht in sorted.iter().take(8) {
+                                let t = &soup.in_tris[ht as usize];
+                                let l = &soup.in_labels[ht as usize];
+                                let p0 = explicit_or_unreachable(&soup.verts[t[0] as usize]);
+                                eprintln!(
+                                    "    hit in_tri {ht} label {l:?} v0 ({},{},{})",
+                                    p0.x(),
+                                    p0.y(),
+                                    p0.z()
+                                );
+                            }
+                        }
                         label
-                    );
-                    for &ht in sorted.iter().take(8) {
-                        let t = &soup.in_tris[ht as usize];
-                        let l = &soup.in_labels[ht as usize];
-                        let p0 = explicit_or_unreachable(&soup.verts[t[0] as usize]);
-                        eprintln!(
-                            "    hit in_tri {ht} label {l:?} v0 ({},{},{})",
-                            p0.x(),
-                            p0.y(),
-                            p0.z()
-                        );
                     }
-                }
+                    // UL-02 / N101: a forward full-disk vertex/edge crossing
+                    // exhausted the bounded f64 perturbation search without a
+                    // strict interior hit — never silently drop it as a graze;
+                    // classify the patch in exact rational arithmetic.
+                    PruneOutcome::UnresolvedFullDiskCrossing => {
+                        if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
+                            eprintln!(
+                                "[inout-probe] patch {pi}: unresolved full-disk crossing on \
+                                 f64 ray {:?} -> rational_ray_inner_label",
+                                ray.dir
+                            );
+                        }
+                        rational_ray_inner_label(soup, patch, patch_surface_label, pi)?
+                    }
+                };
                 refute_inner_label_by_input_bounds(soup, patch, &label, &input_bounds, pi)?;
                 inner_labels.push(label);
             }
-            // KV4-F1: both f64 origin strategies failed (a fully-implicit
-            // or sub-f64-resolution needle patch) — classify in exact
-            // rational arithmetic, the branch the C++ exits on.
+            // KV4-F1 / N102: both f64 origin strategies failed (a
+            // fully-implicit or sub-f64-resolution needle patch, or every
+            // explicit and generated f64 candidate ray grazed a foreign
+            // input) — classify in exact rational arithmetic, the branch
+            // the C++ exits on.
             Err(InsideOutError::NoExplicitRayOrigin { .. }) => {
                 let label = rational_ray_inner_label(soup, patch, patch_surface_label, pi)?;
                 refute_inner_label_by_input_bounds(soup, patch, &label, &input_bounds, pi)?;
@@ -693,12 +713,22 @@ where
         if !same(o01, o12, o20) {
             continue;
         }
-        return Ok(Ray {
+        let ray = Ray {
             v0,
             v1,
             dir,
             seed_tri: Some(tri),
-        });
+        };
+        // UL-06 / N102: apply the same exact foreign-coplanarity check as the
+        // explicit-ray ladder (Cherchi 2022 §5.3, `:470, 481`; N69). If this
+        // triangle's generated ray lies in a foreign input's face plane, try
+        // the next patch triangle; if all triangles graze, fall through via
+        // `NoExplicitRayOrigin` to `rational_ray_inner_label`.
+        if graze_aware && ray_grazes_foreign_input(soup, &ray, patch_surface_label, candidates_for)
+        {
+            continue;
+        }
+        return Ok(ray);
     }
     if std::env::var_os("KV4F1_PROBE").is_some() {
         eprintln!(
@@ -1082,32 +1112,74 @@ fn check_intersection_inside_triangle_3d(ray: &Ray, tv: [Point3; 3]) -> bool {
         || (or01 == Sign::Negative && or12 == Sign::Negative && or20 == Sign::Negative)
 }
 
-/// Port of `perturbX/Y/ZRay`: `nextafter` the far endpoint's two
-/// off-axis coordinates through the 8 (±,±) combinations.
-fn perturb_ray(ray: &Ray, offset: u8) -> Ray {
-    // (da, db) per offset for the two off-axis coordinates, C++ order:
-    // +a, +a+b, +b, -a+b, -a, -a-b, -b, +a-b.
-    const STEPS: [(i8, i8); 8] = [
-        (1, 0),
-        (1, 1),
-        (0, 1),
-        (-1, 1),
-        (-1, 0),
-        (-1, -1),
-        (0, -1),
-        (1, -1),
-    ];
-    let (da, db) = STEPS[offset as usize];
-    let bump = |x: f64, d: i8| match d {
-        1 => f64::next_up(x),
-        -1 => f64::next_down(x),
-        _ => x,
-    };
-    let v1 = ray.v1;
+/// Maximum Chebyshev shell radius for primitive `(da, db)` perturbation
+/// directions (`s = 1..=8` yields 176 coprime directions around S¹).
+const MAX_PERTURB_SHELL: i32 = 8;
+
+/// The 8 single-ULP `(da, db)` steps of C++ `perturbX/Y/ZRay`, in C++ order:
+/// `+a, +a+b, +b, -a+b, -a, -a-b, -b, +a-b`.
+const CPP_PERTURB_STEPS: [(i32, i32); 8] = [
+    (1, 0),
+    (1, 1),
+    (0, 1),
+    (-1, 1),
+    (-1, 0),
+    (-1, -1),
+    (0, -1),
+    (1, -1),
+];
+
+fn gcd_u32(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let r = a % b;
+        a = b;
+        b = r;
+    }
+    a
+}
+
+/// Step `x` by `steps` representable `f64` values (`std::nextafter` iterated
+/// `|steps|` times).
+fn bump_ulps(mut x: f64, steps: i32) -> f64 {
+    if steps > 0 {
+        for _ in 0..steps {
+            x = x.next_up();
+        }
+    } else if steps < 0 {
+        for _ in 0..(-steps) {
+            x = x.next_down();
+        }
+    }
+    x
+}
+
+/// Local `f64` spacing at `x`: the larger of the upward and downward
+/// single-ULP steps from `x`.
+fn ulp_step(x: f64) -> f64 {
+    (x.next_up() - x).max(x - x.next_down())
+}
+
+fn ray_off_and_on_axis(p: Point3, dir: Axis) -> (f64, f64, f64) {
+    match dir {
+        Axis::X => (p.y(), p.z(), p.x()),
+        Axis::Y => (p.x(), p.z(), p.y()),
+        Axis::Z => (p.x(), p.y(), p.z()),
+    }
+}
+
+fn axis_coord(p: Point3, dir: Axis) -> f64 {
+    match dir {
+        Axis::X => p.x(),
+        Axis::Y => p.y(),
+        Axis::Z => p.z(),
+    }
+}
+
+fn ray_with_off_axis(ray: &Ray, a: f64, b: f64) -> Ray {
     let v1 = match ray.dir {
-        Axis::X => Point3::new(v1.x(), bump(v1.y(), da), bump(v1.z(), db)),
-        Axis::Y => Point3::new(bump(v1.x(), da), v1.y(), bump(v1.z(), db)),
-        Axis::Z => Point3::new(bump(v1.x(), da), bump(v1.y(), db), v1.z()),
+        Axis::X => Point3::new(ray.v1.x(), a, b),
+        Axis::Y => Point3::new(a, ray.v1.y(), b),
+        Axis::Z => Point3::new(a, b, ray.v1.z()),
     };
     Ray {
         v0: ray.v0,
@@ -1117,38 +1189,164 @@ fn perturb_ray(ray: &Ray, offset: u8) -> Ray {
     }
 }
 
-/// Port of `perturbRayAndFindIntersTri`: try the 8 perturbed rays in
-/// order; at the first offset where any candidate triangle is hit
-/// strictly inside, sort that offset's hits along the ray and return the
-/// nearest. Deviation N19: the C++ early-`break` interleaves hits from
-/// DIFFERENT perturbed rays across offsets and sorts them with the last
-/// ray; this port evaluates one offset fully — same intent, coherent ray.
+/// Primitive integer directions `(da, db)` (`gcd(|da|, |db|) == 1`) on
+/// Chebyshev shell `max(|da|, |db|) == s` (`s >= 1`). For `s == 1`, returns
+/// [`CPP_PERTURB_STEPS`] in exact C++ order.
+fn coprime_shell_dirs(s: i32) -> Vec<(i32, i32)> {
+    debug_assert!(s >= 1);
+    if s == 1 {
+        return CPP_PERTURB_STEPS.to_vec();
+    }
+    let mut out = Vec::new();
+    let mut push_if_coprime = |da: i32, db: i32| {
+        if gcd_u32(da.unsigned_abs(), db.unsigned_abs()) == 1 {
+            out.push((da, db));
+        }
+    };
+    for db in 1..s {
+        push_if_coprime(s, db);
+    }
+    for da in (-s + 1..s).rev() {
+        push_if_coprime(da, s);
+    }
+    for db in (-s + 1..s).rev() {
+        push_if_coprime(-s, db);
+    }
+    for da in -s + 1..s {
+        push_if_coprime(da, -s);
+    }
+    for db in -s + 1..0 {
+        push_if_coprime(s, db);
+    }
+    out
+}
+
+/// Port of `perturbRayAndFindIntersTri` — Cherchi et al. 2022 §5.3
+/// (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:485-491`):
+/// perturb the coordinates of `p∞` (`ray.v1`) without moving `ray.v0` until
+/// the ray crosses strictly inside a candidate triangle.
+///
+/// Deviation N19: evaluates each perturbed ray coherently across all
+/// `tris_to_test`, sorts that ray's forward (`t > 0`) hits, and returns the
+/// nearest.
+///
+/// Deviation N101 (UL-02): the C++ reference tries only the 8 single-ULP
+/// offsets [`CPP_PERTURB_STEPS`]. When a vertex's spoke planes sit at exact
+/// multiples of 45° and the two off-axis coordinates of `ray.v1` have equal
+/// ULP, all 8 offsets lie in spoke planes and return `Sign::Zero`, causing a
+/// true crossing to be misread as a graze. We keep the 8 C++ offsets first
+/// (preserving byte-identical selection whenever any of them hits), then
+/// expand through primitive coprime `(da, db)` Chebyshev shells `s = 2..=8`
+/// (`nextafter` iterated `|da|`, `|db|` times — 168 additional non-collinear
+/// lattice directions), followed by equiscaled ULP shells when the two
+/// off-axis coordinates sit in different `f64` binades (where per-coordinate
+/// `nextafter` steps compress into a narrow wedge along the coarser-ULP axis)
+/// or below the ray-axis binade (keeping perturbations in normal floats so
+/// Shewchuk's adaptive `orient3d` resolves without N24's `RBig` underflow
+/// fallback). Finite termination is guaranteed (`<= 528` candidate rays).
 fn perturb_ray_and_find_inters_tri(
     soup: &ArrangementSoup,
     ray: &Ray,
     tris_to_test: &[u32],
 ) -> Option<u32> {
-    for offset in 0..8u8 {
-        let p_ray = perturb_ray(ray, offset);
-        if std::env::var_os("CHERCHI_PERTURB_PROBE").is_some() {
+    let probe = std::env::var_os("CHERCHI_PERTURB_PROBE").is_some();
+    let try_ray = |p_ray: &Ray, label: &str| -> Option<u32> {
+        if !p_ray.v1.x().is_finite() || !p_ray.v1.y().is_finite() || !p_ray.v1.z().is_finite() {
+            return None;
+        }
+        if probe {
             for &t in tris_to_test {
                 let tv = in_tri_verts(soup, t);
                 let or01 = orient3d(tv[0], tv[1], p_ray.v0, p_ray.v1);
                 let or12 = orient3d(tv[1], tv[2], p_ray.v0, p_ray.v1);
                 let or20 = orient3d(tv[2], tv[0], p_ray.v0, p_ray.v1);
-                eprintln!("[perturb-probe] offset {offset} tri {t}: {or01:?}/{or12:?}/{or20:?}");
+                eprintln!("[perturb-probe] {label} tri {t}: {or01:?}/{or12:?}/{or20:?}");
             }
         }
         let hits: Vec<u32> = tris_to_test
             .iter()
             .copied()
-            .filter(|&t| check_intersection_inside_triangle_3d(&p_ray, in_tri_verts(soup, t)))
+            .filter(|&t| check_intersection_inside_triangle_3d(p_ray, in_tri_verts(soup, t)))
             .collect();
         if !hits.is_empty() {
-            let sorted = sort_hits_along_ray(soup, &p_ray, &hits);
-            return sorted.first().copied();
+            let sorted = sort_hits_along_ray(soup, p_ray, &hits);
+            if let Some(&winner) = sorted.first() {
+                return Some(winner);
+            }
+        }
+        None
+    };
+
+    let (a0, b0, c_dir) = ray_off_and_on_axis(ray.v1, ray.dir);
+
+    // Stage 1: the exact 8 single-ULP C++ offsets (zero heap allocation on
+    // the common path).
+    for (offset, &(da, db)) in CPP_PERTURB_STEPS.iter().enumerate() {
+        let p_ray = ray_with_off_axis(ray, bump_ulps(a0, da), bump_ulps(b0, db));
+        let tag = if probe {
+            format!("offset {offset}")
+        } else {
+            String::new()
+        };
+        if let Some(winner) = try_ray(&p_ray, &tag) {
+            return Some(winner);
         }
     }
+
+    // Stage 2: primitive coprime multi-ULP shells `s = 2..=MAX_PERTURB_SHELL`.
+    for s in 2..=MAX_PERTURB_SHELL {
+        for (idx, (da, db)) in coprime_shell_dirs(s).into_iter().enumerate() {
+            let p_ray = ray_with_off_axis(ray, bump_ulps(a0, da), bump_ulps(b0, db));
+            let tag = if probe {
+                format!("ulp-s{s}#{idx}({da},{db})")
+            } else {
+                String::new()
+            };
+            if let Some(winner) = try_ray(&p_ray, &tag) {
+                return Some(winner);
+            }
+        }
+    }
+
+    // Stage 3: equiscaled ULP shells when `a0` and `b0` have unequal ULP
+    // spacing (e.g. `0.0` with `ulp = 5e-324` vs `1.5` with `ulp = 2.22e-16`,
+    // where per-coordinate `nextafter` steps compress into a tiny angular
+    // wedge around the coarser-ULP axis) or when both off-axis coordinates
+    // sit below `c_dir`'s binade (keeping perturbations in normal floats so
+    // adaptive `orient3d` avoids N24's exact-rational underflow fallback).
+    let ulp_a = ulp_step(a0);
+    let ulp_b = ulp_step(b0);
+    let ulp_ab = ulp_a.max(ulp_b);
+    let ulp_c = ulp_step(c_dir);
+    let mut units = [0.0_f64; 2];
+    let mut n_units = 0usize;
+    if ulp_a != ulp_b && ulp_ab > 0.0 {
+        units[n_units] = 2.0 * ulp_ab;
+        n_units += 1;
+    }
+    if ulp_ab < ulp_c {
+        let u_c = 2.0 * ulp_c;
+        if n_units == 0 || units[0] != u_c {
+            units[n_units] = u_c;
+            n_units += 1;
+        }
+    }
+    for &u in &units[..n_units] {
+        for s in 1..=MAX_PERTURB_SHELL {
+            for (idx, (da, db)) in coprime_shell_dirs(s).into_iter().enumerate() {
+                let p_ray = ray_with_off_axis(ray, a0 + (da as f64) * u, b0 + (db as f64) * u);
+                let tag = if probe {
+                    format!("equi-{u:e}-s{s}#{idx}({da},{db})")
+                } else {
+                    String::new()
+                };
+                if let Some(winner) = try_ray(&p_ray, &tag) {
+                    return Some(winner);
+                }
+            }
+        }
+    }
+
     None
 }
 
@@ -1262,6 +1460,207 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
     }
 }
 
+/// Exact forward-of-ray-start predicate (`t > 0`) for a generic 3D point on
+/// the ray line, matching [`sort_hits_along_ray`]'s origin/seed filter.
+fn gp_ahead_of_ray_start(soup: &ArrangementSoup, ray: &Ray, gp: &GenericPoint3D) -> bool {
+    if let Some(seed) = &ray.seed_tri {
+        let gps = [
+            to_generic(&soup.verts[seed[0] as usize]),
+            to_generic(&soup.verts[seed[1] as usize]),
+            to_generic(&soup.verts[seed[2] as usize]),
+        ];
+        let s1 = orient3d_gp3(&gps, &GenericPoint3D::explicit(ray.v1));
+        let sh = orient3d_gp3(&gps, gp);
+        s1 != IpSign::Zero && sh == s1
+    } else {
+        let ray_v0 = GenericPoint3D::explicit(ray.v0);
+        let cmp = match ray.dir {
+            Axis::X => less_than_on_x_indirect(gp, &ray_v0),
+            Axis::Y => less_than_on_y_indirect(gp, &ray_v0),
+            Axis::Z => less_than_on_z_indirect(gp, &ray_v0),
+        };
+        cmp == IpSign::Positive
+    }
+}
+
+fn vertex_ahead_of_ray_start(soup: &ArrangementSoup, ray: &Ray, v_id: u32) -> bool {
+    let p_v = explicit_or_unreachable(&soup.verts[v_id as usize]);
+    if ray.seed_tri.is_none() {
+        axis_coord(p_v, ray.dir) > axis_coord(ray.v0, ray.dir)
+    } else {
+        gp_ahead_of_ray_start(soup, ray, &GenericPoint3D::explicit(p_v))
+    }
+}
+
+/// Exact 3D intersection point of input edge `(pa, pb)` with `ray`'s
+/// supporting line (called only under `IntInEdge`, so `project(ray.v1)` lies
+/// strictly between `project(pa)` and `project(pb)` and at least one off-axis
+/// coordinate differs between `pa` and `pb`).
+fn edge_ray_crossing_gp(pa: Point3, pb: Point3, ray: &Ray) -> GenericPoint3D {
+    let (q0, q1, q2) = match ray.dir {
+        Axis::X => {
+            if pa.y() != pb.y() {
+                let y = ray.v1.y();
+                (
+                    Point3::new(0.0, y, 0.0),
+                    Point3::new(1.0, y, 0.0),
+                    Point3::new(0.0, y, 1.0),
+                )
+            } else {
+                debug_assert_ne!(pa.z(), pb.z());
+                let z = ray.v1.z();
+                (
+                    Point3::new(0.0, 0.0, z),
+                    Point3::new(1.0, 0.0, z),
+                    Point3::new(0.0, 1.0, z),
+                )
+            }
+        }
+        Axis::Y => {
+            if pa.x() != pb.x() {
+                let x = ray.v1.x();
+                (
+                    Point3::new(x, 0.0, 0.0),
+                    Point3::new(x, 1.0, 0.0),
+                    Point3::new(x, 0.0, 1.0),
+                )
+            } else {
+                debug_assert_ne!(pa.z(), pb.z());
+                let z = ray.v1.z();
+                (
+                    Point3::new(0.0, 0.0, z),
+                    Point3::new(1.0, 0.0, z),
+                    Point3::new(0.0, 1.0, z),
+                )
+            }
+        }
+        Axis::Z => {
+            if pa.x() != pb.x() {
+                let x = ray.v1.x();
+                (
+                    Point3::new(x, 0.0, 0.0),
+                    Point3::new(x, 1.0, 0.0),
+                    Point3::new(x, 0.0, 1.0),
+                )
+            } else {
+                debug_assert_ne!(pa.y(), pb.y());
+                let y = ray.v1.y();
+                (
+                    Point3::new(0.0, y, 0.0),
+                    Point3::new(1.0, y, 0.0),
+                    Point3::new(0.0, y, 1.0),
+                )
+            }
+        }
+    };
+    GenericPoint3D::lpi(pa, pb, q0, q1, q2)
+}
+
+fn edge_crossing_ahead_of_ray_start(soup: &ArrangementSoup, ray: &Ray, a: u32, b: u32) -> bool {
+    let pa = explicit_or_unreachable(&soup.verts[a as usize]);
+    let pb = explicit_or_unreachable(&soup.verts[b as usize]);
+    if ray.seed_tri.is_none() {
+        let c0 = axis_coord(ray.v0, ray.dir);
+        let ca = axis_coord(pa, ray.dir);
+        let cb = axis_coord(pb, ray.dir);
+        if ca.min(cb) > c0 {
+            return true;
+        }
+        if ca.max(cb) <= c0 {
+            return false;
+        }
+    }
+    let gp = edge_ray_crossing_gp(pa, pb, ray);
+    gp_ahead_of_ray_start(soup, ray, &gp)
+}
+
+/// Exact tolerance-free 2D check: do the triangles of `ring` around `v_id`
+/// cover the full circle S¹ around the projected ray point `q`?
+///
+/// Each non-ray-coplanar triangle `(v_id, u_id, w_id)` projects to a convex
+/// angular sector `[u, w]` around `q` of span in `(0, π)` with
+/// `orient2d(q, u, w) == Positive`. A finite family of closed arcs of span
+/// `< π` covers S¹ iff it is non-empty and every arc's start ray `u_i` lies in
+/// `(u_j, w_j]` for some arc `[u_j, w_j]` — in the positively oriented basis
+/// `(u_j - q, w_j - q)`, `u_i - q = λ(u_j - q) + μ(w_j - q)` has `μ > 0` and
+/// `λ >= 0`, i.e. `orient2d(q, u_j, u_i) == Positive && orient2d(q, u_i, w_j)
+/// != Negative`.
+fn ring_covers_full_disk(soup: &ArrangementSoup, ray: &Ray, v_id: u32, ring: &[u32]) -> bool {
+    let q = project(ray.v1, ray.dir);
+    let mut sectors: Vec<(Point2, Point2)> = Vec::with_capacity(ring.len());
+    for &t in ring {
+        let tri = soup.in_tris[t as usize];
+        let mut others = [0u32; 2];
+        let mut count = 0usize;
+        for &v in &tri {
+            if v != v_id && count < 2 {
+                others[count] = v;
+                count += 1;
+            }
+        }
+        if count != 2 {
+            continue;
+        }
+        let u = project(
+            explicit_or_unreachable(&soup.verts[others[0] as usize]),
+            ray.dir,
+        );
+        let w = project(
+            explicit_or_unreachable(&soup.verts[others[1] as usize]),
+            ray.dir,
+        );
+        match orient2d(q, u, w) {
+            Sign::Positive => sectors.push((u, w)),
+            Sign::Negative => sectors.push((w, u)),
+            Sign::Zero => {}
+        }
+    }
+    if sectors.len() < 3 {
+        return false;
+    }
+    sectors.iter().all(|&(u_i, _)| {
+        sectors.iter().any(|&(u_j, w_j)| {
+            orient2d(q, u_j, u_i) == Sign::Positive && orient2d(q, u_i, w_j) != Sign::Negative
+        })
+    })
+}
+
+/// Exact tolerance-free 2D check: do the triangles sharing edge `(a, b)`
+/// straddle both open half-planes across the projected edge line?
+fn edge_covers_full_disk(
+    soup: &ArrangementSoup,
+    ray: &Ray,
+    a: u32,
+    b: u32,
+    edge_tris: &[u32],
+) -> bool {
+    let a2 = project(explicit_or_unreachable(&soup.verts[a as usize]), ray.dir);
+    let b2 = project(explicit_or_unreachable(&soup.verts[b as usize]), ray.dir);
+    let mut has_pos = false;
+    let mut has_neg = false;
+    for &t in edge_tris {
+        let tri = soup.in_tris[t as usize];
+        let Some(&c) = tri.iter().find(|&&v| v != a && v != b) else {
+            continue;
+        };
+        let c2 = project(explicit_or_unreachable(&soup.verts[c as usize]), ray.dir);
+        match orient2d(a2, b2, c2) {
+            Sign::Positive => has_pos = true,
+            Sign::Negative => has_neg = true,
+            Sign::Zero => {}
+        }
+    }
+    has_pos && has_neg
+}
+
+enum PruneOutcome {
+    Sorted(Vec<u32>),
+    /// A forward (`t > 0`) vertex/edge crossing whose incident triangles
+    /// cover the full 2D disk around the ray exhausted the bounded `f64`
+    /// perturbation search without a strict interior hit.
+    UnresolvedFullDiskCrossing,
+}
+
 /// Port of `pruneIntersectionsAndSortAlongRay` (booleans.cpp:655) over a
 /// caller-supplied candidate set (ascending ids; the octree query or the
 /// test-only brute scan — any SUPERSET of the ray-AABB-touching triangles
@@ -1280,7 +1679,7 @@ fn prune_intersections_and_sort_along_ray(
     ray: &Ray,
     patch_surface_label: &Label,
     candidates: &[u32],
-) -> Result<Vec<u32>, InsideOutError> {
+) -> Result<PruneOutcome, InsideOutError> {
     let n = soup.in_tris.len() as u32;
     let mut visited = vec![false; n as usize];
     let mut inters: Vec<u32> = Vec::new();
@@ -1334,11 +1733,19 @@ fn prune_intersections_and_sort_along_ray(
                 for &t2 in &ring {
                     visited[t2 as usize] = true;
                 }
+                if !vertex_ahead_of_ray_start(soup, ray, v_id) {
+                    continue;
+                }
                 // C++ `if(winner_tri != -1)`: no clean perturbed crossing
-                // means the event is tangential/grazing — it contributes no
-                // parity crossing; skip it (adversary BUG-2/BUG-3 fix).
+                // means the event is tangential/grazing ONLY when the ring
+                // does not cover the full 2D disk around the ray. If the ring
+                // covers S¹ around the ray, dropping the event would silently
+                // lose a parity crossing (UL-02 / N101) — route to exact
+                // rational ray classification instead.
                 if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &ring) {
                     inters.push(winner);
+                } else if ring_covers_full_disk(soup, ray, v_id, &ring) {
+                    return Ok(PruneOutcome::UnresolvedFullDiskCrossing);
                 }
             }
             IntersInfo::IntInEdge(k) => {
@@ -1363,7 +1770,9 @@ fn prune_intersections_and_sort_along_ray(
                 for &t2 in &edge_tris {
                     visited[t2 as usize] = true;
                 }
-                // Same winner-skip semantics as the vertex case above.
+                if !edge_crossing_ahead_of_ray_start(soup, ray, a, b) {
+                    continue;
+                }
                 let winner = perturb_ray_and_find_inters_tri(soup, ray, &edge_tris);
                 if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
                     let pa = explicit_or_unreachable(&soup.verts[a as usize]);
@@ -1375,12 +1784,16 @@ fn prune_intersections_and_sort_along_ray(
                 }
                 if let Some(winner) = winner {
                     inters.push(winner);
+                } else if edge_covers_full_disk(soup, ray, a, b, &edge_tris) {
+                    return Ok(PruneOutcome::UnresolvedFullDiskCrossing);
                 }
             }
         }
     }
 
-    Ok(sort_hits_along_ray(soup, ray, &inters))
+    Ok(PruneOutcome::Sorted(sort_hits_along_ray(
+        soup, ray, &inters,
+    )))
 }
 
 /// Port of `analyzeSortedIntersections` (booleans.cpp:747): walking the
@@ -2331,5 +2744,366 @@ mod tests {
         let n_x = (tv[1].y() - tv[0].y()) * (tv[2].z() - tv[0].z())
             - (tv[1].z() - tv[0].z()) * (tv[2].y() - tv[0].y());
         assert!(n_x > 0.0, "outward +x face must have n_x > 0");
+    }
+
+    fn octa_pyramid(label: InputId) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let (c, d) = (1.5, 0.75);
+        let ring = [
+            (1.0, 0.0),
+            (d, d),
+            (0.0, 1.0),
+            (-d, d),
+            (-1.0, 0.0),
+            (-d, -d),
+            (0.0, -1.0),
+            (d, -d),
+        ];
+        let mut coords = Vec::new();
+        for (dy, dz) in ring {
+            coords.extend_from_slice(&[0.0, c + dy, c + dz]);
+        }
+        coords.extend_from_slice(&[3.0, c, c]); // apex = v8
+        let mut tris = Vec::new();
+        for i in 0..8u32 {
+            tris.push([i, (i + 1) % 8, 8]);
+        }
+        for i in 1..7u32 {
+            tris.push([0, i + 1, i]);
+        }
+        (coords, tris.clone(), vec![vec![label]; tris.len()])
+    }
+
+    fn small_tet(label: InputId) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let coords = vec![
+            1.0, 1.5, 1.5, 1.25, 1.625, 1.5, 1.25, 1.5, 1.625, 1.25, 1.375, 1.375,
+        ];
+        let tris = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
+        (coords, tris, vec![vec![label]; 4])
+    }
+
+    #[test]
+    fn ul02_eight_spoke_apex_keeps_inside_label() {
+        let soup = arrange(octa_pyramid(A), small_tet(B));
+        let patches = compute_all_patches(&soup).expect("patches");
+        let inner = compute_inside_out(&soup, &patches).expect("inside_out");
+        for (pi, p) in patches.patches.iter().enumerate() {
+            if soup.labels[p[0] as usize] == vec![B] {
+                assert_eq!(inner[pi], vec![A]);
+            }
+        }
+    }
+
+    fn octa_pyramid_at(
+        cy: f64,
+        cz: f64,
+        r: f64,
+        d: f64,
+        label: InputId,
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let ring = [
+            (r, 0.0),
+            (d, d),
+            (0.0, r),
+            (-d, d),
+            (-r, 0.0),
+            (-d, -d),
+            (0.0, -r),
+            (d, -d),
+        ];
+        let mut coords = Vec::new();
+        for (dy, dz) in ring {
+            coords.extend_from_slice(&[0.0, cy + dy, cz + dz]);
+        }
+        coords.extend_from_slice(&[3.0, cy, cz]); // apex = v8
+        let mut tris = Vec::new();
+        for i in 0..8u32 {
+            tris.push([i, (i + 1) % 8, 8]);
+        }
+        for i in 1..7u32 {
+            tris.push([0, i + 1, i]);
+        }
+        (coords, tris.clone(), vec![vec![label]; tris.len()])
+    }
+
+    fn small_tet_at(
+        cy: f64,
+        cz: f64,
+        s: f64,
+        label: InputId,
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let coords = vec![
+            1.0,
+            cy,
+            cz,
+            1.25,
+            cy + s,
+            cz,
+            1.25,
+            cy,
+            cz + s,
+            1.25,
+            cy - s,
+            cz - s,
+        ];
+        let tris = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
+        (coords, tris, vec![vec![label]; 4])
+    }
+
+    /// UL-02 mixed-binade and zero-centered variants:
+    /// - `(cy, cz) = (0.0, 1.5)` / `(1.5, 0.0)`: `ulp(0.0) = 5e-324` vs
+    ///   `ulp(1.5) = 2.22e-16` (exercising Stage 3's equiscaled `2 * ulp_ab`
+    ///   shells across disparate off-axis binades).
+    /// - `(cy, cz) = (0.0, 0.0)`: both off-axis coordinates sit at `0.0`
+    ///   (`ulp_a == ulp_b == 5e-324`), where all 8 Stage-1 `(±5e-324, ±5e-324)`
+    ///   offsets again lie at exact multiples of 45° and miss every sector.
+    #[test]
+    fn ul02_mixed_binade_and_zero_centered_apexes_keep_inside_label() {
+        for (cy, cz) in [(0.0, 1.5), (1.5, 0.0), (0.0, 0.0)] {
+            let soup = arrange(
+                octa_pyramid_at(cy, cz, 0.0625, 0.03125, A),
+                small_tet_at(cy, cz, 0.0078125, B),
+            );
+            let patches = compute_all_patches(&soup).expect("patches");
+            let inner = compute_inside_out(&soup, &patches).expect("inside_out");
+            for (pi, p) in patches.patches.iter().enumerate() {
+                if soup.labels[p[0] as usize] == vec![B] {
+                    assert_eq!(
+                        inner[pi],
+                        vec![A],
+                        "B inside symmetric 8-spoke pyramid at ({cy}, {cz}) must stay inside A"
+                    );
+                }
+            }
+        }
+    }
+
+    /// UL-02 full-disk safety-net pin: a closed manifold 176-spoke bipyramid
+    /// `A` around `(y, z) = (1.5, 1.5)` (`x ∈ [0.0, 1.25]`) whose spoke edges
+    /// realize every primitive coprime direction `(da, db)` in Chebyshev shells
+    /// `1..=MAX_PERTURB_SHELL`. Because `1.5` and `max_x + 0.5 = 1.75` share
+    /// the same `f64` binade `[1.0, 2.0)` (even after power-of-two arrangement
+    /// scaling), every candidate ray of `perturb_ray_and_find_inters_tri` has
+    /// exact off-axis slope `db / da` and lands in a spoke plane of `A`
+    /// (`orient3d == Sign::Zero`), exhausting the bounded `f64` search.
+    /// `ring_covers_full_disk` proves in exact `orient2d` that the vertex ring
+    /// covers S¹ around the ray, returning
+    /// `PruneOutcome::UnresolvedFullDiskCrossing` and routing patch `B` to
+    /// `rational_ray_inner_label`, which classifies `B` as `[A]` instead of
+    /// silently dropping the crossing as a graze.
+    #[test]
+    fn ul02_unresolved_full_disk_crossing_routes_to_rational_ray() {
+        let mut dirs: Vec<(i32, i32)> = (1..=MAX_PERTURB_SHELL)
+            .flat_map(coprime_shell_dirs)
+            .collect();
+        assert_eq!(dirs.len(), 176);
+        let upper_half = |(da, db): (i32, i32)| db > 0 || (db == 0 && da > 0);
+        dirs.sort_by(|&u, &v| match (upper_half(u), upper_half(v)) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => (v.0 * u.1).cmp(&(u.0 * v.1)),
+        });
+
+        let (cy, cz, r) = (1.5_f64, 1.5_f64, 0.03125_f64);
+        let n_ring = dirs.len() as u32;
+        let mut a_coords = Vec::with_capacity((dirs.len() + 2) * 3);
+        for &(da, db) in &dirs {
+            a_coords.extend_from_slice(&[0.25, cy + (da as f64) * r, cz + (db as f64) * r]);
+        }
+        let v_front = n_ring;
+        a_coords.extend_from_slice(&[1.25, cy, cz]);
+        let v_back = n_ring + 1;
+        a_coords.extend_from_slice(&[0.0, cy, cz]);
+
+        let mut a_tris = Vec::with_capacity(dirs.len() * 2);
+        for i in 0..n_ring {
+            let next = (i + 1) % n_ring;
+            a_tris.push([i, next, v_front]);
+            a_tris.push([next, i, v_back]);
+        }
+        let mesh_a = (a_coords, a_tris.clone(), vec![vec![A]; a_tris.len()]);
+
+        let s = 1.0_f64 / 2048.0;
+        let b_coords = vec![
+            0.5,
+            cy,
+            cz,
+            0.625,
+            cy + s,
+            cz,
+            0.625,
+            cy,
+            cz + 9.0 * s,
+            0.625,
+            cy - s,
+            cz - s,
+        ];
+        let b_tris = vec![[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]];
+        let mesh_b = (b_coords, b_tris, vec![vec![B]; 4]);
+
+        let soup = arrange(mesh_a, mesh_b);
+        let patches = compute_all_patches(&soup).expect("patches");
+        let b_pi = patches
+            .patches
+            .iter()
+            .position(|p| soup.labels[p[0] as usize] == vec![B])
+            .expect("patch B");
+
+        let ray = ray_for_patch(&soup, &patches, b_pi, true).expect("explicit ray");
+        let n = soup.in_tris.len() as u32;
+        let all_cands: Vec<u32> = (0..n).collect();
+        let outcome =
+            prune_intersections_and_sort_along_ray(&soup, &ray, &vec![B], &all_cands).unwrap();
+        assert!(
+            matches!(outcome, PruneOutcome::UnresolvedFullDiskCrossing),
+            "exhausted 176-spoke full-disk apex must trigger UnresolvedFullDiskCrossing"
+        );
+
+        let inner = compute_inside_out(&soup, &patches).expect("inside_out");
+        assert_eq!(inner[b_pi], vec![A]);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // UL-06 / deviation N102: generated-ray branch must reject rays
+    // that graze a foreign input's face plane and fall through to
+    // `rational_ray_inner_label` when every generated ray grazes.
+    // ════════════════════════════════════════════════════════════════
+
+    fn arrange3(
+        s0: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
+        s1: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
+        s2: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
+    ) -> ArrangementSoup {
+        let (coords, tris, labels) = concat(concat(s0, s1), s2);
+        mesh_arrangement(&coords, &tris, &labels).expect("arrangement")
+    }
+
+    /// Outward-wound tetrahedron with CCW `(x, y)` base `[p0, p1, p2]` below
+    /// `apex`. Having 3 planar side faces (no quad diagonals) means its
+    /// cross-section with a horizontal plane `z = const` is a clean 3-vertex
+    /// LPI triangle with zero extra side-wall Steiner splits.
+    fn piercing_tet(
+        p0: [f64; 3],
+        p1: [f64; 3],
+        p2: [f64; 3],
+        apex: [f64; 3],
+        label: InputId,
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let mut coords = Vec::with_capacity(12);
+        for p in [p0, p1, p2, apex] {
+            coords.extend_from_slice(&p);
+        }
+        let tris = vec![[0, 2, 1], [0, 1, 3], [1, 2, 3], [2, 0, 3]];
+        (coords, tris, vec![vec![label]; 4])
+    }
+
+    /// UL-06 pin 1: cube `A` (`[0, 12]³`) whose `z = 12` top face is pierced
+    /// by tetrahedron `B` (`z ∈ [6, 18]`) in the triangle `(3,3)-(6,3)-(3,6)`,
+    /// which `A`'s `x = y` diagonal splits into two all-border LPI triangles
+    /// with exact centroids `(4.5, 3.5, 12)` and `(3.5, 4.5, 12)`. Disjoint
+    /// box `C` (`InputId(2)`) sits above at `[4.5, 6.5] × [2.5, 4.5] ×
+    /// [20, 22]`, placing its `x = 4.5` face plane directly on the first
+    /// triangle's generated `+Z` ray. With `graze_aware` off, that grazing
+    /// generated ray is returned; with `graze_aware` on, it is rejected and
+    /// the second triangle's non-grazing ray at `(3.5, 4.5, 12)` is chosen.
+    #[test]
+    fn ul06_generated_ray_grazing_foreign_face_advances_to_next_tri() {
+        const C: InputId = InputId(2);
+        let soup = arrange3(
+            cube(0.0, 0.0, 0.0, 12.0, A),
+            piercing_tet(
+                [2.0, 2.0, 6.0],
+                [8.0, 2.0, 6.0],
+                [2.0, 8.0, 6.0],
+                [4.0, 4.0, 18.0],
+                B,
+            ),
+            boxx(4.5, 2.5, 20.0, 2.0, 2.0, 2.0, C),
+        );
+        let patches = compute_all_patches(&soup).expect("patches");
+
+        let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
+        let top_disc_pi = (0..patches.patches.len())
+            .find(|&pi| {
+                let p = &patches.patches[pi];
+                soup.labels[p[0] as usize] == vec![A]
+                    && p.iter()
+                        .all(|&t| soup.tris[t as usize].iter().all(|v| border.contains(v)))
+            })
+            .expect("A's top hole-disc patch");
+
+        let legacy = ray_for_patch(&soup, &patches, top_disc_pi, false).expect("legacy gen ray");
+        assert!(legacy.seed_tri.is_some(), "must be a generated ray");
+        assert!(
+            grazes(&soup, &patches, top_disc_pi, &legacy),
+            "precondition: first generated +Z ray must graze C's x=4.5 face plane"
+        );
+
+        let picked =
+            ray_for_patch(&soup, &patches, top_disc_pi, true).expect("graze-aware gen ray");
+        assert!(picked.seed_tri.is_some(), "second tri's generated ray");
+        assert!(
+            !grazes(&soup, &patches, top_disc_pi, &picked),
+            "graze-aware generated-ray branch must reject the grazing ray"
+        );
+
+        let inner = compute_inside_out(&soup, &patches).expect("inside_out");
+        assert_eq!(inner[top_disc_pi], vec![B]);
+    }
+
+    /// UL-06 pin 2: tetrahedron `B` pierces `A`'s `z = 12` face strictly inside
+    /// `A`'s `x > y` top triangle in the single LPI triangle
+    /// `(6,2,12)-(9,2,12)-(9,5,12)`, whose sole generated `+Z` ray has exact
+    /// centroid `(8, 3, 12)`. Disjoint box `C` at `[8, 10] × [2, 4] ×
+    /// [20, 22]` places its `x = 8` face plane directly on that generated ray.
+    /// `find_ray_endpoints` rejects it and declines with
+    /// `NoExplicitRayOrigin`, falling through to `rational_ray_inner_label`,
+    /// which classifies the disc cleanly as `[B]`.
+    #[test]
+    fn ul06_all_generated_rays_grazing_falls_through_to_rational_ray() {
+        const C: InputId = InputId(2);
+        let soup = arrange3(
+            cube(0.0, 0.0, 0.0, 12.0, A),
+            piercing_tet(
+                [4.0, 2.0, 6.0],
+                [10.0, 2.0, 6.0],
+                [10.0, 8.0, 6.0],
+                [8.0, 2.0, 18.0],
+                B,
+            ),
+            boxx(8.0, 2.0, 20.0, 2.0, 2.0, 2.0, C),
+        );
+        let patches = compute_all_patches(&soup).expect("patches");
+
+        let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
+        let top_disc_pi = (0..patches.patches.len())
+            .find(|&pi| {
+                let p = &patches.patches[pi];
+                soup.labels[p[0] as usize] == vec![A]
+                    && p.iter()
+                        .all(|&t| soup.tris[t as usize].iter().all(|v| border.contains(v)))
+            })
+            .expect("A's top hole-disc patch");
+
+        let legacy = ray_for_patch(&soup, &patches, top_disc_pi, false).expect("legacy gen ray");
+        assert!(
+            grazes(&soup, &patches, top_disc_pi, &legacy),
+            "precondition: sole generated +Z ray must graze C's x=8 face plane"
+        );
+
+        let declined = ray_for_patch(&soup, &patches, top_disc_pi, true);
+        assert_eq!(
+            declined.err(),
+            Some(InsideOutError::NoExplicitRayOrigin {
+                patch: top_disc_pi as u32
+            }),
+            "when every generated ray grazes, find_ray_endpoints must decline to rational ray"
+        );
+
+        let inner = compute_inside_out(&soup, &patches).expect("inside_out");
+        assert_eq!(
+            inner[top_disc_pi],
+            vec![B],
+            "top hole-disc must be inside B only, never disjoint C above"
+        );
     }
 }

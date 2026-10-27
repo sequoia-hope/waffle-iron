@@ -91,7 +91,7 @@
     1. `NativeBoolean::boolean` (`native.rs:536-565`) does not weld distinct `ArrangementSoup` vertex IDs that snap to bit-identical `f64` coordinates if they differed in exact rationals, and on tangential/coplanar contacts (`surface = {0, 1}`) emits internal opposite-normal walls on `Union` and open membranes on `Intersect` (consistent with the paper's *"that do not touch tangentially"* qualifier, noted in `coplanar_pocket_parity.rs:28-42`).
     2. Even on non-tangential watertight meshes, **confirmed `UL-02` (`N101`)** — the fixed 8-offset `next_up`/`next_down` perturbation cap in `inside_out.rs:1087-1153` — silently drops a transversal crossing through an octagonal pyramid apex (all 8 offsets land in 45° spoke planes) and mislabels an enclosed patch as `outside`.
 - **Status:** **`PARTIAL`**
-- **Ledger:** `N101` (`UL-02`, fix in progress by a separate agent).
+- **Ledger:** `N101` (`UL-02`, RESOLVED 2026-10-27, pinned by `ul02_eight_spoke_apex_keeps_inside_label` and two siblings in `inside_out.rs::tests`).
 - **Test pin:** `crates/cherchi-rs/tests/parity_native_vs_sidecar.rs:698-776` (asserts Euler characteristic & manifoldness on 18 clean fixtures). Unpinned for `UL-02` → see `TC-01`.
 
 ---
@@ -346,8 +346,8 @@
   - Downstream `sort_hits_along_ray` (`:1222-1247`) discards hits behind `seed_tri` via `behind_seed_plane` (`orient3d_gp3(&gps, &lpis[i])` strictly opposing `orient3d_gp3(&gps, &ray_v1)`), ensuring only intersections strictly after $p \in P$ are analyzed (`:448-450 L`).
   - **Gap (`UL-06`):** Unlike the explicit-vertex branch (`:614`), the generated-ray branch (`inside_out.rs:629-702`) **never calls `ray_grazes_foreign_input`**! On an originless patch (all vertices on `border_verts`, or all explicit candidates rejected by `ray_grazes_foreign_input` at `:614` so control falls through to `:629`), the generated-ray branch returns the first straddling synthetic ray unconditionally even if its supporting line lies in a foreign input triangle's plane, re-exposing the `N69` exterior-graze bug. *(Also note `max_component_in_triangle_normal` at `:643` carries `N99`, though `:677-695` re-validates straddle and strict interior with exact `orient3d_indirect`.)*
 - **Status:** **`PARTIAL`**
-- **Ledger:** `N99` (`UL-06` missing `ray_grazes_foreign_input` on generated-ray branch is unledgered).
-- **Test pin:** `crates/cherchi-rs/src/labeling/inside_out.rs:1700-1820`. Unpinned for `UL-06` → see `TC-02`.
+- **Ledger:** `N102` (`UL-06`, RESOLVED 2026-10-27: the generated-ray branch now calls `ray_grazes_foreign_input`); `N99` (the projection axis).
+- **Test pin:** `crates/cherchi-rs/src/labeling/inside_out.rs:1700-1820`. `UL-06` pinned by `ul06_generated_ray_grazing_foreign_face_advances_to_next_tri` and `ul06_all_generated_rays_grazing_falls_through_to_rational_ray`.
 
 #### `C22-21` — §5.1 Tier 3 exact rational barycenter & exact rational ray casting fallback
 - **Paper (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:409-412 R, 444-445 L`):**
@@ -468,11 +468,11 @@
 - **Code (`crates/cherchi-rs/src/labeling/inside_out.rs:1087-1153, 1326-1379`):**
   - On `IntInV(k)` or `IntInEdge(k)`, `prune_intersections_and_sort_along_ray` (`:1326-1379`) collects all same-label input triangles incident to `v_id` (`ring`, `:1328-1333`) or `(a, b)` (`edge_tris`, `:1351-1357`), marks them `visited`, and calls `perturb_ray_and_find_inters_tri`.
   - **Divergences (`UL-02` / `N101`, `N19`, and minor `UL-01`):**
-    1. **Fixed 8-offset 1-ULP cap + silent tangential assumption (`UL-02` — CONFIRMED REAL by reviewer test, ledger `N101`, `inside_out.rs:1087-1153, 1337-1342, 1367-1378`):** Instead of repeating perturbation *"until a valid intersection point is found"* (`:491-492 L`), `perturb_ray` only tests 8 fixed single-ULP `STEPS` `(1,0), (1,1), (0,1), (-1,1), (-1,0), (-1,-1), (0,-1), (1,-1)` (`:1090-1099`). On an octagonal pyramid/bipyramid apex with 45° spoke planes (e.g. centered at `(y_c, z_c)` with symmetric ULPs), all 8 `next_up`/`next_down` offsets land in the 8 spoke planes (`orient3d == Sign::Zero`), `perturb_ray_and_find_inters_tri` returns `None`, and `:1340` skips the crossing as tangential — **silently mislabeling an enclosed patch as `outside`**. *(A separate agent is fixing this as ledger `N101`.)*
+    1. **Fixed 8-offset 1-ULP cap + silent tangential assumption (`UL-02` — CONFIRMED REAL by reviewer test, ledger `N101`, `inside_out.rs:1087-1153, 1337-1342, 1367-1378`):** Instead of repeating perturbation *"until a valid intersection point is found"* (`:491-492 L`), `perturb_ray` only tests 8 fixed single-ULP `STEPS` `(1,0), (1,1), (0,1), (-1,1), (-1,0), (-1,-1), (0,-1), (1,-1)` (`:1090-1099`). On an octagonal pyramid/bipyramid apex with 45° spoke planes (e.g. centered at `(y_c, z_c)` with symmetric ULPs), all 8 `next_up`/`next_down` offsets land in the 8 spoke planes (`orient3d == Sign::Zero`), `perturb_ray_and_find_inters_tri` returns `None`, and `:1340` skips the crossing as tangential — **silently mislabeling an enclosed patch as `outside`**. *(RESOLVED 2026-10-27 as `N101`: shells of coprime multi-ULP offsets after the C++ eight, then an exact full-disk certificate routes an unresolved crossing to `rational_ray_inner_label`. Line numbers above are pre-fix.)*
     2. **Coherent per-offset winner selection (`N19`, `inside_out.rs:1142-1150`):** Evaluates all ring triangles under ONE `offset` and picks the closest forward hit along `p_ray`, fixing C++'s mixed-ray `inters_tris` accumulation bug (`booleans.cpp:801-828`).
     3. **Early return before `before_origin` check (`UL-01`, LOW / theoretical ~1-ULP corner at `inside_out.rs:1147-1150`):** Checks `if !hits.is_empty()` before `sort_hits_along_ray` discards behind-origin hits (`sorted.first().copied()`, avoiding C++ `booleans.cpp:1016-1045` empty-vector `inters_tris[0]` UB). Because `N69` (`:507-546`) already rejects Tier-1 rays coplanar with any foreign candidate (`orient3d(tri, v0) == Zero && orient3d(tri, v1) == Zero`) and `N20` (`:1255`) drops `v == v0` by design, this can only drop a forward hit if a ring triangle is near-parallel to the ray within ~1 ULP (or via an un-gated Tier-2 ray under `UL-06`).
 - **Status:** **`DEVIATES`**
-- **Ledger:** `N19`, `N101` (`UL-02`, fix in progress; `UL-01` minor).
+- **Ledger:** `N19`, `N101` (`UL-02`, RESOLVED 2026-10-27; `UL-01` minor).
 - **Test pin:** `crates/cherchi-rs/src/labeling/inside_out.rs:1625-1698`; `crates/cherchi-rs/src/labeling/inside_out_adversary_tests.rs:315-520`. Unpinned in `main` for `UL-02` → see `TC-01`.
 
 #### `C22-28` — §5.3 Exact 3D ray-triangle interior test via three tetrahedron `orient3D` signs

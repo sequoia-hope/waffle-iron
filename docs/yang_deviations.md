@@ -200,6 +200,8 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N98 | OPEN (2026-10-27, literature check, reviewer-confirmed bug) | Stage-0 coplanar scan bounds ellipse-arc loops by their arc ENDPOINTS only (`stage0/coplanar_scan.rs:184-205` expands `Curve::Circle` alone though its comment says Circle/Ellipse), so an off-center coplanar partner can be missed and §4.5.5 skipped |
 | N99 | OPEN (2026-10-27, literature check, reviewer-confirmed exactness bug) | cherchi-rs `max_component_filtered` (`predicates/orientation.rs:82-108`) picks a projection axis with an f64 filter on RAW coordinates and one-eps margin: for a few-ULP sliver it returns an axis along which the exact normal is zero (reproduced with exact rationals); reached via `triangle_plane` (`soup.rs:395-400`, `:901`) |
 | N100 | OPEN (2026-10-27, literature check; each item reviewer-confirmed as a code path, none yet tied to a measured case — each needs a corpus census before it is called WRONG) | Eight unledgered possible silent paths (zero-distance pair skip, no-witness single-candidate curve select, recover chord bail, by-edges outer cycle on sphere/torus, transit kept on an undetermined crease side, SurfacePair creases outside T2, Hyperbola/SurfacePair chains deaf to `edge_refine`, release-active Cherchi env switches) |
+| N101 | **RESOLVED** (2026-10-27, UL-02, reviewer-reproduced silent-wrong fixed and pinned) | `cherchi-rs` `perturb_ray_and_find_inters_tri` (`labeling/inside_out.rs`) tried only the C++ reference's fixed 8 single-ULP `nextafter` offsets; when a ray hit a foreign vertex whose spokes sat at exact multiples of 45° and `ray.v1`'s two off-axis coordinates had equal ULP, all 8 perturbed rays landed on spoke planes (`Sign::Zero`), returning `None` and silently dropping a true crossing as a graze (an inside patch kept `outside`, missed by `refute_inner_label_by_input_bounds`). Now expands `p∞` through primitive coprime `(da, db)` Chebyshev shells (`s = 1..=8`, preserving the 8 C++ offsets first) plus equiscaled ULP shells for mixed-binade / subnormal off-axis coordinates, and routes any forward (`t > 0`) full-disk vertex/edge crossing that still exhausts `f64` perturbation (certified by exact `orient2d` S¹/half-plane coverage) to `rational_ray_inner_label` |
+| N102 | **RESOLVED** (2026-10-27, UL-06, fixed and pinned) | `cherchi-rs` `find_ray_endpoints`'s generated-ray branch (`labeling/inside_out.rs`) never called `ray_grazes_foreign_input` (N69 covered the explicit-ray ladder only), so an all-border / implicit patch could still emit a generated ray lying in a foreign input's face plane; the generated-ray loop now runs `ray_grazes_foreign_input` under `graze_aware` and falls through via `NoExplicitRayOrigin` to `rational_ray_inner_label` when every generated candidate grazes |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -7215,3 +7217,96 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    output when set; the Cherchi pair is absent from
    `docs/kernel_probe_registry.md`.
 **State: OPEN** (2026-10-27).
+
+### N101 — cherchi-rs ray perturbation exhausted by symmetric 45° vertex fans (UL-02)
+
+**Paper.** Cherchi et al. 2022 §5.3 (`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:485-492`):
+*"Each time a ray does not intersect a patch triangle at an inner point, we
+perturb the coordinates of p∞ by ε (without moving its starting point) until
+the crossing happens at a point that is interior to a mesh triangle.
+Perturbation of point coordinates is performed using the next floating-point
+number representable starting from a given number (using `std::nextafter`). The
+perturbed ray is then tested again for intersection, and the operation is
+repeated until a valid intersection point is found."*
+
+**What it was.** Both the C++ reference (`perturbX/Y/ZRay`, `booleans.cpp:1016`)
+and `cherchi-rs` (`perturb_ray_and_find_inters_tri`,
+`crates/cherchi-rs/src/labeling/inside_out.rs`) tried only a fixed table of 8
+single-ULP `(±1, ±1)` `nextafter` offsets around `ray.v1`. When an axis-aligned
+ray passed through a foreign vertex whose spoke edges projected at exact
+multiples of 45° and the two off-axis coordinates of `ray.v1` had equal ULP
+(for example `(1.5, 1.5)`), every one of the 8 perturbed rays lay in a spoke
+plane (`orient3d == Sign::Zero`), `perturb_ray_and_find_inters_tri` returned
+`None`, and `prune_intersections_and_sort_along_ray` treated the crossing as a
+tangential graze (`0` hits). An enclosed solid's patch kept the `outside` label
+(`[]` instead of `[A]`) silently; `refute_inner_label_by_input_bounds` refutes
+false `inside` labels only and cannot catch a dropped `inside` label. Likewise,
+when both off-axis coordinates sat at `0.0`, all 8 `(±5e-324, ±5e-324)` steps
+again lay at exact multiples of 45°; and when the two off-axis coordinates sat
+in disparate `f64` binades (e.g. `0.0` with `ulp = 5e-324` vs `1.5` with
+`ulp = 2.22e-16`), per-coordinate `nextafter` steps compressed into a narrow
+angular wedge around the coarser-ULP axis (and forced N24's exact-rational
+`orient3d` underflow fallback on subnormal products).
+
+**Fix.** `perturb_ray_and_find_inters_tri` implements §5.3's repeat-until-interior
+rule with deterministic finite termination (`<= 528` candidate rays, zero
+tolerances):
+1. Stage 1 tries the exact 8 single-ULP C++ offsets in C++ order first
+   (byte-identical selection whenever any of the 8 hits a forward `t > 0`
+   triangle).
+2. Stage 2 expands `p∞` through primitive coprime `(da, db)` (`gcd(|da|, |db|)
+   == 1`) Chebyshev shells `s = 2..=8` via iterated `nextafter` (`168`
+   additional non-collinear lattice slopes; `(2, 1)` resolves the 8-spoke
+   45° apex immediately on attempt 9).
+3. Stage 3 runs equiscaled ULP shells (`u = 2·max(ulp_a, ulp_b)` when
+   `ulp_a != ulp_b`, and `u = 2·ulp(c_dir)` when `max(ulp_a, ulp_b) < ulp(c_dir)`)
+   so disparate-binade and zero-centered coordinates span S¹ in normal floats.
+4. Safety net: `prune_intersections_and_sort_along_ray` checks exact
+   ahead-of-ray-start (`t > 0`, matching `sort_hits_along_ray` and N20) and, if
+   bounded `f64` perturbation still returns `None`, certifies via exact
+   `orient2d` whether the vertex ring (`ring_covers_full_disk`) or edge pair
+   (`edge_covers_full_disk`) covers the full 2D disk around the ray. A forward
+   full-disk event is topologically a crossing and is never dropped as a graze:
+   `PruneOutcome::UnresolvedFullDiskCrossing` routes the patch to the existing
+   exact `rational_ray_inner_label` path.
+
+**Pins (`crates/cherchi-rs/src/labeling/inside_out.rs::tests`).**
+`ul02_eight_spoke_apex_keeps_inside_label` (reviewer reproduction — verified
+RED on unmodified `HEAD` `a2058a01`: `left: []`, `right: [InputId(0)]`),
+`ul02_mixed_binade_and_zero_centered_apexes_keep_inside_label`, and
+`ul02_unresolved_full_disk_crossing_routes_to_rational_ray` (closed 176-spoke
+bipyramid realizing every coprime `(da, db)` direction in `1..=8`). Corpus:
+`360C / 0W / 9E / 5EE / 0T` over 374 (`0` moved cases).
+**State: RESOLVED** (2026-10-27).
+
+### N102 — cherchi-rs generated-ray branch omitted the N69 foreign-graze check (UL-06)
+
+**Paper / reference.** Cherchi et al. 2022 §5.1–§5.3
+(`refs/text/cherchi2022_interactive_robust_mesh_booleans.txt:434-459, 470, 481`),
+`findRayEndpoints` (`booleans.cpp:525-578`), and deviation **N69**.
+
+**What it was.** Deviation N69 added `ray_grazes_foreign_input` (exact
+`orient3d(tri, v0) == Zero && orient3d(tri, v1) == Zero` coplanarity check
+against foreign candidate triangles) to the explicit-vertex ray ladder in
+`find_ray_endpoints`, but the generated-ray branch (used when every patch
+vertex is implicit or on the patch border, such as through-cut hole discs and
+bands) returned the first triangle whose synthetic ray passed exact
+`seed_tri` straddle/interior validation without checking
+`ray_grazes_foreign_input`. On symmetric axis-aligned CAD arrangements where a
+generated centroid ray lay in a third solid's face plane (and every patch
+vertex was `VertexCoords::Lpi`, outside `refute_inner_label_by_input_bounds`'s
+explicit-vertex scope), a grazing generated ray could still be accepted.
+
+**Fix.** In `find_ray_endpoints`'s generated-ray loop
+(`crates/cherchi-rs/src/labeling/inside_out.rs`), each validated candidate
+generated ray now runs `ray_grazes_foreign_input` when `graze_aware` is active:
+if it grazes a foreign input, the loop advances to the next patch triangle, and
+if every patch triangle's generated ray grazes (or fails validation), it
+returns `Err(InsideOutError::NoExplicitRayOrigin)` so `compute_inside_out_with`
+routes the patch to `rational_ray_inner_label`.
+
+**Pins (`crates/cherchi-rs/src/labeling/inside_out.rs::tests`).**
+`ul06_generated_ray_grazing_foreign_face_advances_to_next_tri` and
+`ul06_all_generated_rays_grazing_falls_through_to_rational_ray`. Corpus:
+`360C / 0W / 9E / 5EE / 0T` over 374 (`0` moved cases).
+**State: RESOLVED** (2026-10-27).
