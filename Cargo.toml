@@ -18,7 +18,9 @@ members = [
     #   cad-primitives ← cherchi-rs ← cherchi-sidecar-rs (subprocess; non-WASM)
     #                                ← yang-rs ← kernel-v2
     #                  ← ssi-rs    ←
+    #                  ← nurbs-rs  (Piegl & Tiller B-spline/NURBS math; Loft + F5)
     "crates/cad-primitives",
+    "crates/nurbs-rs",
     "crates/cherchi-rs",
     "crates/cherchi-sidecar-rs",
     "crates/indirect-predicates-sidecar-rs",

@@ -25,6 +25,7 @@ bundle is built from this stack on **stable Rust** with standard `wasm-pack`.
 crates/waffle-types/     — public types + the kernel contract (traits, shared
                            types, units; MockKernel behind the `mock-kernel` feature)
 crates/cad-primitives/   — shared geometry types & constants (Point3, Vector3, BoolOp, …)
+crates/nurbs-rs/         — shared Piegl & Tiller B-spline / NURBS math (deps cad-primitives)
 crates/cherchi-rs/       — Cherchi 2020+2022 mesh boolean (pure Rust, clean-room predicates)
 crates/ssi-rs/           — analytical SSI solvers (Patrikalakis Ch.5)
 crates/yang-rs/          — Yang 2025 pipeline (deps cherchi-rs + ssi-rs)
@@ -40,6 +41,7 @@ higher in the stack may not be imported by one lower down.
 |---|---|
 | Mesh boolean (Cherchi port) | `crates/cherchi-rs/` |
 | Analytical SSI solver | `crates/ssi-rs/` |
+| B-spline / NURBS math | `crates/nurbs-rs/` |
 | Yang pipeline stage | `crates/yang-rs/` |
 | B-Rep / Euler ops / primitives / tessellation / trait adapter | `crates/kernel-v2/` |
 | Shared primitive type (Point3 etc.) | `crates/cad-primitives/` |
@@ -208,7 +210,7 @@ Do NOT skip to lower-priority items because they are easier.
 4. Read `/governance/ENGINEERING_CONSTITUTION.md` — understand the engineering law.
 5. Read `/agents/ORCHESTRATION.md` — understand the agent workflow.
 6. **Identify your sub-project and route accordingly:**
-   - **Kernel-stack work** (`cad-primitives`, `waffle-types`, `cherchi-rs`,
+   - **Kernel-stack work** (`cad-primitives`, `nurbs-rs`, `waffle-types`, `cherchi-rs`,
      `ssi-rs`, `yang-rs`, `kernel-v2`, and the two sidecar crates) is routed by
      **`docs/yang_functional_roadmap.md`** (the plan of record) plus the crate
      routing table under "Kernel: kernel-v2" above — **not** by any

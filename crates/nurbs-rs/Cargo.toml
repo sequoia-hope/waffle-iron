@@ -1,0 +1,11 @@
+[package]
+name = "nurbs-rs"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Shared Piegl & Tiller B-spline and NURBS curve/surface math for the kernel stack."
+
+# Strict layering: nurbs-rs depends ONLY on cad-primitives and sits below
+# waffle-types, cherchi-rs, ssi-rs, yang-rs, and kernel-v2.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }

@@ -1404,6 +1404,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nurbs-rs"
+version = "0.1.0"
+dependencies = [
+ "cad-primitives",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

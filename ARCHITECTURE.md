@@ -2,9 +2,9 @@
 
 > **⚠ Kernel sections below describe the DELETED legacy kernel.** The Phase 6
 > migration (2026-06-11) removed `crates/kernel/` entirely; the app runs on
-> the layered kernel stack — `cad-primitives` → `cherchi-rs` / `ssi-rs` (+ the
-> two non-WASM C++ sidecar crates, dev-only oracles) → `yang-rs` →
-> `kernel-v2` — behind the `Kernel`/`KernelIntrospect` traits in
+> the layered kernel stack — `cad-primitives` → `nurbs-rs` / `cherchi-rs` /
+> `ssi-rs` (+ the two non-WASM C++ sidecar crates, dev-only oracles) →
+> `yang-rs` → `kernel-v2` — behind the `Kernel`/`KernelIntrospect` traits in
 > `waffle_types::kernel` (implemented by `kernel_v2::KernelV2Adapter`). See
 > root `CLAUDE.md` §"Kernel: kernel-v2" and `docs/yang_functional_roadmap.md`
 > (the plan of record). Historical references to `crates/kernel/`, its test
@@ -26,6 +26,7 @@ The system has four layers:
 ```
 cad-primitives  — shared geometry types & constants (Point3, Vector3, BoolOp, …)
       │
+nurbs-rs        — shared Piegl & Tiller B-spline / NURBS math (deps cad-primitives)
 waffle-types    — public types + the Kernel/KernelIntrospect contract (traits, units, MockKernel)
       │
 cherchi-rs      — Cherchi 2020+2022 exact mesh boolean (clean-room predicates, WASM-clean)
@@ -156,7 +157,7 @@ wasm-bridge → sketch-ui (update display, color by status)
 
 | # | Project | Purpose | Technology | Dependencies | Status |
 |---|---------|---------|------------|-------------|--------|
-| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` + `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE; assay 356/374 CORRECT, 0 WRONG as of 2026-10-22; see `docs/yang_tail_triage.md`) |
+| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` → `nurbs-rs` / `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE; assay 356/374 CORRECT, 0 WRONG as of 2026-10-22; see `docs/yang_tail_triage.md`) |
 | 02 | sketch-solver | Pure-Rust 2D constraint solving (Levenberg-Marquardt) | Rust | None | Complete |
 | 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
 | 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |

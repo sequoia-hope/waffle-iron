@@ -12,11 +12,14 @@
 > and loft booleans (L7) ride on it. Option (a) remains the v1 plan until F5
 > lands. Two consequences for this spec:
 > 1. **One B-spline implementation, shared.** The P&T algorithms of L1 must
->    live where both kernel-v2 and yang-rs can use them — `crates/cad-primitives`
->    (shared geometry, below both in the layering) — not in
+>    live where both kernel-v2 and yang-rs can use them — `crates/nurbs-rs`
+>    (shared geometry math, below both in the layering) — not in
 >    `kernel-v2/src/geom/bspline.rs`, so that F5's non-analytic instance and
->    loft's surfaces are the same code. `waffle_types::bspline` (the endpoint
->    clamp noted in §2.4) is retired into it, not kept beside it.
+>    loft's surfaces are the same code. The `cad-primitives` charter forbids
+>    algorithms, so the shared math is its own bottom-layer crate
+>    (`crates/nurbs-rs`, depending only on `cad-primitives`).
+>    `waffle_types::bspline` (the endpoint clamp noted in §2.4) is retired into
+>    it, not kept beside it.
 > 2. §3.3's stage table is the F5 inventory's starting point: its count of
 >    45 non-test yang-rs files matching on `Surface::*` / `Curve::*` is what
 >    F5's interface must absorb.
@@ -335,6 +338,8 @@ This gives users:
 
 ## 5. Increments `L1…L7` & Verification Oracles
 
+> **`L1a` status (2026-10-27):** Done in `crates/nurbs-rs` (`nurbs_rs::bspline`, also re-exported at the crate root) — validated `BSplineCurve` / `BSplineSurface` types and Piegl & Tiller algorithms `A2.1` (`find_span`), `A2.2` (`basis_funs`), `A2.3` (`ders_basis_funs`), `A3.1`/`A4.1` (`point_at`), `A3.2`/`A4.2` (`derivs`, `rat_curve_derivs`), `A3.5`/`A4.3` (`BSplineSurface::point_at`), `A3.6`/`A4.4` (`BSplineSurface::derivs`, `rat_surface_derivs`), `A5.4` (`refine_knots`), `A5.6` (`BSplineCurve::decompose`), `A5.7` (`BSplineSurface::decompose`), `A5.9` (`degree_elevate`), and `A9.1` (`global_curve_interp` open + `global_curve_interp_periodic` closed) with all 5 `L1a` oracles passing (`crates/nurbs-rs/tests/bspline_oracles.rs`). `waffle_types::bspline` retirement held for sign-off because switching `regions.rs` and `gear.rs` removes its `1 - 1e-10` / `1e-10` endpoint clamps and degenerate fallbacks; `kernel-v2` arena/plumbing (`L1b`) is next.
+
 Every increment is independently landable, keeps the workspace green, and carries mathematical + topological + third-party (`truck`) oracles (no magic-number visual-only checks):
 
 | Increment | Scope | Quantitative Oracles & Acceptance Tests |
@@ -362,8 +367,8 @@ Every increment is independently landable, keeps the workspace green, and carrie
 > **no automatic centripetal retry** — a non-positive weight or a failed
 > chord-length interpolation is a loud typed refusal (P9/P10: one rule, no
 > fallback path). The user answered, verbatim: *"agree"*. The B-spline
-> algorithms of L1 live in `crates/cad-primitives` (reviewer amendment
-> above), so F5's non-analytic instance reuses them.
+> algorithms of L1 live in `crates/nurbs-rs` (reviewer amendment above), so
+> F5's non-analytic instance reuses them.
 
 Each decision point below is stated in prose with its literature and codebase grounding and a concrete engineering recommendation (`GEMINI.md` §3).
 
