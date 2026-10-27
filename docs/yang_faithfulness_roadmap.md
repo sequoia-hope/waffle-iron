@@ -47,8 +47,8 @@ progress.
 
 | metric | 2026-10-27 baseline | how measured |
 |---|---|---|
-| ledger debt | **64** = 18 OPEN (N2, N62, N68, N74, N80–N93) + 44 DELEGATED + 2 PROPOSED (N64, N94) | `docs/yang_deviations.md` status index |
-| matrix rows not yet faithful | **100** of 194: 46 PARTIAL, 37 DEVIATES, 11 MISSING, 6 ORDER (67 FAITHFUL, 12 SILENT, 15 N/A) | row status column, `grep -E '^\| *[0-9A-Z.]+-[0-9]+ *\|'` |
+| ledger debt | **64** = 18 OPEN (N2, N62, N68, N74, N80–N93) + 44 DELEGATED + 2 PROPOSED (N64, N94) | `./scripts/faithfulness_score.sh` (`docs/yang_deviations.md` status index) |
+| matrix rows not yet faithful | **100** of 194: 46 PARTIAL, 37 DEVIATES, 11 MISSING, 6 ORDER (67 FAITHFUL, 12 SILENT, 15 N/A) | `./scripts/faithfulness_score.sh --check` (`docs/audits/yang_2025_audit.md` row status column) |
 | live substitutes | Stage-1: `phantom_min_rim_segments`, self-contact guard, `rim_junction_overrides` + P3a + tangent boost (N82), cross-patch folds `cyl_pair_phantom_n` / `face_rim_pair_phantom_n` / `CHART_REFINE_ROUNDS` / P0008 chord split (N88); Stage 0: `stage0/reloc.rs` (N86); Stage 4/5: `collapse_subtauwork_mesh_edges`, `repair_fan_cluster`, `remove_doubled_membranes`, the fold-merge / absorb / rehome family, `merge_same_plane_patches`, `solve_crease_transit`, `corner_transit_apply` (N87) | cleanup §2 |
 | corpus | 360C / 0W / 9E / 5EE / 0T over 374 | canonical assay, release, 8 jobs, 900 s |
 
@@ -67,11 +67,10 @@ out to be wrong is moved, not skipped.
 ### F0 — Bookkeeping (no geometry change)
 
 - [x] This roadmap, and CLAUDE.md priority #1 pointing at it.
-- [ ] Refresh the matrix's Summary table to the live row tallies (it still
-      reads the 2026-10-16 counts).
+- [x] Refresh the matrix's Summary table to the live row tallies (`./scripts/faithfulness_score.sh --check`, 2026-10-27).
 - [ ] Fix the stale code and paper cites (matrix L-6, L-7) as each entry is
       touched. This is not a separate sweep.
-- [ ] A scoreboard script (`scripts/faithfulness_score.sh`) that prints §2's
+- [x] A scoreboard script (`scripts/faithfulness_score.sh`) that prints §2's
       first two rows from the ledger and matrix, so checkpoints quote a
       computed number.
 

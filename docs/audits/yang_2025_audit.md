@@ -47,15 +47,17 @@ with a pin named in its `pin` column.
 
 ## Summary
 
+Refreshed 2026-10-27 to the live row tallies by `./scripts/faithfulness_score.sh` (mixed-status cells `4.2-18` `DEVIATES + ORDER`, `4.3-19` `PARTIAL + ORDER` and `4.4-15` `PARTIAL / SILENT` are counted under their primary leading token; since 2026-10-16 row `4.5.1-03` moved `N/A` → `PARTIAL` on 2026-10-22 under N90/N97 and row `4.5.3-08` moved `PARTIAL` → `FAITHFUL` on 2026-10-24 under N89 item 3).
+
 | slice | rows | FAITHFUL | PARTIAL | DEVIATES | MISSING | ORDER | SILENT | N/A |
 |---|---|---|---|---|---|---|---|---|
 | §3, §4.1, App. A — discretization | 43 | 10 | 11 | 8 | 2 | 2 | 1 | 9 |
 | §4.2, App. B, §5.6 — mesh intersection | 31 | 9 | 6 | 7 | 2 | 0 | 1 | 6 |
 | §4.3 — intersection optimization | 25 | 8 | 4 | 9 | 3 | 1 | 0 | 0 |
 | §4.4 — mesh updating, Booleans | 28 | 10 | 10 | 4 | 1 | 2 | 1 | 0 |
-| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 6 | 5 | 3 | 0 | 6 | 1 |
-| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 18 | 9 | 4 | 0 | 1 | 3 | 0 |
-| **total** | **194** | **66** | **46** | **37** | **11** | **6** | **12** | **16** |
+| §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 7 | 5 | 3 | 0 | 6 | 0 |
+| §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 19 | 8 | 4 | 0 | 1 | 3 | 0 |
+| **total** | **194** | **67** | **46** | **37** | **11** | **6** | **12** | **15** |
 
 Eighteen rows said UNLEDGERED outright when the matrix was written, and the
 cross-cutting findings below added more that only show up across slices.
