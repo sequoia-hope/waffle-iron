@@ -157,7 +157,9 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
       Fig. 10(c) seeding, and contacts below the model band (N91). The
       cylinder×cylinder Stage-1 tangent mint retires.
 - [x] §4.2.2 Gauss-map overlap filter with the closed-form maps of the
-      analytic surfaces (N92; `specs/yang_422_gauss_map_filter.md`, 2026-10-27).
+      analytic surfaces (`specs/yang_422_gauss_map_filter.md`, 2026-10-27;
+      `N92` `OPEN → PROPOSED` awaiting user prose sign-off on its
+      strictly-interior trim/crossing exemption under A15.7).
 - [ ] §4.3.4 refinement for every curve, optimizing from the surfaces'
       parameter midpoints, with no 4096 cap (matrix M-8, N7 amendment).
 - [ ] T6 detection floor from the paper's d_ε (N89 item 2).
@@ -228,3 +230,4 @@ the first known item.
 |---|---|---|---|---|---|
 | 2026-10-27 | roadmap adopted (baseline) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | — |
 | 2026-10-27 | F0 scoreboard script; F1 I1 side labels through Stage 4 (byte-identical, wall 928.7 s) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | ed1c3658, 13f7fe05 |
+| 2026-10-27 | F4 — §4.2.2 closed-form Gauss-map overlap filter (N92 OPEN → PROPOSED awaiting user sign-off on trim/crossing exemption, D13 amended; 4.2-12/13 MISSING → PARTIAL, 5.6-02 PARTIAL; 8 corpus cases / 114 pairs Gauss-rejected) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | branch `agy/f4-n92-gaussmap` |

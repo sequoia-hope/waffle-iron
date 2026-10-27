@@ -303,12 +303,6 @@ pub(crate) struct ContactPair {
     pub(crate) reach: f64,
 }
 
-/// Every A×B triangle pair in contact (see [`ContactPair`]) between the two
-/// Stage-2 input meshes, given each mesh's per-triangle face lineage and the
-/// faces. Pairs of IDENTICAL surfaces (a coplanar or coaxial-coincident
-/// overlap, §4.5.5's and the coincident-cylinder Stage 0's population) are
-/// not listed: they touch everywhere by construction. Sorted by `(tri_a,
-/// tri_b)`.
 /// Per-stage counters from [`contact_pairs_with_stats`] (exposed in-crate for
 /// §4.2.2 Gauss-map filter unit pins).
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
@@ -411,10 +405,27 @@ struct OperandView<'a> {
     set: &'a TriSet,
 }
 
+#[derive(Copy, Clone, Debug, Default)]
+struct GaussFilterTelemetry {
+    face_pairs: usize,
+    comps: usize,
+    interior_comps: usize,
+    trim_exempt_comps: usize,
+    inter_exempt_comps: usize,
+    gauss_rej_comps: usize,
+    interior_pairs: usize,
+    trim_exempt_pairs: usize,
+    inter_exempt_pairs: usize,
+    total_ns: u128,
+    trim_mask_ns: u128,
+    trim_reach_ns: u128,
+    gauss_eval_ns: u128,
+}
+
 /// Yang 2025 §4.2.2 (`refs/text/yang2025_hybrid_boolean.txt:440-482` R;
-/// spec `specs/yang_422_gauss_map_filter.md`): prune connected `2d_ε`
-/// potential-intersection areas on each `(face_a, face_b)` whose regions are
-/// strictly interior (neither bordering a `d_coarse == 0` mesh crossing nor
+/// spec `specs/yang_422_gauss_map_filter.md`; ledger N92): prune connected
+/// `2d_ε` potential-intersection areas on each `(face_a, face_b)` whose regions
+/// are strictly interior (neither bordering a `d_coarse == 0` mesh crossing nor
 /// within `reach` of a face-trim boundary edge, where Sederberg 1989's closed
 /// intersection loop precondition does not hold — e.g. `P0021`) and whose
 /// conservative closed-form Gauss maps have no collinear normal pair.
@@ -423,14 +434,20 @@ fn filter_candidates_by_gauss_map(
     intersecting_pairs: &[(u32, u32)],
     op_a: OperandView<'_>,
     op_b: OperandView<'_>,
-) -> Vec<bool> {
+    timed: bool,
+) -> (Vec<bool>, GaussFilterTelemetry) {
     let mut rejected = vec![false; candidates.len()];
+    let mut tel = GaussFilterTelemetry::default();
     if candidates.is_empty() {
-        return rejected;
+        return (rejected, tel);
     }
 
+    let tf0 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
     let trim_a = tri_trim_edge_mask(op_a.mesh, op_a.tri_face);
     let trim_b = tri_trim_edge_mask(op_b.mesh, op_b.tri_face);
+    if let Some(t) = tf0 {
+        tel.trim_mask_ns = t.elapsed().as_nanos();
+    }
 
     let mut by_face: std::collections::BTreeMap<(u32, u32), Vec<usize>> =
         std::collections::BTreeMap::new();
@@ -438,6 +455,7 @@ fn filter_candidates_by_gauss_map(
         let key = (op_a.tri_face[c.t as usize], op_b.tri_face[c.s as usize]);
         by_face.entry(key).or_default().push(idx);
     }
+    tel.face_pairs = by_face.len();
 
     // Index `d_coarse == 0` pairs per `(face_a, face_b)` by `mesh_a` vertex ONLY
     // for face pairs that actually appear in `by_face`.
@@ -505,20 +523,31 @@ fn filter_candidates_by_gauss_map(
 
         let inter_verts = inter_by_face.get(face_key);
         for comp_idxs in comps.values() {
-            let mut strictly_interior = true;
+            tel.comps += 1;
+            let mut trim_exempt = false;
+            let mut inter_exempt = false;
             for &cand_idx in comp_idxs {
                 let c = candidates[cand_idx];
                 let t = c.t as usize;
                 let s = c.s as usize;
-                if pair_touches_trim_within_reach(
-                    op_a.set.pts[t],
-                    trim_a[t],
-                    op_b.set.pts[s],
-                    trim_b[s],
-                    c.reach,
-                ) {
-                    strictly_interior = false;
-                    break;
+                let ma = trim_a[t];
+                let mb = trim_b[s];
+                if (ma | mb) != 0 {
+                    let t_tr = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
+                    let touches = pair_touches_trim_within_reach(
+                        op_a.set.pts[t],
+                        ma,
+                        op_b.set.pts[s],
+                        mb,
+                        c.reach,
+                    );
+                    if let Some(st) = t_tr {
+                        tel.trim_reach_ns += st.elapsed().as_nanos();
+                    }
+                    if touches {
+                        trim_exempt = true;
+                        break;
+                    }
                 }
                 if let Some(iv) = inter_verts {
                     let tri_a = op_a.mesh.tris[t];
@@ -530,15 +559,25 @@ fn filter_candidates_by_gauss_map(
                         })
                     });
                     if borders_inter {
-                        strictly_interior = false;
+                        inter_exempt = true;
                         break;
                     }
                 }
             }
-            if !strictly_interior {
+            if trim_exempt {
+                tel.trim_exempt_comps += 1;
+                tel.trim_exempt_pairs += comp_idxs.len();
                 continue;
             }
+            if inter_exempt {
+                tel.inter_exempt_comps += 1;
+                tel.inter_exempt_pairs += comp_idxs.len();
+                continue;
+            }
+            tel.interior_comps += 1;
+            tel.interior_pairs += comp_idxs.len();
 
+            let t_ge = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
             let mut ta_list: Vec<u32> = comp_idxs.iter().map(|&i| candidates[i].t).collect();
             ta_list.sort_unstable();
             ta_list.dedup();
@@ -594,8 +633,12 @@ fn filter_candidates_by_gauss_map(
                 }
                 _ => false,
             };
+            if let Some(st) = t_ge {
+                tel.gauss_eval_ns += st.elapsed().as_nanos();
+            }
 
             if !overlaps {
+                tel.gauss_rej_comps += 1;
                 for &cand_idx in comp_idxs {
                     rejected[cand_idx] = true;
                 }
@@ -603,9 +646,18 @@ fn filter_candidates_by_gauss_map(
         }
     }
 
-    rejected
+    if let Some(t) = tf0 {
+        tel.total_ns = t.elapsed().as_nanos();
+    }
+    (rejected, tel)
 }
 
+/// Every A×B triangle pair in contact (see [`ContactPair`]) between the two
+/// Stage-2 input meshes, given each mesh's per-triangle face lineage and the
+/// faces. Pairs of IDENTICAL surfaces (a coplanar or coaxial-coincident
+/// overlap, §4.5.5's and the coincident-cylinder Stage 0's population) are
+/// not listed: they touch everywhere by construction. Sorted by `(tri_a,
+/// tri_b)`.
 pub(crate) fn contact_pairs(
     mesh_a: &crate::Mesh,
     tri_face_a: &[u32],
@@ -621,6 +673,7 @@ pub(crate) fn contact_pairs(
     .map(|(out, _)| out)
 }
 
+/// Like [`contact_pairs`], also returning [`ContactCensusStats`].
 pub(crate) fn contact_pairs_with_stats(
     mesh_a: &crate::Mesh,
     tri_face_a: &[u32],
@@ -631,7 +684,9 @@ pub(crate) fn contact_pairs_with_stats(
     skip: &dyn Fn(u32, u32) -> bool,
 ) -> Result<(Vec<ContactPair>, ContactCensusStats), YangError> {
     let cost = std::env::var_os("YANG_T6_COST_PROBE").is_some();
-    let t0 = cost.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE), never set in wasm
+    let gauss_probe = std::env::var_os("YANG_S422_GAUSS_PROBE");
+    let timed = cost || gauss_probe.is_some();
+    let t0 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
     let set_a = TriSet::from_parts(mesh_a, tri_face_a, faces_a)?;
     let set_b = TriSet::from_parts(mesh_b, tri_face_b, faces_b)?;
     let scale = set_a
@@ -646,7 +701,7 @@ pub(crate) fn contact_pairs_with_stats(
     let bvh_b = Bvh::new(&set_b);
     let max_dev_b = set_b.dev.iter().copied().fold(0.0, f64::max);
     let probe = std::env::var_os("YANG_T6_PROBE").is_some();
-    let t1 = cost.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE), never set in wasm
+    let t1 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
     let mut stats = ContactCensusStats::default();
     let mut intersecting_pairs: Vec<(u32, u32)> = Vec::new();
     let mut candidates: Vec<NearCandidate> = Vec::new();
@@ -708,8 +763,9 @@ pub(crate) fn contact_pairs_with_stats(
             });
         });
     }
+    let t2 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
 
-    let gauss_rejected = filter_candidates_by_gauss_map(
+    let (gauss_rejected, gauss_tel) = filter_candidates_by_gauss_map(
         &candidates,
         &intersecting_pairs,
         OperandView {
@@ -722,7 +778,9 @@ pub(crate) fn contact_pairs_with_stats(
             tri_face: tri_face_b,
             set: &set_b,
         },
+        timed,
     );
+    let t3 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
 
     let piece = |set: &TriSet, i: usize| Piece {
         pts: set.pts[i].map(|p| p.as_array()),
@@ -764,27 +822,91 @@ pub(crate) fn contact_pairs_with_stats(
     }
 
     out.sort_by_key(|p| (p.tri_a, p.tri_b));
-    if let (Some(t0), Some(t1)) = (t0, t1) {
-        eprintln!(
-            "[t6-cost] tris {}×{} sets+bvh {:.3}s, pairs {:.3}s: visited {} \
-             (box-rejected {}, coarse-rejected {}, intersecting {}, \
-             skipped {}, gauss-rejected {}, refined {}) → {} contacts; max dev a {:.3e} b {:.3e}, \
-             band {band:.3e}",
+    let t4 = timed.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE / YANG_S422_GAUSS_PROBE), never set in wasm
+    if cost {
+        if let (Some(t0), Some(t1), Some(t2), Some(t3), Some(t4)) = (t0, t1, t2, t3, t4) {
+            eprintln!(
+                "[t6-cost] tris {}×{} sets+bvh {:.3}s, pairs {:.3}s \
+                 (coarse {:.3}s, gauss {:.3}s [trim_mask {:.3}s, trim_reach {:.3}s, eval {:.3}s], refine {:.3}s): \
+                 visited {} (box-rejected {}, coarse-rejected {}, intersecting {}, \
+                 skipped {}, gauss-rejected {}, refined {}) → {} contacts; max dev a {:.3e} b {:.3e}, \
+                 band {band:.3e}",
+                set_a.pts.len(),
+                set_b.pts.len(),
+                t1.duration_since(t0).as_secs_f64(),
+                t4.duration_since(t1).as_secs_f64(),
+                t2.duration_since(t1).as_secs_f64(),
+                t3.duration_since(t2).as_secs_f64(),
+                gauss_tel.trim_mask_ns as f64 * 1e-9,
+                gauss_tel.trim_reach_ns as f64 * 1e-9,
+                gauss_tel.gauss_eval_ns as f64 * 1e-9,
+                t4.duration_since(t3).as_secs_f64(),
+                stats.visited,
+                stats.box_rejected,
+                stats.coarse_rejected,
+                stats.intersecting,
+                stats.skipped,
+                stats.gauss_rejected,
+                stats.refined,
+                out.len(),
+                set_a.dev.iter().copied().fold(0.0, f64::max),
+                max_dev_b,
+            );
+        }
+    }
+    if let (Some(spec), Some(t0), Some(t1), Some(t2), Some(t3), Some(t4)) =
+        (gauss_probe, t0, t1, t2, t3, t4)
+    {
+        let case = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".to_string());
+        let rung = crate::stage1_tessellate::chord_refine_scale();
+        let line = format!(
+            "[s422-gauss] case={case} rung={rung} tris={}x{} visited={} box_rej={} coarse_rej={} \
+             inter={} skipped={} cands={} face_pairs={} comps={} interior_comps={} \
+             trim_exempt_comps={} inter_exempt_comps={} gauss_rej_comps={} interior_pairs={} \
+             trim_exempt_pairs={} inter_exempt_pairs={} gauss_rejected={} refined={} contacts={} \
+             sets_bvh_us={} coarse_us={} gauss_total_us={} trim_mask_us={} trim_reach_us={} \
+             gauss_eval_us={} refine_us={}\n",
             set_a.pts.len(),
             set_b.pts.len(),
-            t1.duration_since(t0).as_secs_f64(),
-            t1.elapsed().as_secs_f64(),
             stats.visited,
             stats.box_rejected,
             stats.coarse_rejected,
             stats.intersecting,
             stats.skipped,
+            candidates.len(),
+            gauss_tel.face_pairs,
+            gauss_tel.comps,
+            gauss_tel.interior_comps,
+            gauss_tel.trim_exempt_comps,
+            gauss_tel.inter_exempt_comps,
+            gauss_tel.gauss_rej_comps,
+            gauss_tel.interior_pairs,
+            gauss_tel.trim_exempt_pairs,
+            gauss_tel.inter_exempt_pairs,
             stats.gauss_rejected,
             stats.refined,
             out.len(),
-            set_a.dev.iter().copied().fold(0.0, f64::max),
-            max_dev_b,
+            t1.duration_since(t0).as_micros(),
+            t2.duration_since(t1).as_micros(),
+            gauss_tel.total_ns / 1_000,
+            gauss_tel.trim_mask_ns / 1_000,
+            gauss_tel.trim_reach_ns / 1_000,
+            gauss_tel.gauss_eval_ns / 1_000,
+            t4.duration_since(t3).as_micros(),
         );
+        let s = spec.to_string_lossy();
+        if s.is_empty() || s == "1" || s == "stderr" {
+            eprint!("{line}");
+        } else {
+            use std::io::Write as _;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&spec)
+            {
+                let _ = f.write_all(line.as_bytes());
+            }
+        }
     }
     Ok((out, stats))
 }

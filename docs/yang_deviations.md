@@ -191,7 +191,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24) | Seven smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-24, Stage-0 ellipse wall, coincident-cylinder Stage 0, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
-| N92 | **RESOLVED** (2026-10-27, roadmap F4; spec `specs/yang_422_gauss_map_filter.md`; corpus 360C / 0W / 9E / 5EE / 0T, byte-identical verdicts, wall 1039.8 s) | The §4.2.2 Gauss-map overlap filter is built with closed-form conservative maps on S² for all five analytic surfaces (`crates/yang-rs/src/gauss_map.rs`) and wired ahead of `pieces_cross_point` on strictly interior 2d_ε candidate components (`shell_contact.rs:421`); `pieces_cross_point` stays behind it for parallel/facing non-intersecting pairs (N91) and trim-boundary-clipped open lenses (P0021) |
+| N92 | PROPOSED (2026-10-27, roadmap F4; spec `specs/yang_422_gauss_map_filter.md`; closed-form analytic Gauss-map filter built and wired, corpus 360C / 0W / 9E / 5EE / 0T; strictly-interior trim/crossing exemption awaits prose sign-off — A15.7) | The §4.2.2 Gauss-map overlap filter is built with closed-form conservative maps on S² for all five analytic surfaces (`crates/yang-rs/src/gauss_map.rs`) and wired in `shell_contact.rs:432`, but exempts connected 2d_ε candidate areas that border a mesh crossing or lie within `reach` of a face-trim boundary (where Sederberg 1989's closed-loop precondition fails, e.g. P0021 at 61.9° / 51.7°) whereas `:440-446`, `:466-470` states no exemption |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
@@ -200,7 +200,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-27, after F4 / N92): 17 standing (N2, N74; N62 and N68 reopened; N80–N91, N93 from the compliance matrix; N92 RESOLVED 2026-10-27) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. At 2026-10-17:** 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. **Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-27, after F4 / N92): 17 standing (N2, N74; N62 and N68 reopened; N80–N91, N93 from the compliance matrix; N92 moved OPEN → PROPOSED 2026-10-27) + 44 DELEGATED + 3 PROPOSED (N64, N92, N94) = 64 items of paper-compliance debt. At 2026-10-17:** 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. **Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -4327,19 +4327,19 @@ The 24 Case D missing triangles are presumably the ones spade chose differently 
 
 #### D13 — Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones
 
-**State:** HISTORICAL (amended 2026-10-27, roadmap F4) — the flat-triangle dot-product check it originally cited was in legacy `crates/kernel/` (DELETED 2026-06-11). Its earlier note ("moot within the analytic-primitive scope") was wrong: analytic surfaces have closed-form Gauss maps, and the §4.2.2 conservative Gauss-map overlap filter for `Plane`, `Cylinder`, `Cone`, `Sphere`, and `Torus` is now live in `crates/yang-rs/src/gauss_map.rs` and wired in `crates/yang-rs/src/shell_contact.rs:421` (`N92`, **RESOLVED** 2026-10-27; spec `specs/yang_422_gauss_map_filter.md`). Only the rational Bézier control-net circular-cone construction of Theorem 4.1 (`yang2025:447-466` R, App. B `:1206-1230`) remains out of scope under `D14`; revisit together with `D14` if NURBS support is opened.
+**State:** HISTORICAL (amended 2026-10-27, roadmap F4) — the flat-triangle dot-product check it originally cited was in legacy `crates/kernel/` (DELETED 2026-06-11). Its earlier note ("moot within the analytic-primitive scope") was wrong: analytic surfaces have closed-form Gauss maps, and the §4.2.2 conservative Gauss-map overlap primitive for `Plane`, `Cylinder`, `Cone`, `Sphere`, and `Torus` is now live in `crates/yang-rs/src/gauss_map.rs` and wired in `crates/yang-rs/src/shell_contact.rs:432` (`N92`, **PROPOSED** 2026-10-27 pending user sign-off on its strictly-interior trim-boundary / crossing-border exemption; spec `specs/yang_422_gauss_map_filter.md`). The rational Bézier control-net circular-cone construction of Theorem 4.1 (`yang2025:447-466` R, App. B `:1206-1230`) remains out of scope under `D14`; revisit together with `D14` if NURBS support is opened.
 
-**Status:** HISTORICAL for the deleted `crates/kernel/` dot-product check; analytic §4.2.2 filter RESOLVED under `N92`; Bézier Theorem 4.1 half scoped under `D14` (NOT signed off).
+**Status:** HISTORICAL for the deleted `crates/kernel/` dot-product check; analytic §4.2.2 filter built and wired with its trim/crossing exemption tracked as `PROPOSED` under `N92`; Bézier Theorem 4.1 half scoped under `D14` (NOT signed off).
 
-**Code location:** Live analytic filter: `crates/yang-rs/src/gauss_map.rs` (`GaussRegion`, `GaussMap`, `gauss_maps_overlap`), `crates/yang-rs/src/shell_contact.rs:421` (`filter_candidates_by_gauss_map`). [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6): `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.]
+**Code location:** Live analytic filter: `crates/yang-rs/src/gauss_map.rs` (`GaussRegion`, `GaussMap`, `gauss_maps_overlap`), `crates/yang-rs/src/shell_contact.rs:432` (`filter_candidates_by_gauss_map`). [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6): `crates/kernel/src/boolean/cherchi/intersection_class.rs:117-149`.]
 
 **Paper section:** Yang §4.2.2 (`yang2025:440-480` R, App. B `:1206-1230`).
 
-**Paper requirement:** Conservatively bound the Gauss map of each potential-intersection surface region and check overlap under normal collinearity (`:440-446` R); for rational Bézier patches, Theorem 4.1 (`:453-466` R) constructs circular cone C₃ around a₃ = (a₁ × a₂) / |a₁ × a₂| from the control net.
+**Paper requirement:** Conservatively bound the Gauss map of each potential-intersection surface region and check overlap under normal collinearity (`:440-446`, `:466-470` R); for rational Bézier patches, Theorem 4.1 (`:453-466` R) constructs circular cone C₃ around a₃ = (a₁ × a₂) / |a₁ × a₂| from the control net.
 
-**Current implementation:** Closed-form conservative `GaussMap` bounds on $S^2$ (cap $\cap$ axial polar-angle zone, up to 4 regions, `GaussMap::FULL` fallback) for all five analytic surfaces in scope, tested for $\pm\mathbf{n}$ collinearity via Kahan's `2·atan2` angle formula. Theorem 4.1's Bézier control-net cone is omitted because NURBS/Bézier surfaces are out of scope (`D14`).
+**Current implementation:** Closed-form conservative `GaussMap` bounds on $S^2$ (cap $\cap$ axial polar-angle zone, up to 4 regions, `GaussMap::FULL` fallback) for all five analytic surfaces in scope, tested for $\pm\mathbf{n}$ collinearity via Kahan's `2·atan2` angle formula and applied to strictly interior connected $2d_\epsilon$ candidate areas (`N92` `PROPOSED` for the trim-boundary / crossing-border exemption). Theorem 4.1's Bézier control-net cone is omitted because NURBS/Bézier surfaces are out of scope (`D14`).
 
-**Deviation magnitude:** Scope (`D14` rational Bézier / NURBS algorithm only; analytic scope is faithful).
+**Deviation magnitude:** Scope (`D14` rational Bézier / NURBS algorithm) plus conservative boundary exemption (`N92`, `PROPOSED`).
 
 ---
 
@@ -6802,69 +6802,28 @@ and seeded loop tracing; P0026 (a minted exact tangency, ADJUDICATED loud)
 and the loud-ceiling worklist are the measured customers. Matrix 4.2-20,
 4.3-08, `s43 F3`/`F4`, `s42 F3`. **State: OPEN** (found 2026-10-16).
 
-### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
+### N92 — §4.2.2 Gauss-map overlap filter: closed-form maps built; strictly-interior trim/crossing exemption awaits sign-off (matrix M-4)
 
-**Paper.** §4.2.2 (`:440-446`, right column; `:498-503` left column; §5.6
-`:1033-1035` right column): within a small intersection loop there exist
-points $\mathbf{p}_A \in S_A$, $\mathbf{p}_B \in S_B$ with collinear surface
-normals [Sederberg et al. 1989], so "we conservatively estimate the Gauss map
-of the corresponding region on each surface and check if two Gauss maps
-overlap" to prune nonexistent potential intersections.
+*(Amended in place `OPEN → PROPOSED` rather than minting a new `N`-id: `N92` already owns §4.2.2 / `M-4` / matrix rows `4.2-12`, `4.2-13`, `5.6-02`, and keeping one entry avoids `N`-number collisions across parallel roadmap worktrees.)*
 
-**Prior implementation.** No Gauss-map or normal-cone code existed in any
-kernel crate; `shell_contact.rs` `pieces_cross_point` (exact leaf crossing)
-ran directly on every $2d_\epsilon$ near pair. `D13` (HISTORICAL) wrongly
-called the filter moot for analytic surfaces; only its rational Bézier
-control-net half (Theorem 4.1, App. B) is out of scope under `D14`.
+**Paper.** §4.2.2 (`refs/text/yang2025_hybrid_boolean.txt:440-446` right column, `:466-470` right column, `:498-503` left column; §5.6 `:1033-1035` right column): "We use the normal vectors of the areas that have potential intersections to improve the detection accuracy. Given that within a small intersection loop, there must exist two points $\mathbf{p}_A \in S_A$ and $\mathbf{p}_B \in S_B$ such that the normal vector of $S_A$ at $\mathbf{p}_A$ is collinear with that of $S_B$ at $\mathbf{p}_B$ [Sederberg et al. 1989], we conservatively estimate the Gauss map of the corresponding region on each surface and check if two Gauss maps overlap." (`:440-446` R.) At `:466-470` R, the paper applies this overlap check uniformly to potential-intersection areas without stating an exemption for areas near face-trim boundaries or adjacent to mesh crossings.
 
-**Resolution (2026-10-27, roadmap F4; spec `specs/yang_422_gauss_map_filter.md`).**
-1. **Closed-form conservative Gauss maps (`crates/yang-rs/src/gauss_map.rs`):**
-   `GaussRegion` (spherical cap $\mathcal{C}(\hat{\mathbf{d}}, \theta) \cap$
-   axial polar-angle zone $Z(\hat{\mathbf{a}}, \vartheta_{\min}, \vartheta_{\max})$
-   on $S^2$) and stack-allocated `GaussMap` (union of up to 4 regions, with
-   `GaussMap::FULL` covering $S^2$) bound both parameter-domain rectangles
-   (`from_uv_rect`) and 3D mesh triangles / triangle sets (`from_triangle`,
-   `from_triangles`) in closed form for all five analytic surfaces: `Plane`
-   (singleton normal), `Cylinder` (equatorial arc split to $\le \pi$), `Cone`
-   (small-circle arc, emitting the convex-dual polar normal cone at an apex
-   straddle/touch and `FULL` across both nappes), `Sphere` (chart- and
-   pole-free 3D central-projection geodesic cap + minimax UV lat-lon cap),
-   and `Torus` (outer/inner tube split along $v \equiv \pm\pi/2$ and 3D
-   meridian box unwrap across periodic seams). `GaussMap::overlaps` tests
-   $\pm\mathbf{n}$ collinearity via Kahan's `2·atan2` angle formula with a
-   `64·f64::EPSILON` IEEE-754 rounding guard.
-2. **Connected-area + trim-boundary wiring (`crates/yang-rs/src/shell_contact.rs:421`
-   `filter_candidates_by_gauss_map`, called from `contact_pairs_with_stats`
-   `:624`):** Non-intersecting $2d_\epsilon$ near pairs on each `(fa, fb)`
-   are grouped into vertex-connected components $C$. Strictly interior
-   components (neither bordering a `d_coarse == 0` mesh intersection nor
-   having a face-trim boundary edge within `reach`) whose `GaussMap`s are
-   disjoint are rejected (`stats.gauss_rejected`) before leaf subdivision. On
-   multi-triangle interior small loops, Sederberg's interior collinear pair
-   lies in the same connected `reach` component as the loop perimeter, so
-   component-level overlap preserves every interior loop.
-3. **Why `pieces_cross_point` (`:811`) stays behind the filter:**
-   (a) Parallel or facing non-intersecting surfaces within $2d_\epsilon$
-   (e.g. `R0015`'s parallel planes $2\times 10^{-7}$ apart) have collinear
-   normals (`overlaps == true`); in the paper §4.3's seeded Newton rules them
-   out (`:524-530`), whereas under `N7`/`N91` every emitted `ContactPair`
-   drives §4.5.2 refinement (`RefinementExhausted` without `pieces_cross_point`).
-   (b) Trim-boundary-clipped Case-III open lenses violate Sederberg 1989's
-   closed-loop precondition — measured on `P0021`, both T6 contacts lie on
-   the base cap rim with Gauss maps separated by `61.9°` (`Cap_A × Cyl_B`)
-   and `51.7°` (`Cyl_A × Cyl_B`).
-4. **Verification.** Pins: `crates/yang-rs/src/tests_unit/s422_gauss_map.rs`
-   (13 unit and wiring pins covering dense UV + 3D barycentric conservativeness
-   oracles per surface, cone apex, torus inner equator, sphere poles,
-   periodic `±π` seams, rotated-frame tangency, disjoint-Gauss interior +
-   Ring-2 pruning with `refined == 0`, multi-triangle interior small loop,
-   and trim-clipped cylinder graze). `yang-rs` suite: 1,528 passed, 0 failed;
-   `kernel-v2` debug suite: 869 passed, 0 failed; `assay_kv2 --release` smoke:
-   13 passed, 0 failed. Canonical release corpus (`ASSAY_JOBS=8`, 900 s):
-   **360C / 0W / 9E / 5EE / 0T** over 374 (`results.json` byte-identical,
-   zero moved cases; wall 1039.8 s on shared host vs 930.9 s baseline).
-   Matrix `4.2-12`, `4.2-13`, `5.6-02` → FAITHFUL; `M-4` / `s42 F2`
-   resolved; `D13` amended. **State: RESOLVED** (2026-10-27).
+**Prior implementation.** No Gauss-map or normal-cone code existed in any kernel crate; `shell_contact.rs` `pieces_cross_point` (exact leaf crossing) ran directly on every $2d_\epsilon$ near pair. `D13` (HISTORICAL) wrongly called the filter moot for analytic surfaces; only its rational Bézier control-net half (Theorem 4.1, App. B) is out of scope under `D14`.
+
+**Implementation landed (2026-10-27, roadmap F4; spec `specs/yang_422_gauss_map_filter.md`).**
+1. **Closed-form conservative Gauss maps (`crates/yang-rs/src/gauss_map.rs`):** `GaussRegion` (spherical cap $\mathcal{C}(\hat{\mathbf{d}}, \theta) \cap$ axial polar-angle zone $Z(\hat{\mathbf{a}}, \vartheta_{\min}, \vartheta_{\max})$ on $S^2$) and stack-allocated `GaussMap` (union of up to 4 regions, with `GaussMap::FULL` covering $S^2$) bound both parameter-domain rectangles (`from_uv_rect`) and 3D mesh triangles / triangle sets (`from_triangle`, `from_triangles`) in closed form for all five analytic surfaces: `Plane` (singleton normal), `Cylinder` (equatorial arc split to $\le \pi$), `Cone` (small-circle arc, emitting the convex-dual polar normal cone at an apex straddle/touch and `FULL` across both nappes), `Sphere` (chart- and pole-free 3D central-projection geodesic cap + minimax UV lat-lon cap), and `Torus` (outer/inner tube split along $v \equiv \pm\pi/2$ and 3D meridian box unwrap across periodic seams). `GaussMap::overlaps` tests $\pm\mathbf{n}$ collinearity via Kahan's `2·atan2` angle formula with a `64·f64::EPSILON` IEEE-754 rounding guard.
+2. **Connected-area wiring (`crates/yang-rs/src/shell_contact.rs:432` `filter_candidates_by_gauss_map`, called from `contact_pairs_with_stats` `:677`):** Non-intersecting $2d_\epsilon$ near pairs on each `(fa, fb)` are grouped into vertex-connected components $C$. Strictly interior components whose `GaussMap`s are disjoint are rejected (`stats.gauss_rejected`) before `pieces_cross_point` (`:933`). On multi-triangle interior small loops, Sederberg's interior collinear pair lies in the same connected `reach` component as the loop perimeter, so component-level overlap preserves every interior loop.
+3. **Why `pieces_cross_point` (`:933`) stays behind the filter:** Parallel or facing non-intersecting surfaces within $2d_\epsilon$ (e.g. `R0015`'s parallel planes $2\times 10^{-7}$ apart) have collinear normals (`overlaps == true`); in the paper §4.3's seeded Newton rules them out (`:524-530`), whereas under `N7`/`N91` every emitted `ContactPair` drives §4.5.2 refinement (`RefinementExhausted` without `pieces_cross_point`).
+
+**Remaining divergence & case for keeping (`PROPOSED`, awaiting prose sign-off under A15.7).** `filter_candidates_by_gauss_map` exempts any connected $2d_\epsilon$ candidate component that (a) borders a `d_coarse == 0` mesh intersection on `(fa, fb)` (`borders_inter`) or (b) has a face-trim boundary edge within `reach` of the partner triangle (`pair_touches_trim_within_reach`), applying the `GaussMap` overlap test only to strictly interior components. The paper (`:440-446`, `:466-470` R) applies the overlap test to every potential-intersection area without stating this exemption. However, Sederberg et al. 1989's collinear-normal guarantee holds only inside a **closed** intersection loop (or at an interior tangency): when a Case-III sub-sagitta grazing lens is clipped open by face-trim boundaries $\partial F_A$ or $\partial F_B$, the exact intersection is an open arc between boundary curves and need not contain any collinear normal pair. Measured on `P0021` (`YANG_T6_PROBE=1`), the $6.16\times 10^{-6}$ grazing lens is clipped by the base cap rims (`[0.0008981, 0.0005436, 0.0014872]`), and the two T6 contact pairs have Gauss maps separated by **`61.9°`** (`Cap_A × Cyl_B`) and **`51.7°`** (`Cyl_A × Cyl_B`) — unexempted Gauss-map pruning would falsely discard both contacts and ship a missed intersection. Likewise, a $2d_\epsilon$ fringe bordering a `d_coarse == 0` crossing bounds an open mesh-captured curve segment rather than an isolated closed small loop. The exemption is strictly MORE conservative than the paper (zero false negatives; surviving candidates are still verified by `pieces_cross_point`).
+
+**Measured liveness and cost (`YANG_S422_GAUSS_PROBE`, 2026-10-27).**
+- **Full-corpus liveness (374 cases, `1,307` `contact_pairs_with_stats` calls across `315` cases):** `304,994` near-candidate pairs form `3,213` connected components (`2,778` trim-exempt / `277,710` pairs; `389` crossing-exempt / `26,590` pairs; `46` strictly interior / `694` pairs across `16` cases). **`8` corpus cases have `gauss_rejected > 0`**: `F0082` (`8` pairs / `2` comps), `P0045` (`4` / `1`, pruning 100% of its candidates so `refined = 0`), `P0049` (`12` / `2`), `R0019` (`2` / `1`), `R0025` (`3` / `1`), `R0032` (`2` / `2`), `R0050` (`1` / `1`), and `R0085` (`82` / `16`) — rejecting **`114` pairs across `26` of `46` strictly interior components (`56.5%`)** while preserving all `608` contacts (including `C0116`'s `8` strictly-interior small-loop contacts).
+- **Trim-reach & filter cost:** Across all `1,307` calls in the 374-case corpus (`347.634 s` total CPU in `contact_pairs_with_stats`: `sets_bvh = 2.505 s`, `coarse = 259.402 s`, `refine = 84.456 s`), `filter_candidates_by_gauss_map` spent **`1.271 s` (`0.37%`)** in total: `tri_trim_edge_mask = 0.606 s`, component grouping = `0.656 s`, `pair_touches_trim_within_reach = 0.007 s` (`7,118 µs`), and `GaussMap` evaluation/overlap = `0.001 s` (`1,191 µs`). Neither `pair_touches_trim_within_reach` nor `tri_trim_edge_mask` is a material cost.
+- **Single-case A/B timing (`ASSAY_JOBS=1 YANG_STAGE_TIME_PROBE=1 YANG_T6_COST_PROBE=1`, branch vs `main` `61ef66a2`):** `P0021` `1.0 s` vs `1.1 s` (census `0.002 s` vs `0.003 s`); `P0049` `2.7 s` vs `2.7 s` (census `0.011 s` vs `0.009 s`, iter-0 `refined` `20 → 8`); `R0025` `5.3 s` vs `5.3 s` (census `0.752 s` vs `0.722 s`, `gauss = 0.017 s`); `R0085` `254.9 s` vs `243.8 s` (census `45.455 s` vs `43.098 s`, `gauss = 0.229 s` total across 6 calls — `0.50%` of census — with `82` pairs Gauss-rejected).
+- **Suites & corpus:** `crates/yang-rs/src/tests_unit/s422_gauss_map.rs` (13 unit and wiring pins); `yang-rs` debug suite `1,528` passed / `0` failed; `kernel-v2` debug suite `869` passed / `0` failed; canonical release corpus **`360C / 0W / 9E / 5EE / 0T`** over 374 (`results.json` byte-identical, zero moved cases; wall `1039.8 s` unprobed, `1402.5 s` under shared-host load with probe). Matrix `4.2-12`, `4.2-13`, `5.6-02` → `PARTIAL` citing `N92`; `D13` amended.
+
+**State: PROPOSED** (2026-10-27, roadmap F4; awaits a prose sign-off from the user under A15.7).
 
 ### N93 — Stage 1 neither computes d(T) nor certifies d_ε (matrix M-6)
 

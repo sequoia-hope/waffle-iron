@@ -83,7 +83,7 @@ Both parameter-domain rectangles (`GaussMap::from_uv_rect`, in [`stage4_dt::eval
 
 ### Honest decision on `pieces_cross_point`: **complemented, NOT redundant**
 
-`pieces_cross_point` (`crates/yang-rs/src/shell_contact.rs:431`) **must be kept** behind the §4.2.2 Gauss-map filter for two independent, proven reasons:
+`pieces_cross_point` (`crates/yang-rs/src/shell_contact.rs:933`) **must be kept** behind the §4.2.2 Gauss-map filter for two independent, proven reasons:
 
 1. **False positives on parallel / facing disjoint surfaces (`N91` / `N89` item 2):**
    In Yang 2025, §4.2.2 eliminates only 40.7% of non-intersecting $2d_\epsilon$ candidates (`:466-470`); parallel or facing non-intersecting surfaces within $2d_\epsilon$ (e.g. `R0015`'s parallel planes $2 \times 10^{-7}$ apart, `shell_contact.rs:423-426`, or concentric cylinders/spheres) have **identical/antipodal normals**, so their Gauss maps overlap (`true`). In the paper, §4.3's seeded Newton solver subsequently classifies those seeds as *"no intersection"* (`:524-530`). Under `N7`/`N91`, `yang-rs` resolves every emitted `ContactPair` by §4.5.2 face refinement (`boolean::refine_loop`) rather than a seeded §4.3 solve; deleting `pieces_cross_point` would drive every parallel near-miss into `YangError::RefinementExhausted`.
@@ -109,3 +109,10 @@ Accordingly, `shell_contact::contact_pairs` runs in three stages per face pair `
 3. **Exact leaf-crossing test (`pieces_cross_point`):** Run on surviving non-intersecting, unskipped pairs `(t, s)` to filter parallel/facing non-intersecting false positives (`N91`) and confirm boundary-clipped crossings.
 
 *( Note: `shell_contact_census` / `pieces_may_touch` is kernel-v2's `N33` whole-shell set-algebra pre-check before Stage 2, where transversal crossings with non-collinear normals must report `Contact`; it is not a §4.2.2 site and is untouched. )*
+
+---
+
+## 5. Compliance Status (`N92` `PROPOSED`, Matrix `4.2-12` / `4.2-13` / `5.6-02` `PARTIAL`) and Measured Liveness
+
+- **Why `N92` is `PROPOSED` and rows `4.2-12` / `4.2-13` / `5.6-02` are `PARTIAL`:** Yang §4.2.2 (`:440-446`, `:466-470` R) applies the Gauss-map overlap check to every potential-intersection area without stating a boundary exemption. Restricting the overlap filter to strictly interior connected areas (exempting areas touching a `d_coarse == 0` mesh crossing or within `reach` of a face-trim boundary, where Sederberg 1989's closed-loop precondition fails — e.g. `P0021` at `61.9°` and `51.7°`) is strictly more conservative than the paper (never drops an intersection the paper keeps), but diverges from the literal text and therefore awaits prose sign-off from the user under governance A15.7.
+- **Measured corpus liveness & cost (`YANG_S422_GAUSS_PROBE`, 2026-10-27):** Across all 374 corpus cases (`1,307` `contact_pairs_with_stats` calls across `315` cases; `304,994` near-candidate pairs in `3,213` components: `2,778` trim-exempt / `277,710` pairs, `389` crossing-exempt / `26,590` pairs, `46` strictly interior / `694` pairs across `16` cases), **`8` cases have `gauss_rejected > 0`** (`F0082`: 8, `P0045`: 4, `P0049`: 12, `R0019`: 2, `R0025`: 3, `R0032`: 2, `R0050`: 1, `R0085`: 82 — **`114` pairs across `26` of `46` interior components, `56.5%`**, preserving all `608` contacts). Total CPU spent in `filter_candidates_by_gauss_map` across all 374 cases is **`1.271 s`** (`0.37%` of `contact_pairs`'s `347.634 s`), broken down into `tri_trim_edge_mask = 0.606 s`, component grouping = `0.656 s`, `pair_touches_trim_within_reach = 0.007 s`, and `GaussMap` evaluation/overlap = `0.001 s`.
