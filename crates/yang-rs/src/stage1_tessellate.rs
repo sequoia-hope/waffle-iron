@@ -5244,6 +5244,9 @@ mod torus_patch_tests;
 mod normals_chord_bounds;
 pub(crate) use normals_chord_bounds::*;
 
+mod deps_census;
+pub(crate) use deps_census::*;
+
 /// EXACT doubled signed chart area (shoelace) of the sub-loop of `lp` that
 /// runs forward from index `from` to index `to` and then closes directly back
 /// to `from`. Pure; no tolerance.

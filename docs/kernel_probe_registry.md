@@ -110,3 +110,5 @@ cargo feature**, not an environment variable.
 **Deleted 2026-10-16 (Phase 2a-i, the §4.5.3 sweep in the paper's order):** `YANG_453_RANK` (with the victim ranking), `YANG_453_PAIR` (kill switch and its result-changing `census` mode), `YANG_453_SPAIR`, `YANG_453_OVERTAKE` — the arms they switched are always on.
 
 **Added 2026-10-16:** `YANG_441_UPDATE_CENSUS=<file>` — Phase 2b increment 0 (`stage4_construct::update_census`): appends, per Stage-4 run, the outcome tally of the §4.4.1 per-patch rebuild over every intersected patch, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set).
+
+**Added 2026-10-27:** `YANG_S1_DEPS_CENSUS=<file>` — Roadmap F5 Step 1 (`stage1_tessellate::deps_census::maybe_log_stage1_deps_census`): appends, per initial operand `BRep::new`, one JSONL record comparing today's per-surface/edge Stage-1 `d_ε` values against the paper's §4.1.1 B-Rep model AABB `d_ε = 10⁻² · d` and recording Stage-1 inner/boundary `d(T)` bounds, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set).

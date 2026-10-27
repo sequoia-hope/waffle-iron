@@ -726,7 +726,12 @@ impl BRep {
         face_constraints: &crate::stage1_tessellate::FaceConstraints,
         face_refine: &crate::stage1_tessellate::FaceRefine,
     ) -> Result<Self, YangError> {
-        let tess = crate::stage1_tessellate_with_standing_overrides(
+        let is_initial_operand = min_n_seg.is_none()
+            && rim_overrides.is_empty()
+            && face_overrides.is_empty()
+            && face_constraints.is_empty()
+            && face_refine.is_empty();
+        let tess_res = crate::stage1_tessellate_with_standing_overrides(
             &verts,
             &edges,
             &faces,
@@ -735,7 +740,16 @@ impl BRep {
             face_constraints,
             face_refine,
             min_n_seg,
-        )?;
+        );
+        if is_initial_operand {
+            crate::stage1_tessellate::maybe_log_stage1_deps_census(
+                &verts,
+                &edges,
+                &faces,
+                tess_res.as_ref(),
+            );
+        }
+        let tess = tess_res?;
         let mut out = Self::from_topology_and_tess(verts, edges, faces, min_n_seg, tess)?;
         out.standing_rim = rim_overrides.clone();
         out.standing_face = face_overrides.clone();

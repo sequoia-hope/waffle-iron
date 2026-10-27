@@ -184,7 +184,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N82 | OPEN (2026-10-16, matrix O-3) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent boost), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
-| N85 | OPEN (2026-10-16, matrix U-1) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
+| N85 | OPEN (2026-10-16, matrix U-1; 2026-10-27: Step-1 corpus census landed, spec `yang_41_deps_from_bbox.md`) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
@@ -192,7 +192,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
-| N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
+| N93 | OPEN (2026-10-16, matrix M-6; 2026-10-27: Step-1 Stage-1 `d(T)` census landed, spec `yang_41_deps_from_bbox.md`) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
 | N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
 | N96 | **RESOLVED** (2026-10-18, found and fixed the same day; corpus 353C / 0W / 16E / 5EE / 0T, P0005 / P0020 / R0070 ERROR → CORRECT, zero drift) | The §4.5 domain certificate (T2) tested a crossing of a curved crease on its WHOLE circle / conic, not on the edge's arc — steps crossing a flank plane centimetres from a millimetre arc fired as leaving the face |
@@ -6620,7 +6620,7 @@ recording how it departs from the paper.
 
 **Remediation.** Move the base to the model AABB, measured on the corpus
 (a STRICTER-or-looser change per case, so a full run). Matrix 4.1-18,
-`s41 F1`. **State: OPEN** (found 2026-10-16).
+`s41 F1`. **2026-10-27 (F5 Step 1 census, `specs/yang_41_deps_from_bbox.md`, probe `YANG_S1_DEPS_CENSUS`):** across all `2,814` initial operand constructions (`361` boolean-invoking corpus cases; `1,672` all-planar, `1,142` curved-face; corpus `360C / 0W / 9E / 5EE / 0T`), `224 / 1,142` (`19.6 %`) curved operands today carry 2–3 distinct Stage-1 `d_ε` values across their own faces/edges; `d_eps_bbox / d_eps_today_primary` has `645` equal (`|r − 1| ≤ 1e-6`), `395` coarser under model AABB (`max = 15.418×` on `R0035`, `14.241×` on `F0083`), and `102` tighter (`min = 0.1079×` on `P0016`, `0.1731×` on `P0029`; quantiles `p05 = 0.7478`, `p50 = 1.0000`, `p75 = 1.9136`, `p95 = 8.2864`). **State: OPEN** (found 2026-10-16).
 
 ### N86 — Stage 0 carries its own Fig-11 mesh-updating subsystem (matrix U-2)
 
@@ -6913,7 +6913,7 @@ for cones). The faithful Theorem-A.1 primitive exists — `stage4_dt.rs:101`
 `d_of_t` — and only Stage 4 calls it.
 
 **Remediation.** Cleanup Phase 3 (with N5 / N61). Matrix 4.1-01, 4.1-26,
-`s41 F2`. **State: OPEN** (found 2026-10-16).
+`s41 F2`. **2026-10-27 (F5 Step 1 census, `specs/yang_41_deps_from_bbox.md`):** across all `3,269,201` curved Stage-1 triangles (`88,329` inner across `277` operands + `3,180,872` boundary across `1,142` operands), `stage4_dt::d_of_t` runs with `0` `DtError`s (`max |eval_uv − pt| = 1.467e-9`). Boundary triangles (`d_ε(T) := d(T)`, `:375-384`) have `max_dt_bdy / d_eps_today_primary` median `10.40×` (`max = 55.41×`). Single-triangle Fig.-6 `d_of_t(T)` exceeds today's face `d_ε` on `277 / 277` (`100 %`) of operands with curved inner triangles (`p50 = 5.336×`, `max = 18.461×`; `226 / 277` vs `d_eps_bbox`) because §4.1.1 certifies inner 4-corner sub-patches via Theorem A.2's planar quadrangle (`ω + d < d_ε`, `:1193-1209`), whereas single-triangle `d_of_t` includes the opposite quad corner (`O(√d_ε)`) and cylinder/torus charts emit unstructured CDT inner triangles (`N5`/`N61`). **State: OPEN** (found 2026-10-16).
 
 ### N94 — Boundary curves are restored as 3D analytic curves; no parametric-domain (p-)curves (matrix M-7)
 
