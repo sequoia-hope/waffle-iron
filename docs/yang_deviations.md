@@ -190,7 +190,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
-| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–3: §4.3 tangency-point Newton landed, Stage-1 `cyl_cyl_tangent_points` retired, and `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT landed) | Tangent points, small loops and sub-band contacts: isolated 0D tangency Newton (`stage4_tangency.rs`) and non-crossing small-loop resolution (`gauss_map.rs`, `stage4_small_loop.rs`, `C0116`, sub-band `C0118`) landed; Fig. 10(c) barycenter seeding + curve-redundancy removal follow in Step 4 |
+| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–4: §4.3 tangency-point Newton, Stage-1 `cyl_cyl_tangent_points` retirement, `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT, exact Fig. 10(c) barycenter seeding, and `:502-506` L curve-redundancy removal landed) | Tangent points, small loops and sub-band contacts: all §4.2.2/§4.3 tangency & interior small-loop mechanisms (`stage4_tangency.rs`, `gauss_map.rs`, `stage4_small_loop.rs`, `C0116`) landed; non-cylinder 0D tangent mesh insertion (`N82`), post-collapse single-survivor census (`N81`), and external 0D solid kiss policy (`C0107`–`C0109`) remain open |
 | N92 | **RESOLVED** (2026-10-27, roadmap F4 Step 3; folded into N91 from parked branch `agy/f4-n92-gaussmap` `1519f6ed`) | Closed-form conservative `GaussMap` (`crates/yang-rs/src/gauss_map.rs`, all 5 analytic surfaces) is wired in its §4.2.2 (`:440-446` R, Fig. 10(b) `:489-491` L) role as the admission test for `< 2d_ε` non-crossing small-loop / tangency candidate areas (`stage4_small_loop.rs`, `stage4_tangency.rs`) with zero trim-boundary exemption (`C0116` admitted unconditionally; orthogonal proximity pruned); Bézier Theorem 4.1 remains out of scope under D14 |
 | N93 | OPEN (2026-10-16, matrix M-6; 2026-10-27: Stage-1 `d(T)` (`BRep::tri_dt`) + loud `DtError` certificate check LIVE; inner Theorem A.2 `ω + d < d_ε` subdivision open under F5 item 3 / N5 / N61) | Stage 1 computes and checks `d(T)` per triangle (`BRep::tri_dt`), while inner `≤ d_ε` certification awaits Theorem A.2 sub-patch subdivision |
 | N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
@@ -6996,8 +6996,28 @@ from parked branch `agy/f4-n92-gaussmap` (`1519f6ed`) and built
    along the loop's common normal axis (`solve_common_axis_interior_caps`) and
    splices `r_A = r_B = r` + near-vertex clearance + interior caps into both
    Stage-1 meshes via local chart CDT (`§4.4.1` `:546-570` R).
-Next increment: exact Fig. 10(c) barycenter seeding + `:502-505` L
-curve-redundancy removal (Step 4).
+
+**Amendment (2026-10-27, roadmap F4 Step 4 — exact Fig. 10(c) barycenter seeding
++ `:502-506` L curve-redundancy removal landed).**
+1. Replaced closest-point pair seeds in both `stage4_small_loop::discover_small_loop_candidate_areas`
+   (upgraded from `O(n²)` to `O(9 n log n)` vertex-pair union-find) and
+   `stage4_tangency::discover_operand_pair_tangent_points_newton` with the
+   paper's exact Fig. 10(c) prescription (`refs/text/yang2025_hybrid_boolean.txt:471-473` R,
+   `:491-499` L): locate the triangle `T` on the left surface nearest to the
+   right surface, compute `p = barycenter(T)`, and find the exact closest point
+   `q` to `p` on the right face's mesh `M_B`, paired with per-coordinate
+   curvature/linear step caps (`LocalSurfaceChart::step_caps`) and sphere
+   equatorial re-centering (`LocalSurfaceChart::recenter_sphere_if_needed`)
+   (`4.2-17` `DEVIATES → FAITHFUL`, `4.3-12` `MISSING → FAITHFUL`).
+2. Implemented §4.2.2 (`:502-506` L) curve-redundancy removal in the small-loop
+   pass (`is_redundant_with_solved_curves` in `stage4_small_loop.rs`; `4.2-19`
+   remains `PARTIAL` while T6 crossing census still uses topological
+   `RingCapture`).
+Remaining couplings outside pure §4.3 optimization keep **N91** `OPEN`:
+non-cylinder 0D tangent mesh insertion (`N82`, milestone F2/F1), post-collapse
+single-survivor census on mesh-crossing chains (`N81`, milestone F3), open
+boundary-clipped sub-band grazes (`N89` item 2), and external 0D solid kiss
+non-manifold policy (`C0107`–`C0109`).
 **State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)

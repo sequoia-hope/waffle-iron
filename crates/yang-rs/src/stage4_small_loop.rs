@@ -27,16 +27,15 @@
 
 use crate::boolean::failures::{joined_triangle_pairs, RingCapture};
 use crate::gauss_map::GaussMap;
-use crate::shell_contact::{
-    closest_on_triangle, triangle_closest_pair, triangle_distance, Bvh, TriSet,
-};
+use crate::shell_contact::{closest_on_triangle, triangle_distance, Bvh, TriSet};
 use crate::stage3_ssi::{
     curve_contains_point, surface_to_quadric, torus_plane_is_perpendicular_section,
 };
 use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex, FaceCrease};
 use crate::stage4_correct::paper_chain_sample_redundant;
 use crate::stage4_relocate::{
-    s43_tangency_census_log, surface_distance_and_normal, surface_kind_tag,
+    relocate_onto_implicit_pair, s43_tangency_census_log, surface_distance_and_normal,
+    surface_kind_tag,
 };
 use crate::stage4_tangency::{
     add3, coincidence_floor, collinear_angle_rad, cross3, dot3, mag3, norm3, scale3,
@@ -70,22 +69,7 @@ pub(crate) struct SmallLoopCandidateArea {
 struct RawProxPair {
     ta: usize,
     tb: usize,
-    pa: V3,
-    pb: V3,
     dist: f64,
-}
-
-#[inline]
-fn tris_share_vertex(t0: [u32; 3], t1: [u32; 3]) -> bool {
-    t0[0] == t1[0]
-        || t0[0] == t1[1]
-        || t0[0] == t1[2]
-        || t0[1] == t1[0]
-        || t0[1] == t1[1]
-        || t0[1] == t1[2]
-        || t0[2] == t1[0]
-        || t0[2] == t1[1]
-        || t0[2] == t1[2]
 }
 
 fn model_scale_and_band(set_a: &TriSet, set_b: &TriSet) -> (f64, f64) {
@@ -171,14 +155,10 @@ pub(crate) fn discover_small_loop_candidate_areas(
             if capture.captured(ta as u32, tb as u32) {
                 return;
             }
-            let (pa, pb, _) = triangle_closest_pair(set_a.pts[ta], set_b.pts[tb]);
-            by_faces.entry((fa, fb)).or_default().push(RawProxPair {
-                ta,
-                tb,
-                pa,
-                pb,
-                dist: d,
-            });
+            by_faces
+                .entry((fa, fb))
+                .or_default()
+                .push(RawProxPair { ta, tb, dist: d });
         });
     }
 
@@ -194,18 +174,23 @@ pub(crate) fn discover_small_loop_candidate_areas(
             }
             x
         }
-        for i in 0..n {
-            let tri_ai = mesh_a.tris[pairs[i].ta];
-            let tri_bi = mesh_b.tris[pairs[i].tb];
-            for j in (i + 1)..n {
-                let adj_a = pairs[i].ta == pairs[j].ta
-                    || tris_share_vertex(tri_ai, mesh_a.tris[pairs[j].ta]);
-                let adj_b = pairs[i].tb == pairs[j].tb
-                    || tris_share_vertex(tri_bi, mesh_b.tris[pairs[j].tb]);
-                if adj_a && adj_b {
-                    let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-                    if ri != rj {
-                        parent[ri.max(rj)] = ri.min(rj);
+        // Two proximity pairs `(ta_i, tb_i)` and `(ta_j, tb_j)` belong to the
+        // same connected non-crossing patch iff `ta_i` shares ≥1 vertex with
+        // `ta_j` AND `tb_i` shares ≥1 vertex with `tb_j` — equivalently, iff
+        // they share ≥1 of the 9 `(va, vb)` vertex-pair keys (`O(9 n log n)`).
+        let mut first_owner: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for (i, pair) in pairs.iter().enumerate() {
+            let tri_a = mesh_a.tris[pair.ta];
+            let tri_b = mesh_b.tris[pair.tb];
+            for &va in &tri_a {
+                for &vb in &tri_b {
+                    if let Some(&j) = first_owner.get(&(va, vb)) {
+                        let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                        if ri != rj {
+                            parent[ri.max(rj)] = ri.min(rj);
+                        }
+                    } else {
+                        first_owner.insert((va, vb), i);
                     }
                 }
             }
@@ -251,6 +236,41 @@ pub(crate) fn discover_small_loop_candidate_areas(
                         .then_with(|| x.tb.cmp(&y.tb))
                 })
                 .expect("non-empty component");
+
+            // Fig. 10(c) (`yang2025_hybrid_boolean.txt:471-473` R, `:491-499` L):
+            // locate the triangle `T` on the left surface nearest to the right
+            // surface (`best.ta`), compute its centroid `p = barycenter(T)`, and
+            // find the exact closest point `q` to `p` on face `fb` in `M_B`.
+            let ta_best_pts = set_a.pts[best.ta].map(|p| p.as_array());
+            let pa = scale3(
+                add3(add3(ta_best_pts[0], ta_best_pts[1]), ta_best_pts[2]),
+                1.0 / 3.0,
+            );
+            let tb_init_pts = set_b.pts[best.tb].map(|p| p.as_array());
+            let mut best_pb =
+                closest_on_triangle(pa, tb_init_pts[0], tb_init_pts[1], tb_init_pts[2]);
+            let mut best_d2 = dot3(sub3(pa, best_pb), sub3(pa, best_pb));
+            let mut best_tb = best.tb;
+            let query_pad = best_d2.sqrt();
+            bvh_b.for_each_near(pa, pa, query_pad, |tb_u32| {
+                let tb = tb_u32 as usize;
+                if tri_face_b.get(tb).copied() != Some(fb) {
+                    return;
+                }
+                let t = set_b.pts[tb].map(|p| p.as_array());
+                let cand = closest_on_triangle(pa, t[0], t[1], t[2]);
+                let d2 = dot3(sub3(pa, cand), sub3(pa, cand));
+                if d2
+                    .total_cmp(&best_d2)
+                    .then_with(|| tb.cmp(&best_tb))
+                    .is_lt()
+                {
+                    best_d2 = d2;
+                    best_pb = cand;
+                    best_tb = tb;
+                }
+            });
+
             let max_dev_a = tris_a
                 .iter()
                 .map(|&ta| set_a.dev[ta])
@@ -284,8 +304,8 @@ pub(crate) fn discover_small_loop_candidate_areas(
                 tris_a,
                 tris_b,
                 gauss_overlap,
-                p_seed: Point3::new(best.pa[0], best.pa[1], best.pa[2]),
-                q_seed: Point3::new(best.pb[0], best.pb[1], best.pb[2]),
+                p_seed: Point3::new(pa[0], pa[1], pa[2]),
+                q_seed: Point3::new(best_pb[0], best_pb[1], best_pb[2]),
                 min_dist: best.dist,
                 max_dev_a,
                 max_dev_b,
@@ -1707,6 +1727,20 @@ fn ssi_curve_supports_point(surf_a: Surface, surf_b: Surface, pt: Point3, dp: f6
         .any(|c| curve_contains_point(c, pt, dp, sphere_r))
 }
 
+#[inline]
+fn point_to_segment_dist2(p: V3, a: V3, b: V3) -> f64 {
+    let ab = sub3(b, a);
+    let len2 = dot3(ab, ab);
+    let foot = if len2 <= 1e-30 {
+        a
+    } else {
+        let t = (dot3(sub3(p, a), ab) / len2).clamp(0.0, 1.0);
+        add3(a, scale3(ab, t))
+    };
+    let d = sub3(p, foot);
+    dot3(d, d)
+}
+
 fn point_near_any_loop(pt: Point3, loops: &[Vec<Point3>], tol: f64) -> bool {
     let p = pt.as_array();
     let tol2 = tol * tol;
@@ -1714,16 +1748,121 @@ fn point_near_any_loop(pt: Point3, loops: &[Vec<Point3>], tol: f64) -> bool {
         for i in 0..lp.len() {
             let a = lp[i].as_array();
             let b = lp[(i + 1) % lp.len()].as_array();
-            let ab = sub3(b, a);
-            let len2 = dot3(ab, ab);
-            let foot = if len2 <= 1e-30 {
-                a
-            } else {
-                let t = (dot3(sub3(p, a), ab) / len2).clamp(0.0, 1.0);
-                add3(a, scale3(ab, t))
-            };
-            if dot3(sub3(p, foot), sub3(p, foot)) <= tol2 {
+            if point_to_segment_dist2(p, a, b) <= tol2 {
                 return true;
+            }
+        }
+    }
+    false
+}
+
+/// Collect and relocate onto `(surf_a, surf_b)` every Stage-2 arrangement
+/// intersection edge `(u, v)` whose incident output triangles attribute to
+/// `(InputId(0), face_a)` and `(InputId(1), face_b)`.
+pub(crate) fn collect_solved_face_pair_segments(
+    la: &cherchi_rs::LabeledArrangement,
+    tri_face_a: &[u32],
+    tri_face_b: &[u32],
+    face_a: u32,
+    face_b: u32,
+    surf_a: Surface,
+    surf_b: Surface,
+) -> Vec<(Point3, Point3)> {
+    use cherchi_rs::InputId as LaInputId;
+    if la.intersection_edges.is_empty() {
+        return Vec::new();
+    }
+    let mut edge_flags: BTreeMap<(u32, u32), (bool, bool)> = BTreeMap::new();
+    for (ot, tri) in la.mesh.tris.iter().enumerate() {
+        for k in 0..3 {
+            let (i, j) = (tri[k], tri[(k + 1) % 3]);
+            let key = (i.min(j), i.max(j));
+            if !la.intersection_edges.contains(&key) {
+                continue;
+            }
+            let flags = edge_flags.entry(key).or_insert((false, false));
+            for &(inp, raw) in la.source.get(ot).map(Vec::as_slice).unwrap_or(&[]) {
+                if inp == LaInputId(0) && tri_face_a.get(raw as usize).copied() == Some(face_a) {
+                    flags.0 = true;
+                } else if inp == LaInputId(1)
+                    && tri_face_b.get(raw as usize).copied() == Some(face_b)
+                {
+                    flags.1 = true;
+                }
+            }
+        }
+    }
+
+    let mut reloc_cache: BTreeMap<u32, Option<Point3>> = BTreeMap::new();
+    let mut relocate_vert = |vid: u32| -> Option<Point3> {
+        if let Some(&cached) = reloc_cache.get(&vid) {
+            return cached;
+        }
+        let raw_pt = *la.mesh.verts.get(vid as usize)?;
+        let solved = relocate_onto_implicit_pair(raw_pt, surf_a, surf_b).or_else(|| {
+            solve_parametric_pair_newton(raw_pt, raw_pt, surf_a, surf_b).map(|s| s.point)
+        });
+        reloc_cache.insert(vid, solved);
+        solved
+    };
+
+    let mut segs = Vec::new();
+    for ((u, v), (has_a, has_b)) in edge_flags {
+        if !(has_a && has_b) {
+            continue;
+        }
+        if let (Some(pu), Some(pv)) = (relocate_vert(u), relocate_vert(v)) {
+            segs.push((pu, pv));
+        }
+    }
+    segs
+}
+
+/// Yang et al. 2025 §4.2.2 (`yang2025_hybrid_boolean.txt:502-505` L): a
+/// candidate intersection point `r0` is redundant if it falls on another
+/// accurately solved intersection curve (either an already-spliced small loop
+/// or an arrangement-witnessed curve on `(surf_a, surf_b)`).
+pub(crate) fn is_redundant_with_solved_curves(
+    r0: Point3,
+    surf_a: Surface,
+    surf_b: Surface,
+    solved_segs: &[(Point3, Point3)],
+    spliced_loops: &[Vec<Point3>],
+    dp: f64,
+) -> bool {
+    if point_near_any_loop(r0, spliced_loops, 3.0 * dp) {
+        return true;
+    }
+    if solved_segs.is_empty() {
+        return false;
+    }
+    let p = r0.as_array();
+    let dp2 = dp * dp;
+    if solved_segs
+        .iter()
+        .any(|&(a, b)| point_to_segment_dist2(p, a.as_array(), b.as_array()) <= dp2)
+    {
+        return true;
+    }
+
+    // Every non-`SurfacePair` `ssi_rs::SsiCurve` (`Circle`, `Line`, `Ellipse`,
+    // `Parabola`, single-sheet `Hyperbola`) is a single connected 1D curve
+    // branch. If `r0` and a relocated arrangement segment `(a, b)` both lie
+    // within `dp` of the same connected conic branch, `r0` falls on that
+    // already-solved intersection curve (`:502-505` L).
+    if let (Ok(qa), Ok(qb)) = (surface_to_quadric(surf_a), surface_to_quadric(surf_b)) {
+        if let Ok(cands) = ssi_rs::intersect(&qa, &qb) {
+            for c in &cands {
+                if matches!(c, ssi_rs::SsiCurve::SurfacePair { .. }) {
+                    continue;
+                }
+                if curve_contains_point(c, r0, dp, None)
+                    && solved_segs.iter().any(|&(a, b)| {
+                        curve_contains_point(c, a, dp, None) && curve_contains_point(c, b, dp, None)
+                    })
+                {
+                    return true;
+                }
             }
         }
     }
@@ -1781,6 +1920,7 @@ pub(crate) fn resolve_and_splice_small_loops(
     let mut tf_b_work = tri_face_b.to_vec();
     let mut spliced_loops: Vec<Vec<Point3>> = Vec::new();
     let mut loop_chords: Vec<(Point3, Point3)> = Vec::new();
+    let mut solved_segs_by_pair: BTreeMap<(u32, u32), Vec<(Point3, Point3)>> = BTreeMap::new();
 
     for area in &areas {
         if !area.gauss_overlap {
@@ -1805,6 +1945,12 @@ pub(crate) fn resolve_and_splice_small_loops(
                 hi[k] = hi[k].max(set_b.hi[tb][k]);
             }
         }
+        for seed_pt in [area.p_seed.as_array(), area.q_seed.as_array()] {
+            for k in 0..3 {
+                lo[k] = lo[k].min(seed_pt[k]);
+                hi[k] = hi[k].max(seed_pt[k]);
+            }
+        }
         let area_diag = norm3(sub3(hi, lo)) + area.max_dev_a + area.max_dev_b + band;
 
         let seed_res =
@@ -1814,30 +1960,50 @@ pub(crate) fn resolve_and_splice_small_loops(
             continue;
         };
         let r0 = seed_sol.point;
-        if point_near_any_loop(r0, &spliced_loops, 3.0 * dp) {
-            s43_tangency_census_log("small_loop_decline", "near_existing_loop");
+
+        let solved_segs = solved_segs_by_pair
+            .entry((area.face_a, area.face_b))
+            .or_insert_with(|| {
+                collect_solved_face_pair_segments(
+                    la,
+                    tri_face_a,
+                    tri_face_b,
+                    area.face_a,
+                    area.face_b,
+                    surf_a,
+                    surf_b,
+                )
+            });
+        if is_redundant_with_solved_curves(r0, surf_a, surf_b, solved_segs, &spliced_loops, dp) {
+            s43_tangency_census_log("small_loop_redundant_on_solved_curve", "pre_trace");
             continue;
         }
 
         // Eq. (1) (`:456` L) postcondition: `r0` must sit within `d_ε + band`
         // of the candidate area's triangles on BOTH operands.
         let r0_arr = r0.as_array();
-        let d_area_a = area
-            .tris_a
-            .iter()
-            .map(|&ta| {
-                let t = set_a.pts[ta].map(|p| p.as_array());
-                norm3(sub3(r0_arr, closest_on_triangle(r0_arr, t[0], t[1], t[2])))
-            })
-            .fold(f64::INFINITY, f64::min);
-        let d_area_b = area
-            .tris_b
-            .iter()
-            .map(|&tb| {
-                let t = set_b.pts[tb].map(|p| p.as_array());
-                norm3(sub3(r0_arr, closest_on_triangle(r0_arr, t[0], t[1], t[2])))
-            })
-            .fold(f64::INFINITY, f64::min);
+        let mut d_area_a = f64::INFINITY;
+        let mut foot_a = area.p_seed.as_array();
+        for &ta in &area.tris_a {
+            let t = set_a.pts[ta].map(|p| p.as_array());
+            let c = closest_on_triangle(r0_arr, t[0], t[1], t[2]);
+            let d = norm3(sub3(r0_arr, c));
+            if d < d_area_a {
+                d_area_a = d;
+                foot_a = c;
+            }
+        }
+        let mut d_area_b = f64::INFINITY;
+        let mut foot_b = area.q_seed.as_array();
+        for &tb in &area.tris_b {
+            let t = set_b.pts[tb].map(|p| p.as_array());
+            let c = closest_on_triangle(r0_arr, t[0], t[1], t[2]);
+            let d = norm3(sub3(r0_arr, c));
+            if d < d_area_b {
+                d_area_b = d;
+                foot_b = c;
+            }
+        }
         if d_area_a > area.max_dev_a + band || d_area_b > area.max_dev_b + band {
             s43_tangency_census_log(
                 "small_loop_decline",
@@ -1852,8 +2018,10 @@ pub(crate) fn resolve_and_splice_small_loops(
 
         let cr_a = creases_a.faces.get(fa).map_or(&[][..], Vec::as_slice);
         let cr_b = creases_b.faces.get(fb).map_or(&[][..], Vec::as_slice);
-        if boundary_crease_crossed(area.p_seed, r0, cr_a).is_some()
-            || boundary_crease_crossed(area.q_seed, r0, cr_b).is_some()
+        let foot_pt_a = Point3::new(foot_a[0], foot_a[1], foot_a[2]);
+        let foot_pt_b = Point3::new(foot_b[0], foot_b[1], foot_b[2]);
+        if boundary_crease_crossed(foot_pt_a, r0, cr_a).is_some()
+            || boundary_crease_crossed(foot_pt_b, r0, cr_b).is_some()
         {
             s43_tangency_census_log("small_loop_decline", "seed_crease_crossed");
             continue;
@@ -1868,6 +2036,20 @@ pub(crate) fn resolve_and_splice_small_loops(
             s43_tangency_census_log("small_loop_decline", "trace_failed");
             continue;
         };
+        // For degree-4 `SurfacePair`s (whose zero set can contain multiple
+        // disjoint loops), `loop_pts` is refined to §4.3.4 sagitta `< 10² d_p`
+        // (`:590` L): if any relocated arrangement vertex on `(fa, fb)` lies
+        // within `10² d_p` of `loop_pts`, `loop_pts` is the same connected
+        // curve component already captured by the arrangement (`:502-505` L).
+        if !solved_segs.is_empty()
+            && solved_segs.iter().any(|&(p0, p1)| {
+                point_near_any_loop(p0, std::slice::from_ref(&loop_pts), 100.0 * dp)
+                    || point_near_any_loop(p1, std::slice::from_ref(&loop_pts), 100.0 * dp)
+            })
+        {
+            s43_tangency_census_log("small_loop_redundant_on_solved_curve", "post_trace_pair");
+            continue;
+        }
         let (tau, _) = coincidence_floor(r0, r0, surf_a, surf_b);
         let Some(cap_plan) =
             solve_common_axis_interior_caps(&loop_pts, surf_a, surf_b, cr_a, cr_b, tau)

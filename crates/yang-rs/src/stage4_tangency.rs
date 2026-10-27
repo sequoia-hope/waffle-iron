@@ -23,7 +23,7 @@
 //! [`LocalSurfaceChart`]s with zero surface-type-pair branching.
 
 use crate::gauss_map::GaussMap;
-use crate::shell_contact::{triangle_closest_pair, triangle_distance, Bvh, TriSet};
+use crate::shell_contact::{closest_on_triangle, triangle_distance, Bvh, TriSet};
 use crate::stage4_relocate::{
     s43_tangency_census_log, surface_anchor_magnitude, surface_distance_and_normal,
     surface_kind_tag,
@@ -358,6 +358,69 @@ impl LocalSurfaceChart {
                 ..
             } => (2.2 * u_scale, 2.2 * minor_radius),
         }
+    }
+
+    /// Per-coordinate positive step caps `[cap_u, cap_v]` for damped parametric
+    /// Newton steps from Fig. 10(c) triangle-barycenter seeds
+    /// (`yang2025_hybrid_boolean.txt:471-473` R, `:491-495` L).
+    ///
+    /// Curved angular coordinates (`Sphere` `(u, v)`, `Cylinder`/`Cone` `u`,
+    /// `Torus` `(u, v)`) stay bounded by `curv_factor` radians of arc so an
+    /// iterate never wraps past a periodic branch, while zero-curvature linear
+    /// coordinates (`Plane` `(u, v)`, `Cylinder` axial `v`, `Cone` outward
+    /// slant `+v`) allow full-face steps `lin_cap` in a single Newton step.
+    pub(crate) fn step_caps(
+        &self,
+        x_cur: [f64; 2],
+        delta_uv: [f64; 2],
+        curv_factor: f64,
+        lin_cap: f64,
+    ) -> [f64; 2] {
+        match *self {
+            Self::Plane { .. } => [lin_cap, lin_cap],
+            Self::Sphere { radius, .. } => {
+                let c = (curv_factor * radius).max(1e-6);
+                [c, c]
+            }
+            Self::Cylinder { radius, .. } => [(curv_factor * radius).max(1e-6), lin_cap],
+            Self::Cone { u_scale, s0, .. } => {
+                let cu = (curv_factor * u_scale).max(1e-6);
+                let cv = if delta_uv[1] < 0.0 {
+                    // Keep `sigma = s0 + v > 0` strictly away from the cone apex.
+                    0.75 * (s0 + x_cur[1]).max(1e-6)
+                } else {
+                    lin_cap
+                };
+                [cu, cv]
+            }
+            Self::Torus {
+                u_scale,
+                minor_radius,
+                ..
+            } => [
+                (curv_factor * u_scale).max(1e-6),
+                (curv_factor * minor_radius).max(1e-6),
+            ],
+        }
+    }
+
+    /// Re-center a `Sphere` chart onto the local equator `(u, v) = (0, 0)` at
+    /// `point` whenever latitude `|phi| = |v / radius| > 0.8` rad, keeping
+    /// iterates far from the `±90°` chart poles even from coarse seeds.
+    pub(crate) fn recenter_sphere_if_needed(
+        &mut self,
+        surface: Surface,
+        uv: &mut (f64, f64),
+        point: V3,
+    ) -> Option<bool> {
+        if let Self::Sphere { radius, .. } = *self {
+            if uv.1.abs() > 0.8 * radius {
+                *self = Self::new(surface, Point3::new(point[0], point[1], point[2]))?;
+                *uv = (0.0, 0.0);
+                return Some(true);
+            }
+        }
+        Some(false)
     }
 
     /// Evaluate position, tangent vectors, unit outward normal, and normal
@@ -936,13 +999,15 @@ pub(crate) fn solve_parametric_pair_newton(
     s_b: Surface,
 ) -> Option<ParametricPairSolution> {
     const MAX_ITERS: usize = 56;
-    let chart_a = LocalSurfaceChart::new(s_a, p_seed)?;
-    let chart_b = LocalSurfaceChart::new(s_b, q_seed)?;
+    let mut chart_a = LocalSurfaceChart::new(s_a, p_seed)?;
+    let mut chart_b = LocalSurfaceChart::new(s_b, q_seed)?;
     let (u0, v0) = chart_a.project(p_seed.as_array())?;
     let (s0, t0) = chart_b.project(q_seed.as_array())?;
     let (tau, scale) = coincidence_floor(p_seed, q_seed, s_a, s_b);
     let gap_machine_tol = 16.0 * f64::EPSILON * scale;
-    let step_cap = match (
+    let seed_sep = norm3(sub3(p_seed.as_array(), q_seed.as_array()));
+    let lin_cap = 2.0 * (seed_sep + scale.max(1.0));
+    let curv_cap = match (
         chart_a.characteristic_radius(),
         chart_b.characteristic_radius(),
     ) {
@@ -975,8 +1040,20 @@ pub(crate) fn solve_parametric_pair_newton(
 
     let mut x = [u0, v0, s0, t0];
     for it in 0..=MAX_ITERS {
-        let ea = chart_a.eval(x[0], x[1])?;
-        let eb = chart_b.eval(x[2], x[3])?;
+        let mut ea = chart_a.eval(x[0], x[1])?;
+        let mut uv_a = (x[0], x[1]);
+        if chart_a.recenter_sphere_if_needed(s_a, &mut uv_a, ea.point)? {
+            x[0] = uv_a.0;
+            x[1] = uv_a.1;
+            ea = chart_a.eval(x[0], x[1])?;
+        }
+        let mut eb = chart_b.eval(x[2], x[3])?;
+        let mut uv_b = (x[2], x[3]);
+        if chart_b.recenter_sphere_if_needed(s_b, &mut uv_b, eb.point)? {
+            x[2] = uv_b.0;
+            x[3] = uv_b.1;
+            eb = chart_b.eval(x[2], x[3])?;
+        }
         let d_vec = sub3(ea.point, eb.point);
         let gap = norm3(d_vec);
         if gap <= gap_machine_tol {
@@ -1004,7 +1081,7 @@ pub(crate) fn solve_parametric_pair_newton(
         }
         if grad_sq.sqrt() <= 1e-13 * gap.max(tau) {
             if let Some(x_esc) = quadratic_collinear_loop_escape(
-                &chart_a, &chart_b, x, &ea, &eb, d_vec, gap, step_cap,
+                &chart_a, &chart_b, x, &ea, &eb, d_vec, gap, curv_cap,
             ) {
                 x = x_esc;
                 continue;
@@ -1036,8 +1113,12 @@ pub(crate) fn solve_parametric_pair_newton(
         if d_norm <= 1e-15 * scale || it == MAX_ITERS {
             return try_accept(x, &ea, &eb, gap);
         }
-        if d_norm > step_cap {
-            let sc = step_cap / d_norm;
+        let caps_a = chart_a.step_caps([x[0], x[1]], [delta[0], delta[1]], 0.75, lin_cap);
+        let caps_b = chart_b.step_caps([x[2], x[3]], [delta[2], delta[3]], 0.75, lin_cap);
+        let caps = [caps_a[0], caps_a[1], caps_b[0], caps_b[1]];
+        let ratio = (0..4).fold(1.0_f64, |m, i| m.max(delta[i].abs() / caps[i]));
+        if ratio > 1.0 {
+            let sc = 1.0 / ratio;
             for d in &mut delta {
                 *d *= sc;
             }
@@ -1111,12 +1192,13 @@ pub(crate) fn solve_tangent_point_newton(
         (Some(r), None) | (None, Some(r)) => r.max(1e-6),
         (None, None) => scale,
     };
-    let step_cap = 0.85 * w_ang.max(1e-3);
+    let seed_sep = norm3(sub3(p_seed.as_array(), q_seed.as_array()));
+    let lin_cap = 2.0 * (seed_sep + scale.max(1.0));
 
     let dot0 = dot3(ea0.normal, eb0.normal);
-    let signs: &[f64] = if dot0 > 0.35 {
+    let signs: &[f64] = if dot0 > 0.75 {
         &[1.0]
-    } else if dot0 < -0.35 {
+    } else if dot0 < -0.75 {
         &[-1.0]
     } else if dot0 >= 0.0 {
         &[1.0, -1.0]
@@ -1127,15 +1209,15 @@ pub(crate) fn solve_tangent_point_newton(
     let mut best_sol: Option<(f64, TangentSolution)> = None;
     for &sigma_sign in signs {
         if let Some(sol) = solve_tangent_with_sign(
-            &chart_a,
-            &chart_b,
+            chart_a,
+            chart_b,
             [u0, v0, s0, t0],
             p_seed,
             s_a,
             s_b,
             sigma_sign,
             w_ang,
-            step_cap,
+            lin_cap,
             tau,
             scale,
             max_drift,
@@ -1151,15 +1233,15 @@ pub(crate) fn solve_tangent_point_newton(
 
 #[allow(clippy::too_many_arguments)]
 fn solve_tangent_with_sign(
-    chart_a: &LocalSurfaceChart,
-    chart_b: &LocalSurfaceChart,
+    mut chart_a: LocalSurfaceChart,
+    mut chart_b: LocalSurfaceChart,
     x_init: [f64; 4],
     p_seed: Point3,
     s_a: Surface,
     s_b: Surface,
     sigma_sign: f64,
     w_ang: f64,
-    step_cap: f64,
+    lin_cap: f64,
     tau: f64,
     scale: f64,
     max_drift: Option<f64>,
@@ -1208,8 +1290,20 @@ fn solve_tangent_with_sign(
 
     let mut x = x_init;
     for it in 0..=MAX_ITERS {
-        let ea = chart_a.eval(x[0], x[1])?;
-        let eb = chart_b.eval(x[2], x[3])?;
+        let mut ea = chart_a.eval(x[0], x[1])?;
+        let mut uv_a = (x[0], x[1]);
+        if chart_a.recenter_sphere_if_needed(s_a, &mut uv_a, ea.point)? {
+            x[0] = uv_a.0;
+            x[1] = uv_a.1;
+            ea = chart_a.eval(x[0], x[1])?;
+        }
+        let mut eb = chart_b.eval(x[2], x[3])?;
+        let mut uv_b = (x[2], x[3]);
+        if chart_b.recenter_sphere_if_needed(s_b, &mut uv_b, eb.point)? {
+            x[2] = uv_b.0;
+            x[3] = uv_b.1;
+            eb = chart_b.eval(x[2], x[3])?;
+        }
         let target_n = scale3(eb.normal, sigma_sign);
         let (l0v, l1v) = ortho_basis(Vector3::new(target_n[0], target_n[1], target_n[2]));
         let (l0, l1) = (l0v.as_array(), l1v.as_array());
@@ -1308,8 +1402,12 @@ fn solve_tangent_with_sign(
         if d_norm <= 1e-15 * scale || it == MAX_ITERS {
             return try_accept(x, &ea, &eb, rank, aligned, gap, ang);
         }
-        if d_norm > step_cap {
-            let sc = step_cap / d_norm;
+        let caps_a = chart_a.step_caps([x[0], x[1]], [delta[0], delta[1]], 0.85, lin_cap);
+        let caps_b = chart_b.step_caps([x[2], x[3]], [delta[2], delta[3]], 0.85, lin_cap);
+        let caps = [caps_a[0], caps_a[1], caps_b[0], caps_b[1]];
+        let ratio = (0..4).fold(1.0_f64, |m, i| m.max(delta[i].abs() / caps[i]));
+        if ratio > 1.0 {
+            let sc = 1.0 / ratio;
             for d in &mut delta {
                 *d *= sc;
             }
@@ -1538,9 +1636,13 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
     let max_dev_b = set_b.dev.iter().copied().fold(0.0_f64, f64::max);
     let bvh_b = Bvh::new(&set_b);
 
-    // Collect candidate seeds per `(fa, fb)` from `< d_ε(t_a) + d_ε(t_b) + band`
-    // triangle pairs, deduplicating nearby seeds before running Newton.
-    let mut pair_seeds: BTreeMap<(u32, u32), Vec<(Point3, Point3)>> = BTreeMap::new();
+    // Collect Fig. 10(b)–(c) seeds per `(fa, fb)` (`yang2025_hybrid_boolean.txt:471-473` R,
+    // `:489-499` L): filter `< 2d_ε` pairs whose closed-form Gauss maps overlap
+    // into red sectors on `M_A`, locate the nearest triangle `T` per sector
+    // (local minimum of `d(△t_A, fb)` over vertex-adjacent qualifying triangles
+    // of `M_A`), and seed Newton from `p = barycenter(T)` and its exact closest
+    // point `q` on `fb` in `M_B`.
+    let mut sectors_by_pair: BTreeMap<(u32, u32), BTreeMap<usize, (usize, f64)>> = BTreeMap::new();
     for (ta_idx, &fa) in tri_face_a.iter().enumerate().take(set_a.pts.len()) {
         let surf_a = set_a.surf[ta_idx];
         let pad = set_a.dev[ta_idx] + max_dev_b + band;
@@ -1573,21 +1675,85 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
             if !gm_a.overlaps(&gm_b) {
                 return;
             }
-            let (pa, pb, _) = triangle_closest_pair(set_a.pts[ta_idx], set_b.pts[tb_idx]);
-            let seeds = pair_seeds.entry((fa, fb)).or_default();
-            let dedup_r2 = (0.25 * reach).powi(2);
-            let already_near = seeds.iter().any(|&(sa, sb)| {
-                let da = sub3(sa.as_array(), pa);
-                let db = sub3(sb.as_array(), pb);
-                dot3(da, da) <= dedup_r2 && dot3(db, db) <= dedup_r2
-            });
-            if !already_near {
-                seeds.push((
-                    Point3::new(pa[0], pa[1], pa[2]),
-                    Point3::new(pb[0], pb[1], pb[2]),
-                ));
-            }
+            sectors_by_pair
+                .entry((fa, fb))
+                .or_default()
+                .entry(ta_idx)
+                .and_modify(|cur| {
+                    if d.total_cmp(&cur.1).then_with(|| tb_idx.cmp(&cur.0)).is_lt() {
+                        *cur = (tb_idx, d);
+                    }
+                })
+                .or_insert((tb_idx, d));
         });
+    }
+
+    let a_tris = &a.as_mesh().tris;
+    let mut pair_seeds: BTreeMap<(u32, u32), Vec<(Point3, Point3)>> = BTreeMap::new();
+    for ((fa, fb), sector_tas) in sectors_by_pair {
+        let mut v_owners: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+        for &ta_idx in sector_tas.keys() {
+            for &v in &a_tris[ta_idx] {
+                v_owners.entry(v).or_default().push(ta_idx);
+            }
+        }
+        let seeds = pair_seeds.entry((fa, fb)).or_default();
+        for (&ta_idx, &(tb_init, min_d)) in &sector_tas {
+            // For non-crossing sectors (`min_d > 0`, Fig. 10(b)–(c)), pick the
+            // strict local-minimum triangle `(min_d, ta_idx)`. For crossing
+            // triangles (`min_d == 0`, e.g. antipodal Steinmetz saddles on
+            // `C0058` / `F0056`–`F0060` when run pre-Stage-2 under N82), every
+            // Gauss-map-overlapping crossing triangle already attains `d = 0`
+            // to `M_B` along the crossing curve, so breaking `0 == 0` ties by
+            // `ta_idx` across the connected circumference would drop the second
+            // saddle.
+            let is_sector_min = min_d == 0.0
+                || a_tris[ta_idx].iter().all(|v| {
+                    v_owners[v].iter().all(|&other_ta| {
+                        if other_ta == ta_idx {
+                            return true;
+                        }
+                        let other_d = sector_tas[&other_ta].1;
+                        min_d
+                            .total_cmp(&other_d)
+                            .then_with(|| ta_idx.cmp(&other_ta))
+                            .is_lt()
+                    })
+                });
+            if !is_sector_min {
+                continue;
+            }
+            let ta_pts = set_a.pts[ta_idx].map(|p| p.as_array());
+            let pa = scale3(add3(add3(ta_pts[0], ta_pts[1]), ta_pts[2]), 1.0 / 3.0);
+            let tb_init_pts = set_b.pts[tb_init].map(|p| p.as_array());
+            let mut best_pb =
+                closest_on_triangle(pa, tb_init_pts[0], tb_init_pts[1], tb_init_pts[2]);
+            let mut best_d2 = dot3(sub3(pa, best_pb), sub3(pa, best_pb));
+            let mut best_tb = tb_init;
+            let query_pad = best_d2.sqrt();
+            bvh_b.for_each_near(pa, pa, query_pad, |tb_u32| {
+                let tb = tb_u32 as usize;
+                if tri_face_b.get(tb).copied() != Some(fb) {
+                    return;
+                }
+                let t = set_b.pts[tb].map(|p| p.as_array());
+                let cand = closest_on_triangle(pa, t[0], t[1], t[2]);
+                let d2 = dot3(sub3(pa, cand), sub3(pa, cand));
+                if d2
+                    .total_cmp(&best_d2)
+                    .then_with(|| tb.cmp(&best_tb))
+                    .is_lt()
+                {
+                    best_d2 = d2;
+                    best_pb = cand;
+                    best_tb = tb;
+                }
+            });
+            seeds.push((
+                Point3::new(pa[0], pa[1], pa[2]),
+                Point3::new(best_pb[0], best_pb[1], best_pb[2]),
+            ));
+        }
     }
 
     let merge_tol = cad_primitives::TAU_MODEL * (1.0 + scale);

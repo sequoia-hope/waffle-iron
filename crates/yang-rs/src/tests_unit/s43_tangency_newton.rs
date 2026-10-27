@@ -3,11 +3,15 @@
 //! spec `specs/yang_43_tangency_newton.md`, roadmap F4 / N91).
 
 use super::*;
+use crate::shell_contact::closest_on_triangle;
 use crate::signed_distance_to_surface;
 use crate::stage4_relocate::relocate_onto_implicit_pair;
+use crate::stage4_small_loop::{
+    discover_small_loop_candidate_areas, is_redundant_with_solved_curves,
+};
 use crate::stage4_tangency::{
-    discover_operand_pair_tangent_points_newton, solve_and_classify_seed,
-    solve_parametric_pair_newton, solve_tangent_point_newton, LocalSurfaceChart,
+    add3, discover_operand_pair_tangent_points_newton, norm3, scale3, solve_and_classify_seed,
+    solve_parametric_pair_newton, solve_tangent_point_newton, sub3, LocalSurfaceChart,
     SeedOptimizationResult, TangencyKind,
 };
 
@@ -496,4 +500,210 @@ fn s43_seed_classifier_distinguishes_small_loop_from_tangency_on_c0116() {
         }
         other => panic!("expected CurvePoint on C0116 small loop, got {other:?}"),
     }
+}
+
+/// Pin 5 (Fig. 10(c) `:471-473` R, `:491-499` L): candidate areas construct
+/// `p_seed = barycenter(△t_A)` on the nearest triangle `T` of the left surface
+/// and `q_seed` = exact closest point to `p_seed` on the right face's mesh,
+/// and damped Newton with per-coordinate curvature/linear step caps converges
+/// even when `△t_A` spans a `H = 40` tall cylinder ruling in either operand order.
+#[test]
+fn s43_fig10c_barycenter_seed_matches_paper_and_converges_on_tall_cylinders() {
+    let backend = native_backend().expect("native backend");
+    let tall_a = tube_brep([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.5, -19.0, 21.0);
+    let short_b = tube_brep([0.0, 0.99, 1.0], [1.0, 0.0, 0.0], 0.5, -1.5, 1.5);
+
+    for (lhs, rhs) in [(&tall_a, &short_b), (&short_b, &tall_a)] {
+        let la = backend
+            .labeled_arrangement(lhs.as_mesh(), rhs.as_mesh())
+            .expect("arrangement");
+        let areas = discover_small_loop_candidate_areas(
+            lhs,
+            lhs.as_mesh(),
+            lhs.tri_face(),
+            rhs,
+            rhs.as_mesh(),
+            rhs.tri_face(),
+            &la,
+        );
+        let area = areas
+            .iter()
+            .find(|ar| ar.gauss_overlap)
+            .expect("expected Gauss-map-admitted small-loop area");
+
+        // `p_seed` must equal the exact barycenter of one of `area.tris_a`.
+        let matched_bary = area.tris_a.iter().any(|&ta| {
+            let tri = lhs.as_mesh().tris[ta];
+            let v0 = lhs.as_mesh().verts[tri[0] as usize].as_array();
+            let v1 = lhs.as_mesh().verts[tri[1] as usize].as_array();
+            let v2 = lhs.as_mesh().verts[tri[2] as usize].as_array();
+            let bary = scale3(add3(add3(v0, v1), v2), 1.0 / 3.0);
+            norm3(sub3(area.p_seed.as_array(), bary)) < 1e-14
+        });
+        assert!(
+            matched_bary,
+            "p_seed {:?} is not the barycenter of any triangle in tris_a",
+            area.p_seed
+        );
+
+        // `q_seed` must achieve the exact minimum distance from `p_seed` to
+        // `face_b`'s mesh triangles.
+        let pa = area.p_seed.as_array();
+        let brute_min_d = rhs
+            .tri_face()
+            .iter()
+            .enumerate()
+            .filter(|&(_, &fb)| fb == area.face_b)
+            .map(|(tb, _)| {
+                let tri = rhs.as_mesh().tris[tb];
+                let t0 = rhs.as_mesh().verts[tri[0] as usize].as_array();
+                let t1 = rhs.as_mesh().verts[tri[1] as usize].as_array();
+                let t2 = rhs.as_mesh().verts[tri[2] as usize].as_array();
+                norm3(sub3(pa, closest_on_triangle(pa, t0, t1, t2)))
+            })
+            .fold(f64::INFINITY, f64::min);
+        let q_dist = dist3(area.p_seed, area.q_seed);
+        assert!(
+            (q_dist - brute_min_d).abs() < 1e-13,
+            "q_seed distance {q_dist} != brute-force closest distance {brute_min_d}"
+        );
+
+        let surf_a = lhs.faces()[area.face_a as usize].surface;
+        let surf_b = rhs.faces()[area.face_b as usize].surface;
+        match solve_and_classify_seed(area.p_seed, area.q_seed, surf_a, surf_b, Some(50.0)) {
+            SeedOptimizationResult::CurvePoint(sol) => {
+                assert!(sol.surface_gap <= 1e-12);
+                assert!(signed_distance_to_surface(surf_a, sol.point).unwrap().abs() < 1e-12);
+                assert!(signed_distance_to_surface(surf_b, sol.point).unwrap().abs() < 1e-12);
+            }
+            other => {
+                panic!("expected CurvePoint from tall-cylinder Fig. 10(c) seed, got {other:?}")
+            }
+        }
+    }
+
+    // Tall-cylinder (`H = 40`) × sphere external kiss at `(0.5, 0, 1)`:
+    // seeding `p_seed` at `z = 14.3` on the cylinder ruling (`~13.3` units
+    // away from the kiss) converges to `< 1e-14`.
+    let cyl = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 0.5,
+    };
+    let sph = Surface::Sphere {
+        center: Point3::new(1.5, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let p_tall = Point3::new(0.495, 0.05, 14.3);
+    let q_sph = Point3::new(0.51, 0.04, 1.12);
+    let sol_kiss = solve_tangent_point_newton(p_tall, q_sph, cyl, sph, None)
+        .expect("tall-cylinder × sphere kiss converges from Fig. 10(c) seed");
+    assert_eq!(sol_kiss.kind, TangencyKind::IsolatedKiss);
+    assert!(
+        dist3(sol_kiss.point, Point3::new(0.5, 0.0, 1.0)) < 1e-14,
+        "got {:?}",
+        sol_kiss.point
+    );
+}
+
+/// Pin 6 (§4.2.2 `:502-505` L curve-redundancy removal): removes a candidate
+/// point `r0` that falls on an already-solved connected intersection curve,
+/// while preserving genuinely distinct unwitnessed branches and disjoint loops.
+#[test]
+fn s43_curve_redundancy_removes_point_on_solved_curve_and_keeps_disjoint_loop() {
+    let dp = cad_primitives::TAU_MODEL * 5.0;
+
+    // (a) Sphere × Plane: single connected circle `x^2 + y^2 = 1` on `z = 0`.
+    // A witness chord near `(1, 0, 0)` makes `(-1, 0, 0)` on the far side of
+    // the same circle redundant.
+    let sph = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let pln = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let th = 0.1_f64;
+    let solved_circle = vec![(
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(th.cos(), th.sin(), 0.0),
+    )];
+    assert!(is_redundant_with_solved_curves(
+        Point3::new(-1.0, 0.0, 0.0),
+        sph,
+        pln,
+        &solved_circle,
+        &[],
+        dp,
+    ));
+
+    // (b) Perpendicular Torus × Plane (`z = 0`): TWO disjoint concentric
+    // circles (`r = 4` outer, `r = 2` inner). Witnessing only the outer circle
+    // removes `(-4, 0, 0)` on the outer circle while keeping `(2, 0, 0)` on
+    // the disjoint inner circle!
+    let torus = Surface::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    let solved_outer = vec![(
+        Point3::new(4.0, 0.0, 0.0),
+        Point3::new(4.0 * th.cos(), 4.0 * th.sin(), 0.0),
+    )];
+    assert!(is_redundant_with_solved_curves(
+        Point3::new(-4.0, 0.0, 0.0),
+        torus,
+        pln,
+        &solved_outer,
+        &[],
+        dp,
+    ));
+    assert!(!is_redundant_with_solved_curves(
+        Point3::new(2.0, 0.0, 0.0),
+        torus,
+        pln,
+        &solved_outer,
+        &[],
+        dp,
+    ));
+
+    // (c) Equal-radius perpendicular cylinders (`R = 1`): TWO distinct
+    // Steinmetz ellipses (`z = x` and `z = -x`). Witnessing only `z = x`
+    // marks another point on `z = x` redundant while keeping `z = -x`!
+    let cyl_z = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cyl_x = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(1.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let a1 = 0.3_f64;
+    let a2 = 0.5_f64;
+    let solved_ellipse_pos = vec![(
+        Point3::new(a1.sin(), a1.cos(), a1.sin()),
+        Point3::new(a2.sin(), a2.cos(), a2.sin()),
+    )];
+    let r_same = Point3::new((-0.7_f64).sin(), (-0.7_f64).cos(), (-0.7_f64).sin());
+    let r_other = Point3::new(0.7_f64.sin(), 0.7_f64.cos(), -0.7_f64.sin());
+    assert!(is_redundant_with_solved_curves(
+        r_same,
+        cyl_z,
+        cyl_x,
+        &solved_ellipse_pos,
+        &[],
+        dp,
+    ));
+    assert!(!is_redundant_with_solved_curves(
+        r_other,
+        cyl_z,
+        cyl_x,
+        &solved_ellipse_pos,
+        &[],
+        dp,
+    ));
 }

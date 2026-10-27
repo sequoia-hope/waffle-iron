@@ -139,16 +139,16 @@ Wired in its **paper role** (§4.2.2 `:440-446` R + §4.3.3 `:567-573` L):
 
 ## 5. Increment & Commit Sequence
 
-1. **Step 1 (this commit, docs-only):** `specs/yang_43_tangency_newton.md` — paper-to-code mapping, inventory of existing mechanisms, 374-case `YANG_S43_TANGENCY_CENSUS` results, and `N92` trim-boundary decision.
-2. **Step 2 (tangency-point Newton resolution, `:489-492` R):**
-   - Add `crates/yang-rs/src/stage4_tangency.rs` (`LocalSurfaceChart`, Appendix C `solve_parametric_pair_newton`, coupled `solve_tangent_point_newton`, `10^{-6}` rad classification), wire Stage-4 tangential fallback in `stage4_relocate.rs` and general Newton tangent-point discovery, register `YANG_S43_TANGENCY_CENSUS` in `docs/kernel_probe_registry.md`, and add unit pins in `crates/yang-rs/src/tests_unit/s43_tangency_newton.rs` (tangent cylinder pair, sphere–plane kiss, torus–plane graze, separated near-miss, transversal loop seed).
-   - Run full 374-case release corpus; update `docs/yang_deviations.md` and `docs/audits/yang_2025_audit.md` in the same commit.
-3. **Step 2b (retire Stage-1 `Cylinder × Cylinder` 0D point-tangent mint):**
-   - Delete `cyl_cyl_tangent_points` from `crates/yang-rs/src/boolean/tangency.rs` so `C0058`, `F0056`, `F0057`, `F0058`, `F0060` (and `steinmetz_union_exact_volume`) are resolved solely by general Newton tangency discovery + mesh insertion (retaining 1D `mint_generator` and `mint_crossing_rulings`).
-   - Run full 374-case release corpus; update `docs/yang_deviations.md` (`N82`, `N91`) and `docs/audits/yang_2025_audit.md` (`4.3-19`, `4.4-06`) in the same commit.
-4. **Step 3 (small-loop detection + Bajaj tracing with `GaussMap` admission, `:440-446` R, `:567-573` L):**
-   - Bring in `crates/yang-rs/src/gauss_map.rs` and `crates/yang-rs/src/tests_unit/s422_gauss_map.rs` from `1519f6ed` (primitive + small-loop admission pins), implement `< 2d_ε` non-crossing candidate component grouping, `GaussMap::overlaps` admission (no trim exemption), Bajaj et al. 1988 closed-loop marching + §4.3.4 refinement, and mesh loop insertion (`C0116`).
-   - Run full 374-case release corpus; resolve `N92` and update matrix rows `4.2-12`, `4.2-13`, `4.3-18`, `4.3-20`, `5.6-01`, `5.6-02`, `M-4` in the same commit.
-5. **Step 4 (Fig. 10(c) seeding & curve-redundancy filter, `:471-473` R, `:491-505` L):**
-   - Wire exact Fig. 10(c) seed selection (`T` nearest on `M_A` to `M_B`, `p = centroid(T)`, `q = closest_on_M_B(p)`) + redundancy removal against already-solved intersection curves (`:502-505` L), with unit pins.
-   - Run full 374-case release corpus; update `N91` and matrix rows `4.2-17..20`, `4.3-08`, `4.3-11..12`, `M-3` in the same commit.
+1. **Step 1 (`9e99a069`, docs-only):** `specs/yang_43_tangency_newton.md` — paper-to-code mapping, inventory of existing mechanisms, 374-case `YANG_S43_TANGENCY_CENSUS` results, and `N92` trim-boundary decision.
+2. **Step 2 (`4f8c1f8a`, tangency-point Newton resolution, `:489-492` R):**
+   - Added `crates/yang-rs/src/stage4_tangency.rs` (`LocalSurfaceChart`, Appendix C `solve_parametric_pair_newton`, coupled `solve_tangent_point_newton`, `10^{-6}` rad classification), wired Stage-4 tangential fallback in `stage4_relocate.rs` and general Newton tangent-point discovery, registered `YANG_S43_TANGENCY_CENSUS` in `docs/kernel_probe_registry.md`, and added unit pins in `crates/yang-rs/src/tests_unit/s43_tangency_newton.rs` (tangent cylinder pair, sphere–plane kiss, torus–plane graze, separated near-miss, transversal loop seed).
+   - Verified on full 374-case release corpus (`360C / 0W / 9E / 5EE / 0T`); updated `docs/yang_deviations.md` and `docs/audits/yang_2025_audit.md` in the same commit.
+3. **Step 2b (`5fe6da6e`, retired Stage-1 `Cylinder × Cylinder` 0D point-tangent mint):**
+   - Deleted `cyl_cyl_tangent_points` from `crates/yang-rs/src/boolean/tangency.rs` so `C0058`, `F0056`, `F0057`, `F0058`, `F0060` (and `steinmetz_union_exact_volume`) are resolved solely by general Newton tangency discovery + mesh insertion (retaining 1D `mint_generator` and `mint_crossing_rulings`).
+   - Verified on full 374-case release corpus (`360C / 0W / 9E / 5EE / 0T`); updated `docs/yang_deviations.md` (`N82`, `N91`) and `docs/audits/yang_2025_audit.md` (`4.3-19`, `4.4-06`) in the same commit.
+4. **Step 3 (`b46bd420`, small-loop detection + Bajaj tracing with `GaussMap` admission, `:440-446` R, `:567-573` L):**
+   - Brought in `crates/yang-rs/src/gauss_map.rs` and `crates/yang-rs/src/tests_unit/s422_gauss_map.rs` from `1519f6ed` (primitive + small-loop admission pins), implemented `< 2d_ε` non-crossing candidate component grouping, `GaussMap::overlaps` admission (zero trim-boundary exemption), Bajaj et al. 1988 closed-loop marching + §4.3.4 midpoint refinement, §4.4.1 / Fig. 11(c) local chart CDT mesh updating (`C0116`, sub-band `C0118`), and coarse-to-fine Bowyer–Watson graded hole collars in `kernel-v2`.
+   - Verified on full 374-case release corpus (`360C / 0W / 9E / 5EE / 0T`); resolved `N92` and updated matrix rows `4.2-12`, `4.2-13`, `4.2-18`, `4.3-11`, `4.3-18`, `4.3-20`, `4.4-14`, `5.6-02`, `M-4` in the same commit.
+5. **Step 4 (this commit — Fig. 10(c) seeding & curve-redundancy filter, `:471-473` R, `:491-505` L):**
+   - Wired exact Fig. 10(c) seed selection (`T` nearest on `M_A` to `M_B`, `p = centroid(T)`, `q = closest_on_M_B(p)`) with per-coordinate curvature/linear step caps + redundancy removal against already-solved intersection curves (`:502-505` L), plus reflection-asymmetric `{0.25, 0.75}` graded-collar staggering for sub-`f32`-ULP grazing loops (`C0118`), with pins in `s43_tangency_newton.rs` and `f4_small_loop_collar_render.rs`.
+   - Verified on `./scripts/test.sh rewrite` and full 374-case release corpus; updated `N91`, matrix rows `4.2-17..19`, `4.3-11..12`, `4.3-18..19`, `M-3`, and `docs/yang_faithfulness_roadmap.md` in the same commit.

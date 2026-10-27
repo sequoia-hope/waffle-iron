@@ -162,15 +162,19 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
 
 ### F4 — §4.3 optimization complete (N91, N92, M-8)
 
-- [ ] Tangency by Newton (`:489-492`), small-loop tracing (`:598-601`),
+- [x] Tangency by Newton (`:489-492`), small-loop tracing (`:598-601`),
       Fig. 10(c) seeding, and contacts below the model band (N91), with
       the §4.2.2 Gauss map (N92) as the small-loop admission test. The
-      cylinder×cylinder Stage-1 tangent mint retires.
-- [ ] ~~§4.2.2 Gauss-map overlap filter (N92)~~ — FOLDED into N91
+      cylinder×cylinder Stage-1 tangent mint retires. *(Landed 2026-10-27
+      in F4 Steps 1–4; N92 RESOLVED; cross-referenced Stage-1 non-cylinder
+      0D tangent mesh insertion and post-collapse single-survivor census
+      remain under N82 / N81.)*
+- [x] ~~§4.2.2 Gauss-map overlap filter (N92)~~ — FOLDED into N91
       (user, 2026-10-27): built and measured on the parked branch
       `agy/f4-n92-gaussmap` (corpus byte-identical; it only pre-empts the
       exact crossing test), so it lands with N91 as the small-loop
-      admission test, not as a standalone pruner.
+      admission test, not as a standalone pruner. *(RESOLVED 2026-10-27 in
+      F4 Step 3 with zero trim-boundary exemption.)*
 - [ ] §4.3.4 refinement for every curve, optimizing from the surfaces'
       parameter midpoints, with no 4096 cap (matrix M-8, N7 amendment).
 - [ ] T6 detection floor from the paper's d_ε (N89 item 2).
@@ -276,3 +280,4 @@ the first known item.
 | 2026-10-27 | N98 RESOLVED: the Stage-0 coplanar scan bounds every loop edge by its own swept extent (`geom::curve_aabb`, all Curve variants), 4.5.5-01 → FAITHFUL; N89 item 3 re-resolved: §4.5.3 sweep admits cycles by incidence, open-conic loops now reversal-tested (sweep-level pins) | 63 | 137 | 360C / 0W / 9E / 5EE / 0T | 12bc1594,ea6ecf24 |
 | 2026-10-27 | User sign-offs: N24 PERMANENT ("accept n24"); N103 accepted in principle, PROPOSED → OPEN with a low-priority F6 unification item | 62 | 137 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-10-27 | F1 Measure + I3a: full-arrangement Stage-4 primitives landed UNWIRED (side-label scoping, per-operand manifold gate, 4-owner seams; byte-identical production path). The I3b flip is blocked on two F2 items (the §4.4.1(a) unzip, N2; index-parity chain decimation, N81) — F2 agent at work. Corpus 360C held; F0067/F0072 confirmed CORRECT by 1800 s single_case, equal to main | 62 | 137 | 360C / 0W / 9E / 5EE / 0T | 20749329..HEAD |
+| 2026-10-27 | F4 N91 + N92: §4.3 tangency Newton, Stage-1 cyl×cyl 0D mint retired, §4.2.2 Gauss-map small-loop admission (N92 RESOLVED) + Bajaj tracing + Fig. 10(c) seeding + curve redundancy | 61 | 132 | 360C / 0W / 9E / 5EE / 0T | agy/f4-n91-tangency |

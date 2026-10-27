@@ -2629,9 +2629,20 @@ fn insert_graded_hole_collars(
     let mut belt_vmax = f64::NEG_INFINITY;
 
     for &(hi, perim, ds0) in &fine_holes {
+        let h_ids = &holes_cdt[hi];
         let hg = &hole_groups[hi];
         let h_pts = &hg.pts;
         let m = h_pts.len();
+        let anchor = (0..m)
+            .min_by(|&a, &b| {
+                let pa = pool_p3[h_ids[a] as usize];
+                let pb = pool_p3[h_ids[b] as usize];
+                pa[0]
+                    .total_cmp(&pb[0])
+                    .then_with(|| pa[1].total_cmp(&pb[1]))
+                    .then_with(|| pa[2].total_cmp(&pb[2]))
+            })
+            .unwrap_or(0);
         let mut area2 = 0.0_f64;
         let mut seg_len = Vec::with_capacity(m);
         let mut cum_s = Vec::with_capacity(m + 1);
@@ -2644,6 +2655,11 @@ fn insert_graded_hole_collars(
             seg_len.push(l);
             cum_s.push(cum_s[i] + l);
         }
+        let total_s = cum_s[m];
+        if total_s <= 1e-30 {
+            continue;
+        }
+        let s_anchor = cum_s[anchor];
         let out_sign = if area2 <= 0.0 { 1.0 } else { -1.0 };
         let mut e_nrm: Vec<[f64; 2]> = Vec::with_capacity(m);
         for i in 0..m {
@@ -2681,7 +2697,15 @@ fn insert_graded_hole_collars(
             offset += 0.85 * ds_k;
             let tube_len = perim + 2.0 * std::f64::consts::PI * offset;
             let n_k = ((tube_len / ds_k).round() as usize).clamp(12, 2048);
-            let phase = if k % 2 == 1 { 0.5 } else { 0.0 };
+            // Reflection-asymmetric ring phases `{0.25, 0.75}` anchored at the
+            // canonical 3D vertex `anchor`: consecutive rings on the same face
+            // keep a `0.5` equilateral stagger (`|0.75 - 0.25| = 0.5`), while
+            // a twin face traversing the same shared hole loop in reverse
+            // (`s -> total_s - s` from `anchor`) places its collar vertices at
+            // `1 - phase` (`{0.75, 0.25}`), staggering the two grazing sheets
+            // by `0.5 * ds_k >= 16 f32 ULPs` so their interior Steiner points
+            // never round to identical `f32` coordinates (`C0118`).
+            let phase = if k % 2 == 1 { 0.75 } else { 0.25 };
             let own_clear = 0.55 * offset;
             let own_clear2 = own_clear * own_clear;
             let other_clear = 0.45 * ds_k.min(offset);
@@ -2690,7 +2714,8 @@ fn insert_graded_hole_collars(
             let mut ring_pts: Vec<Point2> = Vec::with_capacity(n_k);
 
             for j in 0..n_k {
-                let s_target = ((j as f64 + phase) / (n_k as f64)) * perim;
+                let s_target =
+                    (s_anchor + ((j as f64 + phase) / (n_k as f64)) * total_s).rem_euclid(total_s);
                 let seg_i = cum_s
                     .partition_point(|&cs| cs <= s_target)
                     .saturating_sub(1)
