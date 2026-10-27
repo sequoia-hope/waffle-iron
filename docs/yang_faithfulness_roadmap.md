@@ -168,7 +168,7 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
 - **Re-adjudicate on touch:** N11, N38, N39, N45, N46 (Stage-3 membership
   bands), N29 (exact conic parameters versus the tangent-angle proxy).
 
-### F5 — Stage 1 as §4.1 (N5, N61, N85, N88, N93)
+### F5 — Stage 1 as §4.1 on a generic surface (N5, N61, N85, N88, N93, D14)
 
 One parameter-domain CDT per face at the Theorem-A chord bound. Cleanup
 Phase 3 and 2c. This goes last among the mechanism milestones because the
@@ -176,12 +176,29 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 
 - [ ] d_ε from the B-Rep model's bounding box (`:391-395`, N85).
 - [ ] d(T) computed and d_ε certified at Stage 1 (`d_of_t`, N93).
+- [ ] **A generic parametric-surface interface first (user, 2026-10-27;
+      resolves D14 together with the item below).** Stage 1 and every later
+      stage reach a surface only through one interface — evaluate s(u, v),
+      first and second derivatives, normal, parameter domain with its
+      periodicity and seams, closest-point projection — which is all the
+      paper's pipeline needs (§4.1 parameter-domain discretization with the
+      Theorem-A bound `:304-395`, §4.2.2 Gauss map from normals, §4.3
+      Newton on s(u, v)). The five analytic surfaces become its instances.
+      No new code may match on the surface type inside a general geometric
+      rule; the existing matches are inventoried and retired with the item
+      below. Closed-form SSI (N7, A15.1) stays as the exact path where a
+      solver exists, the paper's Newton refinement is the general path.
 - [ ] One CDT per face, replacing the per-surface dispatch (tube, frustum,
-      chart, universal cover, azimuth zipper), with cones included (N61).
+      chart, universal cover, azimuth zipper), with cones included (N61),
+      built on that interface.
+- [ ] **A first non-analytic instance** (a ruled / B-spline surface, P&T
+      Ch. 10) passes through the pipeline end to end — the proof the
+      interface is general, and the substrate for loft booleans
+      (`specs/loft.md`, option (b)). Resolves D14.
 - [ ] Retire the cross-patch folds (N88) and the self-contact guard (its
       switches go with it, cleanup §4) into the certificate and the loop.
 - **Re-adjudicate on touch:** N5, N9, N27, N28, N34, N35.
-- **Resolves:** N5, N61, N85, N88, N93.
+- **Resolves:** N5, N61, N85, N88, N93, D14.
 
 ### F6 — Stage 0 and output emission (§4.5.5, §4.4.2 restoration)
 
@@ -198,8 +215,9 @@ One prose sign-off request per entry, with a paper cite and one
 recommendation, never a menu (A15.7). Expected: N13–N24 (corrections of
 bugs in the Cherchi reference, parity-tested) signed PERMANENT, N33
 (disjoint-sum passthrough, outside the paper's interacting-solid scope),
-D14 + N94 as one analytic-only scope signature, N7 already on the A15.1
-basis. Entries still DELEGATED here are the ones F1–F6 did not touch.
+N7 already on the A15.1 basis. (D14 is no longer a scope signature: the
+user reopened it 2026-10-27 and F5 resolves it; N94's p-curves are
+re-adjudicated with F5's interface.) Entries still DELEGATED here are the ones F1–F6 did not touch.
 
 ### After the finish line — cost
 
@@ -234,3 +252,4 @@ the first known item.
 | 2026-10-27 | roadmap adopted (baseline) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | — |
 | 2026-10-27 | F0 scoreboard script; F1 I1 side labels through Stage 4 (byte-identical, wall 928.7 s) | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | ed1c3658, 13f7fe05 |
 | 2026-10-27 | F6 Stage-0 ellipse-bounded planar face (N89 item 4; 5.5-03 → FAITHFUL; Fig. 24(b) 4- and 24-cylinder unions closed solids, exact volume); N92 parked into N91 | 64 | 99 | 360C / 0W / 9E / 5EE / 0T | 8f538a57, 0943381b, d0bd7be4 |
+| 2026-10-27 | D14 reopened by the user → OPEN, resolved by F5 (generic parametric-surface interface + first non-analytic instance); row 3-06 N/A → MISSING | 64 | 100 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

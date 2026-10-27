@@ -100,7 +100,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | D11 | HISTORICAL | `d_ε` computed from combined-AABB across both solids |
 | D12 | HISTORICAL | O(n²) broad-phase intersection detection vs octree |
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
-| D14 | DELEGATED (C) | No NURBS / Bézier surface support; only analytic primitives |
+| D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5's generic parametric-surface interface + a first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
 | N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open; apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
@@ -193,14 +193,14 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6) | Stage 1 neither computes d(T) nor certifies d_ε; `d_of_t` runs only at Stage 4 |
-| N94 | PROPOSED (2026-10-16, matrix M-7; awaits a prose sign-off with D14) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
+| N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
 | N95 | **RESOLVED** (2026-10-17, found and fixed the same day; corpus 350C / 0W / 19E / 5EE / 0T, R0044 TIMEOUT → CORRECT, zero drift) | cherchi-rs Stage-2 detection and input prep departed from the Cherchi 2020 reference in COMPLEXITY: an O(n²) broad phase, every shared-vertex / shared-edge neighbour pair reported (the reference reports only `INTERSECT`), and two O(n²) linear interners where the reference hashes |
 | N96 | **RESOLVED** (2026-10-18, found and fixed the same day; corpus 353C / 0W / 16E / 5EE / 0T, P0005 / P0020 / R0070 ERROR → CORRECT, zero drift) | The §4.5 domain certificate (T2) tested a crossing of a curved crease on its WHOLE circle / conic, not on the edge's arc — steps crossing a flank plane centimetres from a millimetre arc fired as leaving the face |
 | N97 | **RESOLVED** (2026-10-22, found and fixed the same day; corpus 356C / 0W / 13E / 5EE / 0T, R0049 / P0015 / P0029 ERROR → CORRECT, zero drift) | The cone ∩ plane relocation slid a vertex along its cone GENERATOR (azimuth kept) instead of taking §4.3.2's closest point on L_k = P_A ∩ P_B — unbounded slip along the section as the generators turn parallel to the plane |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-17): 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-27, D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -3766,9 +3766,29 @@ crossing.
 
 #### D14 — No NURBS / Bézier surface support; only analytic primitives
 
-**State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); scope recorded: analytic primitives only, NURBS/Bézier out of scope until explicitly reopened (batch C).
+**State:** OPEN — reopened by the user 2026-10-27 (see Decision below). History: DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); scope recorded: analytic primitives only, NURBS/Bézier out of scope until explicitly reopened (batch C).
 
 **Status:** OPEN. NOT signed off.
+
+**Decision (user, 2026-10-27): REOPENED — analytic-only is not the end
+state.** The scope itself was defensible (analytic surfaces are a subset of
+NURBS; closed-form SSI is exact), but it was never decided — it came from the
+2026-07-17 delegation — and it was implemented the costly way: instead of
+analytic surfaces as instances of the generic parametric surface the paper's
+pipeline assumes (§4.1 parameter-domain discretization with Theorem A, §4.2.2
+Gauss maps from normals, §4.3 Newton on s(u, v)), the stages dispatch on the
+five types (Stage-1 tube / frustum / chart / universal-cover / azimuth-zipper
+meshing, surface-pair sample arms, type-enumerating checks) — much of what the
+faithfulness cleanup now retires. It also blocks loft (`specs/loft.md`) and
+caps exact STEP ingestion (SI5) at analytic faces. **Resolution path:**
+roadmap F5 — a generic parametric-surface interface that every stage reaches
+surfaces through (the five analytic surfaces its instances; closed-form SSI
+under N7 kept as the exact path, Newton as the general one), the one-CDT-per-
+face Stage 1 built on it, and a first non-analytic instance (ruled / B-spline,
+P&T Ch. 10) carried end to end. **State: OPEN** (was DELEGATED; the user has
+now decided it, so it is no longer a delegation). Matrix rows graded N/A "by
+D14" are re-graded as F5 lands; row 3-06 (NURBS faces as input) is MISSING
+from today.
 
 **Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); the live analog is the five-variant `Surface` enum, `crates/yang-rs/src/geom.rs:37` and `crates/kernel-v2/src/arena.rs:245`] `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
 

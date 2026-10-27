@@ -39,7 +39,7 @@ the Stage-0 relocation subsystem (U-2).
 | ORDER | exists, but runs at a different point than the paper's order |
 | MISSING | no implementation; the row names what compensates |
 | SILENT | the paper leaves it open; the row names our choice |
-| N/A | out of scope by a recorded decision (D14 analytic-only, N7 closed-form SSI) |
+| N/A | out of scope by a recorded decision (N7 closed-form SSI; D14 analytic-only until 2026-10-27, when the user reopened it — its N/A rows are re-graded as roadmap F5 lands) |
 
 **Maintenance.** A change that touches a mechanism updates its row in the
 same commit as its ledger entry (the P2 rule). A row moves to FAITHFUL only
@@ -51,13 +51,13 @@ Refreshed 2026-10-27 to the live row tallies by `./scripts/faithfulness_score.sh
 
 | slice | rows | FAITHFUL | PARTIAL | DEVIATES | MISSING | ORDER | SILENT | N/A |
 |---|---|---|---|---|---|---|---|---|
-| §3, §4.1, App. A — discretization | 43 | 10 | 11 | 8 | 2 | 2 | 1 | 9 |
+| §3, §4.1, App. A — discretization | 43 | 10 | 11 | 8 | 3 | 2 | 1 | 8 |
 | §4.2, App. B, §5.6 — mesh intersection | 31 | 9 | 6 | 7 | 2 | 0 | 1 | 6 |
 | §4.3 — intersection optimization | 25 | 8 | 4 | 9 | 3 | 1 | 0 | 0 |
 | §4.4 — mesh updating, Booleans | 28 | 10 | 10 | 4 | 1 | 2 | 1 | 0 |
 | §4.5, §4.5.1, §4.5.2 — failure handling | 32 | 11 | 7 | 5 | 3 | 0 | 6 | 0 |
 | §4.5.3–§4.5.5, §5.5 — reversal, illegal intersections, coplanarity | 35 | 20 | 7 | 4 | 0 | 1 | 3 | 0 |
-| **total** | **194** | **68** | **45** | **37** | **11** | **6** | **12** | **15** |
+| **total** | **194** | **68** | **45** | **37** | **12** | **6** | **12** | **14** |
 
 Eighteen rows said UNLEDGERED outright when the matrix was written, and the
 cross-cutting findings below added more that only show up across slices.
@@ -333,7 +333,7 @@ Code paths are relative to `crates/yang-rs/src/` unless noted. The scope decisio
 | 3-03 | `:216-218` | (d) "intersection curves are used to update the mesh, maintaining the bijection" between each curve-bounded patch and its discretization | `stage4_construct.rs:3113` `update_patches` (called at `stage4_correct.rs:13338`). Refused patches keep their old triangles, and the Stage-4 repair passes remain | PARTIAL | N2 | — |
 | 3-04 | `:218-219`, `:318-321` | (e) "inside/outside classification" on "each patch of the resulting mesh"; the B-Rep patches are retained to match | `boolean.rs:35` `flip_for_op` reads `LabeledArrangement` labels per arrangement triangle or cell, not per B-Rep patch | DEVIATES | N2 (ledger directive item 7: "its labels are per patch; ours are per arrangement cell, the N2 gap") | — |
 | 3-05 | `:241-242` | Inputs are B-Rep models and an op: "intersection, union, and subtraction" | `boolean.rs:845` `boolean(a, b, op, backend)`. `BoolOp` also has Xor (`boolean.rs:44`) | FAITHFUL | — | — |
-| 3-06 | `:244-246` | Faces are "planes, quadratic surfaces, and NURBS surfaces" | `geom.rs:37` `Surface` covers Plane / Sphere / Cylinder / Cone / Torus only | N/A | D14 | — |
+| 3-06 | `:244-246` | Faces are "planes, quadratic surfaces, and NURBS surfaces" | `geom.rs:37` `Surface` covers Plane / Sphere / Cylinder / Cone / Torus only | MISSING (2026-10-27: D14 reopened by the user; roadmap F5 generic surface interface + first non-analytic instance) | D14 | — |
 | 3-07 | `:283-285` | The bijective mapping is kept "throughout the Boolean operation process" | Stage 1: `brep.rs:298` `TessellationMap`. Output vertices are tagged `TessellationSource::Intersection` (`brep.rs:287`), so their (u,v) are not kept; per-triangle `triangle_attribution` / `face_attribution` (`brep.rs:421,425`) are kept | PARTIAL | N4 amendment (2026-10-17: identity only; the (u,v) half is N7's); the per-vertex half belongs to §4.4.1 r_A = r_B = r | `src/tests_unit/boolean_functional.rs::brep_new_populates_tri_face_provenance` |
 | 3-08 | `:290-292` | Results "are ensured to be watertight B-Rep models" | Checked, not ensured: Stage-4 half-edge gate `stage4_relocate.rs:2413` (`s4-halfedge-pairing`) plus the refine loop's watertight adoption (`boolean.rs:621`). A loud STOP stands (corpus 11E) | PARTIAL | — | — |
 | 3-09 | `:296-302` | Step 1: build the bijective mapping, then intersect the meshes with [Cherchi 2022] | Stage 1 (`stage1_tessellate.rs:506`), then Stage 2 cherchi-rs (owned by the §4.2 slice) | FAITHFUL | — | — |
