@@ -260,6 +260,34 @@ pub(crate) fn surface_value_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, 
 /// R0032 (torus×cone α=1.19 rad, ratio −1.7 = 1−secα), R0044 (cyl×cone,
 /// ratio −7.5) and R0053 (cyl×cone, ratio −2.6) all diverging with EXACTLY
 /// the predicted geometric factor. One helper now serves both solvers.
+pub(crate) fn surface_kind_tag(s: Surface) -> &'static str {
+    match s {
+        Surface::Plane { .. } => "Plane",
+        Surface::Cylinder { .. } => "Cylinder",
+        Surface::Cone { .. } => "Cone",
+        Surface::Sphere { .. } => "Sphere",
+        Surface::Torus { .. } => "Torus",
+    }
+}
+
+/// Print-only census probe `YANG_S43_TANGENCY_CENSUS=<file>` (spec
+/// `specs/yang_43_tangency_newton.md`): appends `<case>\t<event>\t<detail>`
+/// keyed by `ASSAY_CASE`. Never alters geometry or control flow.
+pub(crate) fn s43_tangency_census_log(event: &str, detail: &str) {
+    let Some(path) = std::env::var_os("YANG_S43_TANGENCY_CENSUS") else {
+        return;
+    };
+    use std::io::Write as _;
+    let case = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".to_string());
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{case}\t{event}\t{detail}");
+    }
+}
+
 pub(crate) fn surface_distance_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, [f64; 3])> {
     let (f, n) = surface_value_and_normal(s, x)?;
     match s {
@@ -278,8 +306,13 @@ pub(crate) fn surface_distance_and_normal(s: Surface, x: [f64; 3]) -> Option<(f6
 ///
 /// Returns the relocated point with both residuals ≤ `TAU_MODEL`, or `None` for
 /// a loud STOP (P9 — never a partial move or a guessed root):
-/// - a TANGENTIAL pair (`sin²θ = 1 − b² ≤ MIN_FEATURE_SIZE²`): `J` is rank-
-///   deficient and the intersection root is ill-posed;
+/// - a TANGENTIAL pair (`sin²θ = 1 − b² ≤ MIN_FEATURE_SIZE²`): §4.3.2's
+///   geometric two-plane step is defined only for non-parallel tangent planes
+///   (`yang2025_hybrid_boolean.txt:501-505`), so per §4.3.1/§4.3.3 (`:489-492`,
+///   `:518-534`) this switches to parametric tangency Newton
+///   ([`crate::stage4_tangency::solve_isolated_tangent_point_near`]); 2D
+///   coincident surfaces (`rank <= 2`) and 1D tangent loci (`rank == 3`) still
+///   return `None`;
 /// - an UNDEFINED normal at the iterate (axis / apex / centre circle);
 /// - NON-CONVERGENCE within `MAX_ITERS`.
 pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -> Option<Point3> {
@@ -320,11 +353,36 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
     let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
     let mut x = p.as_array();
     let trace = std::env::var_os("YANG_PAIR_NEWTON_TRACE").is_some();
+    let census = std::env::var_os("YANG_S43_TANGENCY_CENSUS").is_some();
     for it in 0..=MAX_ITERS {
         // TRUE distances along the unit normals (cone rescaled) — see
         // `surface_distance_and_normal`; a raw cone residual overshoots.
-        let (f0, n0) = surface_distance_and_normal(s0, x)?;
-        let (f1, n1) = surface_distance_and_normal(s1, x)?;
+        let Some((f0, n0)) = surface_distance_and_normal(s0, x) else {
+            if census {
+                s43_tangency_census_log(
+                    "pair_newton_undef_normal",
+                    &format!(
+                        "it={it} pair={}×{}",
+                        surface_kind_tag(s0),
+                        surface_kind_tag(s1)
+                    ),
+                );
+            }
+            return None;
+        };
+        let Some((f1, n1)) = surface_distance_and_normal(s1, x) else {
+            if census {
+                s43_tangency_census_log(
+                    "pair_newton_undef_normal",
+                    &format!(
+                        "it={it} pair={}×{}",
+                        surface_kind_tag(s0),
+                        surface_kind_tag(s1)
+                    ),
+                );
+            }
+            return None;
+        };
         let b = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
         let det = 1.0 - b * b; // sin²θ between the two unit normals
         if trace {
@@ -333,11 +391,30 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
                  x={x:?} s0={s0:?} s1={s1:?}"
             );
         }
-        // Tangential / parallel normals → no transversal 1D intersection curve
-        // to relocate onto (the contact is a point or a higher-order tangency).
-        // STOP whether or not the residual is already small — a tangent point IS
-        // on both surfaces but is not a curve a mesh edge can lie along.
+        // §4.3.2's geometric two-plane step requires non-parallel tangent
+        // planes (`yang2025_hybrid_boolean.txt:501-505`); where normals become
+        // parallel (`det <= rank_eps`), switch to §4.3.1/§4.3.3's parametric
+        // tangency Newton (`:489-492`, `:518-534`) for isolated 0D tangent
+        // points (`rank == 4`, e.g. figure-eight saddle pinches or kisses).
         if det <= rank_eps {
+            if let Some(q) = crate::stage4_tangency::solve_isolated_tangent_point_near(
+                Point3::new(x[0], x[1], x[2]),
+                s0,
+                s1,
+                tau0.max(tau1),
+            ) {
+                return Some(q);
+            }
+            if census {
+                s43_tangency_census_log(
+                    "pair_newton_refusal",
+                    &format!(
+                        "it={it} det={det:.3e} f0={f0:.3e} f1={f1:.3e} pair={}×{}",
+                        surface_kind_tag(s0),
+                        surface_kind_tag(s1)
+                    ),
+                );
+            }
             return None;
         }
         if f0.abs() <= tau0 && f1.abs() <= tau1 {
@@ -352,6 +429,17 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
             x[1] - (n0[1] * m0 + n1[1] * m1),
             x[2] - (n0[2] * m0 + n1[2] * m1),
         ];
+    }
+    if let Some(q) =
+        crate::stage4_tangency::solve_isolated_tangent_point_near(p, s0, s1, tau0.max(tau1))
+    {
+        return Some(q);
+    }
+    if census {
+        s43_tangency_census_log(
+            "pair_newton_max_iter",
+            &format!("pair={}×{}", surface_kind_tag(s0), surface_kind_tag(s1)),
+        );
     }
     None
 }
@@ -399,13 +487,25 @@ pub(crate) fn relocate_onto_implicit_triple(
     // (the R0017 v47 prism-edge × 60°-band pierce bounced on the raw cone
     // residual). Shared with the pair solver: `surface_distance_and_normal`.
     let mut x = p.as_array();
-    for _ in 0..=MAX_ITERS {
+    let census = std::env::var_os("YANG_S43_TANGENCY_CENSUS").is_some();
+    for it in 0..=MAX_ITERS {
         let (f0, n0) = surface_distance_and_normal(s0, x)?;
         let (f1, n1) = surface_distance_and_normal(s1, x)?;
         let (f2, n2) = surface_distance_and_normal(s2, x)?;
         let c12 = cross(n1, n2);
         let det = n0[0] * c12[0] + n0[1] * c12[1] + n0[2] * c12[2];
         if det.abs() <= rank_eps {
+            if census {
+                s43_tangency_census_log(
+                    "triple_newton_refusal",
+                    &format!(
+                        "it={it} det={det:.3e} f=({f0:.3e},{f1:.3e},{f2:.3e}) surfs={}×{}×{}",
+                        surface_kind_tag(s0),
+                        surface_kind_tag(s1),
+                        surface_kind_tag(s2)
+                    ),
+                );
+            }
             return None; // coplanar normals → ill-posed junction
         }
         if f0.abs() <= tau0 && f1.abs() <= tau1 && f2.abs() <= tau2 {
@@ -417,6 +517,17 @@ pub(crate) fn relocate_onto_implicit_triple(
         for i in 0..3 {
             x[i] -= (f0 * c12[i] + f1 * c20[i] + f2 * c01[i]) / det;
         }
+    }
+    if census {
+        s43_tangency_census_log(
+            "triple_newton_max_iter",
+            &format!(
+                "surfs={}×{}×{}",
+                surface_kind_tag(s0),
+                surface_kind_tag(s1),
+                surface_kind_tag(s2)
+            ),
+        );
     }
     None
 }

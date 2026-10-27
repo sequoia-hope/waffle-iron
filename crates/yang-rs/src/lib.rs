@@ -131,6 +131,7 @@ mod stage5_seam_merge;
 mod stage5_topology;
 pub(crate) use stage5_topology::*;
 mod stage4_relocate;
+pub(crate) mod stage4_tangency;
 pub use brep::{
     BRep, BRepEdge, BRepFace, BRepVertex, InputId, TessellationMap, TessellationSource,
     TriangleAttribution, TriangleAttributionMap, MATCH_TOLERANCE,

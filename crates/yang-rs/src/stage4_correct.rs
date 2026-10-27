@@ -4567,6 +4567,14 @@ fn stage4_relocate_and_correct_inner(
     // parallel normals or non-convergence — never a partial move, P9).
     for (&v, &(sa, sb)) in &vert_surface_pair {
         if endpoint_set.contains(&v) {
+            crate::s43_tangency_census_log(
+                "surface_pair_endpoint_mix",
+                &format!(
+                    "v={v} pair={}×{}",
+                    crate::surface_kind_tag(sa),
+                    crate::surface_kind_tag(sb)
+                ),
+            );
             // Endpoint-mix diagnosis probe (read-only, env-gated): the R0044
             // bucket's single STOP site. Dumps the surface pair carried by the
             // procedural edge PLUS the deduped surface set over every `inc0`
@@ -4758,6 +4766,10 @@ fn stage4_relocate_and_correct_inner(
             let (proj, n0, n1, line_div, slab_div) = match partners.as_slice() {
                 [s1] => {
                     if !on_curve.contains(&v) && tangent_to(s1) {
+                        crate::s43_tangency_census_log(
+                            "torus_own_vert_pair_tangent_skip",
+                            &format!("v={v} partner={}", crate::surface_kind_tag(*s1)),
+                        );
                         continue 'torus_verts;
                     }
                     if std::env::var_os("YANG_TORUS_PROBE").is_some()
@@ -4810,6 +4822,14 @@ fn stage4_relocate_and_correct_inner(
                     // this corner. A tangency at a vertex ON the intersection
                     // curve stays the loud STOP it always was.
                     if !on_curve.contains(&v) && (tangent_to(s1) || tangent_to(s2)) {
+                        crate::s43_tangency_census_log(
+                            "torus_own_vert_triple_tangent_skip",
+                            &format!(
+                                "v={v} partners={}×{}",
+                                crate::surface_kind_tag(*s1),
+                                crate::surface_kind_tag(*s2)
+                            ),
+                        );
                         continue 'torus_verts;
                     }
                     if std::env::var_os("YANG_TORUS_PROBE").is_some()

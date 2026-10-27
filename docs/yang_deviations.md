@@ -190,7 +190,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
-| N91 | OPEN (2026-10-16, matrix M-3) | Tangent points, small loops and sub-band contacts are not resolved; the pair Newton refuses tangency |
+| N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Step 2: §4.3 tangency-point Newton landed) | Tangent points, small loops and sub-band contacts are not resolved; isolated 0D tangency Newton landed (`stage4_tangency.rs`), Stage-1 `cyl_cyl` closed-form retirement, small-loop tracing and Fig. 10(c) seeding open |
 | N92 | OPEN (2026-10-16, matrix M-4; 2026-10-27 folded into N91 by the user, built and PARKED on branch `agy/f4-n92-gaussmap`) | The §4.2.2 Gauss-map overlap filter is not built (closed-form maps exist for every analytic surface) |
 | N93 | OPEN (2026-10-16, matrix M-6; 2026-10-27: Stage-1 `d(T)` (`BRep::tri_dt`) + loud `DtError` certificate check LIVE; inner Theorem A.2 `ω + d < d_ε` subdivision open under F5 item 3 / N5 / N61) | Stage 1 computes and checks `d(T)` per triangle (`BRep::tri_dt`), while inner `≤ d_ε` certification awaits Theorem A.2 sub-patch subdivision |
 | N94 | PROPOSED (2026-10-16, matrix M-7; its pairing with a D14 analytic-only signature lapsed 2026-10-27 — re-adjudicated with F5's generic surface interface) | Boundary curves are restored as 3D analytic curves; no parametric-domain p-curves (`:581-594`) |
@@ -6925,6 +6925,34 @@ and T6's floor (N89 item 2) excludes contacts that touch without crossing.
 and seeded loop tracing; P0026 (a minted exact tangency, ADJUDICATED loud)
 and the loud-ceiling worklist are the measured customers. Matrix 4.2-20,
 4.3-08, `s43 F3`/`F4`, `s42 F3`. **State: OPEN** (found 2026-10-16).
+
+**Amendment (2026-10-27, roadmap F4 Step 2 — §4.3 tangency-point Newton landed;
+design `specs/yang_43_tangency_newton.md`).** Implemented `stage4_tangency.rs`
+for Yang §4.3.1 (`refs/text/yang2025_hybrid_boolean.txt:479-492` R), §4.3.2
+(`:501-505` R), §4.3.3 (`:518-540` R, `:567-569` L) and Appendix C
+(`:1232-1250` R): pole-free, seam-free, arc-length-scaled `LocalSurfaceChart`
+across all five analytic surfaces (`Plane`, `Cylinder`, `Cone`, `Sphere`,
+`Torus`), deterministic one-sided Jacobi `thin_svd`, Appendix C 4-parameter
+`solve_parametric_pair_newton`, and coupled `5×4` tangency Gauss–Newton
+`solve_tangent_point_newton` on `[s_1(u,v) - s_2(s,t); n_1(u,v) - σ·n_2(s,t)] = 0`
+classifying `TangencyKind::{IsolatedKiss, IsolatedSaddle, TangentCurve}` from
+SVD rank and the `2×2` relative second fundamental form `det(ΔII)` while
+refusing 2D coincident surfaces (`rank ≤ 2`) and separated near-misses. Wired
+into `stage4_relocate::relocate_onto_implicit_pair` at collinear-normal
+degeneracy (`det ≤ rank_eps`) via `solve_isolated_tangent_point_near`: isolated
+0D tangencies (`IsolatedKiss`, `IsolatedSaddle`) converge to machine precision,
+while 1D tangent curves (`P0026`) and 2D coincident tori
+(`m5_surface_pair_tangent_none_at_tangency`) keep returning `None` (loud STOP).
+Pins: `tests_unit/s43_tangency_newton.rs` (5 tests: all five surface charts vs
+central differences; `C0058` 30° Steinmetz, Viviani `R_A - R_B`, external
+`R_A + R_B` + mesh-seeded discovery; sphere–plane kiss including poles;
+torus–plane outer kiss, inner Booth-lemniscate saddle and bottom tangent circle;
+`C0116` `CurvePoint` classification). Suites: `yang-rs` 1,526 / 0, `kernel-v2`
+869 / 0. Canonical corpus (release, 8 jobs, 900 s; wall 1092.1 s): **360C / 0W
+/ 9E / 5EE / 0T over 374**, zero category moves and zero detail drift. Next
+increments: retire Stage-1 `cyl_cyl_tangent_points` closed form, wire N92
+`GaussMap` + Bajaj small-loop tracing, and add Fig. 10(c) seeding. **State:
+OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
 

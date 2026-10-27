@@ -63,7 +63,7 @@ fn add_scaled(a: V3, d: V3, t: f64) -> V3 {
 }
 
 /// Closest point on triangle `abc` to `p` (Ericson 2005 §5.1.5).
-fn closest_on_triangle(p: V3, a: V3, b: V3, c: V3) -> V3 {
+pub(crate) fn closest_on_triangle(p: V3, a: V3, b: V3, c: V3) -> V3 {
     let ab = sub(b, a);
     let ac = sub(c, a);
     let ap = sub(p, a);
@@ -223,7 +223,7 @@ fn segment_segment_closest(p1: V3, q1: V3, p2: V3, q2: V3) -> (V3, V3) {
 /// The closest pair of points of two triangles and their distance (the
 /// pair behind [`triangle_distance`]): vertex-to-triangle both ways and
 /// edge-to-edge, the minimum over all.
-fn triangle_closest_pair(t: [Point3; 3], s: [Point3; 3]) -> (V3, V3, f64) {
+pub(crate) fn triangle_closest_pair(t: [Point3; 3], s: [Point3; 3]) -> (V3, V3, f64) {
     let ta = t.map(|p| p.as_array());
     let sa = s.map(|p| p.as_array());
     // Intersecting triangles: distance 0 at the crossing point (mirrors
@@ -317,10 +317,12 @@ pub(crate) fn contact_pairs(
     let bvh_b = Bvh::new(&set_b);
     let max_dev_b = set_b.dev.iter().copied().fold(0.0, f64::max);
     let probe = std::env::var_os("YANG_T6_PROBE").is_some();
+    let census_on = std::env::var_os("YANG_S43_TANGENCY_CENSUS").is_some();
     let t1 = cost.then(std::time::Instant::now); // wasm-ok: env-gated probe (YANG_T6_COST_PROBE), never set in wasm
     let (mut n_visited, mut n_box, mut n_coarse, mut n_intersecting, mut n_skipped, mut n_refined) =
         (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
     let mut out = Vec::new();
+    let mut noncross_touches: Vec<(u32, u32)> = Vec::new();
     #[allow(clippy::needless_range_loop)] // `t` indexes five parallel per-triangle vectors
     for t in 0..set_a.pts.len() {
         let pad = set_a.dev[t] + max_dev_b + band;
@@ -387,10 +389,46 @@ pub(crate) fn contact_pairs(
                     point,
                     reach: leaf_reach,
                 });
+            } else if census_on
+                && pieces_may_touch(piece(&set_a, t), piece(&set_b, s), band, MAX_REFINE_DEPTH)
+            {
+                noncross_touches.push((t as u32, s as u32));
             }
         });
     }
     out.sort_by_key(|p| (p.tri_a, p.tri_b));
+    if census_on {
+        if !out.is_empty() {
+            let mut pairs: std::collections::BTreeMap<(&'static str, &'static str), usize> =
+                std::collections::BTreeMap::new();
+            for cp in &out {
+                let ka = crate::surface_kind_tag(set_a.surf[cp.tri_a as usize]);
+                let kb = crate::surface_kind_tag(set_b.surf[cp.tri_b as usize]);
+                *pairs.entry((ka, kb)).or_default() += 1;
+            }
+            for ((ka, kb), n) in pairs {
+                crate::s43_tangency_census_log(
+                    "contact_pair_crossing",
+                    &format!("pair={ka}×{kb} tris={n}"),
+                );
+            }
+        }
+        if !noncross_touches.is_empty() {
+            let mut pairs: std::collections::BTreeMap<(&'static str, &'static str), usize> =
+                std::collections::BTreeMap::new();
+            for &(ta, tb) in &noncross_touches {
+                let ka = crate::surface_kind_tag(set_a.surf[ta as usize]);
+                let kb = crate::surface_kind_tag(set_b.surf[tb as usize]);
+                *pairs.entry((ka, kb)).or_default() += 1;
+            }
+            for ((ka, kb), n) in pairs {
+                crate::s43_tangency_census_log(
+                    "contact_pair_noncrossing_touch",
+                    &format!("pair={ka}×{kb} tris={n}"),
+                );
+            }
+        }
+    }
     if let (Some(t0), Some(t1)) = (t0, t1) {
         eprintln!(
             "[t6-cost] tris {}×{} sets+bvh {:.3}s, pairs {:.3}s: visited {n_visited} \
@@ -545,7 +583,7 @@ fn circumradius(a: V3, b: V3, c: V3) -> f64 {
 ///
 /// Every branch is conservative; a degenerate frame (zero axis) falls back
 /// to the circumradius.
-fn surface_deviation(surface: &Surface, t: [V3; 3]) -> f64 {
+pub(crate) fn surface_deviation(surface: &Surface, t: [V3; 3]) -> f64 {
     let unit = |v: V3| {
         let l = norm(v);
         (l > 0.0).then(|| [v[0] / l, v[1] / l, v[2] / l])
@@ -900,23 +938,23 @@ fn pieces_may_touch(t: Piece, s: Piece, band: f64, depth: u32) -> bool {
 }
 
 /// One operand's Stage-1 triangles with their inflated boxes.
-struct TriSet {
-    pts: Vec<[Point3; 3]>,
-    surf: Vec<Surface>,
-    dev: Vec<f64>,
-    lo: Vec<V3>,
-    hi: Vec<V3>,
+pub(crate) struct TriSet {
+    pub(crate) pts: Vec<[Point3; 3]>,
+    pub(crate) surf: Vec<Surface>,
+    pub(crate) dev: Vec<f64>,
+    pub(crate) lo: Vec<V3>,
+    pub(crate) hi: Vec<V3>,
 }
 
 impl TriSet {
-    fn new(brep: &BRep) -> Result<Self, YangError> {
+    pub(crate) fn new(brep: &BRep) -> Result<Self, YangError> {
         Self::from_parts(brep.as_mesh(), brep.tri_face(), brep.faces())
     }
 
     /// The set over an explicit mesh with its per-triangle face lineage and
     /// the faces' surfaces (the Stage-2 input meshes, which Stage 0 may have
     /// re-tessellated away from the B-Rep's own).
-    fn from_parts(
+    pub(crate) fn from_parts(
         mesh: &crate::Mesh,
         tri_face: &[u32],
         faces: &[crate::BRepFace],
@@ -959,7 +997,7 @@ impl TriSet {
 }
 
 /// A median-split bounding-volume tree over a [`TriSet`]'s boxes.
-struct Bvh {
+pub(crate) struct Bvh {
     nodes: Vec<BvhNode>,
     order: Vec<u32>,
 }
@@ -977,7 +1015,7 @@ struct BvhNode {
 const LEAF: usize = 8;
 
 impl Bvh {
-    fn new(set: &TriSet) -> Self {
+    pub(crate) fn new(set: &TriSet) -> Self {
         let mut bvh = Bvh {
             nodes: Vec::new(),
             order: (0..set.pts.len() as u32).collect(),
@@ -1036,7 +1074,7 @@ impl Bvh {
     /// Calls `visit` with every triangle whose box is within `pad` of
     /// `[lo, hi]`; stops (returning `true`) as soon as `visit` does.
     /// Every stored triangle whose box lies within `pad` of `[lo, hi]`.
-    fn for_each_near(&self, lo: V3, hi: V3, pad: f64, mut visit: impl FnMut(u32)) {
+    pub(crate) fn for_each_near(&self, lo: V3, hi: V3, pad: f64, mut visit: impl FnMut(u32)) {
         if self.nodes.is_empty() {
             return;
         }

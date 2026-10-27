@@ -782,11 +782,19 @@ fn tangent_overrides(
                             tube_a.lo, tube_a.hi, tube_b.lo, tube_b.hi
                         );
                     }
+                    crate::s43_tangency_census_log(
+                        "cyl_cyl_point_reject_span",
+                        &format!("A#{fa_idx}×B#{fb_idx}"),
+                    );
                     continue;
                 }
                 if probe {
                     eprintln!("[tangent-insert] A#{fa_idx} B#{fb_idx} MINT {pa:?}");
                 }
+                crate::s43_tangency_census_log(
+                    "cyl_cyl_point_mint",
+                    &format!("A#{fa_idx}×B#{fb_idx} p={pa:?}"),
+                );
                 // The point itself, as a face interior…
                 push_unique(&mut out_a.face, fa_idx as u32, p);
                 push_unique(&mut out_b.face, fb_idx as u32, p);
@@ -950,6 +958,10 @@ fn mint_generator(
             plan.face[1].len()
         );
     }
+    crate::s43_tangency_census_log(
+        "cyl_cyl_generator_mint",
+        &format!("A#{fa_idx}×B#{fb_idx} stage0_only={internal_only} external={external}"),
+    );
     for ((rims, pts), (f_idx, out)) in plan
         .rims
         .iter()
@@ -1096,6 +1108,10 @@ fn mint_crossing_rulings(
                 plan.face[1].len()
             );
         }
+        crate::s43_tangency_census_log(
+            "cyl_cyl_crossing_ruling_mint",
+            &format!("A#{fa_idx}×B#{fb_idx} alpha_deg={:.4}", alpha.to_degrees()),
+        );
         for ((rims, pts), (f_idx, out)) in plan
             .rims
             .iter()

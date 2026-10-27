@@ -62,6 +62,7 @@ mod s433_generator_stage0;
 mod s433_tangent_relocation;
 mod s434_chain_decimate;
 mod s434_output_restore;
+mod s43_tangency_newton;
 mod s441a_split_winding;
 mod s442_side_labels;
 mod s451_crease_domain;
