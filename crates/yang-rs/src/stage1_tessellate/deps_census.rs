@@ -1374,8 +1374,8 @@ pub(crate) fn maybe_log_stage1_deps_census(
                             m_eval = m_eval.max(err);
                         }
                     }
-                    match crate::stage4_dt::d_of_t(&eff_surf, uv) {
-                        Ok(dt) => {
+                    match tess.tri_dt.get(ti).copied() {
+                        Some(dt) if dt.is_finite() && dt >= 0.0 => {
                             if is_inner {
                                 n_in += 1;
                                 m_in = m_in.max(dt);
@@ -1394,7 +1394,7 @@ pub(crate) fn maybe_log_stage1_deps_census(
                                 m_bd = m_bd.max(dt);
                             }
                         }
-                        Err(_) => {
+                        _ => {
                             n_dt_err += 1;
                         }
                     }
@@ -1590,5 +1590,219 @@ mod tests {
         let lo = u[0].min(u[1]).min(u[2]);
         let hi = u[0].max(u[1]).max(u[2]);
         assert!((hi - lo - 0.10).abs() <= 1e-12);
+    }
+
+    #[test]
+    fn stage1_computes_dt_and_inner_classification_per_triangle() {
+        // 1. All-planar unit cube: every triangle has d(T) == 0.0 and is a boundary tri.
+        let box_brep = crate::tests_unit::cube_brep([0.0, 0.0, 0.0]);
+        assert_eq!(box_brep.tri_dt().len(), box_brep.num_tris());
+        assert!(box_brep.tri_dt().iter().all(|&dt| dt == 0.0));
+        for ti in 0..box_brep.num_tris() {
+            assert!(!box_brep.is_stage1_inner_tri(ti));
+        }
+
+        // 2. Closed cylinder (r = 2, z ∈ [0, 3]): planar caps have d(T) == 0,
+        // curved lateral triangles have d(T) > 0 matching stage4_dt::d_of_t.
+        let cyl_verts = vec![
+            BRepVertex {
+                point: Point3::new(2.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(2.0, 0.0, 3.0),
+            },
+        ];
+        let cyl_edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 2.0,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 3.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 2.0,
+                },
+            },
+        ];
+        let cyl_faces = vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(0.0, 0.0, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 2.0,
+                },
+                outer_loop: vec![0, 1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -3.0,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        let cyl_brep = BRep::new(cyl_verts, cyl_edges, cyl_faces).expect("cylinder BRep::new");
+        assert_eq!(cyl_brep.tri_dt().len(), cyl_brep.num_tris());
+        let mut saw_lateral = false;
+        let mut saw_cap = false;
+        for (ti, &dt) in cyl_brep.tri_dt().iter().enumerate() {
+            let fi = cyl_brep.tri_face()[ti] as usize;
+            let tri = cyl_brep.as_mesh().tris[ti];
+            let pts = [
+                cyl_brep.as_mesh().verts[tri[0] as usize],
+                cyl_brep.as_mesh().verts[tri[1] as usize],
+                cyl_brep.as_mesh().verts[tri[2] as usize],
+            ];
+            let (eff_surf, uv) = stage1_tri_surface_and_uv(cyl_brep.faces()[fi].surface, pts);
+            let exp_dt = crate::stage4_dt::d_of_t(&eff_surf, uv).expect("valid d_of_t");
+            assert_eq!(dt.to_bits(), exp_dt.to_bits());
+            if fi == 0 {
+                saw_lateral = true;
+                assert!(dt > 0.0);
+            } else {
+                saw_cap = true;
+                assert_eq!(dt, 0.0);
+            }
+        }
+        assert!(saw_lateral && saw_cap);
+
+        // 3. Closed sphere: carries both boundary triangles (along the meridian
+        // seam) and inner triangles (`BRepFace`-only vertices), all with finite
+        // d(T) > 0.
+        let sph_verts = vec![
+            BRepVertex {
+                point: Point3::new(0.0, 0.0, -2.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, 0.0, 2.0),
+            },
+        ];
+        let sph_edges = vec![BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, -1.0, 0.0),
+                radius: 2.0,
+            },
+        }];
+        let sph_faces = vec![BRepFace {
+            surface: Surface::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 2.0,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        let sph_brep = BRep::new(sph_verts, sph_edges, sph_faces).expect("sphere BRep::new");
+        assert_eq!(sph_brep.tri_dt().len(), sph_brep.num_tris());
+        let mut inner_cnt = 0usize;
+        let mut bdy_cnt = 0usize;
+        for (ti, &dt) in sph_brep.tri_dt().iter().enumerate() {
+            assert!(dt.is_finite() && dt > 0.0);
+            if sph_brep.is_stage1_inner_tri(ti) {
+                inner_cnt += 1;
+            } else {
+                bdy_cnt += 1;
+            }
+        }
+        assert!(inner_cnt > 0 && bdy_cnt > 0);
+    }
+
+    #[test]
+    fn stage1_computes_dt_and_rejects_invalid_domain_loudly() {
+        // Two-nappe cone frustum crossing the apex (`z = +1.0` rim to `z = -0.5`
+        // rim on `apex = (0, 0, 0)`, `half_angle = π/4`): every strip triangle
+        // straddles `v > 0` and `v < 0`, violating `stage4_dt::d_of_t`'s
+        // single-nappe certificate (`DtError::NegativeConeAxialRange`). Stage 1
+        // must reject loudly at the d(T) certificate check.
+        let cone_verts = vec![
+            BRepVertex {
+                point: Point3::new(1.0, 0.0, 1.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.5, 0.0, -0.5),
+            },
+        ];
+        let cone_edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 1.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 1.0,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, -0.5),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 0.5,
+                },
+            },
+        ];
+        let cone_faces = vec![
+            BRepFace {
+                surface: Surface::Cone {
+                    apex: Point3::new(0.0, 0.0, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    half_angle: std::f64::consts::FRAC_PI_4,
+                },
+                outer_loop: vec![0, 1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -1.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: -0.5,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        let err = BRep::new(cone_verts, cone_edges, cone_faces)
+            .expect_err("double-nappe cone strip must fail Stage-1 d(T) certificate loudly");
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("Stage-1 d(T) certificate failed")
+                && msg.contains("NegativeConeAxialRange"),
+            "unexpected error: {msg}"
+        );
     }
 }

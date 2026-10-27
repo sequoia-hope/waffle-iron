@@ -134,6 +134,7 @@ fn twin_adjacent_and_touching_pairs_are_not_contacts() {
         tris: vec![[0, 1, 2], [3, 4, 5], [6, 7, 8]],
         face_tri_ranges: vec![0..1, 1..2, 2..3],
         chains: BTreeMap::new(),
+        tri_dt: vec![0.0; 3],
     };
     let plane = |normal: Vector3, d: f64| BRepFace {
         surface: Surface::Plane { normal, d },

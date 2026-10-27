@@ -3086,6 +3086,7 @@ fn boolean_once_timed(
         // provenance map empty so a CHAINED boolean falls back to geometric
         // attribution (until the output reconstruction also emits a tri→face map).
         tri_face: Vec::new(),
+        tri_dt: Vec::new(),
         forced_rim_n: None,
         standing_rim: std::collections::BTreeMap::new(),
         standing_face: std::collections::BTreeMap::new(),

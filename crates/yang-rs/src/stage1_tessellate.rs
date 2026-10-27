@@ -22,6 +22,12 @@ pub(crate) struct Stage1Tess {
     /// arm (spec `m8_mixed_loop_coplanar_overlay`) to splice loop polylines
     /// bit-identical to this tessellation's own face boundaries.
     pub(crate) chains: std::collections::BTreeMap<u32, Vec<u32>>,
+    /// Yang 2025 §4.1.2 / Fig. 6 (`refs/text/yang2025_hybrid_boolean.txt:354-390`)
+    /// and Appendix A Theorem A.1 (`:1163-1171`) per-triangle certified
+    /// discretization-error bound `d(T)` (1:1 with `tris`, `0.0` on `Plane`).
+    /// Computed and checked loudly via [`crate::stage4_dt::d_of_t`] on every
+    /// Stage-1 pass (Roadmap F5 Step 2, ledger N93).
+    pub(crate) tri_dt: Vec<f64>,
 }
 
 /// Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder;
@@ -2635,6 +2641,41 @@ pub(crate) fn stage1_tessellate_once(
             face_tri_ranges.push(range_start..out_tris.len());
         }
 
+        // Yang 2025 §4.1.2 / Fig. 6 (`refs/text/yang2025_hybrid_boolean.txt:354-390`)
+        // and Appendix A Theorem A.1 (`:1163-1171`): compute and certify the
+        // rational-Bézier control-net upper bound `d(T)` on every emitted
+        // Stage-1 triangle (`0.0` on planes, positive finite bound on curved
+        // faces; loud `MalformedTopology` STOP on any `DtError` or non-finite
+        // certificate, P9/P10). On boundary triangles this is `d_ε(T) = d(T)`
+        // verbatim (`:375-382`); on inner triangles `d(T)` provides the
+        // certified Theorem A.1 conservative upper bound until F5 item 3
+        // (`N5`/`N61`/`N93`) replaces 1D sagitta / unstructured CDT interiors
+        // with Theorem A.2 4-corner sub-patch subdivision (`ω + d < d_ε`).
+        let mut tri_dt = Vec::with_capacity(out_tris.len());
+        for (f_idx, range) in face_tri_ranges.iter().enumerate() {
+            let surface = faces[f_idx].surface;
+            for ti in range.clone() {
+                let tri = out_tris[ti];
+                let pts = [
+                    out_verts[tri[0] as usize],
+                    out_verts[tri[1] as usize],
+                    out_verts[tri[2] as usize],
+                ];
+                let (eff_surf, uv) = stage1_tri_surface_and_uv(surface, pts);
+                let dt = crate::stage4_dt::d_of_t(&eff_surf, uv).map_err(|err| {
+                    YangError::MalformedTopology(format!(
+                        "face {f_idx} tri {ti}: Stage-1 d(T) certificate failed: {err:?}"
+                    ))
+                })?;
+                if !dt.is_finite() || dt < 0.0 {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx} tri {ti}: Stage-1 d(T) certificate non-finite or negative ({dt})"
+                    )));
+                }
+                tri_dt.push(dt);
+            }
+        }
+
         Ok((
             Stage1Tess {
                 verts: out_verts,
@@ -2642,6 +2683,7 @@ pub(crate) fn stage1_tessellate_once(
                 tris: out_tris,
                 face_tri_ranges,
                 chains: rim_rings,
+                tri_dt,
             },
             inserted_rims,
         ))

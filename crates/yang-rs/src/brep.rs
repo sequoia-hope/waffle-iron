@@ -550,6 +550,11 @@ pub struct BRep {
     /// `from_mesh` and boolean-output BReps (no Stage-1 face lineage) — those
     /// fall back to the geometric attribution path.
     pub(crate) tri_face: Vec<u32>,
+    /// Yang 2025 §4.1.2 / Fig. 6 (`refs/text/yang2025_hybrid_boolean.txt:354-390`)
+    /// per-Stage-1-triangle certified surface-to-triangle bound `d(T)` (parallel
+    /// to `mesh.tris`; empty for `from_mesh` / boolean outputs with no Stage-1
+    /// lineage). Ledger N93 (Roadmap F5 Step 2).
+    pub(crate) tri_dt: Vec<f64>,
     /// Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): the forced
     /// minimum rim segment count this B-Rep was (re)tessellated at. Stage-0's
     /// internal re-tessellations (`disc_rim_ring`, `build_stage0_mesh`, split
@@ -959,6 +964,7 @@ impl BRep {
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
             tri_face,
+            tri_dt: tess.tri_dt,
             forced_rim_n: min_n_seg,
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
@@ -1283,6 +1289,7 @@ impl BRep {
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
             tri_face: Vec::new(),
+            tri_dt: Vec::new(),
             forced_rim_n: None,
             standing_rim: std::collections::BTreeMap::new(),
             standing_face: std::collections::BTreeMap::new(),
@@ -1297,6 +1304,33 @@ impl BRep {
     /// attribution.
     pub(crate) fn tri_face(&self) -> &[u32] {
         &self.tri_face
+    }
+
+    /// Yang 2025 §4.1.2 / Fig. 6 (`refs/text/yang2025_hybrid_boolean.txt:354-390`):
+    /// per Stage-1 mesh triangle, its certified rational-Bézier control-net
+    /// distance bound `d(T)` (parallel to `as_mesh().tris`; empty for
+    /// `from_mesh`). On boundary triangles (`!self.is_stage1_inner_tri(ti)`),
+    /// this equals `d_ε(T) = d(T)` (`:375-382`); on inner triangles it gives
+    /// the Theorem A.1 conservative upper bound while Theorem A.2 sub-patch
+    /// subdivision (`N5`/`N61`/`N93`) remains open.
+    pub fn tri_dt(&self) -> &[f64] {
+        &self.tri_dt
+    }
+
+    /// Yang 2025 §4.1.2 (`refs/text/yang2025_hybrid_boolean.txt:380-382`):
+    /// returns `true` iff Stage-1 mesh triangle `tri_idx` is an "inner triangle"
+    /// (contains no sampling points on the boundaries — all three vertices carry
+    /// [`TessellationSource::BRepFace`]).
+    pub fn is_stage1_inner_tri(&self, tri_idx: usize) -> bool {
+        let Some(&tri) = self.mesh.tris.get(tri_idx) else {
+            return false;
+        };
+        tri.iter().all(|&vi| {
+            matches!(
+                self.tessellation.sources.get(vi as usize),
+                Some(TessellationSource::BRepFace { .. })
+            )
+        })
     }
 
     /// Case-IV phantom guard: the forced minimum rim segment count this

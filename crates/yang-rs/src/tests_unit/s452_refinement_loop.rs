@@ -31,6 +31,7 @@ fn output_shell(
             .map(|(input, face)| TriangleAttribution { input, face })
             .collect(),
         tri_face: Vec::new(),
+        tri_dt: Vec::new(),
         forced_rim_n: None,
         standing_rim: Default::default(),
         standing_face: Default::default(),
