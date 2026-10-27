@@ -127,7 +127,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N24 | DELEGATED (B) | orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole) |
 | N25 | DELEGATED (B) | Stage-0 §4.5.5 generalized to n-ary plane groups + tessellated (disc/annular/mixed) faces |
 | N26 | DELEGATED (B) | Overlay f64-emission fused collapse (§4.5.5 identical-mesh at rounding resolution) |
-| N27 | DELEGATED (B) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
+| N27 | DELEGATED (B; scope widened to `Curve::Ellipse` 2026-10-27, F6; re-adjudicate at F5) | Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26) |
 | N28 | DELEGATED (B) | Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection |
 | N29 | DELEGATED (B) — victim rule RESOLVED 2026-10-16 (paper order) | §4.5.3 reversed-point correction via EXACT conic parameters (not the paper's discrete tangent-angle proxy) … |
 | N30 | DELEGATED (B) | Circle × parallel-plane-line junction closed form (§4.4.1 relocation onto both incident curves) |
@@ -2169,7 +2169,7 @@ ceiling. Design decision, no separate sign-off.
 
 ### N27 — Stage-1 rim-override merge onto a coinciding uniform sample (producer/consumer of N26)
 
-**State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
+**State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7; scope widened to `Curve::Ellipse` 2026-10-27, F6 — re-adjudication home: roadmap F5) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage1_tessellate.rs` —
 `stage1_tessellate_with_rim_overrides` (`:91`), `stage1_tessellate_inner` (`:330`),
@@ -2215,6 +2215,18 @@ wall keeps moving downstream one honest step at a time. (Superseded: C0048 is
 `SupportedCorrect` since the M8 campaign, `assay_kv2.rs:1232`; noted 2026-10-17.)
 
 **Deviation status:** faithful §4.5.5; design decision. No sign-off required.
+
+**Amendment (2026-10-27, roadmap F6 / N89 item 4):** Scope widened from `Curve::Circle`
+to `Curve::Ellipse` (both open minor-arc chains `e.start != e.end` and closed full-ellipse
+rings `e.start == e.end`) in `crates/yang-rs/src/stage1_tessellate.rs`: on-ellipse
+override validation `band = 1e-9 * (1.0 + major_radius)` (`:1252-1279`), minor-arc
+override merge (`uni_step` / `merge_tol = uni_step * 1.0e-6` `:1300-1301`, coincidence
+test `:1325-1326`, endpoint refusal `:1328-1334`, `TAU_MODEL` real-scale refusal
+`d2 >= tau * tau` `:1349-1358`, bit-replace `:1359-1371`), and closed full-ellipse
+override merge (`uni_step` / `merge_tol = uni_step * 1.0e-6` `:1422-1423`, coincidence
+test `:1432-1433`, seam `k_slot == 0` refusal `:1435-1444`, `TAU_MODEL` real-scale refusal
+`:1459-1468`, bit-replace `:1469-1481`). State remains **DELEGATED**; its re-adjudication
+home is **roadmap F5** (Stage 1 as §4.1, `docs/yang_faithfulness_roadmap.md` §3 F5).
 
 ### N28 — Torus-profile rim crossings: CapLateral torus arm + poloidal opposite-rim projection
 
@@ -6688,7 +6700,8 @@ Each is OPEN, each small; recorded together so none is invisible.
    normalized ellipse chart `(u, v) = (((p − c)·m)/a, ((p − c)·w)/b)` and
    sweep x-events by closed-form affine-radial projection onto the exact
    ellipse, propagating shared split points into incident lateral faces via
-   `rim_overrides` (`stage1_tessellate.rs:1201`) while preserving exact
+   `rim_overrides` (`stage1_tessellate.rs:1201`; N27 scope widened to
+   `Curve::Ellipse`, DELEGATED, re-adjudicated at F5) while preserving exact
    analytic `Curve::Ellipse` / `Curve::EllipseArc` boundaries and leaving
    `stage0/reloc.rs` untouched. Pinned by
    `crates/kernel-v2/tests/f6_ellipse_coplanar.rs`
