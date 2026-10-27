@@ -596,3 +596,437 @@ pub(crate) fn planes_coincide(a: Surface, b: Surface) -> bool {
     let ob = if dot > 0.0 { -db / lb } else { db / lb };
     (oa - ob).abs() <= cad_primitives::TAU_MODEL * (1.0 + oa.abs().max(ob.abs()))
 }
+
+/// Exact per-axis coordinate bounds `(lo, hi)` of a single [`Surface`] where
+/// finite (compact `Sphere` / `Torus`, or `Cylinder` axes perpendicular to its
+/// ruling direction). Unbounded axes carry `(-INFINITY, INFINITY)`.
+fn surface_axis_bounds(surface: Surface) -> ([f64; 3], [f64; 3]) {
+    let mut slo = [f64::NEG_INFINITY; 3];
+    let mut shi = [f64::INFINITY; 3];
+    match surface {
+        Surface::Sphere { center, radius } => {
+            let c = center.as_array();
+            let r = radius.abs();
+            for k in 0..3 {
+                slo[k] = c[k] - r;
+                shi[k] = c[k] + r;
+            }
+        }
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            let c = center.as_array();
+            let u = normalize3(axis_dir.as_array());
+            let (ra, rb) = (major_radius.abs(), minor_radius.abs());
+            for k in 0..3 {
+                let ext = ra * (1.0 - u[k] * u[k]).max(0.0).sqrt() + rb;
+                slo[k] = c[k] - ext;
+                shi[k] = c[k] + ext;
+            }
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let ap = axis_point.as_array();
+            let u = normalize3(axis_dir.as_array());
+            let r = radius.abs();
+            for k in 0..3 {
+                if u[k] == 0.0 {
+                    slo[k] = ap[k] - r;
+                    shi[k] = ap[k] + r;
+                }
+            }
+        }
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if len > 0.0 && len.is_finite() {
+                for k in 0..3 {
+                    let other_zero = (0..3).all(|j| j == k || n[j] == 0.0);
+                    if other_zero && n[k] != 0.0 {
+                        let coord = -d / n[k];
+                        slo[k] = coord;
+                        shi[k] = coord;
+                    }
+                }
+            }
+        }
+        Surface::Cone { .. } => {}
+    }
+    (slo, shi)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn grow_periodic_conic_aabb(
+    c: [f64; 3],
+    u: [f64; 3],
+    v: [f64; 3],
+    t0: f64,
+    t1: f64,
+    closed: bool,
+    lo: &mut [f64; 3],
+    hi: &mut [f64; 3],
+) {
+    let two_pi = std::f64::consts::TAU;
+    let sweep = (t1 - t0).rem_euclid(two_pi);
+    let full = closed || !(sweep > 0.0 && sweep.is_finite());
+    for k in 0..3 {
+        let amp = u[k].hypot(v[k]);
+        if !amp.is_finite() || amp == 0.0 {
+            continue;
+        }
+        if full {
+            lo[k] = lo[k].min(c[k] - amp);
+            hi[k] = hi[k].max(c[k] + amp);
+        } else {
+            let t_max = v[k].atan2(u[k]);
+            if (t_max - t0).rem_euclid(two_pi) <= sweep {
+                hi[k] = hi[k].max(c[k] + amp);
+            }
+            let t_min = (-v[k]).atan2(-u[k]);
+            if (t_min - t0).rem_euclid(two_pi) <= sweep {
+                lo[k] = lo[k].min(c[k] - amp);
+            }
+        }
+    }
+}
+
+/// Axis-aligned bounding box `(lo, hi)` of a [`Curve`] edge between endpoints
+/// `p0` and `p1` (`closed == true` when `start == end`, denoting the full `2π`
+/// sweep on periodic conics).
+///
+/// Exhaustive over all [`Curve`] variants (no catch-all arm) so callers such
+/// as Stage-0 `scan_near_coplanar` (Yang et al. 2025 §4.5.5,
+/// `refs/text/yang2025_hybrid_boolean.txt:718-732`; ledger N98) bound every
+/// loop edge by its swept extent without enumerating curve types.
+pub(crate) fn curve_aabb(
+    curve: &Curve,
+    p0: Point3,
+    p1: Point3,
+    closed: bool,
+) -> ([f64; 3], [f64; 3]) {
+    let (a, b) = (p0.as_array(), p1.as_array());
+    let mut lo = [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])];
+    let mut hi = [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])];
+
+    match *curve {
+        Curve::LineSegment => {}
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            let c = center.as_array();
+            let (e1, e2) = crate::ortho_basis(normal);
+            let (e1a, e2a) = (e1.as_array(), e2.as_array());
+            let r = radius.abs();
+            let u = [r * e1a[0], r * e1a[1], r * e1a[2]];
+            let v = [r * e2a[0], r * e2a[1], r * e2a[2]];
+            let angle = |p: [f64; 3]| -> f64 {
+                let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+                let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                wy.atan2(wx)
+            };
+            grow_periodic_conic_aabb(c, u, v, angle(a), angle(b), closed, &mut lo, &mut hi);
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let c = center.as_array();
+            let maj = normalize3(major_axis.as_array());
+            let mindir = ellipse_frame(normal, major_axis);
+            let (ra, rb) = (major_radius.abs(), minor_radius.abs());
+            let u = [ra * maj[0], ra * maj[1], ra * maj[2]];
+            let v = [rb * mindir[0], rb * mindir[1], rb * mindir[2]];
+            let t0 = ellipse_param(p0, center, normal, major_axis, ra, rb);
+            let t1 = ellipse_param(p1, center, normal, major_axis, ra, rb);
+            grow_periodic_conic_aabb(c, u, v, t0, t1, closed, &mut lo, &mut hi);
+        }
+        Curve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            if !closed && focal_length.is_finite() && focal_length > 0.0 {
+                let n = normalize3(normal.as_array());
+                let ax = normalize3(axis_dir.as_array());
+                let conj = [
+                    n[1] * ax[2] - n[2] * ax[1],
+                    n[2] * ax[0] - n[0] * ax[2],
+                    n[0] * ax[1] - n[1] * ax[0],
+                ];
+                let v = vertex.as_array();
+                let t0 = parabola_param(p0, vertex, normal, axis_dir);
+                let t1 = parabola_param(p1, vertex, normal, axis_dir);
+                let (t_lo, t_hi) = (t0.min(t1), t0.max(t1));
+                for k in 0..3 {
+                    if ax[k] != 0.0 {
+                        let t_star = -2.0 * focal_length * conj[k] / ax[k];
+                        if t_star.is_finite() && t_star > t_lo && t_star < t_hi {
+                            let val = v[k]
+                                + ax[k] * t_star * t_star / (4.0 * focal_length)
+                                + conj[k] * t_star;
+                            lo[k] = lo[k].min(val);
+                            hi[k] = hi[k].max(val);
+                        }
+                    }
+                }
+            }
+        }
+        Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            if !closed
+                && semi_transverse.is_finite()
+                && semi_transverse > 0.0
+                && semi_conjugate.is_finite()
+                && semi_conjugate > 0.0
+            {
+                let n = normalize3(normal.as_array());
+                let maj = normalize3(major_axis.as_array());
+                let conj = [
+                    n[1] * maj[2] - n[2] * maj[1],
+                    n[2] * maj[0] - n[0] * maj[2],
+                    n[0] * maj[1] - n[1] * maj[0],
+                ];
+                let c = center.as_array();
+                let param = |p: [f64; 3]| -> f64 {
+                    let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+                    ((w[0] * conj[0] + w[1] * conj[1] + w[2] * conj[2]) / semi_conjugate).asinh()
+                };
+                let (t0, t1) = (param(a), param(b));
+                let (t_lo, t_hi) = (t0.min(t1), t0.max(t1));
+                for k in 0..3 {
+                    let ca = semi_transverse * maj[k];
+                    let cb = semi_conjugate * conj[k];
+                    if ca.abs() > cb.abs() {
+                        let t_star = (-cb / ca).atanh();
+                        if t_star.is_finite() && t_star > t_lo && t_star < t_hi {
+                            let val = c[k] + ca * t_star.cosh() + cb * t_star.sinh();
+                            lo[k] = lo[k].min(val);
+                            hi[k] = hi[k].max(val);
+                        }
+                    }
+                }
+            }
+        }
+        Curve::SurfacePair { a: sa, b: sb } => {
+            let (slo_a, shi_a) = surface_axis_bounds(sa);
+            let (slo_b, shi_b) = surface_axis_bounds(sb);
+            let mid = [
+                0.5 * (a[0] + b[0]),
+                0.5 * (a[1] + b[1]),
+                0.5 * (a[2] + b[2]),
+            ];
+            let chord =
+                ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+            for k in 0..3 {
+                let slo = slo_a[k].max(slo_b[k]);
+                let shi = shi_a[k].min(shi_b[k]);
+                // Whenever either defining surface bounds axis `k` (all axes on
+                // compact `Sphere`/`Torus`, perpendicular axes on `Cylinder`,
+                // normal axis on axis-aligned `Plane`), `[slo, shi]` is an exact
+                // outer bound for any arc sweep (including major > 180° arcs).
+                // On mutually unbounded axes, fall back to the Stage-1 chord-ball
+                // bound `mid ± chord` when open.
+                let blo = if slo.is_finite() {
+                    slo
+                } else if !closed {
+                    mid[k] - chord
+                } else {
+                    a[k].min(b[k])
+                };
+                let bhi = if shi.is_finite() {
+                    shi
+                } else if !closed {
+                    mid[k] + chord
+                } else {
+                    a[k].max(b[k])
+                };
+                if blo.is_finite() && bhi.is_finite() && blo <= bhi {
+                    lo[k] = lo[k].min(blo);
+                    hi[k] = hi[k].max(bhi);
+                }
+            }
+        }
+    }
+
+    (lo, hi)
+}
+
+#[cfg(test)]
+mod curve_aabb_tests {
+    use super::*;
+
+    #[test]
+    fn curve_aabb_line_segment_matches_endpoints() {
+        let p0 = Point3::new(1.5, -2.0, 4.0);
+        let p1 = Point3::new(-3.0, 5.5, 0.5);
+        let (lo, hi) = curve_aabb(&Curve::LineSegment, p0, p1, false);
+        assert_eq!(lo, [-3.0, -2.0, 0.5]);
+        assert_eq!(hi, [1.5, 5.5, 4.0]);
+    }
+
+    #[test]
+    fn curve_aabb_circle_closed_and_minor_arc_bulge() {
+        let circle = Curve::Circle {
+            center: Point3::new(1.0, 2.0, 3.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        };
+        let seam = Point3::new(3.0, 2.0, 3.0);
+        let (lo_full, hi_full) = curve_aabb(&circle, seam, seam, true);
+        for k in 0..3 {
+            let want_lo = [-1.0, 0.0, 3.0][k];
+            let want_hi = [3.0, 4.0, 3.0][k];
+            assert!((lo_full[k] - want_lo).abs() < 1e-12);
+            assert!((hi_full[k] - want_hi).abs() < 1e-12);
+        }
+
+        // CCW 90° arc from +45° to +135° around +Z bulges to y = center.y + r = 4.0
+        // while its endpoints sit at y = 2 + √2 ≈ 3.4142 and x ∈ [1 - √2, 1 + √2].
+        let s = 2.0_f64.sqrt();
+        let p0 = Point3::new(1.0 + s, 2.0 + s, 3.0);
+        let p1 = Point3::new(1.0 - s, 2.0 + s, 3.0);
+        let (lo_arc, hi_arc) = curve_aabb(&circle, p0, p1, false);
+        assert!((lo_arc[0] - (1.0 - s)).abs() < 1e-12);
+        assert!((hi_arc[0] - (1.0 + s)).abs() < 1e-12);
+        assert!((lo_arc[1] - (2.0 + s)).abs() < 1e-12);
+        assert!((hi_arc[1] - 4.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn curve_aabb_ellipse_closed_and_minor_arc_bulge() {
+        // Oblique ellipse in plane 0.6·x + 0.8·z = 4 centered at (0, 0, 5),
+        // major_axis = [0.8, 0, -0.6] (a = 2.5), minor_dir = [0, 1, 0] (b = 2.0).
+        let ell = Curve::Ellipse {
+            center: Point3::new(0.0, 0.0, 5.0),
+            normal: Vector3::new(0.6, 0.0, 0.8),
+            major_axis: Vector3::new(0.8, 0.0, -0.6),
+            major_radius: 2.5,
+            minor_radius: 2.0,
+        };
+        let seam = ellipse_point(
+            Point3::new(0.0, 0.0, 5.0),
+            Vector3::new(0.6, 0.0, 0.8),
+            Vector3::new(0.8, 0.0, -0.6),
+            2.5,
+            2.0,
+            0.0,
+        );
+        let (lo_full, hi_full) = curve_aabb(&ell, seam, seam, true);
+        // x amplitude = 2.5 * 0.8 = 2.0; y amplitude = 2.0; z amplitude = 2.5 * 0.6 = 1.5.
+        assert!((lo_full[0] - -2.0).abs() < 1e-12 && (hi_full[0] - 2.0).abs() < 1e-12);
+        assert!((lo_full[1] - -2.0).abs() < 1e-12 && (hi_full[1] - 2.0).abs() < 1e-12);
+        assert!((lo_full[2] - 3.5).abs() < 1e-12 && (hi_full[2] - 6.5).abs() < 1e-12);
+
+        // Minor arc from t = π/4 to t = 3π/4 bulges to y = +2.0 while endpoints have y = √2.
+        let p0 = ellipse_point(
+            Point3::new(0.0, 0.0, 5.0),
+            Vector3::new(0.6, 0.0, 0.8),
+            Vector3::new(0.8, 0.0, -0.6),
+            2.5,
+            2.0,
+            std::f64::consts::FRAC_PI_4,
+        );
+        let p1 = ellipse_point(
+            Point3::new(0.0, 0.0, 5.0),
+            Vector3::new(0.6, 0.0, 0.8),
+            Vector3::new(0.8, 0.0, -0.6),
+            2.5,
+            2.0,
+            3.0 * std::f64::consts::FRAC_PI_4,
+        );
+        let (lo_arc, hi_arc) = curve_aabb(&ell, p0, p1, false);
+        assert!((lo_arc[1] - 2.0_f64.sqrt()).abs() < 1e-12);
+        assert!((hi_arc[1] - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn curve_aabb_parabola_captures_interior_vertex_bulge() {
+        let vertex = Point3::new(-1.0, 0.0, 2.0);
+        let normal = Vector3::new(0.0, 0.0, 1.0);
+        let axis_dir = Vector3::new(1.0, 0.0, 0.0);
+        let f = 0.5;
+        let para = Curve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length: f,
+        };
+        let p0 = parabola_point(vertex, normal, axis_dir, f, -2.0); // x = -1 + 4/2 = 1.0
+        let p1 = parabola_point(vertex, normal, axis_dir, f, 2.0); // x = 1.0
+        let (lo, hi) = curve_aabb(&para, p0, p1, false);
+        assert!(
+            (lo[0] - -1.0).abs() < 1e-12,
+            "parabola vertex at x = -1.0 must be included in lo[0], got {}",
+            lo[0]
+        );
+        assert!((hi[0] - 1.0).abs() < 1e-12);
+        assert!((lo[1] - -2.0).abs() < 1e-12 && (hi[1] - 2.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn curve_aabb_hyperbola_captures_interior_vertex_bulge() {
+        let center = Point3::new(0.0, 0.0, 1.0);
+        let normal = Vector3::new(0.0, 0.0, 1.0);
+        let major_axis = Vector3::new(1.0, 0.0, 0.0);
+        let (a, b) = (2.0, 1.5);
+        let hyp = Curve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse: a,
+            semi_conjugate: b,
+        };
+        let p0 = hyperbola_point(center, normal, major_axis, a, b, -1.2);
+        let p1 = hyperbola_point(center, normal, major_axis, a, b, 1.2);
+        let (lo, hi) = curve_aabb(&hyp, p0, p1, false);
+        // Endpoints sit at x = 2·cosh(1.2) ≈ 3.621; branch apex at t = 0 reaches x = 2.0.
+        assert!(
+            (lo[0] - 2.0).abs() < 1e-12,
+            "hyperbola vertex at x = 2.0 must be included in lo[0], got {}",
+            lo[0]
+        );
+        assert!((hi[0] - p1.x()).abs() < 1e-12);
+    }
+
+    #[test]
+    fn curve_aabb_surface_pair_bounds_bulge_and_clamps_to_compact_operand() {
+        let pair = Curve::SurfacePair {
+            a: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -0.5,
+            },
+            b: Surface::Torus {
+                center: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                major_radius: 3.0,
+                minor_radius: 1.0,
+            },
+        };
+        let p0 = Point3::new(2.0, 3.0, 0.5);
+        let p1 = Point3::new(-2.0, 3.0, 0.5);
+        let (lo, hi) = curve_aabb(&pair, p0, p1, false);
+        // Chord length is 4.0 around mid (0, 3, 0.5), which would reach y = 7.0
+        // unclamped, but the Torus bounds y ≤ R + r = 4.0 and |z| ≤ r = 1.0,
+        // while strictly covering the arc bulge above y = 3.0.
+        assert!(hi[1] > 3.5 && (hi[1] - 4.0).abs() < 1e-12);
+        assert!(lo[2] >= -1.0 - 1e-12 && hi[2] <= 1.0 + 1e-12);
+    }
+}

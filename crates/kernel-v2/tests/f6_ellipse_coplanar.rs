@@ -809,3 +809,202 @@ fn coplanar_ellipse_caps_preserve_exact_ellipse_arcs_in_arena() {
         "top cap z=0.5 must retain exact Curve::EllipseArc edges, got {z1_ell_arcs}"
     );
 }
+
+/// Ledger N98 (Yang et al. 2025 §4.5.5 `yang2025_hybrid_boolean.txt:718-732`,
+/// matrix row `4.5.5-01`): an oblique planar cut `0.6·x + 0.8·z = 4` of the
+/// 90° vertical cylindrical sector `{x² + y² ≤ 4, y ≥ |x|, z ≥ 0}` bounds its
+/// top planar face by a 3-edge loop — two radial `LineSegment`s meeting `(0, 0, 5)`
+/// and `(±√2, √2, …)` plus ONE coalesced minor `Curve::EllipseArc` (sweep ≈ π/2 <
+/// `SWEEP_MAX`) bulging out to `y = 2`. The face's vertex AABB ends at `y = √2 ≈
+/// 1.4142`; an off-center coplanar rectangular boss extruded outward along
+/// `n = [0.6, 0, 0.8]` over `y ∈ [1.55, 2.20]` crosses the ellipse-arc bulge at
+/// `y ≈ 2` while staying > 0.135 units clear of the cap's vertex AABB. Without
+/// curve-extent AABBs in `scan_near_coplanar`, Stage 0 misses the coplanar pair,
+/// skips exact on-ellipse crossing minting, and the boolean fails. With N98
+/// fixed, Stage 0 pairs and overlays the faces into one genus-0 shell with exact
+/// closed-form volume `5π + 0.5·0.65·1.0`.
+#[test]
+fn n98_coplanar_partner_in_ellipse_arc_bulge_only_is_paired_by_stage0() {
+    let mut a = BrepArena::new();
+
+    // 1. Vertical circular cylinder x² + y² ≤ 4, z ∈ [-1, 10].
+    let cyl_prof = Profile::circle(
+        Point3::new(0.0, 0.0, -1.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.0, 0.0),
+        2.0,
+    )
+    .expect("circle profile");
+    let cyl = extrude(&mut a, &cyl_prof, Vector3::new(0.0, 0.0, 1.0), 11.0)
+        .expect("extrude vertical cylinder")
+        .solid;
+
+    // 2. Intersect with 90° sector wedge {y ≥ |x|, y ≤ 5, z ∈ [0, 9]} so the
+    //    cross-section is the quarter-disc D = {x² + y² ≤ 4, y ≥ |x|} (area π).
+    let seg_prof = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(5.0, 5.0),
+            Point2::new(-5.0, 5.0),
+        ],
+        vec![],
+    )
+    .expect("90-deg sector cutter profile");
+    let seg_box = extrude(&mut a, &seg_prof, Vector3::new(0.0, 0.0, 1.0), 9.0)
+        .expect("extrude sector cutter")
+        .solid;
+    let d_cyl = boolean_op(&mut a, cyl, seg_box, BoolOp::Intersect)
+        .expect("intersect vertical cylinder with 90-deg sector");
+
+    // 3. Cut with oblique half-space 0.6·x + 0.8·z ≤ 4 (plane origin [0, 0, 5],
+    //    inward extrusion along [-0.6, 0, -0.8]). On D, z(x) = 5 − 0.75·x > 3.9 > 0,
+    //    and D is symmetric in x, so ∬_D (5 − 0.75·x) dx dy = 5 · Area(D) = 5π.
+    let n_out = Vector3::new(0.6, 0.0, 0.8);
+    let n_in = Vector3::new(-0.6, 0.0, -0.8);
+    // Right-handed frame for extrusion along n_in = [-0.6, 0, -0.8]:
+    // eu × ev = [0.8, 0, -0.6] × [0, -1, 0] = [-0.6, 0, -0.8] = n_in.
+    let cut_prof = Profile::new(
+        Point3::new(0.0, 0.0, 5.0),
+        Vector3::new(0.8, 0.0, -0.6),
+        Vector3::new(0.0, -1.0, 0.0),
+        vec![
+            Point2::new(-8.0, -8.0),
+            Point2::new(8.0, -8.0),
+            Point2::new(8.0, 8.0),
+            Point2::new(-8.0, 8.0),
+        ],
+        vec![],
+    )
+    .expect("oblique cutter profile");
+    let oblique_cutter = extrude(&mut a, &cut_prof, n_in, 12.0)
+        .expect("extrude oblique cutter")
+        .solid;
+    let base = boolean_op(&mut a, d_cyl, oblique_cutter, BoolOp::Intersect)
+        .expect("oblique cut produces 3-edge ellipse-arc sector cap solid");
+
+    // Confirm the oblique top cap is a 3-edge loop (2 LineSegments + 1 coalesced
+    // Curve::EllipseArc) whose vertices end at y = √2 ≈ 1.4142, leaving the
+    // y ∈ (√2, 2] bulge completely outside the vertex-only AABB.
+    let mut cap_found = false;
+    for &sh in &a.solid(base).unwrap().shells {
+        for &fid in &a.shell(sh).unwrap().faces {
+            let f = a.face(fid).unwrap();
+            if let Some(Surface::Plane(pl)) = f.surface {
+                let d_dot = pl.normal.x * 0.6 + pl.normal.y * 0.0 + pl.normal.z * 0.8;
+                if d_dot > 0.999 {
+                    cap_found = true;
+                    let hes = a.loop_half_edges(f.outer_loop).unwrap();
+                    assert_eq!(
+                        hes.len(),
+                        3,
+                        "90-deg sector oblique cap must coalesce to 3 edges"
+                    );
+                    let mut ell_count = 0usize;
+                    let mut max_vtx_y = f64::NEG_INFINITY;
+                    for hid in hes {
+                        let he = a.half_edge(hid).unwrap();
+                        if matches!(he.curve, Curve::EllipseArc { .. }) {
+                            ell_count += 1;
+                        }
+                        let p = a.vertex(he.origin).unwrap().point;
+                        max_vtx_y = max_vtx_y.max(p.y());
+                    }
+                    assert_eq!(
+                        ell_count, 1,
+                        "oblique cap must carry 1 coalesced EllipseArc"
+                    );
+                    assert!(
+                        max_vtx_y < 2.0_f64.sqrt() + 1e-6,
+                        "oblique cap vertex AABB must end at y=√2, got max_vtx_y={max_vtx_y}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(cap_found, "oblique top cap face must exist on base solid");
+
+    let v_base_exact = 5.0 * PI;
+    let v_base_actual = geom::signed_volume(&a, base).expect("base signed_volume");
+    assert!(
+        (v_base_actual - v_base_exact).abs() <= 1e-11 * v_base_exact,
+        "base closed-form volume mismatch: actual={v_base_actual:.15}, exact={v_base_exact:.15}"
+    );
+
+    // 4. Coplanar overhanging boss extruded outward along n_out = [0.6, 0, 0.8]
+    //    from the same plane (with a 1e-12 outward authoring ULP offset, well
+    //    inside Stage 0's coincidence band `band/100 = 1e-9`), occupying
+    //    u ∈ [-0.25, 0.25] (x ∈ [-0.20, 0.20]) and y ∈ [1.55, 2.20] (crossing
+    //    the EllipseArc bulge at y ≈ 2 while staying > 0.135 units clear of the
+    //    cap's vertex AABB y ≤ √2).
+    //    Right-handed frame: [0.8, 0, -0.6] × [0, 1, 0] = [0.6, 0, 0.8] = n_out.
+    let eps_ulp = 1.0e-12;
+    let boss_prof = Profile::new(
+        Point3::new(0.6 * eps_ulp, 0.0, 5.0 + 0.8 * eps_ulp),
+        Vector3::new(0.8, 0.0, -0.6),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(-0.25, 1.55),
+            Point2::new(0.25, 1.55),
+            Point2::new(0.25, 2.20),
+            Point2::new(-0.25, 2.20),
+        ],
+        vec![],
+    )
+    .expect("boss profile");
+    let boss = extrude(&mut a, &boss_prof, n_out, 1.0)
+        .expect("extrude coplanar boss")
+        .solid;
+
+    // 5. Union: Stage 0 must pair the coplanar oblique faces, minting the two
+    //    exact crossings on the EllipseArc bulge and yielding a single closed
+    //    genus-0 shell of volume V_base + V_boss.
+    let united = boolean_op(&mut a, base, boss, BoolOp::Union)
+        .expect("Stage 0 must pair coplanar boss crossing EllipseArc bulge");
+    let report = validate_solid(&a, united).expect("united solid must validate");
+    assert_eq!(
+        report.shells, 1,
+        "Stage 0 must merge coplanar bulge-only boss into 1 shell (got {} shells)",
+        report.shells
+    );
+    assert_eq!(report.genus, 0);
+    assert_eq!(report.euler_lhs, report.euler_rhs);
+    assert_eq!(report.euler_lhs, 2);
+
+    // Direct Stage-0 overlay witness: the EllipseArc on the oblique cap was
+    // split at the two exact boss crossings into 2 outer-loop EllipseArc pieces.
+    let mut overlaid_cap_ell_arcs = 0usize;
+    for &sh in &a.solid(united).unwrap().shells {
+        for &fid in &a.shell(sh).unwrap().faces {
+            let f = a.face(fid).unwrap();
+            if let Some(Surface::Plane(pl)) = f.surface {
+                let d_dot = pl.normal.x * 0.6 + pl.normal.y * 0.0 + pl.normal.z * 0.8;
+                if d_dot > 0.999 {
+                    for h in a.loop_half_edges(f.outer_loop).unwrap() {
+                        if matches!(a.half_edge(h).unwrap().curve, Curve::EllipseArc { .. }) {
+                            overlaid_cap_ell_arcs += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(
+        overlaid_cap_ell_arcs, 2,
+        "Stage 0 overlay must split the EllipseArc bulge into 2 exact EllipseArc pieces"
+    );
+
+    let mesh = tessellate(&a, united).expect("united solid tessellates");
+    assert_closed_kv2_mesh(&mesh, "N98 bulge-only coplanar boss union");
+
+    let v_boss_exact = 0.5 * 0.65 * 1.0;
+    let v_united_exact = v_base_exact + v_boss_exact;
+    let v_united_actual = geom::signed_volume(&a, united).expect("united signed_volume");
+    assert!(
+        (v_united_actual - v_united_exact).abs() <= 1e-11 * v_united_exact,
+        "united closed-form volume mismatch: actual={v_united_actual:.15}, exact={v_united_exact:.15}"
+    );
+}

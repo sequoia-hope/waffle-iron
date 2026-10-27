@@ -171,36 +171,34 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                         let Some(edge) = brep.edges().get(e as usize) else {
                             continue;
                         };
-                        for vi in [edge.start, edge.end] {
-                            let Some(v) = brep.vertices().get(vi as usize) else {
-                                continue;
-                            };
-                            let p = v.point.as_array();
-                            for k in 0..3 {
-                                lo[k] = lo[k].min(p[k]);
-                                hi[k] = hi[k].max(p[k]);
+                        // Yang 2025 §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:718-732`,
+                        // ledger N98): bound every loop edge by its full swept
+                        // curve extent through `geom::curve_aabb` uniformly over
+                        // all `Curve` variants (no curve-type enumeration here).
+                        let (Some(v0), Some(v1)) = (
+                            brep.vertices().get(edge.start as usize),
+                            brep.vertices().get(edge.end as usize),
+                        ) else {
+                            for vi in [edge.start, edge.end] {
+                                if let Some(v) = brep.vertices().get(vi as usize) {
+                                    let p = v.point.as_array();
+                                    for k in 0..3 {
+                                        lo[k] = lo[k].min(p[k]);
+                                        hi[k] = hi[k].max(p[k]);
+                                    }
+                                }
                             }
-                        }
-                        // A `Circle`/`Ellipse` loop edge's endpoints are only
-                        // its seam — the swept curve reaches much further. A
-                        // disc cap bounded by a single closed circle would
-                        // otherwise get a single-POINT AABB (the seam), so a
-                        // coplanar disc∩polygon pair is detected only when the
-                        // seam happens to overlap the other face. Expand by the
-                        // analytic circle box: `center ± r·√(1−n_k²)` per axis.
-                        if let Curve::Circle {
-                            center,
-                            normal,
-                            radius,
-                        } = edge.curve
-                        {
-                            let c = center.as_array();
-                            let nu = normalize3(normal.as_array());
-                            for k in 0..3 {
-                                let ext = radius * (1.0 - nu[k] * nu[k]).max(0.0).sqrt();
-                                lo[k] = lo[k].min(c[k] - ext);
-                                hi[k] = hi[k].max(c[k] + ext);
-                            }
+                            continue;
+                        };
+                        let (elo, ehi) = crate::geom::curve_aabb(
+                            &edge.curve,
+                            v0.point,
+                            v1.point,
+                            edge.start == edge.end,
+                        );
+                        for k in 0..3 {
+                            lo[k] = lo[k].min(elo[k]);
+                            hi[k] = hi[k].max(ehi[k]);
                         }
                     }
                 }
@@ -406,4 +404,124 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
         }
     }
     CoplanarScan { cross, intra }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BRepEdge, BRepFace, BRepVertex, Curve, Point3, Vector3};
+
+    #[test]
+    fn n98_scan_near_coplanar_pairs_ellipse_arc_bulge_only_partner() {
+        // Face A on z = 0: 90° elliptical sector bounded by two radial LineSegments
+        // meeting (0, 0, 0) and one minor Curve::Ellipse arc from t = π/4 to 3π/4
+        // (major_radius = 3.0 along +X, minor_radius = 2.0 along +Y).
+        // Vertex AABB covers y ∈ [0, √2], while the ellipse arc bulges to y = 2.0.
+        let s2 = 2.0_f64.sqrt();
+        let a = BRep::new(
+            vec![
+                BRepVertex {
+                    point: Point3::new(0.0, 0.0, 0.0),
+                },
+                BRepVertex {
+                    point: Point3::new(1.5 * s2, s2, 0.0),
+                },
+                BRepVertex {
+                    point: Point3::new(-1.5 * s2, s2, 0.0),
+                },
+            ],
+            vec![
+                BRepEdge {
+                    start: 0,
+                    end: 1,
+                    curve: Curve::LineSegment,
+                },
+                BRepEdge {
+                    start: 1,
+                    end: 2,
+                    curve: Curve::Ellipse {
+                        center: Point3::new(0.0, 0.0, 0.0),
+                        normal: Vector3::new(0.0, 0.0, 1.0),
+                        major_axis: Vector3::new(1.0, 0.0, 0.0),
+                        major_radius: 3.0,
+                        minor_radius: 2.0,
+                    },
+                },
+                BRepEdge {
+                    start: 2,
+                    end: 0,
+                    curve: Curve::LineSegment,
+                },
+            ],
+            vec![BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0, 1, 2],
+                inner_loops: vec![],
+                reversed: false,
+            }],
+        )
+        .expect("sector BRep A");
+
+        // Face B on z = 0: rectangle x ∈ [-0.25, 0.25], y ∈ [1.60, 2.20], touching
+        // ONLY the y ∈ (√2, 2.0] bulge of A's Ellipse arc (> 0.18 clear of A's vertices).
+        let b = BRep::new(
+            vec![
+                BRepVertex {
+                    point: Point3::new(-0.25, 1.60, 0.0),
+                },
+                BRepVertex {
+                    point: Point3::new(0.25, 1.60, 0.0),
+                },
+                BRepVertex {
+                    point: Point3::new(0.25, 2.20, 0.0),
+                },
+                BRepVertex {
+                    point: Point3::new(-0.25, 2.20, 0.0),
+                },
+            ],
+            vec![
+                BRepEdge {
+                    start: 0,
+                    end: 1,
+                    curve: Curve::LineSegment,
+                },
+                BRepEdge {
+                    start: 1,
+                    end: 2,
+                    curve: Curve::LineSegment,
+                },
+                BRepEdge {
+                    start: 2,
+                    end: 3,
+                    curve: Curve::LineSegment,
+                },
+                BRepEdge {
+                    start: 3,
+                    end: 0,
+                    curve: Curve::LineSegment,
+                },
+            ],
+            vec![BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0, 1, 2, 3],
+                inner_loops: vec![],
+                reversed: false,
+            }],
+        )
+        .expect("partner BRep B");
+
+        let scan = scan_near_coplanar(&a, &b);
+        assert_eq!(
+            scan.cross.len(),
+            1,
+            "Stage-0 scan_near_coplanar must pair A(0) and B(0) across the Ellipse arc bulge"
+        );
+        assert_eq!((scan.cross[0].face_a, scan.cross[0].face_b), (0, 0));
+    }
 }
