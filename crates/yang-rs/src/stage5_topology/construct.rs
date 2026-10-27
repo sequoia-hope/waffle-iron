@@ -11,6 +11,8 @@ pub(super) fn run_construct_passes(
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
+    full_arrangement: bool,
+    mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> Result<usize, YangError> {
     use crate::stage4_construct::{apply_rebuild_batch, replace_seam_run, seam_groups};
     use crate::stage4_splice::{ordered_seam_side, Side, SplicePatch};
@@ -57,9 +59,11 @@ pub(super) fn run_construct_passes(
     let mut applied_total = 0usize;
     for pass in 0..MAX_PASSES {
         let adjacency = triangle_adjacency(mesh);
-        let raw = crate::stage4_correct::merge_same_plane_patches(
-            flood_fill_patches(mesh, attribution, &adjacency),
+        let sl_opt = full_arrangement.then_some(&*side_labels);
+        let raw = crate::stage4_correct::merge_same_plane_patches_with_side_labels(
+            flood_fill_patches_with_side_labels(mesh, attribution, sl_opt, &adjacency),
             &adjacency,
+            sl_opt,
             a,
             b,
         );
@@ -113,22 +117,23 @@ pub(super) fn run_construct_passes(
         }
         struct EligibleSeam {
             gi: usize,
-            pair: (usize, usize),
+            owners: Vec<usize>,
             chain: Vec<u32>,
             action: SeamAction,
         }
         let mut eligible: Vec<EligibleSeam> = Vec::new();
         for (gi, g) in groups.iter().enumerate() {
-            let (pi, qi) = g.pair;
+            let owners = &g.owners;
+            let pi = owners[0];
             // I2a: Plane AND Cylinder owners rebuild single-sided (interior
             // carry + θ-unwrap); I13a adds Cone;
             // Sphere/Torus stay a loud skip.
             let chartable = |s: &Surface| crate::stage4_project::SurfaceChart::supports(s);
-            if !chartable(&patches[pi].surface) || !chartable(&patches[qi].surface) {
+            if owners.iter().any(|&oi| !chartable(&patches[oi].surface)) {
                 skip[1] += 1;
                 c441_log!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP unchartable patch \
-                     (patches {pi}+{qi}) — I2 scope"
+                     (patches {owners:?}) — I2 scope"
                 );
                 continue;
             }
@@ -138,7 +143,7 @@ pub(super) fn run_construct_passes(
                     skip[4] += 1;
                     c441_log!(
                         "[s4-construct] pass={pass} seam={gi}: SKIP unorderable chain \
-                         (patches {pi}+{qi}) — {e:?}"
+                         (patches {owners:?}) — {e:?}"
                     );
                     continue;
                 }
@@ -147,7 +152,7 @@ pub(super) fn run_construct_passes(
                 skip[2] += 1;
                 c441_log!(
                     "[s4-construct] pass={pass} seam={gi}: SKIP closed seam \
-                     (patches {pi}+{qi}) — I2b tail",
+                     (patches {owners:?}) — I2b tail",
                 );
                 continue;
             }
@@ -167,18 +172,19 @@ pub(super) fn run_construct_passes(
                         skip[7] += 1;
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP non-straight chain \
-                             (patches {pi}+{qi}, off-line {s:?}) — not one line's seam",
+                             (patches {owners:?}, off-line {s:?}) — not one line's seam",
                         );
                         continue;
                     }
                 }
-                if replace_seam_run(&patches[pi].cycles, &chain).is_none()
-                    || replace_seam_run(&patches[qi].cycles, &chain).is_none()
+                if owners
+                    .iter()
+                    .any(|&oi| replace_seam_run(&patches[oi].cycles, &chain).is_none())
                 {
                     skip[5] += 1;
                     c441_log!(
                         "[s4-construct] pass={pass} seam={gi}: SKIP — run not contiguous \
-                         (patches {pi}+{qi})"
+                         (patches {owners:?})"
                     );
                     continue;
                 }
@@ -196,7 +202,7 @@ pub(super) fn run_construct_passes(
                         skip[0] += 1;
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP non-conic curve \
-                             (patches {pi}+{qi}, {} edges) — no closed-form parameter",
+                             (patches {owners:?}, {} edges) — no closed-form parameter",
                             g.edges.len()
                         );
                         continue;
@@ -205,7 +211,7 @@ pub(super) fn run_construct_passes(
                         skip[6] += 1;
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: DECLINED conic order \
-                             (patches {pi}+{qi}) — {e:?}"
+                             (patches {owners:?}) — {e:?}"
                         );
                         continue;
                     }
@@ -232,7 +238,7 @@ pub(super) fn run_construct_passes(
                     None => {
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: REFINE DECLINED \
-                             (patches {pi}+{qi}, {} verts — no param or over the \
+                             (patches {owners:?}, {} verts — no param or over the \
                              {I5_INSERT_CAP} insert cap) — reorder only",
                             ordered.len()
                         );
@@ -240,16 +246,16 @@ pub(super) fn run_construct_passes(
                     }
                 };
                 if let Some((pts, refined)) = refinement {
-                    if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
+                    if owners.iter().any(|&oi| !carries(&patches[oi].cycles)) {
                         skip[5] += 1;
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
-                             carried whole (patches {pi}+{qi})"
+                             carried whole (patches {owners:?})"
                         );
                         continue;
                     }
                     c441_log!(
-                        "[s4-construct] pass={pass} seam={gi}: REFINE patches {pi}+{qi} — \
+                        "[s4-construct] pass={pass} seam={gi}: REFINE patches {owners:?} — \
                          chain {} -> {} (+{} on-curve inserts, §4.3.4)",
                         ordered.len(),
                         refined.len(),
@@ -272,11 +278,11 @@ pub(super) fn run_construct_passes(
                         skip[3] += 1; // already in curve order — the fixed point
                         continue;
                     }
-                    if !carries(&patches[pi].cycles) || !carries(&patches[qi].cycles) {
+                    if owners.iter().any(|&oi| !carries(&patches[oi].cycles)) {
                         skip[5] += 1;
                         c441_log!(
                             "[s4-construct] pass={pass} seam={gi}: SKIP — conic run not \
-                             carried whole (patches {pi}+{qi})"
+                             carried whole (patches {owners:?})"
                         );
                         continue;
                     }
@@ -285,7 +291,7 @@ pub(super) fn run_construct_passes(
             };
             eligible.push(EligibleSeam {
                 gi,
-                pair: (pi, qi),
+                owners: owners.clone(),
                 chain,
                 action,
             });
@@ -307,7 +313,7 @@ pub(super) fn run_construct_passes(
                     continue;
                 }
                 if let Ok((chain, false)) =
-                    ordered_seam_side(&patches[g.pair.0].cycles, &g.edges, Side::A)
+                    ordered_seam_side(&patches[g.owners[0]].cycles, &g.edges, Side::A)
                 {
                     if chain.len() >= 2 {
                         census_j1_boundary_exit(
@@ -316,7 +322,7 @@ pub(super) fn run_construct_passes(
                             attribution,
                             intersection_curves,
                             gi,
-                            g.pair,
+                            &g.owners,
                             &chain,
                         );
                     }
@@ -348,13 +354,13 @@ pub(super) fn run_construct_passes(
                     c => format!("{c:?}"),
                 };
                 let (chain, closed) =
-                    match ordered_seam_side(&patches[g.pair.0].cycles, &g.edges, Side::A) {
+                    match ordered_seam_side(&patches[g.owners[0]].cycles, &g.edges, Side::A) {
                         Ok(x) => x,
                         Err(e) => {
                             eprintln!(
-                                "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                                "[s434-census] seam={gi} owners={:?} {curve_desc}: \
                                  UNORDERABLE ({e:?})",
-                                g.pair
+                                g.owners
                             );
                             continue;
                         }
@@ -368,9 +374,9 @@ pub(super) fn run_construct_passes(
                     Ok(o) => o,
                     Err(e) => {
                         eprintln!(
-                            "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                            "[s434-census] seam={gi} owners={:?} {curve_desc}: \
                              NO-CURVE-ORDER ({e:?}) n={}",
-                            g.pair,
+                            g.owners,
                             chain.len()
                         );
                         continue;
@@ -378,11 +384,11 @@ pub(super) fn run_construct_passes(
                 };
                 match census_conic_seam_density(&mesh.verts, &ordered, &g.curve, closed) {
                     Some(c) => eprintln!(
-                        "[s434-census] seam={gi} pair={:?} {curve_desc} closed={closed} \
+                        "[s434-census] seam={gi} owners={:?} {curve_desc} closed={closed} \
                          n={} pairs={} fail_h={} fail_l={} fail_alpha={} fail_any={} \
                          max_h={:.3e} max_l={:.3e} max_alpha_deg={:.2} dp={:.3e} \
                          implied_inserts={}{}",
-                        g.pair,
+                        g.owners,
                         ordered.len(),
                         c.pairs,
                         c.fail_h,
@@ -397,9 +403,9 @@ pub(super) fn run_construct_passes(
                         if c.capped { " CAPPED" } else { "" },
                     ),
                     None => eprintln!(
-                        "[s434-census] seam={gi} pair={:?} {curve_desc}: \
+                        "[s434-census] seam={gi} owners={:?} {curve_desc}: \
                          NO-PARAM (degenerate projection or n<2, n={})",
-                        g.pair,
+                        g.owners,
                         ordered.len()
                     ),
                 }
@@ -428,12 +434,13 @@ pub(super) fn run_construct_passes(
             if active.is_empty() {
                 break Vec::new();
             }
-            // Group each patch's eligible chains (both owners of every seam).
+            // Group each patch's eligible chains (all owners of every seam).
             let mut chains_of: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
             for &ei in &active {
                 let e = &eligible[ei];
-                chains_of.entry(e.pair.0).or_default().push(ei);
-                chains_of.entry(e.pair.1).or_default().push(ei);
+                for &oi in &e.owners {
+                    chains_of.entry(oi).or_default().push(ei);
+                }
             }
             // Apply ALL of each patch's seam actions simultaneously: line
             // runs COLLAPSE to their endpoints; conic runs REORDER to curve
@@ -518,7 +525,7 @@ pub(super) fn run_construct_passes(
                     }
                     let (e0, e1) = (e.chain[0], *e.chain.last().expect("chain len >= 3"));
                     for (&pi, cycles) in &mod_cycles {
-                        if e.pair.0 != pi && e.pair.1 != pi {
+                        if !e.owners.contains(&pi) {
                             continue;
                         }
                         for cyc in cycles {
@@ -532,10 +539,12 @@ pub(super) fn run_construct_passes(
                     }
                 }
                 let mut removed_total = 0usize;
+                let max_holders = if full_arrangement { 4 } else { 2 };
                 for &v in &candidates {
-                    // Every holder patch must be in the batch (≤2 holders),
-                    // and no holder's cycle may degenerate below 3 vertices —
-                    // the removal is all-holders-or-none (a one-sided removal
+                    // Every holder patch must be in the batch (≤2 holders on a
+                    // post-keep submesh; ≤4 on the full arrangement), and no
+                    // holder's cycle may degenerate below 3 vertices — the
+                    // removal is all-holders-or-none (a one-sided removal
                     // would BE a T-junction).
                     let holders: Vec<usize> = patches
                         .iter()
@@ -546,10 +555,12 @@ pub(super) fn run_construct_passes(
                         })
                         .map(|(pj, _)| pj)
                         .collect();
-                    if holders.len() > 2 || !holders.iter().all(|h| mod_cycles.contains_key(h)) {
+                    if holders.len() > max_holders
+                        || !holders.iter().all(|h| mod_cycles.contains_key(h))
+                    {
                         c441_log!(
                             "[s4-construct] pass={pass}: NEAR-CURVE REMOVAL BLOCKED v{v} — \
-                             holders {holders:?} not all rebuilt (or >2); vertex stays"
+                             holders {holders:?} not all rebuilt (or >{max_holders}); vertex stays"
                         );
                         continue;
                     }
@@ -610,7 +621,7 @@ pub(super) fn run_construct_passes(
                     let drop: Vec<usize> = active
                         .iter()
                         .copied()
-                        .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                        .filter(|&ei| eligible[ei].owners.contains(&pi))
                         .collect();
                     if !drop.is_empty() {
                         c441_log!(
@@ -677,9 +688,7 @@ pub(super) fn run_construct_passes(
                             let drop: Vec<usize> = active
                                 .iter()
                                 .copied()
-                                .filter(|&ei| {
-                                    eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
-                                })
+                                .filter(|&ei| eligible[ei].owners.contains(&pi))
                                 .collect();
                             if drop.is_empty() {
                                 eprintln!(
@@ -733,7 +742,7 @@ pub(super) fn run_construct_passes(
                         let drop: Vec<usize> = active
                             .iter()
                             .copied()
-                            .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                            .filter(|&ei| eligible[ei].owners.contains(&pi))
                             .collect();
                         if drop.is_empty() {
                             eprintln!(
@@ -768,8 +777,8 @@ pub(super) fn run_construct_passes(
                         })
                         .count();
                     eprintln!(
-                        "[s4-verbose] seam={} pair={:?} chain={:?} direct-edge-pre-tris={pre}",
-                        e.gi, e.pair, e.chain
+                        "[s4-verbose] seam={} owners={:?} chain={:?} direct-edge-pre-tris={pre}",
+                        e.gi, e.owners, e.chain
                     );
                     for &v in &e.chain {
                         let p = mesh.verts[v as usize];
@@ -823,9 +832,7 @@ pub(super) fn run_construct_passes(
                             let collapsed: BTreeSet<(u32, u32)> = active
                                 .iter()
                                 .copied()
-                                .filter(|&ei| {
-                                    eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi
-                                })
+                                .filter(|&ei| eligible[ei].owners.contains(&pi))
                                 .map(|ei| {
                                     let ch = &eligible[ei].chain;
                                     let (a, b) = (ch[0], *ch.last().expect("chain len >= 3"));
@@ -848,7 +855,7 @@ pub(super) fn run_construct_passes(
                         let drop: Vec<usize> = active
                             .iter()
                             .copied()
-                            .filter(|&ei| eligible[ei].pair.0 == pi || eligible[ei].pair.1 == pi)
+                            .filter(|&ei| eligible[ei].owners.contains(&pi))
                             .collect();
                         if drop.is_empty() {
                             eprintln!(
@@ -895,38 +902,87 @@ pub(super) fn run_construct_passes(
             );
             break;
         }
-        // §4.4.1 batch postcondition (Phase 2b): a seam edit changes BOTH of
-        // its patches' boundaries, and the two changes must cancel inside the
-        // batch — the batch as a whole keeps its outer directed boundary, or
-        // a neighbour outside it no longer pairs (watertightness is inherited,
-        // §4.4.3, only if this holds). A batch that leaks is not applied.
+        // §4.4.1 batch postcondition (Phase 2b + F1-I3): a seam edit changes
+        // all of its owner patches' boundaries, and the changes must cancel
+        // inside the batch — on the post-keep submesh across the whole batch,
+        // and on the full arrangement independently on each operand's shell
+        // (`M_A` and `M_B`, reversing B's `[true, true]` opposite-normal
+        // overlap sheets) so an A-hole can never cancel a B-hole (§4.4.3).
         {
-            let old_all: Vec<[u32; 3]> = rebuilds
-                .iter()
-                .flat_map(|r| r.old_tris.iter().map(|&t| mesh.tris[t as usize]))
-                .collect();
             let n_verts = mesh.verts.len() as u32;
-            let new_all: Vec<[u32; 3]> = rebuilds
-                .iter()
-                .enumerate()
-                .flat_map(|(ri, r)| {
-                    // Seed vertices get batch-unique ids past the mesh so
-                    // two rebuilds' seeds never alias.
-                    let base = n_verts + (ri as u32) * 1_000_000;
-                    r.new_tris.iter().map(move |t| {
-                        t.map(|v| {
-                            if v >= r.plan_verts {
-                                base + (v - r.plan_verts)
-                            } else {
-                                v
+            let boundary_leaks = if full_arrangement {
+                [crate::brep::InputId::A, crate::brep::InputId::B]
+                    .into_iter()
+                    .any(|op_id| {
+                        let mut old_op: Vec<[u32; 3]> = Vec::new();
+                        let mut new_op: Vec<[u32; 3]> = Vec::new();
+                        for (ri, r) in rebuilds.iter().enumerate() {
+                            for &t_idx in &r.old_tris {
+                                let lbl = side_labels
+                                    .labels
+                                    .get(t_idx as usize)
+                                    .copied()
+                                    .unwrap_or_default();
+                                if lbl.in_operand(op_id) {
+                                    let mut tri = mesh.tris[t_idx as usize];
+                                    if lbl.operand_winding_reversed(op_id) {
+                                        tri.swap(1, 2);
+                                    }
+                                    old_op.push(tri);
+                                }
                             }
+                            let lbl = r
+                                .old_tris
+                                .first()
+                                .and_then(|&t| side_labels.labels.get(t as usize).copied())
+                                .unwrap_or_default();
+                            if lbl.in_operand(op_id) {
+                                let base = n_verts + (ri as u32) * 1_000_000;
+                                for t in &r.new_tris {
+                                    let mut tri = t.map(|v| {
+                                        if v >= r.plan_verts {
+                                            base + (v - r.plan_verts)
+                                        } else {
+                                            v
+                                        }
+                                    });
+                                    if lbl.operand_winding_reversed(op_id) {
+                                        tri.swap(1, 2);
+                                    }
+                                    new_op.push(tri);
+                                }
+                            }
+                        }
+                        crate::stage4_construct::directed_boundary(&old_op)
+                            != crate::stage4_construct::directed_boundary(&new_op)
+                    })
+            } else {
+                let old_all: Vec<[u32; 3]> = rebuilds
+                    .iter()
+                    .flat_map(|r| r.old_tris.iter().map(|&t| mesh.tris[t as usize]))
+                    .collect();
+                let new_all: Vec<[u32; 3]> = rebuilds
+                    .iter()
+                    .enumerate()
+                    .flat_map(|(ri, r)| {
+                        // Seed vertices get batch-unique ids past the mesh so
+                        // two rebuilds' seeds never alias.
+                        let base = n_verts + (ri as u32) * 1_000_000;
+                        r.new_tris.iter().map(move |t| {
+                            t.map(|v| {
+                                if v >= r.plan_verts {
+                                    base + (v - r.plan_verts)
+                                } else {
+                                    v
+                                }
+                            })
                         })
                     })
-                })
-                .collect();
-            if crate::stage4_construct::directed_boundary(&old_all)
-                != crate::stage4_construct::directed_boundary(&new_all)
-            {
+                    .collect();
+                crate::stage4_construct::directed_boundary(&old_all)
+                    != crate::stage4_construct::directed_boundary(&new_all)
+            };
+            if boundary_leaks {
                 c441_log!(
                     "[s4-construct] STOP pass={pass}: batch of {} rebuilds would change \
                      its outer boundary — not applied",
@@ -941,27 +997,24 @@ pub(super) fn run_construct_passes(
                     let e = &eligible[ei];
                     match &e.action {
                         SeamAction::CollapseLine => c441_log!(
-                            "[s4-construct] pass={pass} seam={}: APPLIED patches {}+{} — \
+                            "[s4-construct] pass={pass} seam={}: APPLIED patches {:?} — \
                              chain {} -> 2 verts",
                             e.gi,
-                            e.pair.0,
-                            e.pair.1,
+                            e.owners,
                             e.chain.len()
                         ),
                         SeamAction::ReorderConic { ordered } => c441_log!(
-                            "[s4-construct] pass={pass} seam={}: REORDERED patches {}+{} — \
+                            "[s4-construct] pass={pass} seam={}: REORDERED patches {:?} — \
                              {} verts to curve order",
                             e.gi,
-                            e.pair.0,
-                            e.pair.1,
+                            e.owners,
                             ordered.len()
                         ),
                         SeamAction::RefineConic { ordered, refined } => c441_log!(
-                            "[s4-construct] pass={pass} seam={}: REFINED patches {}+{} — \
+                            "[s4-construct] pass={pass} seam={}: REFINED patches {:?} — \
                              chain {} -> {} (§4.3.4 density)",
                             e.gi,
-                            e.pair.0,
-                            e.pair.1,
+                            e.owners,
                             ordered.len(),
                             refined.len()
                         ),
@@ -981,9 +1034,13 @@ pub(super) fn run_construct_passes(
         }
 
         let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
-        let (i2, inc2, cv2) = compute_phase_a(
+        if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
+            crate::stage4_correct::remap_vert_set(tv, map);
+        }
+        let (i2, inc2, cv2) = crate::stage4_correct::compute_phase_a_with_side_labels(
             mesh,
             attribution,
+            full_arrangement.then_some(&*side_labels),
             a,
             b,
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,
@@ -1035,7 +1092,7 @@ pub(super) fn census_j1_boundary_exit(
     attribution: &TriangleAttributionMap,
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     gi: usize,
-    pair: (usize, usize),
+    owners: &[usize],
     chain: &[u32],
 ) {
     use crate::stage4_construct::on_segment_interior;
@@ -1044,7 +1101,7 @@ pub(super) fn census_j1_boundary_exit(
     let (e0, e1) = (chain[0], *chain.last().expect("chain is non-empty"));
     let chain_set: BTreeSet<u32> = chain.iter().copied().collect();
     let mut cands: Vec<u32> = Vec::new();
-    for &pi in &[pair.0, pair.1] {
+    for &pi in owners {
         for cyc in &patches[pi].cycles {
             for &v in cyc {
                 if !chain_set.contains(&v)
@@ -1141,9 +1198,10 @@ pub(super) fn census_j1_boundary_exit(
         }
     };
 
-    c441_log!("[j1-census] seam={gi} pair={pair:?} chain={chain:?}");
-    c441_log!("[j1-census]   owner {}", desc(pair.0));
-    c441_log!("[j1-census]   owner {}", desc(pair.1));
+    c441_log!("[j1-census] seam={gi} owners={owners:?} chain={chain:?}");
+    for &oi in owners {
+        c441_log!("[j1-census]   owner {}", desc(oi));
+    }
     c441_log!(
         "[j1-census]   e0 v{e0} {}   e1 v{e1} {}",
         pstr(e0),

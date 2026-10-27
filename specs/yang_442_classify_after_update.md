@@ -171,6 +171,8 @@ whole-list passes (§4.4.1(b) merge, the §4.5.3 sweep's `compute_phase_a`
 per pass, the unzip) are up to O(T²) — about 2.7× worst case. Measure before
 flipping. A "band" variant (keep a one-ring of dropped triangles) is
 rejected: it leaves open boundaries that break the cycles and the gate.
+*(I3a full-arrangement Stage-4 primitives and unit pins landed 2026-10-27,
+unwired in `boolean_once`; I3b flips `boolean_once`.)*
 
 **I2 — the Case-IV rule-out, re-keyed.** With I3 the phantom certificate
 returns to `boolean_once` with `la` alive: merge the patches across the

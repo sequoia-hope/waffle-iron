@@ -402,7 +402,7 @@ impl TriangleAttributionMap {
 /// Threaded in lockstep with [`TriangleAttributionMap`] through every Stage-4/5
 /// mutator of `mesh.tris`, deliberately separate from [`TriangleAttribution`]
 /// (whose `PartialEq` is the patch flood-fill key).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct TriangleSideLabel {
     /// Cherchi arrangement patch id (`LabeledArrangement::patch[t]`).
     pub cherchi_patch: u32,
@@ -412,6 +412,11 @@ pub(crate) struct TriangleSideLabel {
     /// Per-operand surface membership `[on_a, on_b]`
     /// (`LabeledArrangement::surface[t]`; both `true` on a §4.5.5 overlap sheet).
     pub surface: [bool; 2],
+    /// For a §4.5.5 coplanar / coincident-cylinder overlap sheet
+    /// (`surface == [true, true]`), whether the two operands' outward normals
+    /// oppose (`Some(true)`) or agree (`Some(false)`). `None` on single-operand
+    /// triangles (`surface != [true, true]`) or un-resolved synthetic fixtures.
+    pub sheet_opposite: Option<bool>,
 }
 
 impl Default for TriangleSideLabel {
@@ -420,6 +425,7 @@ impl Default for TriangleSideLabel {
             cherchi_patch: 0,
             inside: [false, false],
             surface: [true, false],
+            sheet_opposite: None,
         }
     }
 }
@@ -427,6 +433,17 @@ impl Default for TriangleSideLabel {
 impl TriangleSideLabel {
     /// Snapshot triangle `orig_t`'s side record from Stage 2's [`cherchi_rs::LabeledArrangement`].
     pub(crate) fn from_arrangement(la: &cherchi_rs::LabeledArrangement, orig_t: usize) -> Self {
+        Self::from_arrangement_with_sheet(la, orig_t, None)
+    }
+
+    /// Snapshot triangle `orig_t`'s side record together with its resolved
+    /// §4.5.5 overlap-sheet orientation (`Some(opposite)` when
+    /// `surface == [true, true]`).
+    pub(crate) fn from_arrangement_with_sheet(
+        la: &cherchi_rs::LabeledArrangement,
+        orig_t: usize,
+        sheet_opposite: Option<bool>,
+    ) -> Self {
         debug_assert_eq!(
             la.num_inputs, 2,
             "TriangleSideLabel::from_arrangement expects binary num_inputs == 2"
@@ -445,6 +462,7 @@ impl TriangleSideLabel {
             cherchi_patch: la.patch[orig_t],
             inside: [ins[0], ins[1]],
             surface: [on_a, on_b],
+            sheet_opposite,
         }
     }
 
@@ -464,6 +482,53 @@ impl TriangleSideLabel {
             }
             cad_primitives::BoolOp::Xor => inside_count == 0 || xor_count == 2,
         }
+    }
+
+    /// Evaluate the full post-Stage-4 retention rule (Yang §4.4.2,
+    /// `refs/text/yang2025_hybrid_boolean.txt:572-578`, combined with §4.5.5
+    /// membrane retention on `surface == [true, true]` sheets). Returns `None`
+    /// only when a kept `[true, true]` overlap sheet lacks a resolved
+    /// `sheet_opposite` bit (loud `FaceResolutionFailed` in `boolean_once`).
+    #[allow(dead_code)]
+    pub(crate) fn keep_for_op_with_membrane(&self, op: cad_primitives::BoolOp) -> Option<bool> {
+        if !self.keep_for_op(op) {
+            return Some(false);
+        }
+        if self.surface == [true, true] {
+            let opposite = self.sheet_opposite?;
+            return Some(match op {
+                cad_primitives::BoolOp::Union | cad_primitives::BoolOp::Intersect => !opposite,
+                cad_primitives::BoolOp::Subtract => opposite,
+                cad_primitives::BoolOp::Xor => false,
+            });
+        }
+        Some(true)
+    }
+
+    /// Whether a kept triangle's stored winding must be flipped for `op`
+    /// (`Subtract` flips pure-B triangles; `[true, true]` overlap sheets carry
+    /// A's winding in `la.mesh` and keep it, matching Cherchi `booleans.cpp:1480`).
+    #[allow(dead_code)]
+    pub(crate) fn flip_winding_for_op(&self, op: cad_primitives::BoolOp) -> bool {
+        matches!(op, cad_primitives::BoolOp::Subtract) && !self.surface[0] && self.surface[1]
+    }
+
+    /// Whether this triangle belongs to operand `input`'s closed arrangement shell.
+    pub(crate) fn in_operand(&self, input: InputId) -> bool {
+        match input {
+            InputId::A => self.surface[0],
+            InputId::B => self.surface[1],
+        }
+    }
+
+    /// Whether this triangle's stored winding in `la.mesh` is reversed relative
+    /// to operand `input`'s outward normal (true iff `input == InputId::B` on an
+    /// opposite-normal `[true, true]` overlap sheet, since `la.mesh` stores the
+    /// deduplicated sheet with A's winding).
+    pub(crate) fn operand_winding_reversed(&self, input: InputId) -> bool {
+        matches!(input, InputId::B)
+            && self.surface == [true, true]
+            && self.sheet_opposite == Some(true)
     }
 }
 

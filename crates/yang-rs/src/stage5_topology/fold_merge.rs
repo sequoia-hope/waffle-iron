@@ -57,6 +57,8 @@ pub(super) fn run_fold_merge_passes(
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
     intersection_curves: &mut std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &mut Vec<(u32, f64)>,
+    full_arrangement: bool,
+    mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> Result<usize, YangError> {
     use crate::stage4_construct::{apply_rebuild_batch, rebuild_merge_fan};
     use crate::stage4_fold_risk::fold_merge_sites_censused;
@@ -90,9 +92,11 @@ pub(super) fn run_fold_merge_passes(
 
     for pass in 0..max_passes {
         let adjacency = triangle_adjacency(mesh);
-        let raw = crate::stage4_correct::merge_same_plane_patches(
-            flood_fill_patches(mesh, attribution, &adjacency),
+        let sl_opt = full_arrangement.then_some(&*side_labels);
+        let raw = crate::stage4_correct::merge_same_plane_patches_with_side_labels(
+            flood_fill_patches_with_side_labels(mesh, attribution, sl_opt, &adjacency),
             &adjacency,
+            sl_opt,
             a,
             b,
         );
@@ -528,9 +532,13 @@ pub(super) fn run_fold_merge_passes(
             }
         }
         let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
-        let (i2, inc2, cv2) = compute_phase_a(
+        if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
+            crate::stage4_correct::remap_vert_set(tv, map);
+        }
+        let (i2, inc2, cv2) = crate::stage4_correct::compute_phase_a_with_side_labels(
             mesh,
             attribution,
+            full_arrangement.then_some(&*side_labels),
             a,
             b,
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,

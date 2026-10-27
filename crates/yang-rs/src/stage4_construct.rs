@@ -60,12 +60,13 @@ use crate::geom::{Curve, Surface};
 use crate::stage4_project::{patch_from_cycles_shifted, SurfaceChart};
 use crate::stage4_splice::{area_vector, dot3, SplicePatch};
 
-/// One seam: the intersection-curve edges shared by exactly one patch pair,
-/// all naming the same exact curve.
+/// One seam: the intersection-curve edges shared by a consistent tuple of 2..=4
+/// patches (2 on a post-keep submesh or membrane boundary, up to 4 across both
+/// operands on the full arrangement), all naming the same exact curve.
 #[derive(Debug, Clone)]
 pub(crate) struct SeamGroup {
-    /// Patch indices, `pair.0 < pair.1`.
-    pub pair: (usize, usize),
+    /// Sorted, deduplicated patch indices (`2 <= owners.len() <= 4`).
+    pub owners: Vec<usize>,
     /// The seam's exact analytic curve (every member edge names it).
     pub curve: Curve,
     /// Canonical `(min, max)` mesh edges of the seam.
@@ -75,11 +76,13 @@ pub(crate) struct SeamGroup {
 /// Enumerate every intersection-curve seam over the current patch set.
 ///
 /// An intersection edge belongs to a seam iff it appears in the CYCLES of
-/// exactly two patches (the 2-manifold interior seam case — border edges of
-/// unpaired provenance are not this increment's business). Edges of one pair
-/// are partitioned by exact-curve equality: a pair meeting along two distinct
-/// curves (two junction-separated seams) yields two groups. Deterministic:
-/// iteration is over `BTreeMap`/`BTreeSet` orders only.
+/// 2..=4 patches (2 on a 2-manifold submesh; 3 or 4 on the full welded
+/// arrangement where up to two patches of each operand meet along the curve —
+/// Yang et al. 2025 §4.4.1–§4.4.2, `yang2025_hybrid_boolean.txt:546-578`).
+/// Edges sharing the same sorted owner tuple are partitioned by exact-curve
+/// equality: patches meeting along two distinct curves (two junction-separated
+/// seams) yield two groups. Deterministic: iteration is over `BTreeMap` /
+/// `BTreeSet` orders only.
 pub(crate) fn seam_groups(
     patches: &[SplicePatch],
     curves: &BTreeMap<(u32, u32), Curve>,
@@ -94,7 +97,7 @@ pub(crate) fn seam_groups(
                 let key = (s.min(e), s.max(e));
                 let v = owners.entry(key).or_default();
                 // A cycle may repeat an edge (a slit); count each owner once.
-                if v.last() != Some(&pi) {
+                if !v.contains(&pi) {
                     v.push(pi);
                 }
             }
@@ -103,22 +106,24 @@ pub(crate) fn seam_groups(
 
     let mut groups: Vec<SeamGroup> = Vec::new();
     for (&edge, curve) in curves {
-        let Some(own) = owners.get(&edge) else {
+        let Some(raw_own) = owners.get(&edge) else {
             continue; // curve edge not on any current patch boundary
         };
-        if own.len() != 2 {
-            continue; // border / non-manifold multiplicity — not this seam class
+        let mut own = raw_own.clone();
+        own.sort_unstable();
+        own.dedup();
+        if !(2..=4).contains(&own.len()) {
+            continue; // border (1) or >4 non-manifold multiplicity — not this seam class
         }
-        let pair = (own[0].min(own[1]), own[0].max(own[1]));
         match groups
             .iter_mut()
-            .find(|g| g.pair == pair && g.curve == *curve)
+            .find(|g| g.owners == own && g.curve == *curve)
         {
             Some(g) => {
                 g.edges.insert(edge);
             }
             None => groups.push(SeamGroup {
-                pair,
+                owners: own,
                 curve: *curve,
                 edges: [edge].into(),
             }),
@@ -2946,9 +2951,21 @@ fn implied_inserts_rec(
 /// later §4.4.1(a) unzip and the degenerate STOP act on). Appends one line per
 /// call to the file named by `YANG_441_UPDATE_CENSUS`, keyed by the worker's
 /// `ASSAY_CASE` (the subprocess runner discards stderr; best effort).
+#[allow(dead_code)]
 pub(crate) fn update_census(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
+    a: &crate::brep::BRep,
+    b: &crate::brep::BRep,
+    tag: &str,
+) {
+    update_census_with_side_labels(mesh, attribution, None, a, b, tag);
+}
+
+pub(crate) fn update_census_with_side_labels(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: Option<&crate::brep::TriangleSideLabelMap>,
     a: &crate::brep::BRep,
     b: &crate::brep::BRep,
     tag: &str,
@@ -2958,15 +2975,22 @@ pub(crate) fn update_census(
     };
     let t0 = std::time::Instant::now(); // wasm-ok: env-gated probe (YANG_441_UPDATE_CENSUS), never set in wasm
     let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
-    let raw = crate::stage4_correct::merge_same_plane_patches(
-        crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency),
+    let raw = crate::stage4_correct::merge_same_plane_patches_with_side_labels(
+        crate::stage5_topology::flood_fill_patches_with_side_labels(
+            mesh,
+            attribution,
+            side_labels,
+            &adjacency,
+        ),
         &adjacency,
+        side_labels,
         a,
         b,
     );
-    let line = match crate::stage4_correct::compute_phase_a(
+    let line = match crate::stage4_correct::compute_phase_a_with_side_labels(
         mesh,
         attribution,
+        side_labels,
         a,
         b,
         &crate::stage3_ssi::NO_EDGE_PROVENANCE,
@@ -3138,6 +3162,7 @@ pub(crate) fn directed_boundary(tris: &[[u32; 3]]) -> Vec<(u32, u32)> {
 /// boundary differs from the replaced triangles' ([`directed_boundary`]).
 /// Returns the number of patches rebuilt. Always on since 2026-10-16 (the
 /// measuring corpus: 358C, zero moves, 14,983 patches rebuilt).
+#[allow(dead_code)]
 pub(crate) fn update_patches(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -3145,16 +3170,35 @@ pub(crate) fn update_patches(
     a: &crate::brep::BRep,
     b: &crate::brep::BRep,
 ) -> usize {
+    update_patches_ex(mesh, attribution, side_labels, a, b, false)
+}
+
+pub(crate) fn update_patches_ex(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
+    a: &crate::brep::BRep,
+    b: &crate::brep::BRep,
+    full_arrangement: bool,
+) -> usize {
+    let sl_opt = full_arrangement.then_some(&*side_labels);
     let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
-    let raw = crate::stage4_correct::merge_same_plane_patches(
-        crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency),
+    let raw = crate::stage4_correct::merge_same_plane_patches_with_side_labels(
+        crate::stage5_topology::flood_fill_patches_with_side_labels(
+            mesh,
+            attribution,
+            sl_opt,
+            &adjacency,
+        ),
         &adjacency,
+        sl_opt,
         a,
         b,
     );
-    let Ok((infos, incidence, curves)) = crate::stage4_correct::compute_phase_a(
+    let Ok((infos, incidence, curves)) = crate::stage4_correct::compute_phase_a_with_side_labels(
         mesh,
         attribution,
+        sl_opt,
         a,
         b,
         &crate::stage3_ssi::NO_EDGE_PROVENANCE,
@@ -3382,9 +3426,27 @@ mod tests {
         curves.insert((0u32, 1u32), Curve::LineSegment);
         let gs = seam_groups(&[a, b], &curves);
         assert_eq!(gs.len(), 1);
-        assert_eq!(gs[0].pair, (0, 1));
+        assert_eq!(gs[0].owners, vec![0, 1]);
         assert_eq!(gs[0].edges.len(), 1);
         assert!(matches!(gs[0].curve, Curve::LineSegment));
+    }
+
+    #[test]
+    fn seam_groups_groups_four_patch_full_arrangement_seam() {
+        // Full-arrangement intersection curve (§4.4.1–§4.4.2): 2 patches of A
+        // and 2 patches of B share edge (0, 1); 5 patches (bogus non-manifold)
+        // is skipped.
+        let p0 = plane_patch(vec![vec![0, 1, 2]], vec![0]);
+        let p1 = plane_patch(vec![vec![1, 0, 3]], vec![1]);
+        let p2 = plane_patch(vec![vec![0, 1, 4]], vec![2]);
+        let p3 = plane_patch(vec![vec![1, 0, 5]], vec![3]);
+        let mut curves = BTreeMap::new();
+        curves.insert((0u32, 1u32), Curve::LineSegment);
+        let gs = seam_groups(&[p0.clone(), p1.clone(), p2.clone(), p3.clone()], &curves);
+        assert_eq!(gs.len(), 1);
+        assert_eq!(gs[0].owners, vec![0, 1, 2, 3]);
+        let p4 = plane_patch(vec![vec![0, 1, 6]], vec![4]);
+        assert!(seam_groups(&[p0, p1, p2, p3, p4], &curves).is_empty());
     }
 
     #[test]
@@ -3410,7 +3472,7 @@ mod tests {
         curves.insert((3u32, 5u32), circle);
         let gs = seam_groups(&[a, b], &curves);
         assert_eq!(gs.len(), 2, "two curves ⇒ two seams for the same pair");
-        assert!(gs.iter().all(|g| g.pair == (0, 1)));
+        assert!(gs.iter().all(|g| g.owners == vec![0, 1]));
     }
 
     #[test]
@@ -4673,11 +4735,13 @@ mod tests {
             cherchi_patch: 3,
             inside: [false, false],
             surface: [true, false],
+            sheet_opposite: None,
         };
         let foreign_lbl = crate::brep::TriangleSideLabel {
             cherchi_patch: 9,
             inside: [true, false],
             surface: [false, true],
+            sheet_opposite: None,
         };
         let mut side_labels = crate::brep::TriangleSideLabelMap {
             labels: vec![fan_lbl, fan_lbl, fan_lbl, fan_lbl, foreign_lbl, foreign_lbl],

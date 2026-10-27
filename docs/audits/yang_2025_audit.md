@@ -113,8 +113,13 @@ finding 2 of the §4.4 slice below; a row id such as `4.5.1-05` names a row.
   `TriangleSideLabelMap` (`(cherchi_patch, inside, surface)`, separate from
   `TriangleAttribution`) are carried 1:1 with `mesh.tris` through every
   Stage-4/5 mutator and `debug_assert_eq!`-checked against `keep_set(op)` at
-  the `emit_topology` hand-off; §4.4.2 matrix rows remain unchanged in status
-  pending I3 and I2.
+  the `emit_topology` hand-off.
+  *I3a landed 2026-10-27 (full-arrangement Stage-4 primitives, unwired):*
+  `(attribution, side_label)` flood key, per-operand curve-incidence dedup,
+  4-owner seam construct/fold-merge/unzip passes, operand-scoped membrane
+  cancellation and pinch tracking, and per-operand closed-2-manifold gate are
+  built and unit-pinned; §4.4.2 matrix rows remain unchanged in status until
+  I3b flips `boolean_once`.
 - **O-2. Within Stage 4 the paper's order is not kept.** *Ledger N81.*
   - The §4.3 point removals and the Case-IV rule-out
     (`stage4_correct.rs:14274`, `:12975`, `stage5_topology.rs:4925`) run

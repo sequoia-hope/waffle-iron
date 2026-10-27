@@ -19,12 +19,17 @@ use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{apply_rebuild_batch, PatchRebuild};
 use crate::stage4_correct::{
     collapse_subresolution_intersection_segments, collapse_subtauwork_mesh_edges, collapse_vertex,
-    resolve_mutual_degenerate_pair, resolve_simple_degenerate_split,
+    collapse_vertex_scoped, compute_phase_a, compute_phase_a_with_side_labels,
+    merge_same_plane_patches_with_side_labels, resolve_mutual_degenerate_pair,
+    resolve_simple_degenerate_split, resolve_synchronized_degenerate_split,
     retriangulate_collapsed_fan_regions, MutualPair,
 };
-use crate::stage4_relocate::{remove_doubled_membranes, split_pinch_vertices};
-use crate::tests_unit::n2_junction::rj_box;
-use crate::{flood_fill_patches, triangle_adjacency};
+use crate::stage4_relocate::{
+    check_watertight_2manifold, check_watertight_2manifold_per_operand, remove_doubled_membranes,
+    remove_doubled_membranes_scoped, split_pinch_vertices,
+};
+use crate::tests_unit::n2_junction::{rj_box, rj_cylinder};
+use crate::{flood_fill_patches, flood_fill_patches_with_side_labels, triangle_adjacency};
 
 fn pt(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
@@ -39,6 +44,7 @@ fn side_lbl(patch: u32, inside: [bool; 2], surface: [bool; 2]) -> TriangleSideLa
         cherchi_patch: patch,
         inside,
         surface,
+        sheet_opposite: None,
     }
 }
 
@@ -724,4 +730,581 @@ fn boolean_end_to_end_handoff_assertion_holds_across_ops_and_coplanar_sheets() {
             .unwrap_or_else(|e| panic!("coplanar {op:?} failed: {e:?}"));
         assert!(!out.faces().is_empty());
     }
+}
+
+/// Pin 7 (I3a): `TriangleSideLabel::keep_for_op_with_membrane`,
+/// `flip_winding_for_op`, and `operand_winding_reversed` encode post-Stage-4
+/// §4.4.2 + §4.5.5 classification on `[true, true]` overlap sheets.
+#[test]
+fn sheet_opposite_keep_and_winding_flip_rules() {
+    let same_norm = TriangleSideLabel {
+        cherchi_patch: 1,
+        inside: [false, false],
+        surface: [true, true],
+        sheet_opposite: Some(false),
+    };
+    let opp_norm = TriangleSideLabel {
+        cherchi_patch: 2,
+        inside: [false, false],
+        surface: [true, true],
+        sheet_opposite: Some(true),
+    };
+    let unresolved = TriangleSideLabel {
+        cherchi_patch: 3,
+        inside: [false, false],
+        surface: [true, true],
+        sheet_opposite: None,
+    };
+    assert_eq!(
+        same_norm.keep_for_op_with_membrane(BoolOp::Union),
+        Some(true)
+    );
+    assert_eq!(
+        same_norm.keep_for_op_with_membrane(BoolOp::Intersect),
+        Some(true)
+    );
+    assert_eq!(
+        same_norm.keep_for_op_with_membrane(BoolOp::Subtract),
+        Some(false)
+    );
+    assert_eq!(
+        opp_norm.keep_for_op_with_membrane(BoolOp::Union),
+        Some(false)
+    );
+    assert_eq!(
+        opp_norm.keep_for_op_with_membrane(BoolOp::Intersect),
+        Some(false)
+    );
+    assert_eq!(
+        opp_norm.keep_for_op_with_membrane(BoolOp::Subtract),
+        Some(true)
+    );
+    assert_eq!(unresolved.keep_for_op_with_membrane(BoolOp::Union), None);
+
+    assert!(!same_norm.flip_winding_for_op(BoolOp::Subtract));
+    assert!(!opp_norm.flip_winding_for_op(BoolOp::Subtract));
+    let pure_b_in_a = side_lbl(4, [true, false], [false, true]);
+    assert!(pure_b_in_a.flip_winding_for_op(BoolOp::Subtract));
+    assert!(!pure_b_in_a.flip_winding_for_op(BoolOp::Union));
+
+    assert!(!same_norm.operand_winding_reversed(InputId::A));
+    assert!(!same_norm.operand_winding_reversed(InputId::B));
+    assert!(!opp_norm.operand_winding_reversed(InputId::A));
+    assert!(opp_norm.operand_winding_reversed(InputId::B));
+}
+
+/// Pin 8 (I3a): `flood_fill_patches_with_side_labels` and
+/// `merge_same_plane_patches_with_side_labels` keep `A_out` and `A_in` separate
+/// across the intersection curve while merging adjacent coplanar faces that
+/// share the same `TriangleSideLabel`.
+#[test]
+fn full_arrangement_flood_fill_and_same_plane_merge_respect_side_labels() {
+    let z_plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let two_plane_brep = BRep::new(
+        vec![
+            BRepVertex {
+                point: pt(0.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: pt(1.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: pt(0.0, 1.0, 0.0),
+            },
+        ],
+        vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ],
+        vec![
+            BRepFace {
+                surface: z_plane,
+                outer_loop: vec![0, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: z_plane,
+                outer_loop: vec![0, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ],
+    )
+    .expect("two-plane brep");
+
+    // Strip of 3 triangles:
+    // tri 0 (A, face 0, patch 10 out) --edge (1,2)-- tri 1 (A, face 1, patch 10 out)
+    //                                 --edge (2,3)-- tri 2 (A, face 1, patch 20 in)
+    let mesh = Mesh::new(
+        vec![
+            pt(0.0, 0.0, 0.0), // 0
+            pt(1.0, 0.0, 0.0), // 1
+            pt(0.5, 1.0, 0.0), // 2
+            pt(1.5, 1.0, 0.0), // 3
+            pt(2.0, 0.0, 0.0), // 4
+        ],
+        vec![
+            [0, 1, 2], // 0: face 0, patch 10 (out)
+            [1, 3, 2], // 1: face 1, patch 10 (out)
+            [1, 4, 3], // 2: face 1, patch 20 (in)
+        ],
+    );
+    let attribution = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 0),
+            attr(InputId::A, 1),
+            attr(InputId::A, 1),
+        ],
+    };
+    let lbl_out = side_lbl(10, [false, false], [true, false]);
+    let lbl_in = side_lbl(20, [false, true], [true, false]);
+    let side_labels = TriangleSideLabelMap {
+        labels: vec![lbl_out, lbl_out, lbl_in],
+    };
+    let adj = triangle_adjacency(&mesh);
+    let raw_patches =
+        flood_fill_patches_with_side_labels(&mesh, &attribution, Some(&side_labels), &adj);
+    assert_eq!(
+        raw_patches.len(),
+        3,
+        "tri 1 and tri 2 share (A, face 1) but differ in cherchi_patch/inside, so flood keeps them separate"
+    );
+
+    let merged = merge_same_plane_patches_with_side_labels(
+        raw_patches,
+        &adj,
+        Some(&side_labels),
+        &two_plane_brep,
+        &two_plane_brep,
+    );
+    assert_eq!(
+        merged.len(),
+        2,
+        "same-side-label coplanar patches [0,1] merge, while A_in [2] stays split across the curve"
+    );
+    assert_eq!(merged[0].tri_indices, vec![0, 1]);
+    assert_eq!(merged[1].tri_indices, vec![2]);
+}
+
+/// Pin 9 (I3a): `compute_phase_a_with_side_labels` deduplicates a 4-patch
+/// transverse curve edge `(A_out, A_in, B_out, B_in)` to 2 `(InputId, Surface)`
+/// entries so `build_intersection_curves` recovers the exact `Curve::Line`, and
+/// resolves a 3-patch `[true, true]` overlap-sheet boundary to the 2 transverse
+/// surfaces.
+#[test]
+fn full_arrangement_phase_a_dedupes_four_patch_curve_and_overlap_boundary() {
+    // `brep_a`: radius-1 cylinder z ∈ [-2, 0] (`face 0` = cylinder wall, `face 2` = z=0 cap).
+    // `brep_b`: box [-2..2, 0..2, 0..2] (`face 0` = z=0 bottom with -z normal, `face 5` = y=0 wall).
+    let brep_a = rj_cylinder([0.0, 0.0, -2.0], [0.0, 0.0, 1.0], 1.0, 2.0);
+    let brep_b = rj_box([-2.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+
+    // (a) 4-patch transverse edge (0, 1) along x-axis (y=0, z=0):
+    // A_out (z=0, y>0), A_in (z=0, y<0), B_out (y=0, z>0), B_in (y=0, z<0).
+    let mesh4 = Mesh::new(
+        vec![
+            pt(0.0, 0.0, 0.0),  // 0
+            pt(1.0, 0.0, 0.0),  // 1
+            pt(0.5, 1.0, 0.0),  // 2: A_out
+            pt(0.5, -1.0, 0.0), // 3: A_in
+            pt(0.5, 0.0, 1.0),  // 4: B_out
+            pt(0.5, 0.0, -1.0), // 5: B_in
+        ],
+        vec![
+            [0, 1, 2], // A_out
+            [1, 0, 3], // A_in
+            [1, 0, 4], // B_out
+            [0, 1, 5], // B_in
+        ],
+    );
+    let attr4 = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 2),
+            attr(InputId::A, 2),
+            attr(InputId::B, 5),
+            attr(InputId::B, 5),
+        ],
+    };
+    let lbls4 = TriangleSideLabelMap {
+        labels: vec![
+            side_lbl(1, [false, false], [true, false]),
+            side_lbl(2, [false, true], [true, false]),
+            side_lbl(3, [false, false], [false, true]),
+            side_lbl(4, [true, false], [false, true]),
+        ],
+    };
+    let (_infos_unscoped, _inc_unscoped, curves_unscoped) = compute_phase_a(
+        &mesh4,
+        &attr4,
+        &brep_a,
+        &brep_b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    )
+    .expect("unscoped phase a");
+    assert!(
+        !curves_unscoped.contains_key(&(0, 1)),
+        "without side labels, A_out+A_in and B_out+B_in merge across (0,1) and lose the curve"
+    );
+
+    let (_infos_scoped, inc_scoped, curves_scoped) = compute_phase_a_with_side_labels(
+        &mesh4,
+        &attr4,
+        Some(&lbls4),
+        &brep_a,
+        &brep_b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    )
+    .expect("scoped phase a");
+    assert_eq!(inc_scoped.get(&(0, 1)).map(Vec::len), Some(2));
+    assert!(
+        matches!(curves_scoped.get(&(0, 1)), Some(Curve::LineSegment)),
+        "4-patch transverse seam must dedupe to 2 (InputId, Surface) entries and recover Curve::LineSegment"
+    );
+
+    // (b) 3-patch `[true, true]` overlap boundary along rim chord (0, 1) on unit circle in z=0:
+    // tri 0 = `[true, true]` cap overlap attributed to `(A, 2 = z=0 cap)`,
+    // tri 1 = `[true, false]` cylinder wall `(A, 0 = cyl_a)`,
+    // tri 2 = `[false, true]` plane continuation `(B, 0 = z=0 bottom, opposite normal)`.
+    let mesh3 = Mesh::new(
+        vec![
+            pt(1.0, 0.0, 0.0),  // 0 on unit circle z=0
+            pt(0.0, 1.0, 0.0),  // 1 on unit circle z=0
+            pt(0.0, 0.0, 0.0),  // 2 inside cap overlap
+            pt(0.7, 0.7, -1.0), // 3 on cylinder wall side
+            pt(1.2, 1.2, 0.0),  // 4 outside cap on B's z=0 plane
+        ],
+        vec![
+            [0, 1, 2], // [true, true] overlap (attributed to A face 2 = z=0 cap)
+            [1, 0, 3], // [true, false] A face 0 = cyl_a
+            [1, 0, 4], // [false, true] B face 0 = z=0 bottom
+        ],
+    );
+    let attr3 = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 2),
+            attr(InputId::A, 0),
+            attr(InputId::B, 0),
+        ],
+    };
+    let lbls3 = TriangleSideLabelMap {
+        labels: vec![
+            TriangleSideLabel {
+                cherchi_patch: 10,
+                inside: [false, false],
+                surface: [true, true],
+                sheet_opposite: Some(false),
+            },
+            side_lbl(11, [false, false], [true, false]),
+            side_lbl(12, [false, false], [false, true]),
+        ],
+    };
+    let (_infos3, inc3, curves3) = compute_phase_a_with_side_labels(
+        &mesh3,
+        &attr3,
+        Some(&lbls3),
+        &brep_a,
+        &brep_b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    )
+    .expect("overlap-boundary phase a");
+    assert_eq!(inc3.get(&(0, 1)).map(Vec::len), Some(2));
+    assert!(
+        matches!(curves3.get(&(0, 1)), Some(Curve::Circle { .. })),
+        "overlap boundary must drop the redundant (A, plane_a) overlap entry and recover cyl_a ∩ plane_a = Circle"
+    );
+}
+
+/// Pin 10 (I3a): `collapse_vertex_scoped` and `remove_doubled_membranes_scoped`
+/// preserve cross-operand opposite-winding coplanar triangles on the full
+/// arrangement while still cancelling genuine intra-patch pleats.
+#[test]
+fn scoped_collapse_and_membrane_removal_preserve_cross_operand_coplanar_sheets() {
+    let lbl_a = side_lbl(1, [false, false], [true, false]);
+    let lbl_b = side_lbl(2, [false, false], [false, true]);
+
+    // Opposite-winding identical triangles `[0, 1, 2]` (operand A) and `[0, 2, 1]`
+    // (operand B), plus an intra-operand-A pleat `[0, 2, 3]` + `[0, 3, 2]`.
+    let verts = vec![
+        pt(0.0, 0.0, 0.0),
+        pt(1.0, 0.0, 0.0),
+        pt(0.0, 1.0, 0.0),
+        pt(1.0, 1.0, 0.0),
+    ];
+    let tris = vec![
+        [0, 1, 2], // A legitimate sheet
+        [0, 2, 1], // B legitimate opposite-winding sheet
+        [0, 2, 3], // A pleat half 1
+        [0, 3, 2], // A pleat half 2
+    ];
+    let attrs = vec![
+        attr(InputId::A, 0),
+        attr(InputId::B, 0),
+        attr(InputId::A, 0),
+        attr(InputId::A, 0),
+    ];
+    let lbls = vec![lbl_a, lbl_b, lbl_a, lbl_a];
+
+    // Unscoped `remove_doubled_membranes` drops ALL 4 triangles.
+    let mut m_unscoped = Mesh::new(verts.clone(), tris.clone());
+    let mut a_unscoped = attrs.clone();
+    let mut l_unscoped = lbls.clone();
+    assert_eq!(
+        remove_doubled_membranes(&mut m_unscoped, &mut a_unscoped, &mut l_unscoped),
+        4
+    );
+    assert!(m_unscoped.tris.is_empty());
+
+    // Scoped `remove_doubled_membranes_scoped(..., true)` drops ONLY the 2
+    // intra-patch pleat triangles, preserving A's and B's coplanar sheets.
+    let mut m_scoped = Mesh::new(verts.clone(), tris);
+    let mut a_scoped = attrs;
+    let mut l_scoped = lbls;
+    assert_eq!(
+        remove_doubled_membranes_scoped(&mut m_scoped, &mut a_scoped, &mut l_scoped, true),
+        2
+    );
+    assert_eq!(m_scoped.tris, vec![[0, 1, 2], [0, 2, 1]]);
+    assert_eq!(l_scoped, vec![lbl_a, lbl_b]);
+
+    // Likewise `collapse_vertex_scoped(..., true)` preserves `[0, 1, 2]` (A) vs
+    // `[0, 2, 1]` (B) when vertex 4 collapses onto vertex 2.
+    let mut m_col = Mesh::new(
+        vec![
+            pt(0.0, 0.0, 0.0), // 0
+            pt(1.0, 0.0, 0.0), // 1
+            pt(0.0, 1.0, 0.0), // 2 survivor
+            pt(0.0, 1.0, 0.0), // 3 victim -> 2
+        ],
+        vec![
+            [0, 1, 2], // A
+            [0, 3, 1], // B -> becomes [0, 2, 1] after 3 -> 2
+            [0, 2, 3], // A degenerate -> dropped
+        ],
+    );
+    let mut a_col = vec![
+        attr(InputId::A, 0),
+        attr(InputId::B, 0),
+        attr(InputId::A, 0),
+    ];
+    let mut l_col = vec![lbl_a, lbl_b, lbl_a];
+    let mut tv: BTreeSet<u32> = [3u32].into_iter().collect();
+    let dropped = collapse_vertex_scoped(
+        &mut m_col,
+        &mut a_col,
+        &mut l_col,
+        3,
+        2,
+        true,
+        Some(&mut tv),
+    );
+    assert_eq!(
+        dropped, 1,
+        "only the degenerate [0,2,2] triangle drops; cross-operand [0,1,2]+[0,2,1] survive"
+    );
+    assert_eq!(m_col.tris, vec![[0, 1, 2], [0, 2, 1]]);
+    assert!(
+        tv.contains(&2) && !tv.contains(&3),
+        "tangential vertex remaps victim -> survivor"
+    );
+}
+
+/// Pin 11 (I3a): `resolve_synchronized_degenerate_split` unzips a 4-triangle
+/// full-arrangement A×B seam edge `(a, c)` across BOTH operands atomically,
+/// keeping both operand shells closed 2-manifolds AND keeping every post-keep
+/// Boolean result (`Union`, `Intersect`, `Subtract`) watertight.
+#[test]
+fn synchronized_four_triangle_degenerate_split_keeps_both_operands_conformal() {
+    // Operand A: closed surface over shared edge (0, 2) with collinear midpoint 1:
+    //   d_idx = [0, 2, 1] (lbl_a_out, degenerate),
+    //   a_ab  = [0, 1, 3] (lbl_a_out),
+    //   a_bc  = [1, 2, 3] (lbl_a_out),
+    //   a_top1= [3, 1, 4] ... wait: build exact closed shells!
+    // Closed shell A (5 verts {0,1,2,3,4}):
+    //   top (lbl_a_out): [0, 1, 3], [1, 2, 3], [0, 2, 1] (boundary 0->2, 2->3, 3->0)
+    //   bottom (lbl_a_in): [2, 0, 4], [3, 2, 4], [0, 3, 4] (boundary 2->0, 0->3, 3->2)
+    // Check A half-edges:
+    //   (0,1)/(1,0) paired between [0,1,3] and [0,2,1];
+    //   (1,2)/(2,1) paired between [1,2,3] and [0,2,1];
+    //   (0,2)/(2,0) paired between [0,2,1] and [2,0,4];
+    //   (1,3)/(3,1) paired between [0,1,3] and [1,2,3];
+    //   (2,3)/(3,2) paired between [1,2,3] and [3,2,4];
+    //   (3,0)/(0,3) paired between [0,1,3] and [0,3,4];
+    //   (0,4)/(4,0), (2,4)/(4,2), (3,4)/(4,3) paired in bottom!
+    // Closed shell B (4 verts {0,2,5,6}, tetrahedron sharing edge (0, 2)):
+    //   o1 (lbl_b_in_a):  [0, 2, 5] (inside A -> boundary 0->2)
+    //   o2 (lbl_b_out_a): [2, 0, 6] (outside A -> boundary 2->0)
+    //   b3 (lbl_b_out_a): [2, 5, 6] ... wait: close o1 and o2 cleanly!
+    // Let B be a bipyramid over triangle (0, 2, 7) with apexes 5 (inside A) and 6 (outside A):
+    //   inside A (lbl_b_in):   [0, 2, 5], [2, 7, 5], [7, 0, 5]  (boundary 0->2->7->0)
+    //   outside A (lbl_b_out): [2, 0, 6], [0, 7, 6], [7, 2, 6]  (boundary 0<-2<-7<-0)
+    // Wait: then A's boundary between A_out and A_in should ALSO be 0->2->7->0 so A and B
+    // intersect along the closed triangle loop (0, 2, 7)!
+    // Let's check! Closed bipyramid A over loop (0, 2, 7) with apex 3 (outside B) and 4 (inside B),
+    // with vertex 1 subdivided on edge (0, 2) of A_out:
+    //   A_out (lbl_a_out = [F, F]): [0, 2, 1] (degen!), [0, 1, 3], [1, 2, 3], [2, 7, 3], [7, 0, 3]
+    //   A_in  (lbl_a_in  = [F, T]): [2, 0, 4], [0, 7, 4], [7, 2, 4]
+    let verts = vec![
+        pt(0.0, 0.0, 0.0),  // 0: a
+        pt(0.5, 0.0, 0.0),  // 1: b (collinear midpoint on 0..2)
+        pt(1.0, 0.0, 0.0),  // 2: c
+        pt(0.5, 0.3, 1.0),  // 3: A_out apex
+        pt(0.5, 0.3, -1.0), // 4: A_in apex
+        pt(0.5, 0.3, 0.5),  // 5: B_in apex
+        pt(0.5, 0.3, -0.5), // 6: B_out apex
+        pt(0.5, 1.0, 0.0),  // 7: third vertex of intersection loop (0, 2, 7)
+    ];
+    let lbl_a_out = side_lbl(10, [false, false], [true, false]);
+    let lbl_a_in = side_lbl(11, [false, true], [true, false]);
+    let lbl_b_in = side_lbl(20, [true, false], [false, true]);
+    let lbl_b_out = side_lbl(21, [false, false], [false, true]);
+
+    let tris = vec![
+        [0, 2, 1], // 0: d_idx (A_out, degenerate)
+        [0, 1, 3], // 1: A_out
+        [1, 2, 3], // 2: A_out
+        [2, 7, 3], // 3: A_out
+        [7, 0, 3], // 4: A_out
+        [2, 0, 4], // 5: n_same (A_in)
+        [0, 7, 4], // 6: A_in
+        [7, 2, 4], // 7: A_in
+        [0, 2, 5], // 8: o1 (B_in)
+        [2, 7, 5], // 9: B_in
+        [7, 0, 5], // 10: B_in
+        [2, 0, 6], // 11: o2 (B_out)
+        [0, 7, 6], // 12: B_out
+        [7, 2, 6], // 13: B_out
+    ];
+    let mut attr_vec: Vec<Option<TriangleAttribution>> = (0..14)
+        .map(|i| {
+            if i < 8 {
+                attr(InputId::A, 0)
+            } else {
+                attr(InputId::B, 0)
+            }
+        })
+        .collect();
+    let mut lbl_vec = vec![
+        lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_in, lbl_a_in, lbl_a_in,
+        lbl_b_in, lbl_b_in, lbl_b_in, lbl_b_out, lbl_b_out, lbl_b_out,
+    ];
+    let mut mesh = Mesh::new(verts, tris);
+    let mut tv: BTreeSet<u32> = [0u32, 2u32].into_iter().collect();
+
+    assert!(resolve_synchronized_degenerate_split(
+        &mut mesh,
+        &mut attr_vec,
+        &mut lbl_vec,
+        0,
+        5,
+        [8, 11],
+        (0, 2, 1),
+        Some(&mut tv),
+    ));
+    assert!(
+        tv.contains(&1),
+        "midpoint of tangential edge inherits tangential tag"
+    );
+
+    let attr_map = TriangleAttributionMap {
+        attributions: attr_vec,
+    };
+    let lbl_map = TriangleSideLabelMap {
+        labels: lbl_vec.clone(),
+    };
+    check_watertight_2manifold_per_operand(&mesh, &attr_map, &lbl_map, false)
+        .expect("both operand shells must remain closed 2-manifolds after synchronized split");
+
+    for op in [BoolOp::Union, BoolOp::Intersect, BoolOp::Subtract] {
+        let kept_tris: Vec<[u32; 3]> = mesh
+            .tris
+            .iter()
+            .zip(lbl_vec.iter())
+            .filter_map(|(&t, lbl)| {
+                if !lbl.keep_for_op_with_membrane(op).unwrap_or(false) {
+                    return None;
+                }
+                let mut kt = t;
+                if lbl.flip_winding_for_op(op) {
+                    kt.swap(1, 2);
+                }
+                Some(kt)
+            })
+            .collect();
+        let kept_mesh = Mesh::new(mesh.verts.clone(), kept_tris);
+        check_watertight_2manifold(&kept_mesh).unwrap_or_else(|e| {
+            panic!("post-keep {op:?} mesh must be watertight after synchronized split: {e:?}")
+        });
+    }
+}
+
+/// Pin 12 (I3a): `check_watertight_2manifold_per_operand` rejects paired A+B
+/// holes whose unpaired half-edges cancel each other in the global half-edge
+/// multiset (`specs/yang_442_classify_after_update.md` §4 table row 8).
+#[test]
+fn per_operand_watertight_gate_catches_cancelling_cross_operand_holes() {
+    let verts = vec![
+        pt(0.0, 0.0, 0.0),  // 0
+        pt(1.0, 0.0, 0.0),  // 1
+        pt(0.0, 1.0, 0.0),  // 2
+        pt(0.2, 0.2, 1.0),  // 3: A apex
+        pt(0.2, 0.2, -1.0), // 4: B apex
+    ];
+    // Tetrahedron A missing base `[0, 2, 1]` (unpaired: 0->1, 1->2, 2->0);
+    // Tetrahedron B missing base `[0, 1, 2]` (unpaired: 1->0, 2->1, 0->2).
+    // Together, every directed edge has fwd == rev == 1 and V=5, E=9, F=6 -> chi=2!
+    let mesh = Mesh::new(
+        verts,
+        vec![
+            [0, 1, 3],
+            [1, 2, 3],
+            [2, 0, 3],
+            [1, 0, 4],
+            [2, 1, 4],
+            [0, 2, 4],
+        ],
+    );
+    let attribution = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 0),
+            attr(InputId::A, 0),
+            attr(InputId::A, 0),
+            attr(InputId::B, 0),
+            attr(InputId::B, 0),
+            attr(InputId::B, 0),
+        ],
+    };
+    let side_labels = TriangleSideLabelMap {
+        labels: vec![
+            side_lbl(1, [false, false], [true, false]),
+            side_lbl(1, [false, false], [true, false]),
+            side_lbl(1, [false, false], [true, false]),
+            side_lbl(2, [false, false], [false, true]),
+            side_lbl(2, [false, false], [false, true]),
+            side_lbl(2, [false, false], [false, true]),
+        ],
+    };
+    assert!(
+        check_watertight_2manifold(&mesh).is_ok(),
+        "global half-edge balance passes vacuously on paired A+B cancelling holes"
+    );
+    assert!(
+        check_watertight_2manifold_per_operand(&mesh, &attribution, &side_labels, false).is_err(),
+        "per-operand closed-manifold gate must reject open operand shells"
+    );
 }

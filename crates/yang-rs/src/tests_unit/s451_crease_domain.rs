@@ -2568,6 +2568,7 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
                     attribution.attributions[i].is_some_and(|a| a.input == InputId::A),
                     attribution.attributions[i].is_some_and(|a| a.input == InputId::B),
                 ],
+                sheet_opposite: None,
             })
             .collect(),
     };
@@ -2615,6 +2616,7 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
             cherchi_patch: (p.face.0 as u32) * 100 + p.face.1 + 7,
             inside: [false, p.face.0 == InputId::A],
             surface: [p.face.0 == InputId::A, p.face.0 == InputId::B],
+            sheet_opposite: None,
         };
         for tri in &p.tris {
             let slot = mesh

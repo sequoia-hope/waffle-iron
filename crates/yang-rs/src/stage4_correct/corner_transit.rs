@@ -8,6 +8,7 @@ pub(crate) fn corner_transit_apply(
     a: &BRep,
     b: &BRep,
     entry: &[[f64; 3]],
+    full_arrangement: bool,
 ) -> Result<bool, YangError> {
     use crate::stage4_corridor as s4c;
     use crate::stage4_transit as s4t;
@@ -248,7 +249,12 @@ pub(crate) fn corner_transit_apply(
     }
     // Components + cycle planning.
     let adjacency_t = crate::stage5_topology::triangle_adjacency(mesh);
-    let raw_patches = crate::stage5_topology::flood_fill_patches(mesh, attribution, &adjacency_t);
+    let raw_patches = crate::stage5_topology::flood_fill_patches_with_side_labels(
+        mesh,
+        attribution,
+        full_arrangement.then_some(&*side_labels),
+        &adjacency_t,
+    );
     let vband = |v: u32| -> f64 {
         let p = mesh.verts[v as usize].as_array();
         cad_primitives::TAU_WORK
@@ -1272,75 +1278,89 @@ pub(crate) fn corner_transit_apply(
     // of the same rule (link + one all-New arc), replacing the former
     // per-corridor path/junction-attachment construction.
     let census = std::env::var("YANG_451_HOSTS").as_deref() == Ok("census");
-    let mut far_done: std::collections::BTreeSet<u32> = Default::default();
+    let mut far_done: std::collections::BTreeSet<(usize, u32)> = Default::default();
     for c in corridors.iter() {
         for &p in &c.phantoms {
-            if far_done.contains(&p) {
-                continue;
-            }
-            let Some((pi, patch)) = raw_patches.iter().enumerate().find(|(_, pt)| {
-                (pt.attribution.input, pt.attribution.face) == c.far
-                    && pt
-                        .tri_indices
-                        .iter()
-                        .any(|&t| mesh.tris[t as usize].contains(&p))
-            }) else {
+            let matching_far: Vec<(usize, &crate::stage5_topology::Patch)> = raw_patches
+                .iter()
+                .enumerate()
+                .filter(|(_, pt)| {
+                    (pt.attribution.input, pt.attribution.face) == c.far
+                        && pt
+                            .tri_indices
+                            .iter()
+                            .any(|&t| mesh.tris[t as usize].contains(&p))
+                })
+                .collect();
+            if matching_far.is_empty() {
                 refuse(&format!("far fan of v{p} not found"));
                 rollback(mesh);
                 return Ok(false);
-            };
-            let Some(surface) = faces_of(c.far.0).get(c.far.1 as usize).map(|f| f.surface) else {
-                refuse("far surface missing");
-                rollback(mesh);
-                return Ok(false);
-            };
-            // §3j: victims = the far plan's removed set reachable from the
-            // phantom through removed vertices — the PLANNER is the single
-            // absorb authority; the fan arm executes its decision.
-            let Some(far_plan) = plans
-                .iter()
-                .find(|pl| pl.key == c.far && pl.comp == pi as u32)
-            else {
-                refuse(&format!("far component {pi} of v{p} has no plan"));
-                rollback(mesh);
-                return Ok(false);
-            };
-            let removed_set: std::collections::BTreeSet<u32> =
-                far_plan.removed.iter().copied().collect();
-            let mut victims = std::collections::BTreeSet::from([p]);
-            let mut stack = vec![p];
-            while let Some(x) = stack.pop() {
-                for &y in adj.get(&x).into_iter().flatten() {
-                    if removed_set.contains(&y) && victims.insert(y) {
-                        stack.push(y);
-                    }
-                }
             }
-            // Joint admission: every fired vertex the flood reaches must be
-            // a FAR-MATE (its corridor shares this far patch) — the joint
-            // region then deletes once. Anything else is a genuine
-            // cross-far entanglement, refused.
-            for &v in &victims {
-                if fired.contains(&v)
-                    && !corridors
-                        .iter()
-                        .any(|c2| c2.far == c.far && c2.phantoms.contains(&v))
-                {
-                    refuse(&format!(
-                        "far fan of v{p} floods into a foreign-far phantom v{v}"
-                    ));
+            for (pi, patch) in matching_far {
+                if far_done.contains(&(pi, p)) {
+                    continue;
+                }
+                let Some(surface) = faces_of(c.far.0).get(c.far.1 as usize).map(|f| f.surface)
+                else {
+                    refuse("far surface missing");
                     rollback(mesh);
                     return Ok(false);
+                };
+                // §3j: victims = the far plan's removed set reachable from the
+                // phantom through removed vertices — the PLANNER is the single
+                // absorb authority; the fan arm executes its decision.
+                let Some(far_plan) = plans
+                    .iter()
+                    .find(|pl| pl.key == c.far && pl.comp == pi as u32)
+                else {
+                    refuse(&format!("far component {pi} of v{p} has no plan"));
+                    rollback(mesh);
+                    return Ok(false);
+                };
+                let removed_set: std::collections::BTreeSet<u32> =
+                    far_plan.removed.iter().copied().collect();
+                let mut victims = std::collections::BTreeSet::from([p]);
+                let mut stack = vec![p];
+                while let Some(x) = stack.pop() {
+                    for &y in adj.get(&x).into_iter().flatten() {
+                        if removed_set.contains(&y) && victims.insert(y) {
+                            stack.push(y);
+                        }
+                    }
                 }
-            }
-            far_done.extend(victims.iter().copied().filter(|v| fired.contains(v)));
-            let sp = crate::stage4_splice::SplicePatch {
-                cycles: Vec::new(),
-                tris: patch.tri_indices.clone(),
-                surface,
-            };
-            let (del, runs, _fan) =
-                match crate::stage4_construct::delete_boundary_fan_runs(mesh, pi, &sp, &victims) {
+                // Joint admission: every fired vertex the flood reaches must be
+                // a FAR-MATE (its corridor shares this far patch) — the joint
+                // region then deletes once. Anything else is a genuine
+                // cross-far entanglement, refused.
+                for &v in &victims {
+                    if fired.contains(&v)
+                        && !corridors
+                            .iter()
+                            .any(|c2| c2.far == c.far && c2.phantoms.contains(&v))
+                    {
+                        refuse(&format!(
+                            "far fan of v{p} floods into a foreign-far phantom v{v}"
+                        ));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                }
+                far_done.extend(
+                    victims
+                        .iter()
+                        .copied()
+                        .filter(|v| fired.contains(v))
+                        .map(|v| (pi, v)),
+                );
+                let sp = crate::stage4_splice::SplicePatch {
+                    cycles: Vec::new(),
+                    tris: patch.tri_indices.clone(),
+                    surface,
+                };
+                let (del, runs, _fan) = match crate::stage4_construct::delete_boundary_fan_runs(
+                    mesh, pi, &sp, &victims,
+                ) {
                     Ok(r) => r,
                     Err(e) => {
                         refuse(&format!("far fan delete v{p} ({victims:?}): {e:?}"));
@@ -1348,62 +1368,63 @@ pub(crate) fn corner_transit_apply(
                         return Ok(false);
                     }
                 };
-            if census {
-                eprintln!("[451-joint] p=v{p} comp={pi} victims={victims:?} runs={runs:?}");
-            }
-            // Stitch: the refill polygon alternates link runs with
-            // corrected-cycle arcs whose INTERIOR is all-New (the minted
-            // path replacing each boundary gap). Every choice must be
-            // unique; every failure is typed (`stitch_fan_polygon`).
-            let polygon = match stitch_fan_polygon(&far_plan.corrected, &runs, base) {
-                Ok(pg) => pg,
-                Err(why) => {
-                    refuse(&format!("far stitch of v{p}: {why}"));
-                    rollback(mesh);
-                    return Ok(false);
+                if census {
+                    eprintln!("[451-joint] p=v{p} comp={pi} victims={victims:?} runs={runs:?}");
                 }
-            };
-            // Seed budget = the fossil's own vertex spend (its victims):
-            // like-for-like in density as well as d(T) (§3m).
-            let seed_base = mesh.verts.len() as u32;
-            let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
-                mesh,
-                pi,
-                &sp,
-                &polygon,
-                &del.old_tris,
-                victims.len(),
-                seed_base,
-                &removed_union,
-            ) {
-                Ok(t) => t,
-                Err(e) => {
-                    refuse(&format!("far fan refill v{p}: {e:?}"));
-                    rollback(mesh);
-                    return Ok(false);
+                // Stitch: the refill polygon alternates link runs with
+                // corrected-cycle arcs whose INTERIOR is all-New (the minted
+                // path replacing each boundary gap). Every choice must be
+                // unique; every failure is typed (`stitch_fan_polygon`).
+                let polygon = match stitch_fan_polygon(&far_plan.corrected, &runs, base) {
+                    Ok(pg) => pg,
+                    Err(why) => {
+                        refuse(&format!("far stitch of v{p}: {why}"));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                };
+                // Seed budget = the fossil's own vertex spend (its victims):
+                // like-for-like in density as well as d(T) (§3m).
+                let seed_base = mesh.verts.len() as u32;
+                let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
+                    mesh,
+                    pi,
+                    &sp,
+                    &polygon,
+                    &del.old_tris,
+                    victims.len(),
+                    seed_base,
+                    &removed_union,
+                ) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        refuse(&format!("far fan refill v{p}: {e:?}"));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                };
+                if census && !seed_pts.is_empty() {
+                    eprintln!(
+                        "[451-joint] p=v{p} refill seeded {} interior verts",
+                        seed_pts.len()
+                    );
                 }
-            };
-            if census && !seed_pts.is_empty() {
-                eprintln!(
-                    "[451-joint] p=v{p} refill seeded {} interior verts",
-                    seed_pts.len()
-                );
+                // Seeds ride the batch (`new_verts` + the I2e remap): an eager
+                // append here would move the vertex baseline mid-mutation and
+                // stale every other rebuild's plan stamp (measured: R0044's
+                // first live seed → batch StalePlan, spec §3p).
+                replaced.extend(del.old_tris.iter().copied());
+                removed_all.extend(victims.iter().copied());
+                rebuilds.push(crate::stage4_construct::PatchRebuild {
+                    patch: pi,
+                    old_tris: del.old_tris,
+                    new_tris,
+                    new_verts: seed_pts,
+                    dropped: victims.clone(),
+                    plan_verts: seed_base,
+                    plan_tris: mesh.tris.len() as u32,
+                });
             }
-            // Seeds ride the batch (`new_verts` + the I2e remap): an eager
-            // append here would move the vertex baseline mid-mutation and
-            // stale every other rebuild's plan stamp (measured: R0044's
-            // first live seed → batch StalePlan, spec §3p).
-            replaced.extend(del.old_tris.iter().copied());
-            removed_all.extend(victims.iter().copied());
-            rebuilds.push(crate::stage4_construct::PatchRebuild {
-                patch: pi,
-                old_tris: del.old_tris,
-                new_tris,
-                new_verts: seed_pts,
-                dropped: victims.clone(),
-                plan_verts: seed_base,
-                plan_tris: mesh.tris.len() as u32,
-            });
         }
     }
     // Non-far components: wholesale rebuild from the corrected cycles.

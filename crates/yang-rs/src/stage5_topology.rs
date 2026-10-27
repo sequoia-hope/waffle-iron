@@ -858,6 +858,8 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut infos,
                 &mut intersection_curves,
                 &mut relocations,
+                false,
+                None,
             )?;
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-construct"), &mesh.tris);
@@ -875,6 +877,8 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut infos,
                 &mut intersection_curves,
                 &mut relocations,
+                false,
+                None,
             )?;
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);

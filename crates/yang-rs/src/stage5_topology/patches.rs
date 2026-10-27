@@ -40,6 +40,30 @@ pub(crate) fn flood_fill_patches(
     attribution: &TriangleAttributionMap,
     adjacency: &[Vec<u32>],
 ) -> Vec<Patch> {
+    flood_fill_patches_with_side_labels(mesh, attribution, None, adjacency)
+}
+
+/// F1-I3 (`specs/yang_442_classify_after_update.md` §4–§5; Yang §4.4.2,
+/// `refs/text/yang2025_hybrid_boolean.txt:572-578`): BFS flood-fill that keys
+/// patches by `(attribution, side_label)` when `side_labels` is `Some` (Stage 4
+/// on the full arrangement, keeping `A-in` and `A-out` separate across every
+/// intersection curve via `cherchi_patch` / `inside` / `surface`) and by
+/// `attribution` alone when `None` (post-keep Phase A / B-Rep emission).
+pub(crate) fn flood_fill_patches_with_side_labels(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: Option<&TriangleSideLabelMap>,
+    adjacency: &[Vec<u32>],
+) -> Vec<Patch> {
+    if let Some(sl) = side_labels {
+        debug_assert_eq!(
+            sl.len(),
+            mesh.tris.len(),
+            "flood_fill_patches_with_side_labels: side_labels ({}) != mesh.tris ({})",
+            sl.len(),
+            mesh.tris.len(),
+        );
+    }
     use std::collections::VecDeque;
     let mut visited = vec![false; mesh.tris.len()];
     let mut patches: Vec<Patch> = Vec::new();
@@ -51,6 +75,7 @@ pub(crate) fn flood_fill_patches(
             visited[seed as usize] = true;
             continue;
         };
+        let seed_sl = side_labels.map(|sl| sl.lookup(seed));
         let mut queue: VecDeque<u32> = VecDeque::from([seed]);
         let mut tri_indices: Vec<u32> = Vec::new();
         while let Some(t) = queue.pop_front() {
@@ -62,6 +87,11 @@ pub(crate) fn flood_fill_patches(
             };
             if t_attr != seed_attr {
                 continue;
+            }
+            if let Some(sl) = side_labels {
+                if Some(sl.lookup(t)) != seed_sl {
+                    continue;
+                }
             }
             visited[t as usize] = true;
             tri_indices.push(t);

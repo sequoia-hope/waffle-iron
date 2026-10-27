@@ -70,6 +70,7 @@ pub(crate) fn collapse_membrane_pleat_cancels_both_copies() {
             cherchi_patch: i as u32,
             inside: [false, false],
             surface: [true, false],
+            sheet_opposite: None,
         })
         .collect();
     collapse_vertex(&mut mesh, &mut attribution, &mut side_labels, 3, 2);

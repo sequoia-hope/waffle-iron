@@ -2044,10 +2044,31 @@ pub(crate) fn membrane_orientation_sign(tri: [u32; 3], key: [u32; 3]) -> i8 {
 /// STOPped `s6-planar-loop-nonplanar` on a vertex 1.19e-3 off the plane
 /// (a third of the model). A silent relabel one slot wide is a topology
 /// defect minted by plumbing, not by geometry.
+#[allow(dead_code)]
 pub(crate) fn remove_doubled_membranes(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<crate::brep::TriangleSideLabel>,
+) -> usize {
+    remove_doubled_membranes_scoped(mesh, attribution, side_labels, false)
+}
+
+/// Remove opposite-winding coincident triangle pairs, optionally scoped per
+/// operand shell (`(surface, sheet_opposite)` from [`crate::brep::TriangleSideLabel`]).
+///
+/// On the full Stage-4 arrangement (`scope_by_side_label = true`, Yang 2025
+/// §4.4.2 `refs/text/yang2025_hybrid_boolean.txt:572-578`), two opposite-winding
+/// triangles on the same vertex triple cancel ONLY when they belong to the same
+/// operand shell (`(lbl.surface, lbl.sheet_opposite)` equal — an intra-operand
+/// fold/fin). Cross-operand coplanar pairs (`[true, false]` vs `[false, true]`)
+/// are distinct operand boundaries and must stay intact until post-keep
+/// classification. Post-keep (`scope_by_side_label = false`), opposite-winding
+/// membranes cancel across operands as well.
+pub(crate) fn remove_doubled_membranes_scoped(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<crate::brep::TriangleSideLabel>,
+    scope_by_side_label: bool,
 ) -> usize {
     debug_assert_eq!(
         attribution.len(),
@@ -2060,8 +2081,10 @@ pub(crate) fn remove_doubled_membranes(
         "side_labels must be 1:1 with mesh.tris on entry"
     );
     use std::collections::BTreeMap;
-    // Group triangles by ascending-sorted vertex triple → (index, sign).
-    let mut groups: BTreeMap<[u32; 3], Vec<(usize, i8)>> = BTreeMap::new();
+    type ScopeKey = ([bool; 2], Option<bool>);
+    type GroupKey = ([u32; 3], ScopeKey);
+    // Group triangles by (ascending-sorted vertex triple, scope) → (index, sign).
+    let mut groups: BTreeMap<GroupKey, Vec<(usize, i8)>> = BTreeMap::new();
     for (ti, &tri) in mesh.tris.iter().enumerate() {
         let mut key = tri;
         key.sort_unstable();
@@ -2070,8 +2093,14 @@ pub(crate) fn remove_doubled_membranes(
         if key[0] == key[1] || key[1] == key[2] {
             continue;
         }
+        let scope: ScopeKey = if scope_by_side_label {
+            let lbl = side_labels.get(ti).copied().unwrap_or_default();
+            (lbl.surface, lbl.sheet_opposite)
+        } else {
+            ([false, false], None)
+        };
         groups
-            .entry(key)
+            .entry((key, scope))
             .or_default()
             .push((ti, membrane_orientation_sign(tri, key)));
     }
@@ -2247,12 +2276,93 @@ pub(crate) fn pinch_edge_len(mesh: &Mesh, v: u32, u: u32) -> f64 {
 /// Stage-4 relocation tags (same curve parameter — the copies sit at the
 /// same on-curve point). Deterministic: vertices, triangles, and fan
 /// components in index order (I7).
+/// Identify vertices of Stage-2 tangential A×B line-contact edges on the full
+/// arrangement before Stage-4 collapses (`specs/yang_tangency_pinch_split.md`
+/// §0a, ledger N78, `specs/yang_442_classify_after_update.md` §4).
+///
+/// On the full arrangement every A×B intersection edge is 4-valent (`2 × A +
+/// 2 × B`). A transversal crossing flips `inside` across the edge on both
+/// operands (`a0.inside[1] != a1.inside[1]`, `b0.inside[0] != b1.inside[0]`),
+/// whereas a tangential line contact keeps each operand strictly on one side
+/// of the other (`a0.inside[1] == a1.inside[1]` and
+/// `b0.inside[0] == b1.inside[0]`). Recording the vertices of those pre-Stage-4
+/// tangential edges lets post-keep `split_pinch_vertices_scoped` separate true
+/// arrangement line pinches (F0060: 14 edges at `s4-entry`) while refusing
+/// Stage-4-minted hairline slits (P0020: 0 tangential edges at `s4-entry`).
+pub(crate) fn detect_arrangement_tangential_contact_verts(
+    mesh: &Mesh,
+    side_labels: &[crate::brep::TriangleSideLabel],
+) -> std::collections::BTreeSet<u32> {
+    use std::collections::{BTreeMap, BTreeSet};
+    debug_assert_eq!(side_labels.len(), mesh.tris.len());
+    // Map undirected edge (min, max) -> Vec<(tri_idx, is_fwd)>.
+    let mut edge_inc: BTreeMap<(u32, u32), Vec<(usize, bool)>> = BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (u, v) = (tri[i], tri[j]);
+            if u == v {
+                continue;
+            }
+            let (lo, hi, fwd) = if u < v { (u, v, true) } else { (v, u, false) };
+            edge_inc.entry((lo, hi)).or_default().push((ti, fwd));
+        }
+    }
+    let mut out = BTreeSet::new();
+    for (&(u, v), inc) in &edge_inc {
+        if inc.len() != 4 {
+            continue;
+        }
+        let mut a_tris: Vec<(bool, bool)> = Vec::with_capacity(2);
+        let mut b_tris: Vec<(bool, bool)> = Vec::with_capacity(2);
+        for &(ti, fwd) in inc {
+            let Some(lbl) = side_labels.get(ti) else {
+                continue;
+            };
+            match lbl.surface {
+                [true, false] => a_tris.push((fwd, lbl.inside[1])),
+                [false, true] => b_tris.push((fwd, lbl.inside[0])),
+                _ => {}
+            }
+        }
+        if a_tris.len() == 2
+            && b_tris.len() == 2
+            && a_tris[0].0 != a_tris[1].0
+            && b_tris[0].0 != b_tris[1].0
+            && a_tris[0].1 == a_tris[1].1
+            && b_tris[0].1 == b_tris[1].1
+        {
+            out.insert(u);
+            out.insert(v);
+        }
+    }
+    out
+}
+
 pub(crate) fn split_pinch_vertices(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
     attribution: &[Option<TriangleAttribution>],
     side_labels: &[crate::brep::TriangleSideLabel],
     edge_pinch: bool,
+) -> usize {
+    if edge_pinch {
+        split_pinch_vertices_scoped(mesh, relocations, attribution, side_labels, None)
+    } else {
+        let empty = std::collections::BTreeSet::new();
+        split_pinch_vertices_scoped(mesh, relocations, attribution, side_labels, Some(&empty))
+    }
+}
+
+/// [`split_pinch_vertices`] with an optional vertex allowlist for the 4-valent
+/// edge-pinch arm (`None` = allow any certified 4-valent edge; `Some(set)` =
+/// allow only edges `(v, u)` whose endpoints both belong to `set`, i.e.
+/// pre-Stage-4 arrangement tangential contacts).
+pub(crate) fn split_pinch_vertices_scoped(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    attribution: &[Option<TriangleAttribution>],
+    side_labels: &[crate::brep::TriangleSideLabel],
+    allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
 ) -> usize {
     debug_assert_eq!(
         side_labels.len(),
@@ -2306,9 +2416,11 @@ pub(crate) fn split_pinch_vertices(
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         let mut bail = false;
         for (&u, l) in &by_u {
+            let edge_allowed =
+                allowed_edge_pinch_verts.is_none_or(|s| s.contains(&v) && s.contains(&u));
             match l.len() {
                 2 => pairs.push((l[0], l[1])),
-                4 if edge_pinch => match edge_pinch_sheets(mesh, attribution, v, u, star, l) {
+                4 if edge_allowed => match edge_pinch_sheets(mesh, attribution, v, u, star, l) {
                     Some([a, b]) => {
                         if std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
                             eprintln!(
@@ -2382,6 +2494,72 @@ pub(crate) fn split_pinch_vertices(
         }
     }
     splits
+}
+
+/// Extract one operand's closed subdivided shell ($M_A$ or $M_B$) from the full
+/// welded arrangement (`specs/yang_442_classify_after_update.md` §4, Yang 2025
+/// §4.4.2 `refs/text/yang2025_hybrid_boolean.txt:572-578`).
+///
+/// Shares `mesh.verts` uncompacted so vertex indices match `mesh` directly.
+/// Coplanar `[true, true]` overlap triangles belong to both operand shells; on
+/// opposite-normal sheets (`sheet_opposite == Some(true)`), `mesh.tris` carries
+/// operand A's winding, so operand B's shell reverses those triangles.
+pub(crate) fn extract_operand_shell(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: &crate::brep::TriangleSideLabelMap,
+    input: InputId,
+) -> (Mesh, TriangleAttributionMap) {
+    debug_assert_eq!(side_labels.len(), mesh.tris.len());
+    debug_assert_eq!(attribution.attributions.len(), mesh.tris.len());
+    let mut tris = Vec::new();
+    let mut attrs = Vec::new();
+    for (ti, &tri) in mesh.tris.iter().enumerate() {
+        let lbl = side_labels.labels[ti];
+        if !lbl.in_operand(input) {
+            continue;
+        }
+        let oriented = if lbl.operand_winding_reversed(input) {
+            [tri[0], tri[2], tri[1]]
+        } else {
+            tri
+        };
+        tris.push(oriented);
+        attrs.push(attribution.attributions[ti]);
+    }
+    (
+        Mesh::new(mesh.verts.clone(), tris),
+        TriangleAttributionMap {
+            attributions: attrs,
+        },
+    )
+}
+
+/// Per-operand closed-manifold gate for the full Stage-4 arrangement
+/// (`specs/yang_442_classify_after_update.md` §4 / §5-I3).
+///
+/// On the full arrangement `M_A ∪ M_B`, global directed half-edge balance is
+/// vacuous at every curve edge (`2 fwd == 2 rev`), which could mask an A-hole
+/// cancelling a B-hole. Checking $M_A$ and $M_B$ separately enforces exact
+/// directed half-edge pairing and even Euler characteristic ($\chi \le 2$) on
+/// each subdivided operand shell independently. When `record_t4` is true, any
+/// failing operand shell records its unpaired seam faces via §4.5 trigger T4.
+pub(crate) fn check_watertight_2manifold_per_operand(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: &crate::brep::TriangleSideLabelMap,
+    record_t4: bool,
+) -> Result<(), YangError> {
+    for input in [InputId::A, InputId::B] {
+        let (op_mesh, op_attr) = extract_operand_shell(mesh, attribution, side_labels, input);
+        if let Err(gate_err) = check_watertight_2manifold(&op_mesh) {
+            if record_t4 {
+                crate::boolean::failures::record_nonmanifold_mesh(&op_mesh, &op_attr);
+            }
+            return Err(gate_err);
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {

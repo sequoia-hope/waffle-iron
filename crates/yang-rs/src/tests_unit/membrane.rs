@@ -122,6 +122,7 @@ pub(crate) fn membrane_removal_keeps_attribution_in_lockstep() {
         cherchi_patch: patch,
         inside: [false, false],
         surface: [surf_a, !surf_a],
+        sheet_opposite: None,
     };
     let mut verts = tetra_verts();
     verts.push(p(0.4, 0.4, 0.02)); // 4 = spur apex

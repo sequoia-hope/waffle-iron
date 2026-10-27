@@ -33,6 +33,7 @@ fn side_labels_for(n: usize) -> Vec<TriangleSideLabel> {
             cherchi_patch: i as u32,
             inside: [false, false],
             surface: [true, false],
+            sheet_opposite: None,
         })
         .collect()
 }

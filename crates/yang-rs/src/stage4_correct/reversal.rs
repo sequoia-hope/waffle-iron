@@ -25,6 +25,8 @@ pub(crate) fn sweep_reversed_intersections(
     moved: &std::collections::HashSet<u32>,
     entry_pos: &[[f64; 3]],
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
+    full_arrangement: bool,
+    mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> Result<bool, YangError> {
     use std::collections::HashSet;
     const ANG_TOL: f64 = 1e-6; // radians (Yang §5).
@@ -57,9 +59,26 @@ pub(crate) fn sweep_reversed_intersections(
         let map = TriangleAttributionMap {
             attributions: std::mem::take(attribution),
         };
+        let sl_map = TriangleSideLabelMap {
+            labels: if full_arrangement {
+                std::mem::take(side_labels)
+            } else {
+                Vec::new()
+            },
+        };
         // Post-relocation context: position keys are stale, pass no provenance.
-        let phase_a = compute_phase_a(mesh, &map, a, b, &crate::stage3_ssi::NO_EDGE_PROVENANCE);
+        let phase_a = compute_phase_a_with_side_labels(
+            mesh,
+            &map,
+            full_arrangement.then_some(&sl_map),
+            a,
+            b,
+            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+        );
         *attribution = map.attributions;
+        if full_arrangement {
+            *side_labels = sl_map.labels;
+        }
         let (infos, incidence, curves) = phase_a?;
         // Spec §3e (P0057): the Stage-1 junction MINTS present in this pass,
         // resolved by position bits (mint coordinates are never mutated). A
@@ -344,7 +363,15 @@ pub(crate) fn sweep_reversed_intersections(
                         "[collapse-site] s4.5.3-reversal victim={victim} survivor={survivor}"
                     );
                 }
-                let dropped = collapse_vertex(mesh, attribution, side_labels, victim, survivor);
+                let dropped = collapse_vertex_scoped(
+                    mesh,
+                    attribution,
+                    side_labels,
+                    victim,
+                    survivor,
+                    full_arrangement,
+                    tangential_verts.as_deref_mut(),
+                );
                 if dropped == 0 {
                     // Nothing collapsed ⇒ cannot make progress on this
                     // reversal. LOUD STOP, naming the faces at the site (T7).

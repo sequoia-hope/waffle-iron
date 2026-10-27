@@ -112,6 +112,115 @@ pub(crate) fn unit_planes_coincide(p: ([f64; 3], f64), q: ([f64; 3], f64)) -> bo
         && (0..3).all(|k| (p.0[k] - q.0[k]).abs() <= cad_primitives::TAU_WORK)
 }
 
+/// Orientation-ignoring geometric locus equality of two analytic [`Surface`]s
+/// within `TAU_WORK`. Used when deduplicating curve-incidence entries at the
+/// boundary of a `[true, true]` common-surface sheet (§4.4.2 / §4.5.5): an
+/// overlap sheet lies on both operands' geometrically identical surfaces even
+/// when their outward normals oppose (`n_A = -n_B, d_A = -d_B`).
+pub(crate) fn surfaces_coincide_unoriented(s1: Surface, s2: Surface) -> bool {
+    let unit_vec = |v: [f64; 3]| -> Option<[f64; 3]> {
+        let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        (len >= cad_primitives::MIN_FEATURE_SIZE).then(|| [v[0] / len, v[1] / len, v[2] / len])
+    };
+    let parallel = |u: [f64; 3], v: [f64; 3]| -> bool {
+        (u[0] * v[0] + u[1] * v[1] + u[2] * v[2]).abs() >= 1.0 - cad_primitives::TAU_WORK
+    };
+    let pt_close = |p: [f64; 3], q: [f64; 3]| -> bool {
+        (0..3).all(|k| (p[k] - q[k]).abs() <= cad_primitives::TAU_WORK)
+    };
+    let line_anchor = |pt: [f64; 3], axis: [f64; 3]| -> [f64; 3] {
+        let t = pt[0] * axis[0] + pt[1] * axis[1] + pt[2] * axis[2];
+        [
+            pt[0] - t * axis[0],
+            pt[1] - t * axis[1],
+            pt[2] - t * axis[2],
+        ]
+    };
+    match (s1, s2) {
+        (Surface::Plane { .. }, Surface::Plane { .. }) => {
+            let (Some(p), Some(q)) = (unit_plane(s1), unit_plane(s2)) else {
+                return false;
+            };
+            unit_planes_coincide(p, q)
+                || unit_planes_coincide(p, ([-q.0[0], -q.0[1], -q.0[2]], -q.1))
+        }
+        (
+            Surface::Sphere {
+                center: c1,
+                radius: r1,
+            },
+            Surface::Sphere {
+                center: c2,
+                radius: r2,
+            },
+        ) => (r1 - r2).abs() <= cad_primitives::TAU_WORK && pt_close(c1.as_array(), c2.as_array()),
+        (
+            Surface::Cylinder {
+                axis_point: p1,
+                axis_dir: d1,
+                radius: r1,
+            },
+            Surface::Cylinder {
+                axis_point: p2,
+                axis_dir: d2,
+                radius: r2,
+            },
+        ) => {
+            let (Some(a1), Some(a2)) = (unit_vec(d1.as_array()), unit_vec(d2.as_array())) else {
+                return false;
+            };
+            (r1 - r2).abs() <= cad_primitives::TAU_WORK
+                && parallel(a1, a2)
+                && pt_close(
+                    line_anchor(p1.as_array(), a1),
+                    line_anchor(p2.as_array(), a1),
+                )
+        }
+        (
+            Surface::Cone {
+                apex: p1,
+                axis_dir: d1,
+                half_angle: h1,
+            },
+            Surface::Cone {
+                apex: p2,
+                axis_dir: d2,
+                half_angle: h2,
+            },
+        ) => {
+            let (Some(a1), Some(a2)) = (unit_vec(d1.as_array()), unit_vec(d2.as_array())) else {
+                return false;
+            };
+            (h1 - h2).abs() <= cad_primitives::TAU_WORK
+                && parallel(a1, a2)
+                && pt_close(p1.as_array(), p2.as_array())
+        }
+        (
+            Surface::Torus {
+                center: c1,
+                axis_dir: d1,
+                major_radius: maj1,
+                minor_radius: min1,
+            },
+            Surface::Torus {
+                center: c2,
+                axis_dir: d2,
+                major_radius: maj2,
+                minor_radius: min2,
+            },
+        ) => {
+            let (Some(a1), Some(a2)) = (unit_vec(d1.as_array()), unit_vec(d2.as_array())) else {
+                return false;
+            };
+            (maj1 - maj2).abs() <= cad_primitives::TAU_WORK
+                && (min1 - min2).abs() <= cad_primitives::TAU_WORK
+                && parallel(a1, a2)
+                && pt_close(c1.as_array(), c2.as_array())
+        }
+        _ => false,
+    }
+}
+
 /// The torus block's owner-face containment reading, EXTRACTED (§4.5.1
 /// inc-3) so the torus-region repair applies the SAME acceptance its gate
 /// uses — one reading, two callers, no drift.
@@ -322,6 +431,18 @@ pub(crate) fn compute_phase_a(
     b: &BRep,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<PhaseA, YangError> {
+    compute_phase_a_with_side_labels(mesh, attribution, None, a, b, edge_provenance)
+}
+
+#[track_caller]
+pub(crate) fn compute_phase_a_with_side_labels(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: Option<&TriangleSideLabelMap>,
+    a: &BRep,
+    b: &BRep,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
+) -> Result<PhaseA, YangError> {
     let adjacency = triangle_adjacency(mesh);
     if std::env::var_os("YANG_ATTR_TRACE").is_some() {
         let loc = std::panic::Location::caller();
@@ -331,14 +452,16 @@ pub(crate) fn compute_phase_a(
             attribution,
         );
     }
-    let patches = flood_fill_patches(mesh, attribution, &adjacency);
+    let patches = flood_fill_patches_with_side_labels(mesh, attribution, side_labels, &adjacency);
     // PR-YR27 (Finding 1a): merge edge-adjacent patches lying on the SAME
     // plane with the SAME orientation into one output face — a coplanar
     // boolean otherwise emits e.g. A's and B's side fragments as two faces
     // on one bit-identical plane, and the NEXT boolean in a chain
     // exact-ties between them. Non-adjacent same-plane patches stay
-    // separate faces (their union is not a single connected face).
-    let patches = merge_same_plane_patches(patches, &adjacency, a, b);
+    // separate faces (their union is not a single connected face). On the
+    // full arrangement (`side_labels = Some`), merging also requires equal
+    // `TriangleSideLabel` so patches never merge across operands or cells.
+    let patches = merge_same_plane_patches_with_side_labels(patches, &adjacency, side_labels, a, b);
 
     let mut infos: Vec<PatchInfo> = Vec::with_capacity(patches.len());
     for patch in &patches {
@@ -370,14 +493,80 @@ pub(crate) fn compute_phase_a(
 
     let mut incidence: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
         std::collections::BTreeMap::new();
-    for info in &infos {
-        for cycle in &info.cycles {
-            for &(s, e) in cycle {
-                let key = if s < e { (s, e) } else { (e, s) };
-                incidence
-                    .entry(key)
-                    .or_default()
-                    .push((info.input, info.inherited));
+    if let Some(sl) = side_labels {
+        // Full-arrangement curve incidence (`specs/yang_442_classify_after_update.md`
+        // §4): along a transverse intersection curve C = S_A ∩ S_B, up to four
+        // sub-patches (two of S_A and two of S_B, split across C by Cherchi
+        // patch labels) share each mesh edge. Deduplicate `(InputId, Surface)`
+        // per edge so `build_intersection_curves` and `collect_rim_curves` see
+        // the exact two-surface pair, and resolve `[true, true]` common-surface
+        // sheets against pure operand sheets (§4.5.5).
+        type RawEdgeInc = (InputId, Surface, bool);
+        let mut raw_inc: std::collections::BTreeMap<(u32, u32), Vec<RawEdgeInc>> =
+            std::collections::BTreeMap::new();
+        for (patch, info) in patches.iter().zip(infos.iter()) {
+            let is_overlap = patch
+                .tri_indices
+                .first()
+                .and_then(|&t| sl.labels.get(t as usize))
+                .is_some_and(|l| l.surface == [true, true]);
+            for cycle in &info.cycles {
+                for &(s, e) in cycle {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    raw_inc
+                        .entry(key)
+                        .or_default()
+                        .push((info.input, info.inherited, is_overlap));
+                }
+            }
+        }
+        for (key, raw) in raw_inc {
+            let mut pure: Vec<(InputId, Surface)> = Vec::new();
+            let mut overlaps: Vec<(InputId, Surface)> = Vec::new();
+            for (inp, surf, is_ov) in raw {
+                let dst = if is_ov { &mut overlaps } else { &mut pure };
+                if !dst.contains(&(inp, surf)) {
+                    dst.push((inp, surf));
+                }
+            }
+            for (ov_in, ov_surf) in overlaps {
+                if pure
+                    .iter()
+                    .any(|&(_, ps)| surfaces_coincide_unoriented(ov_surf, ps))
+                {
+                    // Common surface is already represented by a pure continuation
+                    // patch on this edge (e.g. cap overlap inside a larger face).
+                    continue;
+                }
+                if pure.len() == 2 && pure[0].0 != pure[1].0 {
+                    if surfaces_coincide_unoriented(pure[0].1, pure[1].1) {
+                        // Both operands leave the common surface onto coincident
+                        // walls (e.g. stacked equal-radius cylinders or flush box
+                        // walls): replace the `ov_in` wall entry with the common
+                        // surface so the edge names the transverse rim `S_common ∩ S_wall`.
+                        if let Some(slot) = pure.iter_mut().find(|(i, _)| *i == ov_in) {
+                            *slot = (ov_in, ov_surf);
+                        }
+                    }
+                    // Otherwise the two pure walls already intersect transversely.
+                    continue;
+                }
+                if !pure.contains(&(ov_in, ov_surf)) {
+                    pure.push((ov_in, ov_surf));
+                }
+            }
+            incidence.insert(key, pure);
+        }
+    } else {
+        for info in &infos {
+            for cycle in &info.cycles {
+                for &(s, e) in cycle {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    incidence
+                        .entry(key)
+                        .or_default()
+                        .push((info.input, info.inherited));
+                }
             }
         }
     }
@@ -478,15 +667,39 @@ pub(crate) fn compute_phase_a(
 /// - The seam edges become patch-INTERIOR (they vanish from the boundary
 ///   cycles and therefore from the output edge set) — the merged region's
 ///   single outer cycle is exactly the §4.5.5 result-face boundary.
+#[allow(dead_code)]
 pub(crate) fn merge_same_plane_patches(
+    patches: Vec<Patch>,
+    adjacency: &[Vec<u32>],
+    a: &BRep,
+    b: &BRep,
+) -> Vec<Patch> {
+    merge_same_plane_patches_with_side_labels(patches, adjacency, None, a, b)
+}
+
+pub(crate) fn merge_same_plane_patches_with_side_labels(
     mut patches: Vec<Patch>,
     adjacency: &[Vec<u32>],
+    side_labels: Option<&TriangleSideLabelMap>,
     a: &BRep,
     b: &BRep,
 ) -> Vec<Patch> {
     if patches.len() < 2 {
         return patches;
     }
+
+    let patch_side_label: Vec<Option<TriangleSideLabel>> = if let Some(sl) = side_labels {
+        patches
+            .iter()
+            .map(|p| {
+                p.tri_indices
+                    .first()
+                    .and_then(|&t| sl.labels.get(t as usize).copied())
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     // Inherited surface key per patch (`None` = unmergeable surface kind or
     // degenerate — never merged). A `Plane` keys on its unit `(n̂, d̂)`; a
@@ -560,6 +773,9 @@ pub(crate) fn merge_same_plane_patches(
         })
         .collect();
     let mergeable = |i: usize, j: usize| -> bool {
+        if side_labels.is_some() && patch_side_label[i] != patch_side_label[j] {
+            return false;
+        }
         match (&keys[i], &keys[j]) {
             (Some(SurfKey::Plane { n: ni, d: di }), Some(SurfKey::Plane { n: nj, d: dj })) => {
                 unit_planes_coincide((*ni, *di), (*nj, *dj))
@@ -767,6 +983,32 @@ pub(crate) fn stage4_relocate_and_correct(
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
+    let mut dummy_tv = std::collections::BTreeSet::new();
+    stage4_relocate_and_correct_ex(
+        mesh,
+        attribution,
+        side_labels,
+        a,
+        b,
+        minted_junction_keys,
+        edge_provenance,
+        false,
+        &mut dummy_tv,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn stage4_relocate_and_correct_ex(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    side_labels: &mut TriangleSideLabelMap,
+    a: &BRep,
+    b: &BRep,
+    minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
+    edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
+    full_arrangement: bool,
+    tangential_verts: &mut std::collections::BTreeSet<u32>,
+) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     star_probe("s4-entry", mesh, attribution);
     nonmanifold_edge_census("s4-entry", mesh, attribution);
     coincident_vertex_census("s4-entry", mesh);
@@ -816,16 +1058,26 @@ pub(crate) fn stage4_relocate_and_correct(
     // copies (Mäntylä duplication, identical bits), and the assay's
     // position-welded shell count fused each pair at that point. Counting
     // shells by EDGE adjacency reads the honest 4 shells / χ = 8.
-    let mut no_relocs: Vec<(u32, f64)> = Vec::new();
-    let splits = split_pinch_vertices(
-        mesh,
-        &mut no_relocs,
-        &attribution.attributions,
-        &side_labels.labels,
-        true,
-    );
-    if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
-        eprintln!("[edge-pinch] entry split {splits} vertex copies");
+    if full_arrangement {
+        *tangential_verts = detect_arrangement_tangential_contact_verts(mesh, &side_labels.labels);
+        if !tangential_verts.is_empty() && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+            eprintln!(
+                "[edge-pinch] full-arrangement recorded {} tangential contact verts for post-keep split",
+                tangential_verts.len()
+            );
+        }
+    } else {
+        let mut no_relocs: Vec<(u32, f64)> = Vec::new();
+        let splits = split_pinch_vertices(
+            mesh,
+            &mut no_relocs,
+            &attribution.attributions,
+            &side_labels.labels,
+            true,
+        );
+        if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
+            eprintln!("[edge-pinch] entry split {splits} vertex copies");
+        }
     }
     let census = cfg!(debug_assertions)
         && std::env::var("YANG_S4_CARRIER_DOMAIN").as_deref() == Ok("census");
@@ -841,6 +1093,8 @@ pub(crate) fn stage4_relocate_and_correct(
         b,
         minted_junction_keys,
         edge_provenance,
+        full_arrangement,
+        tangential_verts,
     );
     // §4.5 trigger T1 (`boolean::failures`, spec `yang_452_refinement_loop.md`
     // §3): a relocation that did not converge in its domain names the faces
@@ -959,6 +1213,7 @@ pub(crate) fn stage4_relocate_and_correct(
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn stage4_relocate_and_correct_inner(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -967,6 +1222,8 @@ fn stage4_relocate_and_correct_inner(
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
     edge_provenance: &crate::stage3_ssi::PosKeyedEdgeSet,
+    full_arrangement: bool,
+    tangential_verts: &mut std::collections::BTreeSet<u32>,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
     use std::collections::{BTreeMap, HashSet};
 
@@ -1052,7 +1309,14 @@ fn stage4_relocate_and_correct_inner(
     // This scan runs BEFORE any relocation moves a vertex, so the
     // position-keyed provenance is valid here — this is the classification
     // the relocation maps are built from (spec inc-2).
-    let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b, edge_provenance)?;
+    let (_infos0, inc0, curves0) = compute_phase_a_with_side_labels(
+        mesh,
+        attribution,
+        full_arrangement.then_some(&*side_labels),
+        a,
+        b,
+        edge_provenance,
+    )?;
     s4_lap("phase-a", mesh);
 
     // Provenance-vouched vertices (spec inc-2 §3c): endpoints of a
@@ -4720,12 +4984,14 @@ fn stage4_relocate_and_correct_inner(
                 Ok(plans) => {
                     for plan in &plans {
                         for &victim in &plan.victims {
-                            collapse_vertex(
+                            collapse_vertex_scoped(
                                 mesh,
                                 &mut attribution.attributions,
                                 &mut side_labels.labels,
                                 victim,
                                 plan.survivor,
+                                full_arrangement,
+                                Some(tangential_verts),
                             );
                         }
                         mesh.verts[plan.survivor as usize] = plan.proj;
@@ -4862,12 +5128,14 @@ fn stage4_relocate_and_correct_inner(
                         "[collapse-site] PR-KV9 junction-twin victim={victim} survivor={survivor}"
                     );
                 }
-                collapse_vertex(
+                collapse_vertex_scoped(
                     mesh,
                     &mut attr_vec,
                     &mut side_labels.labels,
                     victim,
                     survivor,
+                    full_arrangement,
+                    Some(tangential_verts),
                 );
                 collapsed_any = true;
             }
@@ -4992,7 +5260,7 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
             if !near_mint_moved.is_empty()
-                && weld_coincident_relocated(
+                && weld_coincident_relocated_ex(
                     mesh,
                     &mut attr_vec,
                     &mut side_labels.labels,
@@ -5000,6 +5268,8 @@ fn stage4_relocate_and_correct_inner(
                     b,
                     &near_mint_moved,
                     &minted_verts,
+                    full_arrangement,
+                    Some(tangential_verts),
                 )
             {
                 collapsed_any = true;
@@ -5053,13 +5323,15 @@ fn stage4_relocate_and_correct_inner(
             }
         }
         if !minted_prov.is_empty()
-            && trim_beyond_corner_phantoms(
+            && trim_beyond_corner_phantoms_ex(
                 mesh,
                 &mut attr_vec,
                 &mut side_labels.labels,
                 &moved,
                 &minted_prov,
                 d_eps,
+                full_arrangement,
+                Some(tangential_verts),
             )
         {
             collapsed_any = true;
@@ -5071,7 +5343,7 @@ fn stage4_relocate_and_correct_inner(
         // only; per-cluster fail-closed; must run before ANY boundary-walking
         // pass (the sweep below recomputes Phase A — the inc-4a placement
         // lesson).
-        if retriangulate_collapsed_fan_regions(
+        if retriangulate_collapsed_fan_regions_ex(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
@@ -5079,6 +5351,7 @@ fn stage4_relocate_and_correct_inner(
             brep_b,
             &moved,
             &minted_verts,
+            full_arrangement,
         ) {
             collapsed_any = true;
         }
@@ -5096,6 +5369,8 @@ fn stage4_relocate_and_correct_inner(
         &moved,
         &s4_entry_pos,
         minted_junction_keys,
+        full_arrangement,
+        Some(tangential_verts),
     );
     attribution.attributions = attr_vec;
     let any_collapse = sweep_result?;
@@ -5274,12 +5549,14 @@ fn stage4_relocate_and_correct_inner(
                             "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
                         );
                     }
-                    let dropped = collapse_vertex(
+                    let dropped = collapse_vertex_scoped(
                         mesh,
                         &mut attr_vec,
                         &mut side_labels.labels,
                         victim,
                         survivor,
+                        full_arrangement,
+                        Some(tangential_verts),
                     );
                     last_merge = Some((victim, survivor, dropped as f64, mesh.tris.len()));
                     collapsed_any = true;
@@ -5359,7 +5636,7 @@ fn stage4_relocate_and_correct_inner(
             );
         }
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        if weld_coincident_relocated(
+        if weld_coincident_relocated_ex(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
@@ -5367,6 +5644,8 @@ fn stage4_relocate_and_correct_inner(
             b,
             &moved,
             &minted_verts,
+            full_arrangement,
+            Some(tangential_verts),
         ) {
             collapsed_any = true;
         }
@@ -5376,12 +5655,27 @@ fn stage4_relocate_and_correct_inner(
     // Phase 2b increment 0 (print-only, `YANG_441_UPDATE_CENSUS`): the
     // §4.4.1 per-patch update's outcome at its planned site — after the §4.3
     // dedups, before the unzip / validation repairs.
-    crate::stage4_construct::update_census(mesh, attribution, a, b, "pre-repair");
+    crate::stage4_construct::update_census_with_side_labels(
+        mesh,
+        attribution,
+        full_arrangement.then_some(&*side_labels),
+        a,
+        b,
+        "pre-repair",
+    );
     // Phase 2b (spec `yang_441_phase2b_patch_update.md`): the §4.4.1
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
     s4_lap("before-441-update", mesh);
-    if crate::stage4_construct::update_patches(mesh, attribution, side_labels, a, b) > 0 {
+    if crate::stage4_construct::update_patches_ex(
+        mesh,
+        attribution,
+        side_labels,
+        a,
+        b,
+        full_arrangement,
+    ) > 0
+    {
         collapsed_any = true;
     }
     s4_lap("441-update", mesh);
@@ -5506,6 +5800,14 @@ fn stage4_relocate_and_correct_inner(
         // STOP on the first repeat instead of burning O(T) passes × O(T).
         let mut seen_actions: std::collections::HashSet<(usize, usize, u32, u32, u32)> =
             std::collections::HashSet::new();
+        let mut seen_sync_actions: std::collections::HashSet<(
+            usize,
+            usize,
+            [usize; 2],
+            u32,
+            u32,
+            u32,
+        )> = std::collections::HashSet::new();
         loop {
             passes += 1;
             if passes > max_passes {
@@ -5530,6 +5832,7 @@ fn stage4_relocate_and_correct_inner(
             }
             // Pick a degenerate triangle whose long-edge neighbour is non-degenerate.
             let mut action: Option<(usize, usize, u32, u32, u32)> = None;
+            let mut sync_action: Option<(usize, usize, [usize; 2], u32, u32, u32)> = None;
             // Fallback: a MUTUAL pair — both incident triangles of one long edge
             // degenerate with that same edge as their long edge (a zero-area quad
             // astride the edge, off-vertices interleaved along it). No simple
@@ -5550,15 +5853,69 @@ fn stage4_relocate_and_correct_inner(
                 any_degen = true;
                 let (a, c, b) = long_edge_off(&mesh.tris[ti], mesh);
                 let key = if a < c { (a, c) } else { (c, a) };
-                let inc = match edge_tris.get(&key) {
-                    Some(v) if v.len() == 2 => v,
-                    _ => continue, // boundary / non-manifold long edge — skip
+                let Some(inc) = edge_tris.get(&key) else {
+                    continue;
                 };
+                if full_arrangement && inc.len() == 4 {
+                    let lbl_d = side_labels.labels[ti];
+                    let pure_ops = match lbl_d.surface {
+                        [true, false] => Some((InputId::A, InputId::B)),
+                        [false, true] => Some((InputId::B, InputId::A)),
+                        _ => None,
+                    };
+                    if let Some((op_d, other_op)) = pure_ops {
+                        let mut same_partners: Vec<usize> = Vec::new();
+                        let mut other_partners: Vec<usize> = Vec::new();
+                        let mut valid_partition = true;
+                        for &u in inc {
+                            let ui = u as usize;
+                            if ui == ti {
+                                continue;
+                            }
+                            let ul = side_labels.labels[ui];
+                            if ul.in_operand(op_d) && !ul.in_operand(other_op) {
+                                same_partners.push(ui);
+                            } else if ul.in_operand(other_op) && !ul.in_operand(op_d) {
+                                other_partners.push(ui);
+                            } else {
+                                valid_partition = false;
+                                break;
+                            }
+                        }
+                        if valid_partition && same_partners.len() == 1 && other_partners.len() == 2
+                        {
+                            let n_same = same_partners[0];
+                            let [o1, o2] = [other_partners[0], other_partners[1]];
+                            let third_of = |idx: usize| {
+                                mesh.tris[idx].iter().copied().find(|&v| v != a && v != c)
+                            };
+                            let o1_is_b = third_of(o1) == Some(b);
+                            let o2_is_b = third_of(o2) == Some(b);
+                            let same_ok = !is_degen(n_same, mesh) && third_of(n_same) != Some(b);
+                            let o1_ok = o1_is_b || !is_degen(o1, mesh);
+                            let o2_ok = o2_is_b || !is_degen(o2, mesh);
+                            if same_ok && !(o1_is_b && o2_is_b) && o1_ok && o2_ok {
+                                sync_action = Some((ti, n_same, [o1, o2], a, c, b));
+                                break;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if inc.len() != 2 {
+                    continue; // boundary / non-manifold long edge — skip
+                }
                 let n = if inc[0] as usize == ti {
                     inc[1]
                 } else {
                     inc[0]
                 } as usize;
+                if full_arrangement
+                    && (side_labels.labels[ti].surface != side_labels.labels[n].surface
+                        || side_labels.labels[ti].inside != side_labels.labels[n].inside)
+                {
+                    continue;
+                }
                 if is_degen(n, mesh) {
                     // Simple arm defers to let the neighbour resolve first; if the
                     // neighbour's long edge is the SAME edge, neither ever will —
@@ -5581,6 +5938,34 @@ fn stage4_relocate_and_correct_inner(
                 }
                 action = Some((ti, n, a, c, b));
                 break;
+            }
+            if let Some((d_idx, n_same, other_pair, a, c, b)) = sync_action {
+                if !seen_sync_actions.insert((d_idx, n_same, other_pair, a, c, b)) {
+                    if std::env::var_os("YANG_LRR_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_LRR_STOP site=sync_split_cycle d={d_idx} n_same={n_same} \
+                             other={other_pair:?} a={a} c={c} b={b} pass={passes}"
+                        );
+                    }
+                    attribution.attributions = attr_vec;
+                    return Err(YangError::stage4_region_invalid(
+                        u32::MAX,
+                        Stage4InvalidReason::LocalRefinementRequired,
+                    ));
+                }
+                if resolve_synchronized_degenerate_split(
+                    mesh,
+                    &mut attr_vec,
+                    &mut side_labels.labels,
+                    d_idx,
+                    n_same,
+                    other_pair,
+                    (a, c, b),
+                    Some(tangential_verts),
+                ) {
+                    collapsed_any = true;
+                    continue;
+                }
             }
             let (d_idx, n_idx, a, c, b) = match action {
                 Some(x) => x,
@@ -5963,7 +6348,12 @@ fn stage4_relocate_and_correct_inner(
     // from the mesh alone).
     let membranes_removed = {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let n = remove_doubled_membranes(mesh, &mut attr_vec, &mut side_labels.labels);
+        let n = remove_doubled_membranes_scoped(
+            mesh,
+            &mut attr_vec,
+            &mut side_labels.labels,
+            full_arrangement,
+        );
         attribution.attributions = attr_vec;
         n
     };
@@ -5982,13 +6372,19 @@ fn stage4_relocate_and_correct_inner(
     // over (deviation N78), so this late site runs the VERTEX-fan arm only
     // (C0058's tangent points); entry-only since 2026-10-03, its
     // `YANG_EDGE_PINCH_ENTRY_ONLY` opt-out deleted 2026-10-16.
-    let pinch_splits = split_pinch_vertices(
-        mesh,
-        &mut relocations,
-        &attribution.attributions,
-        &side_labels.labels,
-        false,
-    );
+    // Under I3 (`full_arrangement == true`), pinch splitting runs post-keep on
+    // the classified submesh (`specs/yang_442_classify_after_update.md` §4).
+    let pinch_splits = if full_arrangement {
+        0
+    } else {
+        split_pinch_vertices(
+            mesh,
+            &mut relocations,
+            &attribution.attributions,
+            &side_labels.labels,
+            false,
+        )
+    };
     if pinch_splits > 0 {
         collapsed_any = true;
     }
@@ -6051,17 +6447,36 @@ fn stage4_relocate_and_correct_inner(
     // the standard compact + Phase-A recompute.
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec, &mut side_labels.labels);
+        let c = collapse_subtauwork_mesh_edges_ex(
+            mesh,
+            &mut attr_vec,
+            &mut side_labels.labels,
+            full_arrangement,
+            Some(tangential_verts),
+        );
         attribution.attributions = attr_vec;
         collapsed_any |= c;
     }
 
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
-    if let Err(gate_err) = check_watertight_2manifold(mesh) {
+    // Under I3 (`full_arrangement == true`), global half-edge balance passes
+    // vacuously across 2-forward / 2-reverse arrangement seams and opposite
+    // operand holes, so M_A and M_B are checked independently as closed
+    // 2-manifolds (`specs/yang_442_classify_after_update.md` §4).
+    let gate_res = if full_arrangement {
+        check_watertight_2manifold_per_operand(mesh, attribution, side_labels, true)
+    } else {
+        check_watertight_2manifold(mesh)
+    };
+    if let Err(gate_err) = gate_res {
         // §4.5 trigger T4 (`boolean::failures`, spec
         // `yang_452_refinement_loop.md` §3): every non-manifold seam region
-        // names the faces at its unpaired edges. Record-only.
-        crate::boolean::failures::record_nonmanifold_mesh(mesh, attribution);
+        // names the faces at its unpaired edges. Record-only (`record_t4`
+        // inside `check_watertight_2manifold_per_operand` already recorded on
+        // the failing operand submesh when `full_arrangement == true`).
+        if !full_arrangement {
+            crate::boolean::failures::record_nonmanifold_mesh(mesh, attribution);
+        }
         // #195 probe-only forensics: attribute every double-cover-edge triangle
         // to its input B-Rep face (operand + face id + surface) so the
         // self-overlap self-localizes to the producing emission. Byte-identical
@@ -6142,9 +6557,10 @@ fn stage4_relocate_and_correct_inner(
     // has been relocated and possibly collapsed since, so the earlier maps can
     // reference stale vertices.
     {
-        let (_infos_bc, inc_bc, curves_bc) = compute_phase_a(
+        let (_infos_bc, inc_bc, curves_bc) = compute_phase_a_with_side_labels(
             mesh,
             attribution,
+            full_arrangement.then_some(&*side_labels),
             brep_a,
             brep_b,
             &crate::stage3_ssi::NO_EDGE_PROVENANCE,
@@ -6386,6 +6802,7 @@ fn stage4_relocate_and_correct_inner(
         brep_a,
         brep_b,
         &s4_entry_pos,
+        full_arrangement,
     )?;
     s4_lap("transit", mesh);
     // After a collapse the vertex set may have lost some relocated verts; keep
