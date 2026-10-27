@@ -4,8 +4,10 @@
 destroy a kernel like this. the fixes must be principled. the principles are
 the paper"*). Governs every change to `crates/yang-rs` and to the boolean
 side of `crates/kernel-v2` until the DELEGATED set in
-`docs/yang_deviations.md` is empty. Precedence: governance A15.7 → this
-spec → the per-mechanism specs it names. Paper citations are line numbers
+`docs/yang_deviations.md` is empty. Precedence: governance A15.7 →
+`docs/yang_faithfulness_roadmap.md` (the standing priority from 2026-10-27:
+milestone order F0–F7 and the finish line) → this spec (substitution table,
+method, knob policy) → the per-mechanism specs it names. Paper citations are line numbers
 in `refs/text/yang2025_hybrid_boolean.txt` (`./scripts/extract-papers.sh`).
 
 ## 1. The shape of the debt

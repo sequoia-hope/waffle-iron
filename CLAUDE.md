@@ -114,8 +114,18 @@ The pre-commit hook now blocks a kernel commit whose ledger did not move
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
-1. **Hybrid boolean pipeline (Yang 2025).** This is the #1 priority.
+1. **Faithfulness to Yang 2025 — the STANDING PRIORITY (2026-10-27).**
+   **`docs/yang_faithfulness_roadmap.md` sets the work order:** take the
+   first unchecked item of the earliest open milestone (F0 bookkeeping →
+   F1 classify-after-update N80 → F2 §4.4.1 one per-patch update → F3 §4.5
+   locality / collection / Case-IV rule-out / transits → F4 §4.3
+   tangency & Gauss map → F5 Stage 1 as §4.1 → F6 Stage 0 & emission → F7
+   adjudication). Progress is the roadmap's scoreboard (ledger debt 64,
+   matrix not-faithful rows 100 at adoption) **with the corpus held**, never
+   the corpus score alone. Tail cases are *customers* of a milestone, not
+   work items of their own (roadmap §4); a WRONG still preempts everything.
    - **Plans of record:**
+     - `docs/yang_faithfulness_roadmap.md` — the sequence and the finish line (above).
      - `docs/yang_functional_roadmap.md` — `LabeledArrangement` interface and milestones M0–M8 (M0, M1, M2, M6, M7 and Phase-6 migration COMPLETE; `cherchi-rs` is live in production).
      - `specs/yang_faithful_cleanup.md` — ACTIVE cleanup plan (from 2026-10-14; governance A15.7: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*). Retires Stage-1 pre-emptive sample arms and Stage-4 post-hoc repair passes in favor of the paper's §4.5.2 local refinement loop (`boolean::refine_loop`) and §4.4.1 mesh updating (`stage4_construct::update_patches`).
      - `docs/audits/yang_2025_audit.md` — 194-row paper-ordered compliance matrix (rebuilt 2026-10-16) mapping every procedural statement of §3–§4 to its code site, status, ledger ID, and pin. Read the rows for your section before changing a stage, and update them in the same commit as `docs/yang_deviations.md`.
@@ -130,9 +140,10 @@ Do NOT skip to lower-priority items because they are easier.
        - *Crease arc extent (N96):* Anchor a T2 fire's position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`) before reading it as a mechanism.
        - *A relocation is §4.3.2's closest point, never an azimuth slide (N97):* the cone ∩ plane generator slide slipped vertices ALONG their section (R0049 / P0015 / P0029). A step that leaves its face is a recorded FAILURE, repaired after optimization from the midpoint of its converged bounds (`s451_plan_repairs`, N90) — never continued from the failing point itself: P0005's "Fig. 12" fires were overshoots past a triple point its own neighbour already sat on. Continuation on S1 + q1/q2 are unwired (no customer measured). The cylinder twin `project_onto_ellipse_via_cylinder` still slides, behind a band ladder.
        - *Timing slow cases:* Time with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1` (`ASSAY_JOBS=1 … single_case`) before designing for cost.
-   - **Working the tail & assay prospector:**
-     - Take open tail items in order of cheapness and anchor each against its un-minimized lineage first (`target/prospect/seed-{4,5}/candidates/` and `findings/`, or `WAFFLE_PATH=… user_case_probe replay_waffle_env` — minimizer rounding can mint contacts or shift sites).
-     - When the tail empties, run `prospect_run` / `prospect_minimize` for the next seed (`docs/TESTING.md` §"Running the assay prospector").
+   - **Working the tail & assay prospector (subordinate to the roadmap, §4 there):**
+     - Anchor each open tail item against its un-minimized lineage first (`target/prospect/seed-{4,5}/candidates/` and `findings/`, or `WAFFLE_PATH=… user_case_probe replay_waffle_env` — minimizer rounding can mint contacts or shift sites).
+     - Attach it to the roadmap milestone whose mechanism answers it; build no case-specific fix that no milestone names.
+     - Prospector seeds are the regression net, run at milestone checkpoints: `prospect_run` / `prospect_minimize` for the next seed (`docs/TESTING.md` §"Running the assay prospector").
      - The boundary-point certificate's inventory (`YANG_S45_BOUNDARY_DOMAIN_LOG`) names the out-of-domain relocations the gear cases (`R0003` ×42, `R0004`, `R0032`, `R0049`, `R0070`) survive today — the §4.5.1 corridor family's open customers.
    - **Running the categorized assay:**
      - Correctness oracle is **reference parity against the Cherchi C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay in **`--release`** (per-case timeouts are CPU-time-budgeted and load-insensitive):

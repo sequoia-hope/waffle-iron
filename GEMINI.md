@@ -11,8 +11,12 @@ short on purpose; the authority is elsewhere.
    your file reader at session start. Everything below assumes you have.
 2. `AGENTS.md` (auto-loaded) — directory ownership and document precedence.
 3. For any `yang-rs` / `kernel-v2` boolean change, additionally:
-   - `specs/yang_faithful_cleanup.md` — the plan of record. Read it BEFORE
-     touching yang-rs.
+   - `docs/yang_faithfulness_roadmap.md` — the STANDING PRIORITY (from
+     2026-10-27): milestones F0–F7 in order; take the first unchecked item
+     of the earliest open milestone. Tail cases are customers of a
+     milestone, never work items of their own.
+   - `specs/yang_faithful_cleanup.md` — the substitution table and method
+     the roadmap's milestones follow. Read it BEFORE touching yang-rs.
    - The rows of `docs/audits/yang_2025_audit.md` for the paper section you
      are changing.
    - The paper section itself: run `./scripts/extract-papers.sh`, then read
