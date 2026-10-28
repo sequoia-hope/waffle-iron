@@ -2049,6 +2049,26 @@ diverges from the C++ only where the C++ is unsound under underflow).
 2D analog + true-coplanar guard) + UL-04 subnormal pins (`collinearity::tests::n24_subnormal_area_triangle_is_not_collinear_and_survives_soup_prep`, `point_in_triangle::tests::n24_subnormal_area_triangle_classifies_interior_and_outside`, `simplex_location::tests::n24_subnormal_area_triangle_and_segment_locations`); full cherchi suite + 18/18 sidecar
 arrangement parity + fuzz differentials + full assay unchanged.
 
+**Amendment (2026-10-27, cost — the re-check is gated by Shewchuk's own
+range).** UL-04 (N99's commit) routed every `orient2d` in `collinearity.rs`,
+`point_in_triangle.rs` and `simplex_location.rs` through this wrapper. CAD
+inputs are full of exactly collinear / coplanar configurations, so the
+rational re-derivation ran on most calls: measured on F0072 (release,
+`single_case`, `CHERCHI_TIME_PROBE=1`) cherchi `classify` went 0.51 s →
+4.50 s per boolean and the case 518 s → 949 s; the debug suite roughly
+doubled and CI `Rust tests` hit its 120-min limit on every push after N99.
+Fix, with no change to what is certified: Shewchuk 1997 §2.1
+(`refs/text/shewchukrobustr.txt:203-208`) proves the adaptive predicates
+neither underflow nor overflow when every input has a binary exponent in
+[−142, 201]; inside that range the adaptive 0.0 is already exact. The
+wrapper now re-derives a 0.0 in rationals only when some coordinate is
+outside the range (subnormal, tiny, huge — every measured N24 case: the
+5e-324 ray, the 1e-200 triangles). `orient.rs`
+`inputs_within_shewchuk_range`; pins
+`shewchuk_range_gate_reads_binary_exponents`,
+`in_range_zeros_agree_with_the_rational_tier`, and the existing
+out-of-range N24 pins unchanged.
+
 ---
 
 <!-- 2026-07-12 catch-up (task #150): entries N25–N35 backfill the M8 coplanar,
@@ -2060,6 +2080,7 @@ records for increments that shipped before the amendment. Anchors verified by
 "(anchor unverified — flagged in 2026-07-12 catch-up)". Several of these are
 faithfulness *improvements* or new-capability constructors, not divergences —
 each entry states its deviation status explicitly. -->
+
 
 ### Batch B — design decisions and extensions beyond the paper (N25–N37)
 

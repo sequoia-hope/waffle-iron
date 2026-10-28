@@ -88,9 +88,51 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
         // `orient3d` — det[a−d, b−d, c−d] — preserving the sign
         // convention). Nonzero adaptive results are returned untouched,
         // keeping the entire non-degenerate population byte-identical.
-        Sign::Zero => orient3d_exact_rational(a, b, c, d),
+        // Inside Shewchuk's no-underflow input range the adaptive 0.0 is
+        // already exact (see `inputs_within_shewchuk_range`), so the
+        // rational tier runs only where his guarantee does not reach.
+        Sign::Zero
+            if !inputs_within_shewchuk_range(&[
+                a.as_array(),
+                b.as_array(),
+                c.as_array(),
+                d.as_array(),
+            ]) =>
+        {
+            orient3d_exact_rational(a, b, c, d)
+        }
         s => s,
     }
+}
+
+/// Smallest and largest binary exponent for which Shewchuk's adaptive
+/// predicates are guaranteed neither to underflow nor to overflow in IEEE
+/// 754 double precision (Shewchuk 1997 §2.1, `refs/text/shewchukrobustr.txt`
+/// :203-208: "The four predicates implemented for this article will not
+/// overflow nor underflow if their inputs have exponents in the range
+/// [−142, 201]").
+const SHEWCHUK_MIN_EXP: i32 = -142;
+const SHEWCHUK_MAX_EXP: i32 = 201;
+
+/// True when every input coordinate is zero or a normal f64 whose binary
+/// exponent lies in `[SHEWCHUK_MIN_EXP, SHEWCHUK_MAX_EXP]`. Inside that range
+/// Shewchuk's adaptive result is exact — a 0.0 is a certified Zero — so the
+/// N24 rational re-derivation is needed only when some coordinate falls
+/// outside it (subnormal, tiny, or huge inputs: the measured N24 cases).
+/// Exponent read from the bit pattern: `x = m · 2^e`, `m ∈ [1, 2)`; a
+/// subnormal (biased exponent 0) is out of range.
+fn inputs_within_shewchuk_range(points: &[[f64; 3]]) -> bool {
+    points.iter().flatten().all(|&x| {
+        if x == 0.0 {
+            return true;
+        }
+        let biased = ((x.to_bits() >> 52) & 0x7ff) as i32;
+        if biased == 0 || biased == 0x7ff {
+            return false;
+        }
+        let e = biased - 1023;
+        (SHEWCHUK_MIN_EXP..=SHEWCHUK_MAX_EXP).contains(&e)
+    })
 }
 
 /// Exact rational `orient3d` (N24 zero-certification tier). Same value as
@@ -144,8 +186,17 @@ fn orient3d_exact_rational(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
 pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Sign {
     let det = geometry_predicates::orient2d(a.as_array(), b.as_array(), c.as_array());
     match Sign::from_f64(det) {
-        // N24: same underflow zero-certification as `orient3d` (2D analog).
-        Sign::Zero => orient2d_exact_rational(a, b, c),
+        // N24: same underflow zero-certification as `orient3d` (2D analog),
+        // needed only outside Shewchuk's no-underflow input range.
+        Sign::Zero
+            if !inputs_within_shewchuk_range(&[
+                [a.x(), a.y(), 0.0],
+                [b.x(), b.y(), 0.0],
+                [c.x(), c.y(), 0.0],
+            ]) =>
+        {
+            orient2d_exact_rational(a, b, c)
+        }
         s => s,
     }
 }
@@ -209,6 +260,58 @@ mod tests {
         // (the plane's x-normal-component is exactly zero).
         let d = Point3::new(1.1, 0.0, 0.0);
         assert_eq!(orient3d(a, b, c, d), Sign::Zero);
+    }
+
+    #[test]
+    fn shewchuk_range_gate_reads_binary_exponents() {
+        // In range: zero, CAD-scale values, and both endpoints of the range.
+        assert!(inputs_within_shewchuk_range(&[[0.0, -0.0, 1.0]]));
+        assert!(inputs_within_shewchuk_range(&[[0.3, -3.67e-17, 6.0e3]]));
+        assert!(inputs_within_shewchuk_range(&[[2f64.powi(-142), 0.0, 0.0]]));
+        assert!(inputs_within_shewchuk_range(&[[
+            1.9 * 2f64.powi(201),
+            0.0,
+            0.0
+        ]]));
+        // Out of range: just below/above, tiny, subnormal, non-finite.
+        assert!(!inputs_within_shewchuk_range(&[[
+            2f64.powi(-143),
+            0.0,
+            0.0
+        ]]));
+        assert!(!inputs_within_shewchuk_range(&[[2f64.powi(202), 0.0, 0.0]]));
+        assert!(!inputs_within_shewchuk_range(&[[1e-200, 0.0, 0.0]]));
+        assert!(!inputs_within_shewchuk_range(&[[5e-324, 0.0, 0.0]]));
+        assert!(!inputs_within_shewchuk_range(&[[f64::INFINITY, 0.0, 0.0]]));
+    }
+
+    #[test]
+    fn in_range_zeros_agree_with_the_rational_tier() {
+        // Inside Shewchuk's range the adaptive 0.0 is exact: the gated
+        // wrapper and the rational tier agree on collinear / coplanar
+        // CAD-scale inputs, including near-collinear ones that are NOT zero.
+        let a = Point2::new(0.1, 0.2);
+        let b = Point2::new(0.4, 0.8);
+        let on = Point2::new(0.7, 1.4);
+        let off = Point2::new(0.7, f64::from_bits(1.4f64.to_bits() + 1));
+        assert_eq!(orient2d(a, b, on), orient2d_exact_rational(a, b, on));
+        assert_eq!(orient2d(a, b, off), orient2d_exact_rational(a, b, off));
+        assert_ne!(orient2d(a, b, off), Sign::Zero);
+        let p = Point3::new(0.0, 0.0, 0.25);
+        let q = Point3::new(1.0, 0.0, 0.25);
+        let r = Point3::new(0.0, 1.0, 0.25);
+        let s_on = Point3::new(0.3, 0.7, 0.25);
+        let s_off = Point3::new(0.3, 0.7, f64::from_bits(0.25f64.to_bits() + 1));
+        assert_eq!(orient3d(p, q, r, s_on), Sign::Zero);
+        assert_eq!(
+            orient3d(p, q, r, s_on),
+            orient3d_exact_rational(p, q, r, s_on)
+        );
+        assert_eq!(
+            orient3d(p, q, r, s_off),
+            orient3d_exact_rational(p, q, r, s_off)
+        );
+        assert_ne!(orient3d(p, q, r, s_off), Sign::Zero);
     }
 
     #[test]
