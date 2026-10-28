@@ -1,11 +1,49 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use uuid::Uuid;
 
-use crate::gear::{generate_gear_profile, GearParams};
+use crate::gear::{generate_gear_profile, GearError, GearParams};
 use crate::geom_ref::GeomRef;
 use crate::sketch_state::SketchSolveReport;
 use crate::sprocket::{generate_sprocket_profile, SprocketError, SprocketParams};
+
+/// Why a compact sketch generator (`Gear` or `Sprocket`) could not be expanded.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratorError {
+    Gear(GearError),
+    Sprocket(SprocketError),
+}
+
+impl fmt::Display for GeneratorError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Gear(e) => fmt::Display::fmt(e, f),
+            Self::Sprocket(e) => fmt::Display::fmt(e, f),
+        }
+    }
+}
+
+impl std::error::Error for GeneratorError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Gear(e) => Some(e),
+            Self::Sprocket(e) => Some(e),
+        }
+    }
+}
+
+impl From<GearError> for GeneratorError {
+    fn from(e: GearError) -> Self {
+        Self::Gear(e)
+    }
+}
+
+impl From<SprocketError> for GeneratorError {
+    fn from(e: SprocketError) -> Self {
+        Self::Sprocket(e)
+    }
+}
 
 /// Serde helper for HashMap<u32, (f64, f64)>.
 /// JSON only supports string keys, so we need custom (de)serialization.
@@ -190,15 +228,15 @@ impl Sketch {
     /// [`Self::recompute_derived_checked`] step 3 for why it is not merely a
     /// nicety.
     pub fn recompute_derived(&mut self) {
-        // A sprocket whose parameters cannot be generated is left in place
-        // (unexpanded, so it contributes no profile); the checked form
-        // surfaces the error where a caller can report it.
+        // A generator (gear or sprocket) whose parameters cannot be generated is
+        // left in place (unexpanded, so it contributes no profile); the checked
+        // form surfaces the error where a caller can report it.
         let _ = self.recompute_derived_checked();
     }
 
-    /// [`Self::recompute_derived`], reporting a generator (sprocket) that
-    /// could not be expanded instead of leaving it in place silently.
-    pub fn recompute_derived_checked(&mut self) -> Result<(), SprocketError> {
+    /// [`Self::recompute_derived`], reporting a generator (`Gear` or `Sprocket`)
+    /// that could not be expanded instead of leaving it in place silently.
+    pub fn recompute_derived_checked(&mut self) -> Result<(), GeneratorError> {
         // Step 1: Reconstruct solved_positions from Point entities' x/y values.
         // Only populate if empty (don't overwrite live session data).
         if self.solved_positions.is_empty() {
@@ -279,8 +317,8 @@ impl Sketch {
     ///
     /// Kept for callers that only know about gears; [`Self::expand_generators`]
     /// expands sprockets too.
-    pub fn expand_gears(&mut self) {
-        let _ = self.expand_generators();
+    pub fn expand_gears(&mut self) -> Result<(), GeneratorError> {
+        self.expand_generators()
     }
 
     /// Expand every compact generator entity (`Gear`, `Sprocket`) into the
@@ -293,28 +331,33 @@ impl Sketch {
     /// ids or another generator's. (Gears keep their historical unshifted ids:
     /// the app's gear bookkeeping and the gear parity oracle pin them.)
     ///
-    /// The first sprocket that cannot be generated stops the expansion with
-    /// its typed error; every generator before it is expanded, the failing
-    /// one and those after it are left in place.
-    pub fn expand_generators(&mut self) -> Result<(), SprocketError> {
+    /// The first generator that cannot be expanded stops the expansion with its
+    /// typed error; every generator before it is expanded, the failing one and
+    /// those after it are left in place.
+    pub fn expand_generators(&mut self) -> Result<(), GeneratorError> {
         if !self.entities.iter().any(SketchEntity::is_generator) {
             return Ok(());
         }
 
         let mut expanded_entities = Vec::new();
-        let mut failure: Option<SprocketError> = None;
+        let mut failure: Option<GeneratorError> = None;
         for entity in &self.entities {
             if failure.is_some() {
                 expanded_entities.push(entity.clone());
                 continue;
             }
             match entity {
-                SketchEntity::Gear { params, .. } => {
-                    let result = generate_gear_profile(params);
-                    expanded_entities.extend(result.entities);
-                    self.solved_positions.extend(result.positions);
-                    self.solved_profiles.extend(result.profiles);
-                }
+                SketchEntity::Gear { params, .. } => match generate_gear_profile(params) {
+                    Ok(result) => {
+                        expanded_entities.extend(result.entities);
+                        self.solved_positions.extend(result.positions);
+                        self.solved_profiles.extend(result.profiles);
+                    }
+                    Err(e) => {
+                        failure = Some(GeneratorError::Gear(e));
+                        expanded_entities.push(entity.clone());
+                    }
+                },
                 SketchEntity::Sprocket { id, params, .. } => {
                     // The id range is the sprocket's own; an id too large for
                     // it is refused the way a bad parameter is, not wrapped.
@@ -334,7 +377,7 @@ impl Sketch {
                                 .extend(result.profiles.iter().map(|p| p.with_ids_offset(base)));
                         }
                         Err(e) => {
-                            failure = Some(e);
+                            failure = Some(GeneratorError::Sprocket(e));
                             expanded_entities.push(entity.clone());
                         }
                     }
@@ -1777,7 +1820,7 @@ mod tests {
             plane_face: None,
         };
 
-        sketch.expand_gears();
+        sketch.expand_gears().unwrap();
 
         // After expansion: no Gear entities remain
         assert!(!sketch

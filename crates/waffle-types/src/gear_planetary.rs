@@ -557,7 +557,7 @@ mod tests {
     /// Sample a gear's boundary vertex loop in WORLD coordinates via the
     /// production profile generator.
     fn flank_points(g: &GearParams) -> Vec<(f64, f64)> {
-        let prof = generate_gear_profile(g);
+        let prof = generate_gear_profile(g).unwrap();
         let pos = &prof.positions;
         prof.profiles[0]
             .vertex_ids

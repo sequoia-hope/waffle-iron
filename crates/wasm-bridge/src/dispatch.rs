@@ -1248,13 +1248,17 @@ fn handle_message(
         }
 
         UiToEngine::GenerateGearProfile { params } => {
-            let result = waffle_types::generate_gear_profile(&params);
-            Ok(EngineToUi::GearProfileGenerated {
-                entities: result.entities,
-                positions: result.positions,
-                profiles: result.profiles,
-                pitch_radius: result.pitch_radius,
-            })
+            match waffle_types::generate_gear_profile(&params) {
+                Ok(result) => Ok(EngineToUi::GearProfileGenerated {
+                    entities: result.entities,
+                    positions: result.positions,
+                    profiles: result.profiles,
+                    pitch_radius: result.pitch_radius,
+                }),
+                Err(e) => Err(BridgeError::InvalidRequest {
+                    reason: e.to_string(),
+                }),
+            }
         }
 
         UiToEngine::GenerateSprocketPreview { params } => {

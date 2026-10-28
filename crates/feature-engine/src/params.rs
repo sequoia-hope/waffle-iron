@@ -1107,7 +1107,9 @@ fn apply_sketch(
             sketch.solve_status = solved.status;
             sketch.solved_positions.clear();
             sketch.solved_profiles.clear();
-            sketch.recompute_derived();
+            if let Err(e) = sketch.recompute_derived_checked() {
+                errs.push(e.to_string());
+            }
             true
         }
         SolveStatus::OverConstrained { .. } | SolveStatus::SolveFailed { .. } => {
@@ -1129,7 +1131,9 @@ fn apply_sketch(
                 sketch.solve_status = solved.status;
                 sketch.solved_positions.clear();
                 sketch.solved_profiles.clear();
-                sketch.recompute_derived();
+                if let Err(e) = sketch.recompute_derived_checked() {
+                    errs.push(e.to_string());
+                }
                 errs.push(format!("sketch's first solve failed ({reason})"));
                 true
             } else {

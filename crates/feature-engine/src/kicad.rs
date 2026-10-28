@@ -1354,7 +1354,8 @@ impl SketchWriter {
         // rebuild's `recompute_derived` extracts chord loops only, and every
         // arc is extruded as its chord (measured: a rounded 60×40 board came
         // out 50 mm² short).
-        crate::script::host::derive_sketch(&mut sketch);
+        crate::script::host::derive_sketch(&mut sketch)
+            .expect("KiCad outline contains no sketch generators");
         sketch
     }
 }

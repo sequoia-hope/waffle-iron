@@ -26,6 +26,7 @@
 
 	// Editing state
 	let editingGearId = $state(null);
+	let applyError = $state(null);
 
 	/** Compute internal module from display input */
 	let module_ = $derived(parseAndConvert(moduleInput, displayUnit) || displayToInternal(1, 'mm'));
@@ -37,6 +38,7 @@
 
 	$effect(() => {
 		if (dialogState) {
+			applyError = null;
 			if (dialogState.editGearId != null && dialogState.params) {
 				// Edit mode: restore existing params
 				editingGearId = dialogState.editGearId;
@@ -121,12 +123,17 @@
 			internal: isInternal
 		};
 
-		if (editingGearId != null) {
-			await updateGear(editingGearId, params);
-			log('sketch', `Gear updated: ${N} teeth, module ${m}`);
-		} else {
-			await createGear(params);
-			log('sketch', `Gear created: ${N} teeth, module ${m}`);
+		try {
+			if (editingGearId != null) {
+				await updateGear(editingGearId, params);
+				log('sketch', `Gear updated: ${N} teeth, module ${m}`);
+			} else {
+				await createGear(params);
+				log('sketch', `Gear created: ${N} teeth, module ${m}`);
+			}
+		} catch (err) {
+			applyError = err?.message ? String(err.message) : String(err);
+			return;
 		}
 
 		setPreview(null);
@@ -214,6 +221,10 @@
 					title="Teeth point inward — a ring gear's toothed inner boundary (a hole). Add an outer rim in the same sketch, then extrude."
 				/>
 			</div>
+
+			{#if applyError}
+				<div class="error-row" data-testid="gear-error">{applyError}</div>
+			{/if}
 		</div>
 
 		<div class="dialog-footer">
@@ -323,6 +334,13 @@
 		font-size: 12px;
 		color: var(--text-secondary, #999);
 		font-style: italic;
+	}
+
+	.error-row {
+		font-size: 11px;
+		color: var(--error, #e06c75);
+		line-height: 1.3;
+		word-break: break-word;
 	}
 
 	.dialog-footer {

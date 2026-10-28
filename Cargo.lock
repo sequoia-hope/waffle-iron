@@ -2513,6 +2513,7 @@ version = "0.1.0"
 dependencies = [
  "cad-primitives",
  "i_overlay",
+ "nurbs-rs",
  "schemars",
  "serde",
  "serde_json",

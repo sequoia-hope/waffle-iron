@@ -221,6 +221,38 @@ fn a_sprocket_that_cannot_expand_is_a_typed_extrude_error() {
     assert!(!engine.feature_results.contains_key(&ex));
 }
 
+#[test]
+fn a_gear_that_cannot_expand_is_a_typed_extrude_error() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let sketch = sketch_of(vec![SketchEntity::Gear {
+        id: 1,
+        params: waffle_types::GearParams {
+            tooth_count: 2,
+            ..Default::default()
+        },
+        construction: false,
+    }]);
+    let sk = engine
+        .add_feature("sk".into(), Operation::Sketch { sketch }, &mut kernel)
+        .unwrap();
+    let ex = engine
+        .add_feature("ex".into(), extrude(sk, 0), &mut kernel)
+        .unwrap();
+    let errors = &engine.feature_errors;
+    let err = errors
+        .iter()
+        .find(|e| e.feature_id == ex)
+        .expect("the extrude fails");
+    assert_eq!(err.kind, ErrorKind::InvalidParameter);
+    assert!(
+        err.message.contains("tooth_count 2"),
+        "the message names the value: {}",
+        err.message
+    );
+    assert!(!engine.feature_results.contains_key(&ex));
+}
+
 fn script_op(source_id: Uuid, args: serde_json::Value) -> Operation {
     let args: BTreeMap<String, serde_json::Value> = serde_json::from_value(args).unwrap();
     Operation::Script {

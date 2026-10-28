@@ -515,9 +515,9 @@ pub fn basis_funs(span: usize, u: f64, p: usize, knots: &[f64]) -> Result<Vec<f6
             if denom <= 0.0 || !denom.is_finite() {
                 return Err(BSplineError::ZeroKnotSpan { span });
             }
-            let temp = n_vals[r] / denom;
-            n_vals[r] = saved + right[r + 1] * temp;
-            saved = left[j - r] * temp;
+            let nr = n_vals[r];
+            n_vals[r] = saved + (nr * right[r + 1]) / denom;
+            saved = (nr * left[j - r]) / denom;
         }
         n_vals[j] = saved;
     }
@@ -573,9 +573,9 @@ pub fn ders_basis_funs(
                 return Err(BSplineError::ZeroKnotSpan { span });
             }
             ndu[j][r] = denom;
-            let temp = ndu[r][j - 1] / denom;
-            ndu[r][j] = saved + right[r + 1] * temp;
-            saved = left[j - r] * temp;
+            let nr = ndu[r][j - 1];
+            ndu[r][j] = saved + (nr * right[r + 1]) / denom;
+            saved = (nr * left[j - r]) / denom;
         }
         ndu[j][j] = saved;
     }

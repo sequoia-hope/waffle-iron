@@ -76,7 +76,7 @@ fn mesh_signed_volume(mesh: &waffle_types::kernel::RenderMesh) -> f64 {
 
 #[test]
 fn gear_profile_extrudes_with_exact_polygon_volume() {
-    let g = generate_gear_profile(&gear_params());
+    let g = generate_gear_profile(&gear_params()).unwrap();
     let profile = g.profiles[0].clone();
     assert!(
         !profile.spline_segments.is_empty(),
@@ -118,7 +118,7 @@ fn gear_profile_extrudes_with_exact_polygon_volume() {
 /// gear_area × overlap height (footprint fully inside the slab).
 #[test]
 fn gear_boss_union_on_slab() {
-    let g = generate_gear_profile(&gear_params());
+    let g = generate_gear_profile(&gear_params()).unwrap();
     let profile = g.profiles[0].clone();
     let area = polygon_area(&profile.vertex_ids, &g.positions);
     // Addendum radius bounds the footprint.
@@ -184,7 +184,7 @@ fn gear_boss_union_on_slab() {
 /// Gear pocket cut into a slab (the cut direction of the same class).
 #[test]
 fn gear_pocket_cut_into_slab() {
-    let g = generate_gear_profile(&gear_params());
+    let g = generate_gear_profile(&gear_params()).unwrap();
     let profile = g.profiles[0].clone();
     let area = polygon_area(&profile.vertex_ids, &g.positions);
     let r_out = g.addendum_radius;
@@ -328,7 +328,7 @@ fn internal_gear_offsets_and_ring_extrude() {
     let tip_r = pitch_r - params.module; // 18 (inner tip)
     let body_r = pitch_r + 1.25 * params.module; // 22.5 (outer)
 
-    let g = generate_gear_profile(&params);
+    let g = generate_gear_profile(&params).unwrap();
     let p = &g.profiles[0];
     assert!(
         !p.is_outer,
@@ -543,7 +543,7 @@ fn arc_segment_profile_extrudes_to_cylinder_walled_prism() {
 /// vertices at this scale carry ~1e-13 of rounding — geometry, not error.
 #[test]
 fn gear_extrude_oblique_plane_at_scale() {
-    let g = generate_gear_profile(&gear_params());
+    let g = generate_gear_profile(&gear_params()).unwrap();
     let n: [f64; 3] = [
         -0.24020216902653416,
         -0.38111176393228574,
@@ -579,7 +579,7 @@ fn gear_extrude_oblique_plane_at_scale() {
 #[test]
 fn gear_extrude_deterministic() {
     let build = || {
-        let g = generate_gear_profile(&gear_params());
+        let g = generate_gear_profile(&gear_params()).unwrap();
         let mut k = KernelV2Adapter::new();
         let f = k
             .make_faces_from_profiles(

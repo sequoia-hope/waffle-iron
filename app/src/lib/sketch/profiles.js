@@ -220,7 +220,9 @@ export function profileToPolygon(profile, entities, positions) {
 				.map(pid => positions.get(pid))
 				.filter(Boolean);
 			if (ctrlPts.length >= 2) {
-				const sampled = sampleBSpline(ctrlPts, 16);
+				// Explicit degree cap: 2-point spline is a line (1), 3-point a quadratic (2).
+				const degree = Math.min(3, ctrlPts.length - 1);
+				const sampled = sampleBSpline(ctrlPts, 16, degree);
 				// Skip last point to avoid duplication at joints
 				for (let i = 0; i < sampled.length - 1; i++) {
 					points.push({ x: sampled[i].x, y: sampled[i].y });

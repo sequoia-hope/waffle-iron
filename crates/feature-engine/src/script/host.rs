@@ -712,11 +712,10 @@ impl SketchBuilder {
         params: GearParams,
         construction: bool,
     ) -> Result<i64, Box<EvalAltResult>> {
-        if params.tooth_count < 3 {
-            return rt("gear: tooth_count must be at least 3");
-        }
-        if !(params.module.is_finite() && params.module > 0.0) {
-            return rt("gear: module must be positive");
+        // Refuse here what the generator would refuse at expansion, so the
+        // script line that wrote the parameters is the one that fails.
+        if let Err(e) = waffle_types::validate_gear_params(&params) {
+            return rt(e.to_string());
         }
         let id = self.alloc()?;
         self.push(SketchEntity::Gear {
@@ -819,7 +818,9 @@ impl SketchBuilder {
             sketch.plane_normal = *normal;
             sketch.plane_x_axis = *x_axis;
         }
-        derive_sketch(&mut sketch);
+        if let Err(e) = derive_sketch(&mut sketch) {
+            return rt(e.to_string());
+        }
 
         let regions: Vec<RegionInfo> = sketch
             .solved_profiles
@@ -878,17 +879,14 @@ impl SketchBuilder {
 /// gear entities expand through the built-in generator (their profiles are
 /// authoritative); otherwise loops are extracted and given kernel-ready
 /// vertex/arc data (`build_finish_profiles`).
-pub fn derive_sketch(sketch: &mut Sketch) {
+pub fn derive_sketch(sketch: &mut Sketch) -> Result<(), waffle_types::GeneratorError> {
     for e in &sketch.entities {
         if let SketchEntity::Point { id, x, y, .. } = e {
             sketch.solved_positions.insert(*id, (*x, *y));
         }
     }
     // Generators (gear, sprocket) expand into their own profiles; the plain
-    // entities drawn alongside them are finished as any hand-drawn sketch
-    // is. A sprocket the builder accepted cannot fail here (`sk.sprocket`
-    // validates the same parameters), so the expansion result is not a
-    // second failure path.
+    // entities drawn alongside them are finished as any hand-drawn sketch is.
     let plain: Vec<SketchEntity> = sketch
         .entities
         .iter()
@@ -897,9 +895,9 @@ pub fn derive_sketch(sketch: &mut Sketch) {
         .collect();
     let had_generators = plain.len() != sketch.entities.len();
     if had_generators {
-        let _ = sketch.expand_generators();
+        sketch.expand_generators()?;
         if plain.is_empty() {
-            return;
+            return Ok(());
         }
     }
     let extracted = waffle_types::profiles::extract_profiles(&plain, &sketch.solved_positions);
@@ -907,6 +905,7 @@ pub fn derive_sketch(sketch: &mut Sketch) {
         waffle_types::profiles::build_finish_profiles(&extracted, &plain, &sketch.solved_positions);
     sketch.solved_profiles.extend(fp.profiles);
     sketch.solved_positions = fp.solved_positions;
+    Ok(())
 }
 
 /// Shoelace area over a profile's vertex chain (chords for arcs/splines;

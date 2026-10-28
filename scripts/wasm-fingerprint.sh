@@ -36,6 +36,8 @@ PATHS=(
     'crates/file-format/Cargo.toml'
     'crates/waffle-types/src'
     'crates/waffle-types/Cargo.toml'
+    'crates/nurbs-rs/src'
+    'crates/nurbs-rs/Cargo.toml'
     'crates/yang-rs/src'
     'crates/yang-rs/Cargo.toml'
     'crates/cherchi-rs/src'

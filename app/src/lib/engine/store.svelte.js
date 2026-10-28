@@ -3654,7 +3654,9 @@ export function findSplineNear(x, y, threshold) {
 			.filter(Boolean);
 		if (ctrlPts.length < 2) continue;
 
-		const samples = sampleBSpline(ctrlPts, 32);
+		// Explicit degree cap: 2-point spline is a line (1), 3-point a quadratic (2).
+		const degree = Math.min(3, ctrlPts.length - 1);
+		const samples = sampleBSpline(ctrlPts, 32, degree);
 
 		for (let i = 0; i < samples.length - 1; i++) {
 			const p1 = samples[i];
@@ -4051,9 +4053,11 @@ export function hidePlanetaryDialog() { planetaryDialogState = null; }
  */
 export async function createGear(gearParams) {
 	beginSketchAction();
-	const gearId = await addGearFromParams(gearParams);
-	endSketchAction();
-	return gearId;
+	try {
+		return await addGearFromParams(gearParams);
+	} finally {
+		endSketchAction();
+	}
 }
 
 /**

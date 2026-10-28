@@ -314,7 +314,8 @@ pub fn gear_profile(teeth: u32, module_val: f64, pressure_angle_deg: f64) -> Pro
         module: module_val,
         pressure_angle_deg,
         ..Default::default()
-    });
+    })
+    .expect("valid gear_profile test helper parameters");
     (result.entities, result.positions, result.profiles)
 }
 

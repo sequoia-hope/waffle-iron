@@ -159,7 +159,7 @@ fn gear_script_port_matches_the_builtin_generator_bit_for_bit() {
     let m = matrix();
     assert!(m.len() > 50);
     for g in &m {
-        let expect = generate_gear_profile(g);
+        let expect = generate_gear_profile(g).unwrap();
         let (entities, positions) = script_sketch(g);
         assert_identical(
             &format!("{g:?}"),
@@ -204,7 +204,7 @@ fn feature(ctx, p) {
         let Operation::Sketch { sketch } = &rec.children[0].feature.operation else {
             panic!()
         };
-        let expect = generate_gear_profile(&g);
+        let expect = generate_gear_profile(&g).unwrap();
         assert_identical(
             &format!("entity route internal={internal}"),
             (&sketch.entities, &sketch.solved_positions),
@@ -226,7 +226,7 @@ fn feature(ctx, p) {
         ..GearParams::default()
     };
     let (entities, positions) = script_sketch(&g);
-    let expect = generate_gear_profile(&g);
+    let expect = generate_gear_profile(&g).unwrap();
     assert_identical(
         "gear.rhai internal",
         (&entities, &positions),

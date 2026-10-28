@@ -1,5 +1,4 @@
 pub mod annotation;
-pub mod bspline;
 pub mod dimension;
 pub mod gear;
 pub mod gear_planetary;
@@ -19,7 +18,8 @@ pub mod sprocket;
 pub mod topo;
 
 pub use gear::{
-    generate_gear_preview_polyline, generate_gear_profile, GearParams, GearProfileResult,
+    generate_gear_preview_polyline, generate_gear_profile, validate_gear_params, GearError,
+    GearParams, GearProfileResult,
 };
 pub use gear_planetary::{
     carrier_radius, generate_planetary, generate_planetary_preview, mesh_external, ring_teeth,

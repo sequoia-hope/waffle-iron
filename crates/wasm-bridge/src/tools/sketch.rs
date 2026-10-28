@@ -374,10 +374,18 @@ pub(super) fn sketch_create(
     // the author can fix them, not at the rebuild that would otherwise leave
     // the sketch without a profile.
     for (i, e) in entities.iter().enumerate() {
-        if let SketchEntity::Sprocket { params, .. } = e {
-            if let Err(err) = waffle_types::sprocket_dimensions(params) {
-                return Err(invalid_sketch(format!("/entities/{i}/params: {err}")));
+        match e {
+            SketchEntity::Gear { params, .. } => {
+                if let Err(err) = waffle_types::validate_gear_params(params) {
+                    return Err(invalid_sketch(format!("/entities/{i}/params: {err}")));
+                }
             }
+            SketchEntity::Sprocket { params, .. } => {
+                if let Err(err) = waffle_types::sprocket_dimensions(params) {
+                    return Err(invalid_sketch(format!("/entities/{i}/params: {err}")));
+                }
+            }
+            _ => {}
         }
     }
     let constraints: Vec<SketchConstraint> = serde_json::from_value(json!(constraints_json))

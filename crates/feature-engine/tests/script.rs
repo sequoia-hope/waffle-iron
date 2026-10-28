@@ -604,7 +604,7 @@ fn tree_box(engine: &mut Engine, kernel: &mut MockKernel, name: &str, depth: f64
         plane_face: None,
         solved_profiles: Vec::new(),
     };
-    script::host::derive_sketch(&mut sketch);
+    script::host::derive_sketch(&mut sketch).unwrap();
     // An extrude names its sketch by the sketch FEATURE's id.
     let sketch_id = engine
         .add_feature(

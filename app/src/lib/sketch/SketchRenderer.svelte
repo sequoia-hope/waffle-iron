@@ -299,7 +299,9 @@
 					.filter(Boolean);
 				if (ctrlPts.length < 2) return null;
 
-				const sampled = sampleBSpline(ctrlPts, 48);
+				// Explicit degree cap: 2-point spline is a line (1), 3-point a quadratic (2).
+				const degree = Math.min(3, ctrlPts.length - 1);
+				const sampled = sampleBSpline(ctrlPts, 48, degree);
 				const worldPts = sampled.map(p => sketchToWorld(p.x, p.y, plane));
 				const geo = new THREE.BufferGeometry().setFromPoints(worldPts);
 				return { id: e.id, geometry: geo, construction: e.construction };

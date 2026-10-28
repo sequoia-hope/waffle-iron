@@ -10,10 +10,10 @@
 //!   root_right → root_arc(rootR) → next_root_left
 
 use std::collections::HashMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::bspline::fit_bspline_to_points;
 use crate::{ClosedProfile, SketchEntity, SplineSegment};
 
 /// Parameters for generating an involute gear profile.
@@ -97,12 +97,136 @@ fn gear_radii(params: &GearParams) -> (f64, f64, f64, f64, f64) {
     (pitch_r, base_r, addendum_r, dedendum_r, root_r)
 }
 
+/// Why an involute gear profile could not be generated.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GearError {
+    /// `tooth_count` below 3 cannot form a closed gear loop.
+    TooFewTeeth { tooth_count: u32 },
+    /// A length or angle parameter is non-finite or out of its valid domain.
+    BadValue { field: &'static str, value: f64 },
+    /// B-spline global interpolation (`nurbs_rs::bspline::global_curve_interp`,
+    /// Piegl & Tiller A9.1) failed on an involute flank.
+    SplineFit(nurbs_rs::BSplineError),
+}
+
+impl fmt::Display for GearError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::TooFewTeeth { tooth_count } => {
+                write!(
+                    f,
+                    "gear requires at least 3 teeth (got tooth_count {tooth_count})"
+                )
+            }
+            Self::BadValue { field, value } => {
+                write!(f, "gear {field} is invalid ({value})")
+            }
+            Self::SplineFit(err) => {
+                write!(f, "gear involute B-spline fit failed: {err}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for GearError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SplineFit(err) => Some(err),
+            _ => None,
+        }
+    }
+}
+
+impl From<nurbs_rs::BSplineError> for GearError {
+    fn from(err: nurbs_rs::BSplineError) -> Self {
+        Self::SplineFit(err)
+    }
+}
+
+/// Validate that [`GearParams`] lie within the physical domain of an involute gear.
+pub fn validate_gear_params(params: &GearParams) -> Result<(), GearError> {
+    if params.tooth_count < 3 {
+        return Err(GearError::TooFewTeeth {
+            tooth_count: params.tooth_count,
+        });
+    }
+    if !(params.module.is_finite() && params.module > 0.0) {
+        return Err(GearError::BadValue {
+            field: "module",
+            value: params.module,
+        });
+    }
+    if !(params.pressure_angle_deg.is_finite()
+        && params.pressure_angle_deg > 0.0
+        && params.pressure_angle_deg < 90.0)
+    {
+        return Err(GearError::BadValue {
+            field: "pressure_angle_deg",
+            value: params.pressure_angle_deg,
+        });
+    }
+    if !params.backlash.is_finite() {
+        return Err(GearError::BadValue {
+            field: "backlash",
+            value: params.backlash,
+        });
+    }
+    if !params.center_x.is_finite() {
+        return Err(GearError::BadValue {
+            field: "center_x",
+            value: params.center_x,
+        });
+    }
+    if !params.center_y.is_finite() {
+        return Err(GearError::BadValue {
+            field: "center_y",
+            value: params.center_y,
+        });
+    }
+    if !params.rotation_offset.is_finite() {
+        return Err(GearError::BadValue {
+            field: "rotation_offset",
+            value: params.rotation_offset,
+        });
+    }
+    Ok(())
+}
+
+/// Fit an open clamped B-spline through an involute flank's sample points via
+/// Piegl & Tiller Algorithm A9.1 (`nurbs_rs::bspline::global_curve_interp`,
+/// `refs/text/piegl_tiller1997_nurbs_book.txt:15961-15984`).
+fn fit_involute_flank(pts: &[(f64, f64)]) -> Result<Vec<(f64, f64)>, GearError> {
+    if pts.len() < 2 {
+        return Err(GearError::SplineFit(
+            nurbs_rs::BSplineError::InterpolationTooFewPoints {
+                count: pts.len(),
+                min_required: 2,
+            },
+        ));
+    }
+    // Explicit degree cap: a 2-point spline is a line (degree 1), a 3-point one
+    // a quadratic (degree 2), and >= 4 points a cubic (degree 3) — today's
+    // geometry, now stated at the call site.
+    let degree = 3.min(pts.len() - 1);
+    let pts3d: Vec<cad_primitives::Point3> = pts
+        .iter()
+        .map(|&(x, y)| cad_primitives::Point3::new(x, y, 0.0))
+        .collect();
+    let curve = nurbs_rs::bspline::global_curve_interp(&pts3d, degree)?;
+    Ok(curve
+        .control_points()
+        .iter()
+        .map(|p| (p.x(), p.y()))
+        .collect())
+}
+
 /// Generate a complete involute gear profile with sketch entities.
 ///
-/// Produces Points, Splines, Lines, and Arcs matching the JS implementation exactly.
-pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
+/// Produces Points, Splines, Lines, and Arcs matching the JS implementation.
+pub fn generate_gear_profile(params: &GearParams) -> Result<GearProfileResult, GearError> {
+    validate_gear_params(params)?;
     if params.internal {
-        return generate_internal_gear_profile(params);
+        return Ok(generate_internal_gear_profile(params));
     }
     let n = params.tooth_count;
     let (pitch_r, base_r, addendum_r, dedendum_r, root_r) = gear_radii(params);
@@ -269,7 +393,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             .chain(std::iter::once(left_tip_id))
             .collect();
 
-        let left_ctrl = fit_bspline_to_points(&left_involute_pts, 3);
+        let left_ctrl = fit_involute_flank(&left_involute_pts)?;
 
         let spline_id = next_id;
         next_id += 1;
@@ -355,7 +479,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
             .chain(std::iter::once(right_base_id))
             .collect();
 
-        let right_ctrl = fit_bspline_to_points(&right_involute_pts, 3);
+        let right_ctrl = fit_involute_flank(&right_involute_pts)?;
 
         let spline_id = next_id;
         next_id += 1;
@@ -414,7 +538,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
         arc_segments: vec![],
     }];
 
-    GearProfileResult {
+    Ok(GearProfileResult {
         entities,
         positions,
         profiles,
@@ -422,7 +546,7 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
         base_radius: base_r,
         addendum_radius: addendum_r,
         dedendum_radius: dedendum_r,
-    }
+    })
 }
 
 /// Generate a TRUE internal (ring) gear profile — teeth point inward.
@@ -722,7 +846,7 @@ mod tests {
             pressure_angle_deg: 20.0,
             ..Default::default()
         };
-        let result = generate_gear_profile(&params);
+        let result = generate_gear_profile(&params).unwrap();
 
         let point_count = result
             .entities
@@ -766,7 +890,7 @@ mod tests {
             pressure_angle_deg: 20.0,
             ..Default::default()
         };
-        let result = generate_gear_profile(&params);
+        let result = generate_gear_profile(&params).unwrap();
         assert_eq!(result.profiles.len(), 1);
         let profile = &result.profiles[0];
         assert!(profile.is_outer);
@@ -839,7 +963,7 @@ mod tests {
             internal: true,
             ..Default::default()
         };
-        let result = generate_gear_profile(&params);
+        let result = generate_gear_profile(&params).unwrap();
         let first = &result.entities[0];
         match first {
             SketchEntity::Point { id, x, y, .. } => {
@@ -864,14 +988,59 @@ mod tests {
             module: 1.0,
             ..Default::default()
         };
-        let result = generate_gear_profile(&params);
-        for seg in &result.profiles[0].spline_segments {
+        let result = generate_gear_profile(&params).unwrap();
+        let profile = &result.profiles[0];
+        for seg in &profile.spline_segments {
             // 13 sample points → 13 control points from fit
             assert_eq!(
                 seg.control_points.len(),
                 13,
                 "each involute spline should have 13 control points"
             );
+            // Piegl & Tiller A9.1 clamped interpolation without endpoint clamps:
+            // first and last control points equal the flank sample endpoints exactly.
+            let start_pos = result.positions[&profile.vertex_ids[seg.start_point_index]];
+            let end_pos = result.positions[&profile.vertex_ids[seg.end_point_index]];
+            assert_eq!(seg.control_points[0], start_pos);
+            assert_eq!(*seg.control_points.last().unwrap(), end_pos);
         }
+    }
+
+    #[test]
+    fn invalid_gear_params_and_degenerate_flank_propagate_typed_errors() {
+        assert_eq!(
+            generate_gear_profile(&GearParams {
+                tooth_count: 2,
+                ..Default::default()
+            })
+            .unwrap_err(),
+            GearError::TooFewTeeth { tooth_count: 2 }
+        );
+        assert_eq!(
+            generate_gear_profile(&GearParams {
+                module: 0.0,
+                ..Default::default()
+            })
+            .unwrap_err(),
+            GearError::BadValue {
+                field: "module",
+                value: 0.0,
+            }
+        );
+        assert_eq!(
+            generate_gear_profile(&GearParams {
+                pressure_angle_deg: 90.0,
+                ..Default::default()
+            })
+            .unwrap_err(),
+            GearError::BadValue {
+                field: "pressure_angle_deg",
+                value: 90.0,
+            }
+        );
+        assert_eq!(
+            fit_involute_flank(&[(0.0, 0.0), (1.0, 1.0), (1.0, 1.0), (2.0, 0.0)]).unwrap_err(),
+            GearError::SplineFit(nurbs_rs::BSplineError::ZeroChordLength { index: 1 })
+        );
     }
 }

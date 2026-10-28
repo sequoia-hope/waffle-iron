@@ -153,7 +153,8 @@ fn build_p0008(k: &mut KernelV2Adapter) -> KernelSolidHandle {
         module: 111.0,
         pressure_angle_deg: 20.0,
         ..Default::default()
-    });
+    })
+    .unwrap();
     let half = 723.0 / 2.0;
     let origin2 = [
         280.0 - half * n2[0],
