@@ -1580,6 +1580,11 @@ pub(crate) enum CreaseTransitFailure {
     /// One of the two other surfaces does not meet `C_b` (no real root), or is
     /// a surface `circle_surface_roots` has no quadric form for (torus).
     NoQPoint { which: usize },
+    /// No B-Rep face on the neighbour surface carries the crease, so the side
+    /// the transited junction lands on cannot be read. Declined, never kept
+    /// on a guess (ledger N100 item 5; census 2026-10-28: unreached in the
+    /// corpus and the yang-rs / kernel-v2 suites).
+    SideUndetermined,
 }
 
 /// The determined §4.5.1 repair of one out-of-domain triple relocation.

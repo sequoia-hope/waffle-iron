@@ -7713,8 +7713,32 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    cannot remove it, so it ends LOUD — renamed
    `disc_disc_crossing_subtract_is_loud_until_exact_arc_crossing`. Pins
    `tests_unit/t8_off_surface.rs`.
-**State: OPEN** (2026-10-27; item 9 added and fixed 2026-10-28; items 1–8
-open).
+**Census (2026-10-28, `YANG_N100_CENSUS`, full corpus + yang-rs /
+kernel-v2 suites; print-only — corpus byte-identical, 360C / 0W / 9E / 5EE /
+0T):**
+- Item 1: 1,164,070 zero-distance non-crossing pairs over 90 cases (19,707
+  in the suites). Exact touches are ubiquitous (curves pass through mesh
+  vertices), so this probe is too coarse to find a missed contact; the
+  next census must keep only touches whose EXACT surfaces cross deeper
+  than the band (T6's own test). Open.
+- Item 2: 140 firings in 5 cases (P0049 82, R0074 48, P0005 4, R0077 4,
+  P0045 2), all CORRECT; 2 in the suites. The producer-vouched single
+  candidate's endpoints are relocation obligations, and T8 (item 9) now
+  refuses any body whose loop vertices miss their surfaces. No wrong
+  output measured. Open (topology of the chosen edge is not yet checked).
+- Item 4: 43 sphere/torus multi-cycle faces in 16 cases; the most-edges
+  rule and the largest-3D-Newell-area rule DISAGREE on TORUS faces only, in
+  9 cases (C0065, R0015, R0028, R0038, R0074, R0077, R0085, R0096 …), all
+  CORRECT. On a torus band two cycles need not have an "outer" one, and a
+  3D Newell area is not a chart area either, so neither rule is the
+  paper's; no wrong output measured. Open: the principled rule is the
+  chart-domain containment (§4.4.2, restore from the surface's own domain).
+- Item 5: **zero** firings anywhere. **RESOLVED 2026-10-28:** the
+  undetermined-side transit now DECLINES (`CreaseTransitFailure::
+  SideUndetermined`) instead of being kept on a guess — unreached, so no
+  result changes.
+**State: OPEN** (2026-10-27; item 9 added and fixed 2026-10-28; item 5
+resolved 2026-10-28; items 1–4, 6–8 open).
 
 ### N101 — cherchi-rs ray perturbation exhausted by symmetric 45° vertex fans (UL-02)
 

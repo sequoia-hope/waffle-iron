@@ -2845,12 +2845,13 @@ fn stage4_relocate_and_correct_inner(
                             Ok(t)
                         }
                         None => {
+                            crate::n100_census::log(5, &format!("transit declined, crease side undetermined v={v}"));
                             say!(
                                 "[s451-transit-side] case={} v={v} UNDETERMINED (no B-Rep \
-                                 face on s_nbr carries the crease) — transit kept",
+                                 face on s_nbr carries the crease) — transit declined",
                                 std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into())
                             );
-                            Ok(t)
+                            Err(crate::stage4_boundary_curve::CreaseTransitFailure::SideUndetermined)
                         }
                     }
                 });

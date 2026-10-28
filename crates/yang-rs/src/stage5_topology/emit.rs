@@ -328,6 +328,46 @@ pub(crate) fn emit_topology(
             // and the next op's holed chart CDT emptied it ("degenerate CDT
             // input"). Edge count is sampling density, not extent.
             let outer_idx = select_outer_cycle(cycles, &mesh.verts, inherited);
+            // N100 item 4 census: a non-developable face (sphere, torus) with
+            // several cycles takes the most-edges rule; log whether the
+            // largest-|Newell-area| cycle agrees.
+            if crate::n100_census::on()
+                && cycles.len() > 1
+                && matches!(inherited, Surface::Sphere { .. } | Surface::Torus { .. })
+            {
+                let area = |c: &[(u32, u32)]| -> f64 {
+                    let m = c.len();
+                    let (mut nx, mut ny, mut nz) = (0.0f64, 0.0f64, 0.0f64);
+                    for i in 0..m {
+                        let p = mesh.verts[c[i].0 as usize].as_array();
+                        let q = mesh.verts[c[(i + 1) % m].0 as usize].as_array();
+                        nx += (p[1] - q[1]) * (p[2] + q[2]);
+                        ny += (p[2] - q[2]) * (p[0] + q[0]);
+                        nz += (p[0] - q[0]) * (p[1] + q[1]);
+                    }
+                    (nx * nx + ny * ny + nz * nz).sqrt()
+                };
+                let by_area = (0..cycles.len())
+                    .max_by(|&i, &j| area(&cycles[i]).total_cmp(&area(&cycles[j])))
+                    .unwrap_or(0);
+                crate::n100_census::log(
+                    4,
+                    &format!(
+                        "face {face_idx} {} cycles={} outer={outer_idx} by_area={by_area} {}",
+                        if matches!(inherited, Surface::Sphere { .. }) {
+                            "sphere"
+                        } else {
+                            "torus"
+                        },
+                        cycles.len(),
+                        if by_area == outer_idx {
+                            "agree"
+                        } else {
+                            "DISAGREE"
+                        }
+                    ),
+                );
+            }
             if std::env::var_os("YANG_S6_OUTER_PROBE").is_some() && cycles.len() > 1 {
                 let most_edges = (0..cycles.len())
                     .max_by_key(|&i| {

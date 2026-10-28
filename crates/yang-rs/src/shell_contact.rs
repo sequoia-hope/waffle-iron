@@ -349,6 +349,23 @@ pub(crate) fn contact_pairs(
             // budget on 2026-10-14 before this line).
             if d_coarse == 0.0 {
                 n_intersecting += 1;
+                // N100 item 1 census: a zero-distance pair that does NOT
+                // properly cross is a touch the arrangement may not join.
+                if crate::n100_census::on() {
+                    let (x, y) = (set_a.pts[t], set_b.pts[s]);
+                    let crosses = [(x, y), (y, x)].iter().any(|&(u, w)| {
+                        (0..3).any(|i| {
+                            segment_intersects_triangle_3d(u[i], u[(i + 1) % 3], w[0], w[1], w[2])
+                                == SegmentTriangleIntersection::Intersects
+                        })
+                    });
+                    if !crosses {
+                        crate::n100_census::log(
+                            1,
+                            &format!("touch a{t}(f{}) b{s}(f{})", tri_face_a[t], tri_face_b[s]),
+                        );
+                    }
+                }
                 return;
             }
             if d_coarse > reach {

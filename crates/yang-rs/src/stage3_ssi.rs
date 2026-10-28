@@ -1332,6 +1332,7 @@ pub(crate) fn build_intersection_curves(
             // relocation obligations onto it. Multi-candidate no-witness
             // stays loud (P9 — never guess between branches).
             (0, None) if overridden && !s_on && !e_on && returned.len() == 1 => {
+                crate::n100_census::log(2, &format!("no-witness single-candidate edge ({s},{e})"));
                 if probe_on {
                     eprintln!("YANG_S3_PROV no-witness-single-candidate edge=({s},{e}) selected");
                 }

@@ -173,6 +173,9 @@ mod stage4_splice;
 // belong to §4.5.2 local refinement. See spec §4-I10 (f).
 mod stage4_truncate;
 mod stage4_update;
+
+// Print-only census for ledger N100's possible silent paths.
+mod n100_census;
 pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
 pub(crate) use geom::{
     ellipse_param, ellipse_point, ellipse_tangent, hyperbola_param, surface_normal_at,
