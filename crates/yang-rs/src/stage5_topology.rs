@@ -293,8 +293,8 @@ pub(crate) fn reconstruct_topology(
         &intersection_curves,
         &[],
         BoolOp::Union,
-        (&a.faces, &a.edges),
-        (&b.faces, &b.edges),
+        (&a.vertices, &a.faces, &a.edges),
+        (&b.vertices, &b.faces, &b.edges),
     )?;
     Ok((vertices, edges, faces))
 }
@@ -1028,6 +1028,46 @@ pub(crate) fn reconstruct_topology_stage4(
             infos = i4;
             intersection_curves = cv4;
         }
+        // F2 / N81 (§4.4.1 curve-chain decimation, Yang et al. 2025 §4.3.4 / §4.4.1,
+        // `refs/text/yang2025_hybrid_boolean.txt:536-571`): drop redundant interior
+        // samples along LineSegment / SurfacePair intersection polylines (and
+        // sub-resolution collinear straight-edge subdivisions) inside Stage 4 and
+        // update every owner patch's triangulation conformally before topology
+        // emission. Canonicalized by 3D point coordinates, never vertex numbering.
+        let dec_st = crate::stage4_chain_decimate::decimate_patch_chains_441(
+            mesh,
+            attribution,
+            side_labels,
+            &infos,
+            &intersection_curves,
+            a,
+            b,
+            false,
+        );
+        c441_log!(
+            "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
+            dec_st.runs_decimated,
+            dec_st.verts_dropped,
+            dec_st.edges_before,
+            dec_st.edges_after,
+            dec_st.declined_floor,
+            dec_st.skipped_discontinuous_loops
+        );
+        if dec_st.verts_dropped > 0 {
+            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
+            let (i5, inc5, cv5) = compute_phase_a(
+                mesh,
+                attribution,
+                a,
+                b,
+                &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+            )?;
+            probe_remap_pre_pos("s434-dec", remap.as_ref());
+            crate::stage4_correct::coincident_vertex_census("s5-s434-dec", mesh);
+            probe_record_incidence(&inc5, &cv5);
+            infos = i5;
+            intersection_curves = cv5;
+        }
         // EXPERIMENTAL probe (task #121): duplicate-triple scan AFTER the
         // KV15b collapse — if a dup appears here but not post-Stage-4, the
         // KV15b collapse is the mint site.
@@ -1136,7 +1176,7 @@ pub(crate) fn reconstruct_topology_stage4(
         &intersection_curves,
         &relocations,
         op,
-        (&a.faces, &a.edges),
-        (&b.faces, &b.edges),
+        (&a.vertices, &a.faces, &a.edges),
+        (&b.vertices, &b.faces, &b.edges),
     )
 }

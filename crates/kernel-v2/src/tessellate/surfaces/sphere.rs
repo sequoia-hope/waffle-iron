@@ -225,13 +225,31 @@ pub(crate) fn tessellate_sphere_patch(
     let mut frames: Vec<[[f64; 3]; 3]> = Vec::with_capacity(3);
     {
         let mut m = [0.0f64; 3];
-        for p in boundary.iter().chain(holes.iter().flatten()) {
-            let d = [p.x() - c[0], p.y() - c[1], p.z() - c[2]];
-            let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt().max(1e-300);
-            m = [m[0] + d[0] / l, m[1] + d[1] / l, m[2] + d[2] / l];
+        let mut total_w = 0.0f64;
+        for ring in std::iter::once(&boundary).chain(holes.iter()) {
+            let nr = ring.len();
+            for i in 0..nr {
+                let pa = ring[i].as_array();
+                let pb = ring[(i + 1) % nr].as_array();
+                let w =
+                    ((pb[0] - pa[0]).powi(2) + (pb[1] - pa[1]).powi(2) + (pb[2] - pa[2]).powi(2))
+                        .sqrt();
+                let da = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+                let db = [pb[0] - c[0], pb[1] - c[1], pb[2] - c[2]];
+                let la = (da[0] * da[0] + da[1] * da[1] + da[2] * da[2])
+                    .sqrt()
+                    .max(1e-300);
+                let lb = (db[0] * db[0] + db[1] * db[1] + db[2] * db[2])
+                    .sqrt()
+                    .max(1e-300);
+                m[0] += 0.5 * w * (da[0] / la + db[0] / lb);
+                m[1] += 0.5 * w * (da[1] / la + db[1] / lb);
+                m[2] += 0.5 * w * (da[2] / la + db[2] / lb);
+                total_w += w;
+            }
         }
         let ml = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).sqrt();
-        if ml > 1e-6 * boundary.len() as f64 {
+        if total_w > 0.0 && ml > 1e-6 * total_w {
             let m = [m[0] / ml, m[1] / ml, m[2] / ml];
             let t = if m[0].abs() < 0.9 {
                 [1.0, 0.0, 0.0]

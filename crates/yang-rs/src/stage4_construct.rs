@@ -492,6 +492,20 @@ pub(crate) fn rebuild_patch_planar_bounded(
     patch: &SplicePatch,
     d_eps: Option<f64>,
 ) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_planar_bounded_ex(mesh, patch_index, patch, d_eps, &BTreeSet::new())
+}
+
+/// [`rebuild_patch_planar_bounded`] with an explicit `excluded_interiors` set
+/// for boundary vertices removed by §4.4.1 curve-chain decimation (so curved
+/// Cylinder/Cone charts never re-carry a removed `SurfacePair` boundary sample
+/// as an interior Steiner vertex).
+pub(crate) fn rebuild_patch_planar_bounded_ex(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+) -> Result<PatchRebuild, ConstructError> {
     if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
     }
@@ -577,7 +591,7 @@ pub(crate) fn rebuild_patch_planar_bounded(
             })
         };
         for &v in &interiors {
-            if on_boundary_edge(v) {
+            if excluded_interiors.contains(&v) || on_boundary_edge(v) {
                 continue;
             }
             let uv = chart.project(mesh.verts[v as usize]);

@@ -121,7 +121,11 @@ structure:
      so Stage-5 chain decimation (`N81`) keeps phases `{0, ±π/2, π}` on
      `chain 1` and `{±π/4, ±3π/4}` on `chain 2` (`anchor = Some(25)` at
      `z = +0.0354`), deleting the constructor's original `+π/2` seam vertex
-     `(0.3, 0.3, +0.05)` on `chain 2`.
+     `(0.3, 0.3, +0.05)` on `chain 2`. *(Resolved 2026-10-28 in Roadmap F2 Step 1:
+     `stage5_chain_decimate` deleted and re-sited to §4.4.1
+     `stage4_chain_decimate::decimate_patch_chains_441` with 3D `point_cmp`, and
+     `merge_conic_seam_runs_with_operand_verts` preserves operand `BRepVertex`
+     anchors; under uncommitted I3b trial `b2_pipe` passes `17/17` in `0.40s`.)*
 
 So O-1 is observable through (a)–(d): (a) is the paper mechanism the order
 disables (C0117, cleanup §2a, and N68 trace to it), while (d) establishes

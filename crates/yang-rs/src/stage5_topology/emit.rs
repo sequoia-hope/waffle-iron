@@ -87,8 +87,8 @@ pub(crate) fn emit_topology(
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &[(u32, f64)],
     op: BoolOp,
-    input_a: (&[BRepFace], &[BRepEdge]),
-    input_b: (&[BRepFace], &[BRepEdge]),
+    input_a: (&[BRepVertex], &[BRepFace], &[BRepEdge]),
+    input_b: (&[BRepVertex], &[BRepFace], &[BRepEdge]),
 ) -> Result<ReconstructedTopology, YangError> {
     if std::env::var_os("YANG_S5_FOLD_PROBE").is_some() {
         eprintln!(
@@ -1717,8 +1717,8 @@ pub(crate) fn emit_topology(
             &mut edges,
             &faces,
             &face_attribution,
-            input_a,
-            input_b,
+            (input_a.1, input_a.2),
+            (input_b.1, input_b.2),
         );
         c441_log!(
             "[s434-restore] eligible={} typed={} (ellipses {} hyperbolas {} pairs {}; by surfaces {}) no_cand={} off={} ambig={} sweep={} mid={} ssi_unavailable={}",
@@ -1737,15 +1737,18 @@ pub(crate) fn emit_topology(
         );
     }
     // I5-1b (ALWAYS-ON since the I5-2 flip; spec §4-I5-1b/§4-I5-2):
-    // coalesce per-segment
-    // conic seam runs into single analytic arc edges — the paper's §4.4.2
-    // B-Rep output shape ("surfaces and their boundary curves"). Certifying
-    // and self-declining.
-    let st = crate::stage5_seam_merge::merge_conic_seam_runs(
+    // coalesce per-segment conic seam runs into single analytic arc edges —
+    // the paper's §4.4.2 B-Rep output shape ("surfaces and their boundary
+    // curves", `refs/text/yang2025_hybrid_boolean.txt:574-598`). Anchored by
+    // 3D point coordinates and surviving operand `BRepVertex`es (F2 / N81,
+    // never vertex-index order).
+    let st = crate::stage5_seam_merge::merge_conic_seam_runs_with_operand_verts(
         &mesh.verts,
         &mut edges,
         &mut faces,
         &mut sources,
+        input_a.0,
+        input_b.0,
     );
     c441_log!(
         "[s6-merge] runs={} elided={} edges {}->{} declines: offcurve={} \
@@ -1761,30 +1764,9 @@ pub(crate) fn emit_topology(
         st.declined_sweep,
         st.skipped_discontinuous_loops
     );
-    // §4.3.4 chain decimation (ALWAYS-ON; spec
-    // `yang_434_output_chord_refinement.md` "Stage-5
-    // chain decimation", R0085 2026-09-22): drop the interior vertices of
-    // LineSegment / SurfacePair INTERSECTION runs that the paper's own
-    // refinement acceptance (h/l/α) calls redundant — the arrangement's
-    // grazing-mesh density never reaches the output B-Rep as edge
-    // endpoints. Twin-conformant per canonical chain; declines to the
-    // per-segment status quo.
-    let st = crate::stage5_chain_decimate::decimate_intersection_runs(
-        &mesh.verts,
-        &mut edges,
-        &mut faces,
-        &mut sources,
-        intersection_curves,
-    );
-    c441_log!(
-        "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
-        st.runs_decimated,
-        st.verts_dropped,
-        st.edges_before,
-        st.edges_after,
-        st.declined_floor,
-        st.skipped_discontinuous_loops
-    );
+    // Note (F2 / N81): polyline chain decimation (`stage4_chain_decimate`) now
+    // runs inside Stage 4 (§4.4.1) before `emit_topology`, updating `mesh.tris`
+    // conformally so emitted loops read off already-decimated patch boundaries.
     // Output-chord census (`YANG_434_OUT=census`, read-only, apply off;
     // spec `yang_434_output_chord_refinement.md` inc-1): every untyped
     // seam chord's owner class, depth, and carried input-circle match —
@@ -1796,8 +1778,8 @@ pub(crate) fn emit_topology(
         &faces,
         &face_attribution,
         intersection_curves,
-        input_a,
-        input_b,
+        (input_a.1, input_a.2),
+        (input_b.1, input_b.2),
     );
     // Read-only output-incidence probe (env `YANG_OUT_INCIDENCE_PROBE`,
     // 2026-08-19 R0047 anchor): for every conic output edge, the endpoint

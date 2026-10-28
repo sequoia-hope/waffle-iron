@@ -40,7 +40,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use cad_primitives::Point3;
 
-use crate::brep::{BRepEdge, BRepFace, TessellationSource};
+use crate::brep::{BRepEdge, BRepFace, BRepVertex, TessellationSource};
 use crate::geom::Curve;
 use crate::stage4_correct::conic_param;
 
@@ -461,46 +461,201 @@ fn partition_loop(
     }
 }
 
-/// Canonicalize an OPEN run chain (first vertex ≤ last vertex; reverse
-/// otherwise). Returns (canonical chain, reversed?).
-fn canonical_open_chain(chain: &[u32]) -> (Vec<u32>, bool) {
-    if chain.first() <= chain.last() {
+/// Total 3D point order with `-0.0` normalized to `+0.0`, so chain
+/// canonicalization depends solely on 3D geometry and never on `u32` vertex
+/// numbering (F2 / N81; Yang §4.4.2 output boundary-curve restoration,
+/// `refs/text/yang2025_hybrid_boolean.txt:592-598`).
+pub(crate) fn point_cmp(a: Point3, b: Point3) -> std::cmp::Ordering {
+    let norm = |x: f64| if x == 0.0 { 0.0 } else { x };
+    let (aa, bb) = (a.as_array(), b.as_array());
+    norm(aa[0])
+        .total_cmp(&norm(bb[0]))
+        .then_with(|| norm(aa[1]).total_cmp(&norm(bb[1])))
+        .then_with(|| norm(aa[2]).total_cmp(&norm(bb[2])))
+}
+
+/// Bit-exact 3D point key with `-0.0` normalized to `+0.0`, matching
+/// `kernel-v2`'s original operand `BRepVertex` anchor test.
+pub(crate) fn point_key(p: Point3) -> [u64; 3] {
+    let norm_bits = |x: f64| (if x == 0.0 { 0.0 } else { x }).to_bits();
+    let a = p.as_array();
+    [norm_bits(a[0]), norm_bits(a[1]), norm_bits(a[2])]
+}
+
+/// Normalize `-0.0` to `+0.0` on all three coordinates so `conic_param` and
+/// bit keys never distinguish negative zero.
+fn norm_point(p: Point3) -> Point3 {
+    let norm = |x: f64| if x == 0.0 { 0.0 } else { x };
+    let a = p.as_array();
+    Point3::new(norm(a[0]), norm(a[1]), norm(a[2]))
+}
+
+/// Canonicalize an OPEN conic run chain by 3D [`point_cmp`] endpoint order
+/// (never `u32` vertex index). Returns `(canonical chain, reversed?)`.
+pub(crate) fn canonical_open_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, bool) {
+    let k = chain.len();
+    let mut ord = std::cmp::Ordering::Equal;
+    for i in 0..k {
+        ord = point_cmp(verts[chain[i] as usize], verts[chain[k - 1 - i] as usize]);
+        if ord != std::cmp::Ordering::Equal {
+            break;
+        }
+    }
+    if ord != std::cmp::Ordering::Greater {
         (chain.to_vec(), false)
     } else {
         (chain.iter().rev().copied().collect(), true)
     }
 }
 
-/// Canonicalize a CLOSED run chain: rotate the minimum vertex first, then
-/// run toward the smaller-index neighbor. Returns (canonical chain,
-/// reversed relative to input order?).
-fn canonical_closed_chain(chain: &[u32]) -> (Vec<u32>, bool) {
+/// Canonicalize a CLOSED conic run chain by `canon_curve`'s positive CCW
+/// angular orientation and authored operand `BRepVertex` provenance (F2 / N81;
+/// Yang §4.4.2, `refs/text/yang2025_hybrid_boolean.txt:574-598`):
+/// 1. Conics carrying `>= 2` surviving operand `BRepVertex`es (e.g. a
+///    `SeamForm` torus rim's 4 quadrant feet or a prior boolean's 4-arc rim)
+///    keep those authored vertices non-elidable, so `partition_loop` splits at
+///    them and each open arc is canonicalized by [`canonical_open_chain`]
+///    (`point_cmp`, vertex-index-free).
+/// 2. When a closed run carries a single surviving operand `BRepVertex` (e.g.
+///    a cylinder/cone `2π` circle's seam foot), that vertex is the unique
+///    start anchor and traversal is oriented in the positive CCW sweep (`d > 0`)
+///    around `canon_curve`'s canonical normal — zero `u32` vertex-index
+///    dependence.
+/// 3. When the closed run carries NO surviving operand `BRepVertex` (a freshly
+///    minted unanchored intersection circle, e.g. `R0021` `chain 23`), retain
+///    the historical `min_by_key` vertex fallback until `R0021`'s
+///    `volume_composition` grid-residual razor's edge is adjudicated (STOP rule,
+///    `docs/yang_deviations.md` N81 & `docs/yang_tail_triage.md`).
+pub(crate) fn canonical_closed_chain(
+    chain: &[u32],
+    canon_curve: Option<&Curve>,
+    verts: &[Point3],
+    operand_vertex_keys: &BTreeSet<[u64; 3]>,
+) -> (Vec<u32>, bool) {
     let k = chain.len();
-    let (min_pos, _) = chain
+    assert!(k > 0, "closed chain is non-empty");
+    let op_positions: Vec<usize> = chain
         .iter()
         .enumerate()
-        .min_by_key(|&(_, v)| *v)
-        .expect("closed chain is non-empty");
-    let fwd = chain[(min_pos + 1) % k];
-    let bwd = chain[(min_pos + k - 1) % k];
-    if fwd <= bwd {
-        let rotated: Vec<u32> = (0..k).map(|i| chain[(min_pos + i) % k]).collect();
-        (rotated, false)
-    } else {
-        let rotated: Vec<u32> = (0..k).map(|i| chain[(min_pos + k - i) % k]).collect();
-        (rotated, true)
+        .filter(|&(_, &v)| operand_vertex_keys.contains(&point_key(verts[v as usize])))
+        .map(|(i, _)| i)
+        .collect();
+    if op_positions.is_empty() {
+        let (min_pos, _) = chain
+            .iter()
+            .enumerate()
+            .min_by_key(|&(_, v)| *v)
+            .expect("closed chain is non-empty");
+        let fwd = chain[(min_pos + 1) % k];
+        let bwd = chain[(min_pos + k - 1) % k];
+        return if fwd <= bwd {
+            let rotated: Vec<u32> = (0..k).map(|i| chain[(min_pos + i) % k]).collect();
+            (rotated, false)
+        } else {
+            let rotated: Vec<u32> = (0..k).map(|i| chain[(min_pos + k - i) % k]).collect();
+            (rotated, true)
+        };
     }
+    let candidates = op_positions;
+    let idx_at = |pos: usize, rev: bool, step: usize| -> usize {
+        if rev {
+            (pos + k - step) % k
+        } else {
+            (pos + step) % k
+        }
+    };
+    if k >= 3 {
+        if let Some(canon) = canon_curve.filter(|c| crate::stage4_correct::conic_param_periodic(c))
+        {
+            let mut ts = Vec::with_capacity(k);
+            let mut ok = true;
+            for &v in chain {
+                match conic_param(canon, norm_point(verts[v as usize])) {
+                    Some(t) => ts.push(t),
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                let signed: f64 = (0..k).map(|s| wrap_delta(ts[(s + 1) % k] - ts[s])).sum();
+                if signed != 0.0 {
+                    let reversed = signed < 0.0;
+                    let min_pos = candidates
+                        .iter()
+                        .copied()
+                        .min_by(|&pa, &pb| {
+                            point_cmp(verts[chain[pa] as usize], verts[chain[pb] as usize])
+                        })
+                        .expect("closed chain has at least one candidate");
+                    let rotated: Vec<u32> = (0..k)
+                        .map(|step| chain[idx_at(min_pos, reversed, step)])
+                        .collect();
+                    return (rotated, reversed);
+                }
+            }
+        }
+    }
+    let mut best: Option<(usize, bool)> = None;
+    for &pos in &candidates {
+        for rev in [false, true] {
+            let take = match best {
+                None => true,
+                Some((bpos, brev)) => {
+                    let mut ord = std::cmp::Ordering::Equal;
+                    for step in 0..k {
+                        let pa = verts[chain[idx_at(pos, rev, step)] as usize];
+                        let pb = verts[chain[idx_at(bpos, brev, step)] as usize];
+                        ord = point_cmp(pa, pb);
+                        if ord != std::cmp::Ordering::Equal {
+                            break;
+                        }
+                    }
+                    ord == std::cmp::Ordering::Less
+                }
+            };
+            if take {
+                best = Some((pos, rev));
+            }
+        }
+    }
+    let (min_pos, reversed) = best.expect("closed chain has at least one candidate");
+    let rotated: Vec<u32> = (0..k)
+        .map(|step| chain[idx_at(min_pos, reversed, step)])
+        .collect();
+    (rotated, reversed)
 }
 
-/// Run the merge over the emitted topology. Never fails — every structural
-/// or geometric surprise declines the affected run and keeps the
-/// per-segment status quo.
+/// Run the merge over the emitted topology without operand vertex anchors
+/// (unit-test convenience wrapper around [`merge_conic_seam_runs_with_operand_verts`]).
+#[allow(dead_code)]
 pub(crate) fn merge_conic_seam_runs(
     verts: &[Point3],
     edges: &mut Vec<BRepEdge>,
     faces: &mut [BRepFace],
     sources: &mut [TessellationSource],
 ) -> MergeStats {
+    merge_conic_seam_runs_with_operand_verts(verts, edges, faces, sources, &[], &[])
+}
+
+/// Run the merge over the emitted topology, anchoring closed conic rims on
+/// surviving operand `BRepVertex`es when present. Never fails — every
+/// structural or geometric surprise declines the affected run and keeps the
+/// per-segment status quo.
+pub(crate) fn merge_conic_seam_runs_with_operand_verts(
+    verts: &[Point3],
+    edges: &mut Vec<BRepEdge>,
+    faces: &mut [BRepFace],
+    sources: &mut [TessellationSource],
+    operand_verts_a: &[BRepVertex],
+    operand_verts_b: &[BRepVertex],
+) -> MergeStats {
+    let operand_vertex_keys: BTreeSet<[u64; 3]> = operand_verts_a
+        .iter()
+        .chain(operand_verts_b.iter())
+        .map(|v| point_key(v.point))
+        .collect();
     let mut stats = MergeStats {
         edges_before: edges.len(),
         ..MergeStats::default()
@@ -535,13 +690,37 @@ pub(crate) fn merge_conic_seam_runs(
             }
         }
     }
+    // Count distinct surviving operand BRepVertex positions per undirected
+    // conic key. When a conic carries >= 2 surviving operand BRepVertices
+    // (such as a SeamForm torus rim's 4 quadrant feet or a 4-arc rim re-entering
+    // from an earlier boolean), those vertices are authored model vertices
+    // rather than Steiner chord samples — keep them non-elidable so each open
+    // arc coalesces independently via `canonical_open_chain` (`point_cmp`).
+    let mut operand_keys_per_conic: BTreeMap<Vec<u64>, BTreeSet<[u64; 3]>> = BTreeMap::new();
+    for (&v, u) in &uses {
+        let pk = point_key(verts[v as usize]);
+        if !operand_vertex_keys.contains(&pk) {
+            continue;
+        }
+        for ck in u.keys.iter().flatten() {
+            operand_keys_per_conic
+                .entry(ck.clone())
+                .or_default()
+                .insert(pk);
+        }
+    }
     let elidable: BTreeSet<u32> = uses
         .iter()
-        .filter(|(_, u)| {
+        .filter(|(&v, u)| {
             u.count == 4
                 && u.faces.len() == 2
                 && u.keys.len() == 1
-                && u.keys.iter().next().is_some_and(|k| k.is_some())
+                && u.keys.iter().next().is_some_and(|k| {
+                    k.as_ref().is_some_and(|ck| {
+                        !(operand_vertex_keys.contains(&point_key(verts[v as usize]))
+                            && operand_keys_per_conic.get(ck).is_some_and(|s| s.len() >= 2))
+                    })
+                })
         })
         .map(|(&v, _)| v)
         .collect();
@@ -588,7 +767,7 @@ pub(crate) fn merge_conic_seam_runs(
                     chain.push(cycle[orig_pos(r)]);
                 }
                 chain.push(cycle[orig_pos(start_r + len) % m]);
-                let (canon_chain, _) = canonical_open_chain(&chain);
+                let (canon_chain, _) = canonical_open_chain(&chain, verts);
                 let e = floor_of.entry(canon_chain).or_insert(1);
                 *e = (*e).max(need);
             }
@@ -668,16 +847,16 @@ pub(crate) fn merge_conic_seam_runs(
                     // end vertex of the final edge
                     chain.push(cycle[orig_pos(start_r + len) % m]);
                 }
-                let (canon_chain, reversed) = if closed_whole {
-                    canonical_closed_chain(&chain)
-                } else {
-                    canonical_open_chain(&chain)
-                };
                 // Canonical curve from the first edge of the stretch.
                 let canon_curve = canonical_conic(&edges[lp[orig_pos(start_r)] as usize].curve);
                 let Some(canon_curve) = canon_curve else {
                     verbatim(new_lp, covers);
                     return;
+                };
+                let (canon_chain, reversed) = if closed_whole {
+                    canonical_closed_chain(&chain, Some(&canon_curve), verts, &operand_vertex_keys)
+                } else {
+                    canonical_open_chain(&chain, verts)
                 };
                 let decision = decisions.entry(canon_chain.clone()).or_insert_with(|| {
                     let min_pieces = if closed_whole {
@@ -1364,5 +1543,274 @@ mod tests {
                 assert!(sw < std::f64::consts::PI - 1e-3, "sweep {sw}");
             }
         }
+    }
+
+    /// Permute vertex IDs of a `(verts, edges)` fixture by `old_to_new` (`new[old_to_new[v]] = old[v]`).
+    fn permute_fixture(
+        verts: &[Point3],
+        edges: &[BRepEdge],
+        old_to_new: &[u32],
+    ) -> (Vec<Point3>, Vec<BRepEdge>) {
+        let mut pverts = vec![Point3::new(0.0, 0.0, 0.0); verts.len()];
+        for (old, &new) in old_to_new.iter().enumerate() {
+            pverts[new as usize] = verts[old];
+        }
+        let pedges = edges
+            .iter()
+            .map(|e| BRepEdge {
+                start: old_to_new[e.start as usize],
+                end: old_to_new[e.end as usize],
+                curve: e.curve,
+            })
+            .collect();
+        (pverts, pedges)
+    }
+
+    /// Unordered set of undirected 3D endpoint pairs on a face loop.
+    fn loop_point_pairs(
+        verts: &[Point3],
+        edges: &[BRepEdge],
+        lp: &[u32],
+    ) -> BTreeSet<([u64; 3], [u64; 3])> {
+        lp.iter()
+            .map(|&ei| {
+                let e = &edges[ei as usize];
+                let (ka, kb) = (
+                    point_key(verts[e.start as usize]),
+                    point_key(verts[e.end as usize]),
+                );
+                if ka <= kb {
+                    (ka, kb)
+                } else {
+                    (kb, ka)
+                }
+            })
+            .collect()
+    }
+
+    /// F2 / N81: open-run split boundaries must depend solely on 3D geometry,
+    /// never on `u32` vertex numbering.
+    #[test]
+    fn open_run_piece_boundaries_are_invariant_under_vertex_renumbering() {
+        let (verts, mut edges_a, mut faces_a) = ring_fixture(19);
+        let seg = |s: u32, e: u32| BRepEdge {
+            start: s,
+            end: e,
+            curve: Curve::LineSegment,
+        };
+        let base = edges_a.len() as u32;
+        edges_a.push(seg(0, 7));
+        edges_a.push(seg(7, 11));
+        edges_a.push(seg(11, 0));
+        faces_push_triangle(&mut faces_a, base);
+
+        let n = verts.len();
+        // Reverse and scramble vertex indices so `first() <= last()` flips on every open run.
+        let perm: Vec<u32> = (0..n).map(|i| ((n - 1 - i + 5) % n) as u32).collect();
+        let (verts_b, mut edges_b) = permute_fixture(&verts, &edges_a, &perm);
+        let mut faces_b = faces_a.clone();
+
+        let mut src_a: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+        let mut src_b: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+        merge_conic_seam_runs(&verts, &mut edges_a, &mut faces_a, &mut src_a);
+        merge_conic_seam_runs(&verts_b, &mut edges_b, &mut faces_b, &mut src_b);
+
+        for fi in 0..2 {
+            assert_eq!(
+                loop_point_pairs(&verts, &edges_a, &faces_a[fi].outer_loop),
+                loop_point_pairs(&verts_b, &edges_b, &faces_b[fi].outer_loop),
+                "face {fi} open-run piece boundaries changed under vertex renumbering"
+            );
+        }
+    }
+
+    /// F2 / N81: closed-ring 4-arc split boundaries must be invariant under
+    /// arbitrary `u32` vertex renumbering AND preserve authored operand
+    /// `BRepVertex` seam anchors (reproducing `b2_pipe`'s `s_bend()` rim at
+    /// `(0.3, 0.3, 0)` where vertex 0 sat at poloidal phase `+π/4` while the
+    /// authored torus `+axis` seam foot sat at `+π/2`).
+    #[test]
+    fn closed_ring_preserves_operand_seam_anchor_across_vertex_permutations() {
+        // 8-chord closed rim at (0.3, 0.3, 0) in the x = 0.3 plane (Bend 1's shared rim):
+        // poloidal phases k * π/4 for k = 0..8; authored operand BRepVertices at {0, ±π/2, π}
+        // (indices 0, 2, 4, 6 in natural order).
+        let r = 0.05;
+        let c = circle([0.3, 0.3, 0.0], [1.0, 0.0, 0.0], r);
+        let verts: Vec<Point3> = (0..8)
+            .map(|k| {
+                let phi = (k as f64) * std::f64::consts::FRAC_PI_4;
+                Point3::new(0.3, 0.3 + r * phi.cos(), r * phi.sin())
+            })
+            .collect();
+        let operand_verts: Vec<BRepVertex> = [0usize, 2, 4, 6]
+            .into_iter()
+            .map(|k| BRepVertex { point: verts[k] })
+            .collect();
+        let plus_axis_foot = point_key(verts[2]); // φ = +π/2 => z = +0.05
+
+        let mut edges_nat = Vec::new();
+        let a_loop: Vec<u32> = (0..8)
+            .map(|i| {
+                edges_nat.push(BRepEdge {
+                    start: i as u32,
+                    end: ((i + 1) % 8) as u32,
+                    curve: c,
+                });
+                (edges_nat.len() - 1) as u32
+            })
+            .collect();
+        let b_loop: Vec<u32> = (0..8)
+            .map(|i| {
+                let s = (8 - i) % 8;
+                let e = (8 - i - 1) % 8;
+                edges_nat.push(BRepEdge {
+                    start: s as u32,
+                    end: e as u32,
+                    curve: c,
+                });
+                (edges_nat.len() - 1) as u32
+            })
+            .collect();
+        let plane = crate::geom::Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: 0.3,
+        };
+        let faces_template = vec![
+            BRepFace {
+                surface: plane,
+                outer_loop: a_loop,
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: plane,
+                outer_loop: b_loop,
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+
+        // Natural numbering vs odd-shifted numbering where k=1 (+π/4) gets vertex ID 0!
+        let perm_odd_zero: Vec<u32> = vec![7, 0, 6, 1, 5, 2, 4, 3];
+        let (verts_perm, mut edges_perm) = permute_fixture(&verts, &edges_nat, &perm_odd_zero);
+
+        let mut faces_a = faces_template.clone();
+        let mut faces_b = faces_template;
+        let mut src_a: Vec<TessellationSource> =
+            (0..8u32).map(TessellationSource::BRepVertex).collect();
+        let mut src_b: Vec<TessellationSource> =
+            (0..8u32).map(TessellationSource::BRepVertex).collect();
+
+        merge_conic_seam_runs_with_operand_verts(
+            &verts,
+            &mut edges_nat,
+            &mut faces_a,
+            &mut src_a,
+            &operand_verts,
+            &[],
+        );
+        merge_conic_seam_runs_with_operand_verts(
+            &verts_perm,
+            &mut edges_perm,
+            &mut faces_b,
+            &mut src_b,
+            &operand_verts,
+            &[],
+        );
+
+        let pairs_a = loop_point_pairs(&verts, &edges_nat, &faces_a[0].outer_loop);
+        let pairs_b = loop_point_pairs(&verts_perm, &edges_perm, &faces_b[0].outer_loop);
+        assert_eq!(
+            pairs_a, pairs_b,
+            "closed rim pieces must match across permutations"
+        );
+        assert!(
+            pairs_a
+                .iter()
+                .any(|&(u, v)| u == plus_axis_foot || v == plus_axis_foot),
+            "closed rim merge must preserve the +axis operand seam foot"
+        );
+    }
+
+    /// F2 / N81: a closed `2π` circle rim carrying a single surviving operand
+    /// `BRepVertex` (e.g. a cylinder or cone seam foot) splits into identical
+    /// 4-arc pieces anchored at that seam foot across arbitrary `u32` vertex
+    /// permutations and opposite loop-traversal orders.
+    #[test]
+    fn closed_single_anchor_ring_is_invariant_under_vertex_permutation() {
+        let (verts, mut edges_nat, faces_template) = ring_fixture(16);
+        let n = verts.len();
+        let seam_anchor = BRepVertex { point: verts[3] };
+        let anchor_key = point_key(seam_anchor.point);
+        let perm: Vec<u32> = (0..n as u32).map(|i| (i * 7 + 5) % (n as u32)).collect();
+        let (verts_perm, mut edges_perm) = permute_fixture(&verts, &edges_nat, &perm);
+
+        let mut faces_a = faces_template.clone();
+        let mut faces_b = faces_template;
+        let mut src_a: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+        let mut src_b: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+
+        merge_conic_seam_runs_with_operand_verts(
+            &verts,
+            &mut edges_nat,
+            &mut faces_a,
+            &mut src_a,
+            std::slice::from_ref(&seam_anchor),
+            &[],
+        );
+        merge_conic_seam_runs_with_operand_verts(
+            &verts_perm,
+            &mut edges_perm,
+            &mut faces_b,
+            &mut src_b,
+            std::slice::from_ref(&seam_anchor),
+            &[],
+        );
+
+        let pairs_a = loop_point_pairs(&verts, &edges_nat, &faces_a[0].outer_loop);
+        let pairs_b = loop_point_pairs(&verts_perm, &edges_perm, &faces_b[0].outer_loop);
+        assert_eq!(
+            pairs_a, pairs_b,
+            "single-anchor closed rim pieces must match across vertex permutations"
+        );
+        assert!(
+            pairs_a
+                .iter()
+                .any(|&(u, v)| u == anchor_key || v == anchor_key),
+            "single-anchor closed rim merge must preserve the operand seam foot"
+        );
+    }
+
+    /// Closed intersection circle (carrying no on-curve operand `BRepVertex`
+    /// of its own) produces identical 3D arc pieces across arbitrary `u32`
+    /// vertex permutations once `R0021`'s `volume_composition` residual band is
+    /// adjudicated (N81 / `docs/yang_tail_triage.md`).
+    #[test]
+    #[ignore = "STOP on R0021 volume_composition grid-residual razor's edge (N81)"]
+    fn closed_unanchored_ring_is_invariant_under_vertex_permutation() {
+        let (verts, mut edges_nat, faces_template) = ring_fixture(16);
+        let n = verts.len();
+        let perm: Vec<u32> = (0..n as u32).map(|i| (i * 7 + 5) % (n as u32)).collect();
+        let (verts_perm, mut edges_perm) = permute_fixture(&verts, &edges_nat, &perm);
+
+        let mut faces_a = faces_template.clone();
+        let mut faces_b = faces_template;
+        let mut src_a: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+        let mut src_b: Vec<TessellationSource> =
+            (0..n as u32).map(TessellationSource::BRepVertex).collect();
+
+        merge_conic_seam_runs(&verts, &mut edges_nat, &mut faces_a, &mut src_a);
+        merge_conic_seam_runs(&verts_perm, &mut edges_perm, &mut faces_b, &mut src_b);
+
+        assert_eq!(
+            loop_point_pairs(&verts, &edges_nat, &faces_a[0].outer_loop),
+            loop_point_pairs(&verts_perm, &edges_perm, &faces_b[0].outer_loop),
+            "unanchored closed ring pieces must match across vertex permutations"
+        );
     }
 }

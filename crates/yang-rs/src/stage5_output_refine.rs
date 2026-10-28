@@ -794,318 +794,336 @@ pub(crate) fn restore_carried_edge_curves(
         // original boundary curves or the intersection curves" (§4.4.2,
         // `refs/text/yang2025_hybrid_boolean.txt:589-592`) — and is typed
         // from the surfaces themselves below.
-        let carried = attr_a.input == attr_b.input && attr_a.face != attr_b.face;
-        let curved_pair = surface_bits(&s0) != surface_bits(&s1)
-            && !(matches!(s0, Surface::Plane { .. }) && matches!(s1, Surface::Plane { .. }));
-        if !carried && !curved_pair {
-            continue;
-        }
-        stats.eligible += 1;
-        let (p, q) = (verts[key.0 as usize], verts[key.1 as usize]);
-        let coord = {
-            let (pa, qa) = (p.as_array(), q.as_array());
-            pa.iter()
-                .chain(qa.iter())
-                .fold(0.0f64, |m, &c| m.max(c.abs()))
-        };
-        // In-band candidate conics from the two input faces' loops (the
-        // classify band the merge and from_yang import both use), in key
-        // order so the kept descriptor is deterministic.
-        let mut in_band: BTreeMap<Vec<u64>, Curve> = BTreeMap::new();
-        let mut any_candidate = false;
-        if carried {
+        let carried_input = if attr_a.input == attr_b.input && attr_a.face != attr_b.face {
             let input = match attr_a.input {
                 InputId::A => input_a,
                 InputId::B => input_b,
             };
-            for fi in [attr_a.face, attr_b.face] {
-                let Some(f) = input.0.get(fi as usize) else {
-                    continue;
-                };
-                for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
-                    for &ei in lp {
-                        let Some(e) = input.1.get(ei as usize) else {
-                            continue;
-                        };
-                        let Some(d) = carried_residual(&e.curve, p, q) else {
-                            continue;
-                        };
-                        any_candidate = true;
-                        if d <= candidate_band(&e.curve, coord) {
-                            in_band.insert(conic_key(&e.curve), e.curve);
-                        }
-                    }
-                }
-            }
-        }
-        // No input curve carries it: the intersection of the two owner
-        // surfaces does (ssi-rs, the curves Stage 3 types A×B edges with).
-        // This reaches what Stage 3 leaves untyped — the perpendicular torus
-        // × plane section (circles, `torus_plane_is_perpendicular_section`;
-        // R0015, R0050) and an A×B curve on a Stage-0 overlay face, where
-        // both owners are attributed to one input (R0026) — after Stage 4,
-        // so the torus block and the conic maps never see the type. A `Line`
-        // candidate means the chord IS straight: it stays a `LineSegment`.
-        let by_surfaces = in_band.is_empty() && curved_pair;
-        if by_surfaces {
-            let returned = crate::stage3_ssi::surface_to_quadric(s0)
-                .ok()
-                .zip(crate::stage3_ssi::surface_to_quadric(s1).ok())
-                .and_then(|(q0, q1)| ssi_rs::intersect(&q0, &q1).ok());
-            match returned {
-                None => stats.ssi_unavailable += 1,
-                Some(returned) => {
-                    for c in returned {
-                        let Ok(curve) = crate::stage3_ssi::ssi_curve_to_curve(c) else {
-                            continue;
-                        };
-                        let Some(d) = carried_residual(&curve, p, q) else {
-                            continue;
-                        };
-                        any_candidate = true;
-                        if d <= candidate_band(&curve, coord) {
-                            in_band.insert(conic_key(&curve), curve);
-                        }
-                    }
-                }
-            }
-        }
-        if in_band.is_empty() {
-            if any_candidate {
-                stats.declined_offcurve += 1;
-            } else {
-                stats.no_candidate += 1;
-            }
+            Some((input, attr_a.face, attr_b.face))
+        } else {
+            None
+        };
+        let (p, q) = (verts[key.0 as usize], verts[key.1 as usize]);
+        let Some((conic, by_surfaces)) =
+            certified_output_edge_curve(p, q, s0, s1, carried_input, &mut stats)
+        else {
             continue;
-        }
-        // Copies of one curve (a rim's descriptor on each of its two input
-        // faces) are one candidate, not an ambiguity.
-        let mut distinct: Vec<Curve> = Vec::new();
-        for c in in_band.values() {
-            push_distinct(&mut distinct, *c, candidate_band(c, coord));
-        }
-        if distinct.len() > 1 {
-            stats.declined_ambiguous += 1;
-            continue;
-        }
-        let conic = distinct[0];
-        // Surface-pair arm (P0033, 2026-10-11): a re-entering body's
-        // cylinder × cone (and any other pair) boundary is a procedural
-        // curve with no parameter, so its DOMAIN certification is the one
-        // Stage 1's chain pre-pass and kernel-v2's render sampler apply to a
-        // pair chord: the chord's midpoint Newton-projects onto BOTH
-        // surfaces (`relocate_onto_implicit_pair`, [#24] §4.3), lands inside
-        // the chord's own neighbourhood (foot strictly between the
-        // endpoints, sag below the chord — no basin escape toward another
-        // branch), recursively down to the pre-pass's OWN chord bound
-        // ([`pair_chord_certified`]: the certificate Stage 1 gives a pair
-        // edge of any length, so no new tolerance is introduced), and the
-        // projected midpoint lies on BOTH owner surfaces. Both copies take the input
-        // edge's descriptor verbatim (a pair has no directional normal;
-        // `from_yang` demands bit-identical twins).
-        if let Curve::SurfacePair { a, b } = conic {
-            let (pa, qa) = (p.as_array(), q.as_array());
-            let mid = Point3::new(
-                0.5 * (pa[0] + qa[0]),
-                0.5 * (pa[1] + qa[1]),
-                0.5 * (pa[2] + qa[2]),
-            );
-            if !pair_chord_certified(a, b, p, q, 12) {
-                stats.declined_sweep += 1;
-                continue;
+        };
+        match conic {
+            Curve::SurfacePair { .. } => {
+                for &(_, ei) in uses {
+                    edges[ei].curve = conic;
+                }
+                stats.typed_chords += 1;
+                stats.typed_by_surfaces += usize::from(by_surfaces);
+                stats.typed_pairs += 1;
             }
-            let Some(mp) = relocate_onto_implicit_pair(mid, a, b) else {
-                stats.declined_midpoint += 1;
+            Curve::Hyperbola { .. } => {
+                for &(_, ei) in uses {
+                    edges[ei].curve = conic;
+                }
+                stats.typed_chords += 1;
+                stats.typed_by_surfaces += usize::from(by_surfaces);
+                stats.typed_hyperbolas += 1;
+            }
+            Curve::Ellipse { .. } => {
+                for &(_, ei) in uses {
+                    let (s, e) = (edges[ei].start, edges[ei].end);
+                    edges[ei].curve =
+                        crate::stage5_topology::orient_directed_curve(conic, s, e, verts);
+                }
+                stats.typed_chords += 1;
+                stats.typed_by_surfaces += usize::from(by_surfaces);
+                stats.typed_ellipses += 1;
+            }
+            Curve::Circle { .. } => {
+                for &(_, ei) in uses {
+                    let (s, e) = (edges[ei].start, edges[ei].end);
+                    edges[ei].curve =
+                        crate::stage5_topology::orient_directed_curve(conic, s, e, verts);
+                }
+                stats.typed_chords += 1;
+                stats.typed_by_surfaces += usize::from(by_surfaces);
+            }
+            _ => unreachable!("certified_output_edge_curve returns typed curves only"),
+        }
+    }
+    stats
+}
+
+/// Certify whether a 2-use boundary chord `(p, q)` between faces on surfaces
+/// `s0` and `s1` (with `carried_input = Some((input, face_a, face_b))` when
+/// both faces descend from distinct faces of the same operand) lies on a
+/// unique typed curve (`Circle`, `Ellipse`, `Hyperbola`, `SurfacePair`) —
+/// either a carried input curve or, when none is in band and `(s0, s1)` form a
+/// distinct curved surface pair, `ssi_rs::intersect(s0, s1)` — including the
+/// per-curve domain/midpoint guards. Returns `(curve, by_surfaces)`. Shared
+/// with §4.4.1 chain decimation so curved chords are never classified as
+/// straight-segment subdivisions.
+pub(crate) fn certified_output_edge_curve(
+    p: Point3,
+    q: Point3,
+    s0: Surface,
+    s1: Surface,
+    carried_input: Option<((&[BRepFace], &[BRepEdge]), u32, u32)>,
+    stats: &mut RestoreStats,
+) -> Option<(Curve, bool)> {
+    let carried = carried_input.is_some();
+    let curved_pair = surface_bits(&s0) != surface_bits(&s1)
+        && !(matches!(s0, Surface::Plane { .. }) && matches!(s1, Surface::Plane { .. }));
+    if !carried && !curved_pair {
+        return None;
+    }
+    stats.eligible += 1;
+    let coord = {
+        let (pa, qa) = (p.as_array(), q.as_array());
+        pa.iter()
+            .chain(qa.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()))
+    };
+    // In-band candidate conics from the two input faces' loops (the
+    // classify band the merge and from_yang import both use), in key
+    // order so the kept descriptor is deterministic.
+    let mut in_band: BTreeMap<Vec<u64>, Curve> = BTreeMap::new();
+    let mut any_candidate = false;
+    if let Some((input, face_a, face_b)) = carried_input {
+        for fi in [face_a, face_b] {
+            let Some(f) = input.0.get(fi as usize) else {
                 continue;
             };
-            let mpa = mp.as_array();
-            let band = cad_primitives::TAU_EVAL * (1.0 + coord);
-            let on =
-                |surf| surface_distance_and_normal(surf, mpa).is_some_and(|(d, _)| d.abs() <= band);
-            if !(on(s0) && on(s1)) {
-                stats.declined_midpoint += 1;
-                continue;
+            for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+                for &ei in lp {
+                    let Some(e) = input.1.get(ei as usize) else {
+                        continue;
+                    };
+                    let Some(d) = carried_residual(&e.curve, p, q) else {
+                        continue;
+                    };
+                    any_candidate = true;
+                    if d <= candidate_band(&e.curve, coord) {
+                        in_band.insert(conic_key(&e.curve), e.curve);
+                    }
+                }
             }
-            for &(_, ei) in uses {
-                edges[ei].curve = conic;
-            }
-            stats.typed_chords += 1;
-            stats.typed_by_surfaces += usize::from(by_surfaces);
-            stats.typed_pairs += 1;
-            continue;
         }
-        // Hyperbola arm (P0033, 2026-10-11): the axis-steep plane × cone
-        // section a prior boolean left on a re-entering body. The branch is
-        // unbounded and its parameter injective (`asinh`), so there is no
-        // wrap to guard; the chord's domain certification is the ellipse
-        // arm's — the mid-parameter point on BOTH owner surfaces — and both
-        // copies carry the input descriptor bit-for-bit (`from_yang`'s
-        // hyperbola twins are endpoint-oriented, like a pair's).
-        if let Curve::Hyperbola {
+    }
+    // No input curve carries it: the intersection of the two owner
+    // surfaces does (ssi-rs, the curves Stage 3 types A×B edges with).
+    // This reaches what Stage 3 leaves untyped — the perpendicular torus
+    // × plane section (circles, `torus_plane_is_perpendicular_section`;
+    // R0015, R0050) and an A×B curve on a Stage-0 overlay face, where
+    // both owners are attributed to one input (R0026) — after Stage 4,
+    // so the torus block and the conic maps never see the type. A `Line`
+    // candidate means the chord IS straight: it stays a `LineSegment`.
+    let by_surfaces = in_band.is_empty() && curved_pair;
+    if by_surfaces {
+        let returned = crate::stage3_ssi::surface_to_quadric(s0)
+            .ok()
+            .zip(crate::stage3_ssi::surface_to_quadric(s1).ok())
+            .and_then(|(q0, q1)| ssi_rs::intersect(&q0, &q1).ok());
+        match returned {
+            None => stats.ssi_unavailable += 1,
+            Some(returned) => {
+                for c in returned {
+                    let Ok(curve) = crate::stage3_ssi::ssi_curve_to_curve(c) else {
+                        continue;
+                    };
+                    let Some(d) = carried_residual(&curve, p, q) else {
+                        continue;
+                    };
+                    any_candidate = true;
+                    if d <= candidate_band(&curve, coord) {
+                        in_band.insert(conic_key(&curve), curve);
+                    }
+                }
+            }
+        }
+    }
+    if in_band.is_empty() {
+        if any_candidate {
+            stats.declined_offcurve += 1;
+        } else {
+            stats.no_candidate += 1;
+        }
+        return None;
+    }
+    // Copies of one curve (a rim's descriptor on each of its two input
+    // faces) are one candidate, not an ambiguity.
+    let mut distinct: Vec<Curve> = Vec::new();
+    for c in in_band.values() {
+        push_distinct(&mut distinct, *c, candidate_band(c, coord));
+    }
+    if distinct.len() > 1 {
+        stats.declined_ambiguous += 1;
+        return None;
+    }
+    let conic = distinct[0];
+    // Surface-pair arm (P0033, 2026-10-11): a re-entering body's
+    // cylinder × cone (and any other pair) boundary is a procedural
+    // curve with no parameter, so its DOMAIN certification is the one
+    // Stage 1's chain pre-pass and kernel-v2's render sampler apply to a
+    // pair chord: the chord's midpoint Newton-projects onto BOTH
+    // surfaces (`relocate_onto_implicit_pair`, [#24] §4.3), lands inside
+    // the chord's own neighbourhood (foot strictly between the
+    // endpoints, sag below the chord — no basin escape toward another
+    // branch), recursively down to the pre-pass's OWN chord bound
+    // ([`pair_chord_certified`]: the certificate Stage 1 gives a pair
+    // edge of any length, so no new tolerance is introduced), and the
+    // projected midpoint lies on BOTH owner surfaces. Both copies take the input
+    // edge's descriptor verbatim (a pair has no directional normal;
+    // `from_yang` demands bit-identical twins).
+    if let Curve::SurfacePair { a, b } = conic {
+        let (pa, qa) = (p.as_array(), q.as_array());
+        let mid = Point3::new(
+            0.5 * (pa[0] + qa[0]),
+            0.5 * (pa[1] + qa[1]),
+            0.5 * (pa[2] + qa[2]),
+        );
+        if !pair_chord_certified(a, b, p, q, 12) {
+            stats.declined_sweep += 1;
+            return None;
+        }
+        let Some(mp) = relocate_onto_implicit_pair(mid, a, b) else {
+            stats.declined_midpoint += 1;
+            return None;
+        };
+        let mpa = mp.as_array();
+        let band = cad_primitives::TAU_EVAL * (1.0 + coord);
+        let on =
+            |surf| surface_distance_and_normal(surf, mpa).is_some_and(|(d, _)| d.abs() <= band);
+        if !(on(s0) && on(s1)) {
+            stats.declined_midpoint += 1;
+            return None;
+        }
+        return Some((conic, by_surfaces));
+    }
+    // Hyperbola arm (P0033, 2026-10-11): the axis-steep plane × cone
+    // section a prior boolean left on a re-entering body.
+    if let Curve::Hyperbola {
+        center,
+        normal,
+        major_axis,
+        semi_transverse,
+        semi_conjugate,
+    } = conic
+    {
+        let param =
+            |x: Point3| crate::geom::hyperbola_param(x, center, normal, major_axis, semi_conjugate);
+        let (t0, t1) = (param(p), param(q));
+        let mid = crate::geom::hyperbola_point(
             center,
             normal,
             major_axis,
             semi_transverse,
             semi_conjugate,
-        } = conic
-        {
-            let param = |x: Point3| {
-                crate::geom::hyperbola_param(x, center, normal, major_axis, semi_conjugate)
-            };
-            let (t0, t1) = (param(p), param(q));
-            let mid = crate::geom::hyperbola_point(
-                center,
-                normal,
-                major_axis,
-                semi_transverse,
-                semi_conjugate,
-                0.5 * (t0 + t1),
-            );
-            let band =
-                cad_primitives::TAU_EVAL * (1.0 + semi_transverse.max(semi_conjugate).max(coord));
-            let on = |surf| {
-                surface_distance_and_normal(surf, mid.as_array())
-                    .is_some_and(|(d, _)| d.abs() <= band)
-            };
-            if !(on(s0) && on(s1)) {
-                stats.declined_midpoint += 1;
-                continue;
-            }
-            for &(_, ei) in uses {
-                edges[ei].curve = conic;
-            }
-            stats.typed_chords += 1;
-            stats.typed_by_surfaces += usize::from(by_surfaces);
-            stats.typed_hyperbolas += 1;
-            continue;
+            0.5 * (t0 + t1),
+        );
+        let band =
+            cad_primitives::TAU_EVAL * (1.0 + semi_transverse.max(semi_conjugate).max(coord));
+        let on = |surf| {
+            surface_distance_and_normal(surf, mid.as_array()).is_some_and(|(d, _)| d.abs() <= band)
+        };
+        if !(on(s0) && on(s1)) {
+            stats.declined_midpoint += 1;
+            return None;
         }
-        // Ellipse arm (P0007): sweep guard and minor-arc midpoint DOMAIN
-        // certification in the ellipse's own angular parameter, the same
-        // two rules the circle branch below applies in its frame.
-        if let Curve::Ellipse {
+        return Some((conic, by_surfaces));
+    }
+    // Ellipse arm (P0007): sweep guard and minor-arc midpoint DOMAIN
+    // certification in the ellipse's own angular parameter.
+    if let Curve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = conic
+    {
+        let param = |x: Point3| {
+            crate::geom::ellipse_param(x, center, normal, major_axis, major_radius, minor_radius)
+        };
+        let (t0, t1) = (param(p), param(q));
+        let mut dt = t1 - t0;
+        while dt > std::f64::consts::PI {
+            dt -= 2.0 * std::f64::consts::PI;
+        }
+        while dt <= -std::f64::consts::PI {
+            dt += 2.0 * std::f64::consts::PI;
+        }
+        if dt.abs() > std::f64::consts::FRAC_PI_2 {
+            stats.declined_sweep += 1;
+            return None;
+        }
+        let Some(mid) = crate::geom::conic_eval(&conic, t0 + 0.5 * dt) else {
+            stats.declined_sweep += 1;
+            return None;
+        };
+        let band = cad_primitives::TAU_EVAL * (1.0 + major_radius.max(coord));
+        let on = |surf| {
+            surface_distance_and_normal(surf, mid.as_array()).is_some_and(|(d, _)| d.abs() <= band)
+        };
+        if !(on(s0) && on(s1)) {
+            stats.declined_midpoint += 1;
+            return None;
+        }
+        return Some((conic, by_surfaces));
+    }
+    let circle = conic;
+    // Sweep guard + minor-arc midpoint DOMAIN certification (R0063 micro-scale
+    // gear straight-chord-of-rim guard).
+    {
+        let Curve::Circle {
             center,
             normal,
-            major_axis,
-            major_radius,
-            minor_radius,
-        } = conic
-        {
-            let param = |x: Point3| {
-                crate::geom::ellipse_param(
-                    x,
-                    center,
-                    normal,
-                    major_axis,
-                    major_radius,
-                    minor_radius,
-                )
-            };
-            let (t0, t1) = (param(p), param(q));
-            let mut dt = t1 - t0;
-            while dt > std::f64::consts::PI {
-                dt -= 2.0 * std::f64::consts::PI;
-            }
-            while dt <= -std::f64::consts::PI {
-                dt += 2.0 * std::f64::consts::PI;
-            }
-            if dt.abs() > std::f64::consts::FRAC_PI_2 {
-                stats.declined_sweep += 1;
-                continue;
-            }
-            let Some(mid) = crate::geom::conic_eval(&conic, t0 + 0.5 * dt) else {
-                stats.declined_sweep += 1;
-                continue;
-            };
-            let band = cad_primitives::TAU_EVAL * (1.0 + major_radius.max(coord));
-            let on = |surf| {
-                surface_distance_and_normal(surf, mid.as_array())
-                    .is_some_and(|(d, _)| d.abs() <= band)
-            };
-            if !(on(s0) && on(s1)) {
-                stats.declined_midpoint += 1;
-                continue;
-            }
-            for &(_, ei) in uses {
-                let (s, e) = (edges[ei].start, edges[ei].end);
-                edges[ei].curve = crate::stage5_topology::orient_directed_curve(conic, s, e, verts);
-            }
-            stats.typed_chords += 1;
-            stats.typed_by_surfaces += usize::from(by_surfaces);
-            stats.typed_ellipses += 1;
-            continue;
+            radius,
+        } = circle
+        else {
+            unreachable!("in_band holds circles only after pair/hyperbola/ellipse arms");
+        };
+        let n = crate::normalize3(normal.as_array());
+        let c = center.as_array();
+        let proj = |x: Point3| -> [f64; 3] {
+            let x = x.as_array();
+            let d = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            let h = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
+            [d[0] - h * n[0], d[1] - h * n[1], d[2] - h * n[2]]
+        };
+        let (u, v) = (proj(p), proj(q));
+        let (lu, lv) = (
+            (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt(),
+            (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
+        );
+        let cosang = if lu > 0.0 && lv > 0.0 {
+            ((u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (lu * lv)).clamp(-1.0, 1.0)
+        } else {
+            -1.0
+        };
+        if cosang.acos() > std::f64::consts::FRAC_PI_2 {
+            stats.declined_sweep += 1;
+            return None;
         }
-        let circle = conic;
-        // Sweep guard: a mesh chord subtends a small arc; anything past π/2
-        // is not this family (and approaches the minor-side ambiguity).
-        // Then the DOMAIN certification: the restored arc must lie on BOTH
-        // owner faces' surfaces, checked at the minor-arc midpoint. The
-        // endpoints-on-circle test alone is necessary but NOT sufficient —
-        // a STRAIGHT carried edge whose two endpoints happen to lie on one
-        // rim circle (a chord line of the rim; measured on R0063's
-        // micro-scale gear) would otherwise be re-typed as an arc bulging
-        // out of both faces (the circle is edge-on to the planar owner:
-        // arc-plane · face-normal ≈ 0.0005 at the anchor).
-        {
-            let Curve::Circle { center, normal, .. } = circle else {
-                unreachable!("in_band holds circles and ellipses only; ellipses returned above");
-            };
-            let n = crate::normalize3(normal.as_array());
-            let c = center.as_array();
-            let proj = |x: Point3| -> [f64; 3] {
-                let x = x.as_array();
-                let d = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
-                let h = d[0] * n[0] + d[1] * n[1] + d[2] * n[2];
-                [d[0] - h * n[0], d[1] - h * n[1], d[2] - h * n[2]]
-            };
-            let (u, v) = (proj(p), proj(q));
-            let (lu, lv) = (
-                (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt(),
-                (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
-            );
-            let cosang = if lu > 0.0 && lv > 0.0 {
-                ((u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (lu * lv)).clamp(-1.0, 1.0)
-            } else {
-                -1.0
-            };
-            if cosang.acos() > std::f64::consts::FRAC_PI_2 {
-                stats.declined_sweep += 1;
-                continue;
-            }
-            // Minor-arc midpoint: bisect the in-plane directions and put the
-            // point back on the circle at the stored radius.
-            let Curve::Circle { radius, .. } = circle else {
-                unreachable!("the ellipse arm returned above");
-            };
-            let bis = [
-                u[0] / lu + v[0] / lv,
-                u[1] / lu + v[1] / lv,
-                u[2] / lu + v[2] / lv,
-            ];
-            let bl = (bis[0] * bis[0] + bis[1] * bis[1] + bis[2] * bis[2]).sqrt();
-            if bl <= 0.0 {
-                stats.declined_sweep += 1;
-                continue;
-            }
-            let mid_arc = [
-                c[0] + radius * bis[0] / bl,
-                c[1] + radius * bis[1] / bl,
-                c[2] + radius * bis[2] / bl,
-            ];
-            let band = cad_primitives::TAU_EVAL * (1.0 + radius.max(coord));
-            let on = |surf| {
-                surface_distance_and_normal(surf, mid_arc).is_some_and(|(d, _)| d.abs() <= band)
-            };
-            if !(on(s0) && on(s1)) {
-                stats.declined_midpoint += 1;
-                continue;
-            }
+        let bis = [
+            u[0] / lu + v[0] / lv,
+            u[1] / lu + v[1] / lv,
+            u[2] / lu + v[2] / lv,
+        ];
+        let bl = (bis[0] * bis[0] + bis[1] * bis[1] + bis[2] * bis[2]).sqrt();
+        if bl <= 0.0 {
+            stats.declined_sweep += 1;
+            return None;
         }
-        for &(_, ei) in uses {
-            let (s, e) = (edges[ei].start, edges[ei].end);
-            edges[ei].curve = crate::stage5_topology::orient_directed_curve(circle, s, e, verts);
+        let mid_arc = [
+            c[0] + radius * bis[0] / bl,
+            c[1] + radius * bis[1] / bl,
+            c[2] + radius * bis[2] / bl,
+        ];
+        let band = cad_primitives::TAU_EVAL * (1.0 + radius.max(coord));
+        let on =
+            |surf| surface_distance_and_normal(surf, mid_arc).is_some_and(|(d, _)| d.abs() <= band);
+        if !(on(s0) && on(s1)) {
+            stats.declined_midpoint += 1;
+            return None;
         }
-        stats.typed_chords += 1;
-        stats.typed_by_surfaces += usize::from(by_surfaces);
     }
-    stats
+    Some((circle, by_surfaces))
 }

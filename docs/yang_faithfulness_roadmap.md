@@ -98,8 +98,9 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
       gives r_A = r_B = r on two trimmed meshes. *(I3a full-arrangement
       primitives + 9 unit pins landed 2026-10-27; I3b `boolean_once` flip
       stopped per P9/P10 on `R0063`, `tangency_pinch_split`, and `b2_pipe::s_bend`
-      — gated on F2 retiring pre-CDT 2D `collapse_vertex` relabelling, post-hoc
-      `(3d)` unzip, and Stage-5 index-parity decimation; see
+      — 2026-10-28 F2 Step 1 cleared `b2_pipe::s_bend` (`17/17` under uncommitted
+      I3b trial); still gated on F2 retiring post-hoc `(3d)` unzip (`R0063`) and
+      pre-CDT 2D `collapse_vertex` relabelling (`c0058`); see
       `specs/yang_442_classify_after_update.md` §3(d) and N80/N81.)*
 - **Resolves:** N80. **Consolidates:** N81's three §4.4.1 sites (finished
   in F2). **Unblocks:** F2 and F3's Case-IV rule-out (I2).
@@ -127,8 +128,12 @@ intersected patches.
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
       validate. The §4.3 removals move into optimization (N81).
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
-      `decimate_intersection_runs` into §4.4.1. Review
-      `merge_same_plane_patches` (cleanup 2c).
+      ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28:
+      `stage5_chain_decimate` deleted and re-sited to
+      `stage4_chain_decimate::decimate_patch_chains_441` with 3D `point_cmp`;
+      `merge_conic_seam_runs` open + operand-anchored closed runs made
+      vertex-index-free, `0`-operand-vertex closed-circle phase STOPped on
+      `R0021` — see `N81`)*. Review `merge_same_plane_patches` (cleanup 2c).
 - [ ] **Stage-1 junction mints retire** into §4.4.1 junction identification
       (N82: `rim_junction_overrides`, P3a, tangent boost).
 - [ ] **Stage-0 Fig-11 relocation retires** into the same update (N86,

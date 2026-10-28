@@ -468,7 +468,151 @@ fn tessellate_developable_patch(
     if outer_hes.is_empty() {
         return Err(fail("patch with an empty boundary loop"));
     }
-    let p0 = arena.vertex(arena.half_edge(outer_hes[0])?.origin)?.point;
+    let mut p0 = arena.vertex(arena.half_edge(outer_hes[0])?.origin)?.point;
+    if !face.inner_loops.is_empty() {
+        // On a holed barrel (`wrapping` non-empty), `yang-rs` may store either
+        // a rim or a window in `face.outer_loop` (`s6_outer_loop_by_extent`
+        // R0099 strip rule; downstream classifies loops by winding). Put
+        // axis-wrapping loops first in a position-canonical order and anchor
+        // `(e1, e2)` at their lexicographically smallest off-axis vertex so the
+        // unrolled frame and Pass 1.5 host order do not depend on loop labels.
+        let ref_ax = if a[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let td = [
+            ref_ax[1] * a[2] - ref_ax[2] * a[1],
+            ref_ax[2] * a[0] - ref_ax[0] * a[2],
+            ref_ax[0] * a[1] - ref_ax[1] * a[0],
+        ];
+        let tdl = (td[0] * td[0] + td[1] * td[1] + td[2] * td[2]).sqrt();
+        if tdl.is_finite() && tdl > 0.0 {
+            let te1 = [td[0] / tdl, td[1] / tdl, td[2] / tdl];
+            let te2 = [
+                a[1] * te1[2] - a[2] * te1[1],
+                a[2] * te1[0] - a[0] * te1[2],
+                a[0] * te1[1] - a[1] * te1[0],
+            ];
+            let cmp_xyz = |u: [f64; 3], v: [f64; 3]| -> std::cmp::Ordering {
+                u[0].total_cmp(&v[0])
+                    .then_with(|| u[1].total_cmp(&v[1]))
+                    .then_with(|| u[2].total_cmp(&v[2]))
+            };
+            let loop_wrap_and_min =
+                |lid: crate::arena::LoopId| -> Option<(bool, [f64; 3], Option<Point3>)> {
+                    let hes = arena.loop_half_edges(lid).ok()?;
+                    if hes.len() < 2 {
+                        return None;
+                    }
+                    let mut total = 0.0f64;
+                    let mut min_xyz: Option<[f64; 3]> = None;
+                    let mut min_off_axis: Option<Point3> = None;
+                    for &h in &hes {
+                        let he = arena.half_edge(h).ok()?;
+                        let p = arena.vertex(he.origin).ok()?.point;
+                        let q = arena
+                            .vertex(arena.half_edge(he.next).ok()?.origin)
+                            .ok()?
+                            .point;
+                        let p_xyz = [p.x(), p.y(), p.z()];
+                        if min_xyz.is_none_or(|m| cmp_xyz(p_xyz, m).is_lt()) {
+                            min_xyz = Some(p_xyz);
+                        }
+                        let (theta_p, _) = theta_h(p, te1, te2).ok()?;
+                        if min_off_axis
+                            .is_none_or(|m| cmp_xyz(p_xyz, [m.x(), m.y(), m.z()]).is_lt())
+                        {
+                            min_off_axis = Some(p);
+                        }
+                        match he.curve {
+                            Curve::LineSegment => {
+                                let (theta_q, _) = theta_h(q, te1, te2).ok()?;
+                                total += crate::geom::wrap_to_pi(theta_q - theta_p);
+                            }
+                            Curve::Arc { center, normal, .. } => {
+                                let sw = crate::geom::ccw_sweep(
+                                    center,
+                                    [normal.x, normal.y, normal.z],
+                                    p,
+                                    q,
+                                )?;
+                                let dir =
+                                    if normal.x * a[0] + normal.y * a[1] + normal.z * a[2] > 0.0 {
+                                        1.0
+                                    } else {
+                                        -1.0
+                                    };
+                                total += dir * sw;
+                            }
+                            Curve::EllipseArc { .. } => {
+                                let samples = ellipse_interior_samples(arena, h, n_seg).ok()?;
+                                let mut prev = theta_p;
+                                for sp in &samples {
+                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    total += crate::geom::wrap_to_pi(ts - prev);
+                                    prev = ts;
+                                }
+                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                total += crate::geom::wrap_to_pi(tq - prev);
+                            }
+                            Curve::HyperbolaArc { .. } => {
+                                let samples = hyperbola_interior_samples(arena, h, n_seg).ok()?;
+                                let mut prev = theta_p;
+                                for sp in &samples {
+                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    total += crate::geom::wrap_to_pi(ts - prev);
+                                    prev = ts;
+                                }
+                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                total += crate::geom::wrap_to_pi(tq - prev);
+                            }
+                            Curve::SurfacePair { .. } => {
+                                let samples = surface_pair_edge_samples(arena, h, n_seg).ok()?;
+                                let mut prev = theta_p;
+                                for sp in &samples {
+                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    total += crate::geom::wrap_to_pi(ts - prev);
+                                    prev = ts;
+                                }
+                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                total += crate::geom::wrap_to_pi(tq - prev);
+                            }
+                            Curve::Circle { .. } => return None,
+                        }
+                    }
+                    Some((total.abs() > PI, min_xyz?, min_off_axis))
+                };
+            let mut info: Vec<(crate::arena::LoopId, bool, [f64; 3], Option<Point3>)> =
+                Vec::with_capacity(all_loops.len());
+            let mut all_ok = true;
+            for &lid in &all_loops {
+                if let Some((wraps, min_xyz, min_off)) = loop_wrap_and_min(lid) {
+                    info.push((lid, wraps, min_xyz, min_off));
+                } else {
+                    all_ok = false;
+                    break;
+                }
+            }
+            if all_ok && info.iter().any(|(_, wraps, _, _)| *wraps) {
+                info.sort_by(|x, y| {
+                    (!x.1)
+                        .cmp(&(!y.1))
+                        .then_with(|| cmp_xyz(x.2, y.2))
+                        .then_with(|| x.0 .0.cmp(&y.0 .0))
+                });
+                all_loops = info.iter().map(|(lid, _, _, _)| *lid).collect();
+                if let Some(best_p0) = info
+                    .iter()
+                    .filter(|(_, wraps, _, _)| *wraps)
+                    .filter_map(|(_, _, _, p)| *p)
+                    .min_by(|u, v| cmp_xyz([u.x(), u.y(), u.z()], [v.x(), v.y(), v.z()]))
+                {
+                    p0 = best_p0;
+                }
+            }
+        }
+    }
     let d0 = [p0.x() - ap[0], p0.y() - ap[1], p0.z() - ap[2]];
     let h00 = d0[0] * a[0] + d0[1] * a[1] + d0[2] * a[2];
     let r0 = [d0[0] - h00 * a[0], d0[1] - h00 * a[1], d0[2] - h00 * a[2]];
