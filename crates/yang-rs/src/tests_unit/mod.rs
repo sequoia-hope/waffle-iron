@@ -89,6 +89,7 @@ mod s4_torus_conic_corner;
 mod s6_outer_loop_by_extent;
 mod stage0_rim_projection;
 mod stage1_cdt_flap;
+mod t8_off_surface;
 mod topology;
 
 #[allow(unused_imports)]

@@ -53,6 +53,107 @@ pub(crate) enum FailureTrigger {
     /// remedy for one that persists is §4.5.2 refinement of its curve's
     /// faces.
     ReversalUnresolved,
+    /// T8 — §4.4.2 (`:574-605`): the output restores each face from the
+    /// surface and curves that bound it, so every loop vertex of the EMITTED
+    /// body lies on its face's surface. A vertex off its surface by more than
+    /// kernel-v2's import band is a body the B-Rep cannot represent — read on
+    /// the emitted body like T4, so neither the natural run nor a refined one
+    /// is adopted with it (ledger N100 item 9).
+    OffSurfaceVertex,
+}
+
+/// kernel-v2's import band, relative: a B-Rep vertex is ON a surface when
+/// its distance is `≤ OUTPUT_ON_SURFACE_BAND_REL · (1 + scale)`, `scale`
+/// the larger of the point's coordinate magnitude and the surface's own
+/// size (radius) — the band `classify_edge` and Stage 0/1 already apply to
+/// circle and cylinder membership (`stage1_tessellate.rs`, `stage0/mod.rs`).
+const OUTPUT_ON_SURFACE_BAND_REL: f64 = 1e-9;
+
+/// T8 sites: per emitted face, the worst loop vertex off its own surface
+/// beyond [`OUTPUT_ON_SURFACE_BAND_REL`]. Distances are Euclidean: a cone's
+/// radial residual is scaled by `cos α` (the same conversion
+/// `shell_contact` uses). Faces name their input lineage
+/// (`face_attribution`), like the other output-level checks.
+pub(crate) fn off_surface_vertex_sites(out: &BRep) -> Vec<FailureSite> {
+    use crate::Surface;
+    let verts = out.vertices();
+    let edges = out.edges();
+    let mag3 = |v: [f64; 3]| v[0].abs().max(v[1].abs()).max(v[2].abs());
+    let mut sites = Vec::new();
+    for (fi, f) in out.faces().iter().enumerate() {
+        let (size, to_distance) = match f.surface {
+            Surface::Plane { .. } => (0.0, 1.0),
+            Surface::Cylinder { radius, .. } | Surface::Sphere { radius, .. } => {
+                (radius.abs(), 1.0)
+            }
+            Surface::Cone { half_angle, .. } => (0.0, half_angle.cos()),
+            Surface::Torus {
+                major_radius,
+                minor_radius,
+                ..
+            } => (major_radius.abs() + minor_radius.abs(), 1.0),
+        };
+        let mut seen: BTreeSet<u32> = BTreeSet::new();
+        let mut worst: Option<(f64, f64, u32)> = None;
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            let Some(e) = edges.get(ei as usize) else {
+                continue;
+            };
+            for v in [e.start, e.end] {
+                if !seen.insert(v) {
+                    continue;
+                }
+                let p = verts[v as usize].point;
+                let Some(r) = crate::stage4_boundary_curve::surface_distance_pub(f.surface, p)
+                else {
+                    continue;
+                };
+                let d = (r * to_distance).abs();
+                let band = OUTPUT_ON_SURFACE_BAND_REL * (1.0 + size.max(mag3(p.as_array())));
+                if d > band && worst.is_none_or(|(wd, _, _)| d > wd) {
+                    worst = Some((d, band, v));
+                }
+            }
+        }
+        if let Some((d, band, v)) = worst {
+            let p = verts[v as usize].point;
+            off_surface_census(fi, d, band);
+            sites.push(FailureSite {
+                trigger: FailureTrigger::OffSurfaceVertex,
+                faces: out
+                    .face_attribution
+                    .get(fi)
+                    .map(|at| vec![(at.input, at.face)])
+                    .unwrap_or_default(),
+                detail: format!(
+                    "output face {fi} on {:?}: loop vertex {v} at ({:.6e}, {:.6e}, {:.6e}) is                      {d:.3e} off its surface (band {band:.3e})",
+                    f.surface,
+                    p.x(),
+                    p.y(),
+                    p.z()
+                ),
+            });
+        }
+    }
+    sites
+}
+
+/// Print-only census for T8 (`YANG_OFF_SURFACE_CENSUS=<file>`): one line per
+/// flagged emitted face, keyed by `ASSAY_CASE` (subprocess-safe under
+/// `ASSAY_JOBS`). No effect on the result.
+fn off_surface_census(face: usize, d: f64, band: f64) {
+    let Some(path) = std::env::var_os("YANG_OFF_SURFACE_CENSUS") else {
+        return;
+    };
+    let case = std::env::var("ASSAY_CASE").unwrap_or_else(|_| "-".into());
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        use std::io::Write;
+        let _ = writeln!(f, "{case}\tface={face}\td={d:.3e}\tband={band:.3e}");
+    }
 }
 
 /// One failure site: what fired and the input faces it names. `faces` may be
@@ -1317,6 +1418,8 @@ pub(crate) fn failures(result: &Result<BRep, YangError>) -> Vec<FailureSite> {
             // CORRECT outputs is an un-retriangulated chord crossing); the
             // output-level T3b is the trigger.
             out.extend(output_illegal_sites(brep));
+            // T8 on the EMITTED body: loop vertices on their surfaces.
+            out.extend(off_surface_vertex_sites(brep));
         }
         Err(e) => {
             if out.is_empty() && matches!(e, YangError::NonManifoldOutput) {

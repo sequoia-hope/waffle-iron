@@ -19,7 +19,7 @@ use super::*;
 
 /// Axis-aligned box BRep spanning `lo..hi` with outward face normals
 /// (the `n178_subres_coplanar` fixture, duplicated — it is private there).
-fn box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+pub(super) fn box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
     let [x0, y0, z0] = lo;
     let [x1, y1, z1] = hi;
     let verts = vec![

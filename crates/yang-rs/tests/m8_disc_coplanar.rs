@@ -18,7 +18,7 @@
 //! (asserted below — the increment boundary is pinned, not silent).
 
 use cad_primitives::{BoolOp, Point3, Vector3};
-use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Mesh, Surface};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Mesh, Surface, YangError};
 
 // ════════════════════════════════════════════════════════════════════
 // fixtures
@@ -630,30 +630,30 @@ fn disc_disc_crossing_union_succeeds() {
 }
 
 /// disc∩disc crossing, SUBTRACT: the coplanar cap contact is measure-zero, so
-/// `B − A` removes nothing — the result is B unchanged (vol ≈ π·1·2 = 2π),
-/// watertight + outward. Pins that the crossing coplanar contact does not
-/// corrupt a subtract (no spurious material removed / no flipped patch).
+/// `B − A` should remove nothing (B unchanged, vol 2π). Until 2026-10-28 this
+/// returned Ok within a 6 % "chord band" — but the body's rim-crossing vertex
+/// is where the two CHORD polygons cross, not the exact arcs (exact arc∩arc
+/// crossing is the deferred M8 item above): measured 4.426e-3 off its r = 1
+/// cylinder. T8 (ledger N100 item 9) reads the emitted body's loop vertices
+/// against their surfaces, so that body is no longer adopted; §4.5.2
+/// refinement shrinks the miss (4.4e-3 → 1.25e-4 at ×16) but cannot remove
+/// it, and the loop ends LOUD. Flip this back to the Ok/volume pin when the
+/// exact arc∩arc rim crossing lands.
 #[test]
-fn disc_disc_crossing_subtract_is_clean() {
+fn disc_disc_crossing_subtract_is_loud_until_exact_arc_crossing() {
     let a = z_cylinder(-0.5, 0.0, 2.0, 1.0, 1.0); // z∈[2,3]
     let b = z_cylinder(0.5, 0.0, 0.0, 1.0, 2.0); // z∈[0,2], top cap at z=2
-    let out = boolean(&b, &a, BoolOp::Subtract, &nb())
-        .expect("crossing disc∩disc subtract must be handled");
-    let mesh = out.as_mesh();
-    assert!(
-        is_watertight(mesh),
-        "subtract output must be a closed 2-manifold"
-    );
-    assert!(
-        is_outward_solid(mesh),
-        "subtract must be consistently outward"
-    );
-    let vol = signed_volume(mesh).abs();
-    let analytic = std::f64::consts::PI * 2.0; // B unchanged (contact removes nothing)
-    assert!(
-        (vol - analytic).abs() / analytic < 0.06,
-        "subtract volume {vol} not within chord band of analytic {analytic} (B unchanged)"
-    );
+    match boolean(&b, &a, BoolOp::Subtract, &nb()) {
+        Err(YangError::RefinementExhausted { summary, .. }) => assert!(
+            summary.contains("OffSurfaceVertex"),
+            "must stop on the off-surface rim crossing, got: {summary}"
+        ),
+        other => panic!(
+            "crossing disc∩disc subtract must stay LOUD until the exact arc∩arc \
+             crossing lands (its chord-crossing vertex is 4.4e-3 off its cylinder): {:?}",
+            other.map(|_| "Ok")
+        ),
+    }
 }
 
 /// NON-CONVEX containment: a small cylinder cap sits coplanar inside the

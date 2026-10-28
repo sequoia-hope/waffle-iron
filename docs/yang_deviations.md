@@ -7697,7 +7697,24 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    Remediation: the loop's acceptance test checks every emitted loop vertex
    against its face surface (the T4-on-emitted-body rule extended), and
    only then is the site set's emptiness trusted.
-**State: OPEN** (2026-10-27; item 9 added 2026-10-28).
+   **FIXED 2026-10-28 (T8, `boolean::failures::off_surface_vertex_sites`):**
+   every emitted face's loop vertices are read against its surface
+   (Euclidean; a cone's radial residual × cos α) within kernel-v2's import
+   band `1e-9·(1 + max(size, |p|))`; a vertex beyond it is a §4.5 site
+   naming the face's input lineage, so neither the natural body nor a
+   refined one is adopted with it. Census (`YANG_OFF_SURFACE_CENSUS`, full
+   corpus + yang-rs/kernel-v2 suites): corpus 360C / 0W / 9E / 5EE / 0T,
+   zero moved verdicts; R0099's NATURAL body carried a face vertex 7.3e-3
+   off its surface on main and was accepted — T8 refines it to an exact
+   body, still CORRECT. One crate pin moved Ok → loud:
+   `m8_disc_coplanar` disc∩disc crossing SUBTRACT, whose rim-crossing
+   vertex is the chord∩chord point 4.4e-3 off its cylinder (the deferred
+   exact arc∩arc crossing); refinement shrinks it to 1.25e-4 at ×16 but
+   cannot remove it, so it ends LOUD — renamed
+   `disc_disc_crossing_subtract_is_loud_until_exact_arc_crossing`. Pins
+   `tests_unit/t8_off_surface.rs`.
+**State: OPEN** (2026-10-27; item 9 added and fixed 2026-10-28; items 1–8
+open).
 
 ### N101 — cherchi-rs ray perturbation exhausted by symmetric 45° vertex fans (UL-02)
 
