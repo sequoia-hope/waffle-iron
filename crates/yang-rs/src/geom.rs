@@ -869,6 +869,324 @@ pub(crate) fn curve_aabb(
     (lo, hi)
 }
 
+/// Maximum safeguarded 1D Newton iterations when minimizing squared Euclidean
+/// distance `0.5 * |curve.eval(t) - pt|^2` onto a parametric conic (`Ellipse`,
+/// `Parabola`, `Hyperbola`).
+const CONIC_CLOSEST_NEWTON_ITERS: usize = 8;
+
+/// Maximum per-step parameter update `|Δt|` during safeguarded 1D conic
+/// projection (`π / 4` rad on periodic ellipses; `1.0` on `Parabola`/`Hyperbola`).
+const CONIC_CLOSEST_MAX_PARAM_STEP: f64 = std::f64::consts::FRAC_PI_4;
+
+/// Maximum backtracking halvings per 1D Newton step in [`refine_1d_curve_param`].
+const CONIC_CLOSEST_LINE_SEARCH_HALVINGS: usize = 6;
+
+/// Safeguarded 1D Newton minimization of `0.5 * |eval(t) - pt|^2` starting from
+/// the closer of `t_seeds`, using exact curve derivatives `(eval, deriv1, deriv2)`.
+fn refine_1d_curve_param<E, D1, D2>(
+    pt: [f64; 3],
+    t_seeds: &[f64],
+    max_step: f64,
+    eval: E,
+    deriv1: D1,
+    deriv2: D2,
+) -> Option<f64>
+where
+    E: Fn(f64) -> [f64; 3],
+    D1: Fn(f64) -> [f64; 3],
+    D2: Fn(f64, [f64; 3]) -> [f64; 3],
+{
+    let dist2_of = |q: [f64; 3]| -> f64 {
+        let dx = q[0] - pt[0];
+        let dy = q[1] - pt[1];
+        let dz = q[2] - pt[2];
+        dx * dx + dy * dy + dz * dz
+    };
+    let mut best_t: Option<f64> = None;
+    let mut best_d2 = f64::INFINITY;
+    for &t0 in t_seeds {
+        if !t0.is_finite() {
+            continue;
+        }
+        let q0 = eval(t0);
+        let d2 = dist2_of(q0);
+        if d2 < best_d2 {
+            best_d2 = d2;
+            best_t = Some(t0);
+        }
+    }
+    let mut t = best_t?;
+    for _ in 0..CONIC_CLOSEST_NEWTON_ITERS {
+        let q = eval(t);
+        let d2 = dist2_of(q);
+        let diff = [q[0] - pt[0], q[1] - pt[1], q[2] - pt[2]];
+        let dq = deriv1(t);
+        let ddq = deriv2(t, q);
+        let grad = diff[0] * dq[0] + diff[1] * dq[1] + diff[2] * dq[2];
+        let dq2 = dq[0] * dq[0] + dq[1] * dq[1] + dq[2] * dq[2];
+        let curv = diff[0] * ddq[0] + diff[1] * ddq[1] + diff[2] * ddq[2];
+        let hess = (dq2 + curv).max(dq2);
+        if hess <= 0.0 || !hess.is_finite() {
+            break;
+        }
+        let step = (-grad / hess).clamp(-max_step, max_step);
+        if step.abs() <= f64::EPSILON * t.abs().max(1.0) {
+            break;
+        }
+        let mut alpha = 1.0_f64;
+        let mut improved = false;
+        for _ in 0..CONIC_CLOSEST_LINE_SEARCH_HALVINGS {
+            let t_try = t + alpha * step;
+            let q_try = eval(t_try);
+            let d2_try = dist2_of(q_try);
+            if d2_try < d2 {
+                t = t_try;
+                improved = true;
+                break;
+            }
+            alpha *= 0.5;
+        }
+        if !improved {
+            break;
+        }
+    }
+    Some(t)
+}
+
+/// Exact 3D Euclidean distance from `pt` to an analytical or procedural
+/// [`ssi_rs::SsiCurve`], evaluated uniformly across all six `SsiCurve` variants
+/// via `SsiCurve::eval` + exact curve parameter/tangent evaluators (`Line`,
+/// `Circle`, `Ellipse`, `Parabola`, single-branch `Hyperbola`) and exact
+/// surface-pair projection (`SurfacePair`).
+pub(crate) fn ssi_curve_point_distance(curve: &ssi_rs::SsiCurve, pt: Point3) -> Option<f64> {
+    let p = pt.as_array();
+    let dist_to = |q: Point3| -> Option<f64> {
+        let qa = q.as_array();
+        let d = ((qa[0] - p[0]).powi(2) + (qa[1] - p[1]).powi(2) + (qa[2] - p[2]).powi(2)).sqrt();
+        d.is_finite().then_some(d)
+    };
+    match curve {
+        ssi_rs::SsiCurve::Line { point, dir } => {
+            let d = normalize3(dir.as_array());
+            if d[0] == 0.0 && d[1] == 0.0 && d[2] == 0.0 {
+                return None;
+            }
+            let o = point.as_array();
+            let t = (p[0] - o[0]) * d[0] + (p[1] - o[1]) * d[1] + (p[2] - o[2]) * d[2];
+            dist_to(curve.eval(t))
+        }
+        ssi_rs::SsiCurve::Circle {
+            center,
+            normal: _,
+            radius,
+        } => {
+            if !radius.is_finite() || *radius <= 0.0 {
+                return None;
+            }
+            let c = center.as_array();
+            let p0 = curve.eval(0.0).as_array();
+            let p90 = curve.eval(std::f64::consts::FRAC_PI_2).as_array();
+            let inv_r = 1.0 / *radius;
+            let u = [
+                (p0[0] - c[0]) * inv_r,
+                (p0[1] - c[1]) * inv_r,
+                (p0[2] - c[2]) * inv_r,
+            ];
+            let v = [
+                (p90[0] - c[0]) * inv_r,
+                (p90[1] - c[1]) * inv_r,
+                (p90[2] - c[2]) * inv_r,
+            ];
+            let w = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+            let wx = w[0] * u[0] + w[1] * u[1] + w[2] * u[2];
+            let wy = w[0] * v[0] + w[1] * v[1] + w[2] * v[2];
+            let t = if wx == 0.0 && wy == 0.0 {
+                0.0
+            } else {
+                wy.atan2(wx)
+            };
+            dist_to(curve.eval(t))
+        }
+        ssi_rs::SsiCurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            if !major_radius.is_finite()
+                || !minor_radius.is_finite()
+                || *major_radius <= 0.0
+                || *minor_radius <= 0.0
+            {
+                return None;
+            }
+            let t0 = ellipse_param(
+                pt,
+                *center,
+                *normal,
+                *major_axis,
+                *major_radius,
+                *minor_radius,
+            );
+            let c = center.as_array();
+            let t = refine_1d_curve_param(
+                p,
+                &[t0, t0 + std::f64::consts::PI],
+                CONIC_CLOSEST_MAX_PARAM_STEP,
+                |t| curve.eval(t).as_array(),
+                |t| ellipse_tangent(*normal, *major_axis, *major_radius, *minor_radius, t),
+                |_t, q| [c[0] - q[0], c[1] - q[1], c[2] - q[2]],
+            )?;
+            dist_to(curve.eval(t))
+        }
+        ssi_rs::SsiCurve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            if !focal_length.is_finite() || *focal_length <= 0.0 {
+                return None;
+            }
+            let n = normalize3(normal.as_array());
+            let ax = normalize3(axis_dir.as_array());
+            let conj = [
+                n[1] * ax[2] - n[2] * ax[1],
+                n[2] * ax[0] - n[0] * ax[2],
+                n[0] * ax[1] - n[1] * ax[0],
+            ];
+            let inv_2f = 1.0 / (2.0 * *focal_length);
+            let t0 = parabola_param(pt, *vertex, *normal, *axis_dir);
+            let max_step = t0.abs().max(*focal_length);
+            let t = refine_1d_curve_param(
+                p,
+                &[t0, 0.0],
+                max_step,
+                |t| curve.eval(t).as_array(),
+                |t| {
+                    [
+                        t * inv_2f * ax[0] + conj[0],
+                        t * inv_2f * ax[1] + conj[1],
+                        t * inv_2f * ax[2] + conj[2],
+                    ]
+                },
+                |_t, _q| [inv_2f * ax[0], inv_2f * ax[1], inv_2f * ax[2]],
+            )?;
+            dist_to(curve.eval(t))
+        }
+        ssi_rs::SsiCurve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            if !semi_transverse.is_finite()
+                || !semi_conjugate.is_finite()
+                || *semi_transverse <= 0.0
+                || *semi_conjugate <= 0.0
+            {
+                return None;
+            }
+            let n = normalize3(normal.as_array());
+            let maj = normalize3(major_axis.as_array());
+            let conj = [
+                n[1] * maj[2] - n[2] * maj[1],
+                n[2] * maj[0] - n[0] * maj[2],
+                n[0] * maj[1] - n[1] * maj[0],
+            ];
+            let c = center.as_array();
+            let a = *semi_transverse;
+            let b = *semi_conjugate;
+            let t0 = hyperbola_param(pt, *center, *normal, *major_axis, b);
+            let t = refine_1d_curve_param(
+                p,
+                &[t0, 0.0],
+                CONIC_CLOSEST_MAX_PARAM_STEP,
+                |t| curve.eval(t).as_array(),
+                |t| {
+                    let sh = a * t.sinh();
+                    let ch = b * t.cosh();
+                    [
+                        sh * maj[0] + ch * conj[0],
+                        sh * maj[1] + ch * conj[1],
+                        sh * maj[2] + ch * conj[2],
+                    ]
+                },
+                |_t, q| [q[0] - c[0], q[1] - c[1], q[2] - c[2]],
+            )?;
+            dist_to(curve.eval(t))
+        }
+        ssi_rs::SsiCurve::SurfacePair { a, b } => {
+            let sa = crate::stage3_ssi::quadric_to_surface(*a).ok()?;
+            let sb = crate::stage3_ssi::quadric_to_surface(*b).ok()?;
+            let q =
+                crate::stage4_relocate::relocate_onto_implicit_pair(pt, sa, sb).or_else(|| {
+                    crate::stage4_tangency::solve_parametric_pair_newton(pt, pt, sa, sb)
+                        .map(|s| s.point)
+                })?;
+            dist_to(q)
+        }
+    }
+}
+
+/// Exact 3D Euclidean distance from `pt` to the connected component(s) of
+/// `curve` witnessed by `witness_segs` (segments whose endpoints lie within
+/// `dp` of `curve`, Yang §4.2.2 `yang2025_hybrid_boolean.txt:502-505` L).
+///
+/// Exhaustive over all [`ssi_rs::SsiCurve`] variants:
+/// - `Line`, `Circle`, `Ellipse`, `Parabola`, single-branch `Hyperbola` are
+///   single connected 1D curves, so any witness chord within `dp` identifies
+///   the entire connected curve and [`ssi_curve_point_distance`] evaluates the
+///   exact 3D distance to `pt`.
+/// - `SurfacePair { a, b }` can have multiple disjoint loops/branches on one
+///   implicit zero set, so component membership is evaluated along `sa ∩ sb`
+///   from the witness chords via
+///   [`crate::stage4_small_loop::surface_pair_connected_component_distance`].
+pub(crate) fn ssi_curve_solved_distance(
+    curve: &ssi_rs::SsiCurve,
+    pt: Point3,
+    witness_segs: &[(Point3, Point3)],
+    dp: f64,
+) -> Option<f64> {
+    let d_pt = ssi_curve_point_distance(curve, pt)?;
+    if d_pt > dp {
+        return Some(d_pt);
+    }
+    match curve {
+        ssi_rs::SsiCurve::Line { .. }
+        | ssi_rs::SsiCurve::Circle { .. }
+        | ssi_rs::SsiCurve::Ellipse { .. }
+        | ssi_rs::SsiCurve::Parabola { .. }
+        | ssi_rs::SsiCurve::Hyperbola { .. } => {
+            let witnessed = witness_segs.iter().any(|&(w0, w1)| {
+                ssi_curve_point_distance(curve, w0).is_some_and(|d| d <= dp)
+                    && ssi_curve_point_distance(curve, w1).is_some_and(|d| d <= dp)
+            });
+            witnessed.then_some(d_pt)
+        }
+        ssi_rs::SsiCurve::SurfacePair { a, b } => {
+            let sa = crate::stage3_ssi::quadric_to_surface(*a).ok()?;
+            let sb = crate::stage3_ssi::quadric_to_surface(*b).ok()?;
+            let matching: Vec<(Point3, Point3)> = witness_segs
+                .iter()
+                .copied()
+                .filter(|&(w0, w1)| {
+                    ssi_curve_point_distance(curve, w0).is_some_and(|d| d <= dp)
+                        && ssi_curve_point_distance(curve, w1).is_some_and(|d| d <= dp)
+                })
+                .collect();
+            if matching.is_empty() {
+                return None;
+            }
+            crate::stage4_small_loop::surface_pair_connected_component_distance(
+                pt, sa, sb, &matching, dp,
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod curve_aabb_tests {
     use super::*;
@@ -1028,5 +1346,84 @@ mod curve_aabb_tests {
         // while strictly covering the arc bulge above y = 3.0.
         assert!(hi[1] > 3.5 && (hi[1] - 4.0).abs() < 1e-12);
         assert!(lo[2] >= -1.0 - 1e-12 && hi[2] <= 1.0 + 1e-12);
+    }
+
+    #[test]
+    fn ssi_curve_distance_evaluates_all_six_curve_variants() {
+        let line = ssi_rs::SsiCurve::Line {
+            point: Point3::new(1.0, 2.0, 3.0),
+            dir: Vector3::new(0.0, 0.0, 1.0),
+        };
+        assert!(
+            (ssi_curve_point_distance(&line, Point3::new(4.0, 6.0, -5.0)).unwrap() - 5.0).abs()
+                < 1e-14
+        );
+        assert!(ssi_curve_point_distance(&line, line.eval(7.3)).unwrap() < 1e-14);
+
+        let circle = ssi_rs::SsiCurve::Circle {
+            center: Point3::new(0.0, 0.0, 1.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        };
+        assert!(ssi_curve_point_distance(&circle, circle.eval(1.23)).unwrap() < 1e-14);
+        assert!(
+            (ssi_curve_point_distance(&circle, Point3::new(5.0, 0.0, 5.0)).unwrap() - 5.0).abs()
+                < 1e-14
+        );
+
+        let ell = ssi_rs::SsiCurve::Ellipse {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            major_radius: 3.0,
+            minor_radius: 1.5,
+        };
+        assert!(ssi_curve_point_distance(&ell, ell.eval(-0.85)).unwrap() < 1e-14);
+        assert!(ssi_curve_point_distance(&ell, Point3::new(0.0, 2.5, 0.0)).unwrap() > 0.99);
+
+        let para = ssi_rs::SsiCurve::Parabola {
+            vertex: Point3::new(-1.0, 0.0, 2.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            axis_dir: Vector3::new(1.0, 0.0, 0.0),
+            focal_length: 0.75,
+        };
+        assert!(ssi_curve_point_distance(&para, para.eval(1.4)).unwrap() < 1e-14);
+        assert!(
+            (ssi_curve_point_distance(&para, Point3::new(-1.0, 0.0, 4.0)).unwrap() - 2.0).abs()
+                < 1e-14
+        );
+
+        let hyp = ssi_rs::SsiCurve::Hyperbola {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            semi_transverse: 2.0,
+            semi_conjugate: 1.2,
+        };
+        assert!(ssi_curve_point_distance(&hyp, hyp.eval(-0.9)).unwrap() < 1e-14);
+        // Point on the opposite nappe `(-2, 0, 0)` is distance `4.0` from the `+x` branch.
+        assert!(
+            (ssi_curve_point_distance(&hyp, Point3::new(-2.0, 0.0, 0.0)).unwrap() - 4.0).abs()
+                < 1e-12
+        );
+
+        let pair = ssi_rs::SsiCurve::SurfacePair {
+            a: ssi_rs::QuadricSurface::Torus {
+                center: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                major_radius: 3.0,
+                minor_radius: 1.0,
+            },
+            b: ssi_rs::QuadricSurface::Plane {
+                point: Point3::new(3.5, 0.0, 0.0),
+                normal: Vector3::new(1.0, 0.0, 0.0),
+            },
+        };
+        // On `x = 3.5, z = 0`, `ρ = R + r = 4` gives `y = √(16 - 12.25) = √3.75`!
+        let y_on = (16.0_f64 - 3.5 * 3.5).sqrt();
+        assert!(ssi_curve_point_distance(&pair, Point3::new(3.5, y_on, 0.0)).unwrap() < 1e-13);
+        assert!(
+            ssi_curve_point_distance(&pair, Point3::new(3.5, y_on + 0.05, 0.0)).unwrap() > 0.01
+        );
     }
 }

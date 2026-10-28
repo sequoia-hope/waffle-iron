@@ -7050,7 +7050,7 @@ Gauss-map hardening).**
    cyl_cyl_tangent_points` (`boolean/tangency.rs:61`) strictly as a test-only
    oracle and pinned mesh-seeded Newton discovery across a 180-case /
    150-tangent-point sweep (`s43_newton_discovers_every_closed_form_cyl_cyl_tangent_point_across_sweep`,
-   `tests_unit/s43_tangency_newton.rs:894`); reverted all `s433_*` pin
+   `tests_unit/s43_tangency_newton.rs:935`); reverted all `s433_*` pin
    tolerances in `tests_unit/s433_tangent_relocation.rs` back to `1e-15` via
    one-time near-convergence chart re-anchoring in `solve_tangent_with_sign`.
 4. **S8 — Non-paper constants in `gauss_map.rs` and `stage4_tangency.rs`
@@ -7095,6 +7095,132 @@ Gauss-map hardening).**
      coincidence chart probe `COINCIDENCE_PROBE_STEP_FRAC = 0.05`; and
      scale-relative relocation trust region
      `ISOLATED_TANGENT_DRIFT_RADIUS_FRAC = 0.25`.
+
+**Amendment (2026-10-28, review fixes B2, S1, S3, S4, S8, S9, S10 — small-loop
+pipeline, collars, general curve evaluation, ORDER & constants).**
+1. **S1 (`stage4_small_loop.rs:1186-1255`, `crates/kernel-v2/src/tessellate/developable.rs:2467-3267`):**
+   In `solve_common_axis_interior_caps` (`stage4_small_loop.rs:1251-1254`), when
+   the common-axis sheet separation satisfies
+   `|t_A - t_B| < MIN_FEATURE_SIZE · scale`, `CapPlanOutcome::SubMinFeatureTwinSheet`
+   suppresses sub-`MIN_FEATURE_SIZE` twin-sheet emission (`C0118` at `1e-8` m
+   returns to its baseline 6-face union with 0 `SurfacePair` twin-sheet edges
+   and 0 non-manifold render edges; pinned by
+   `crates/kernel-v2/tests/f4_small_loop_collar_render.rs` and
+   `s422_gauss_map::small_loop_pass_zero_resolves_c0116_and_preserves_sub_feature_c0118`,
+   RED-verified on base `main` `a236e510` for **S10**). Removed the
+   `{0.25, 0.75}` reflection-asymmetric phase stagger and canonical-anchor phase
+   shift from `insert_graded_hole_collars` (`developable.rs:2467-3267`), while
+   retaining the phase-stagger-free graded collar (`{0.0, 0.5}` standard
+   equilateral stagger) because removing it on `C0116` (`0.01`-deep real small
+   loop, `ds_0 ≈ 1.4e-3 << w_facet ≈ 0.049`) was measured to produce `17`
+   non-manifold `f32` render edges on the `θ = 0 / 2π` cylinder seam (Pass-4
+   Rivara LEPP bisects needle spokes from the hole into 16 splits on one side of
+   the seam while leaving `[0, 2]` unsplit on the twin side). All collar
+   constants are derived from equilateral lattice geometry (`target_max = du =
+   (√3/2) · w_facet`, `dv_belt = (3/4) · w_facet`, `Δoffset_k = (√3/2) · ds_k`)
+   with scale-relative `(ε_mach · patch_scale)²` segment guards.
+2. **S3 (`stage4_small_loop.rs:753-817, 2370-2833`, `stage4_tangency.rs:1797-1836, 1965-1973`, `boolean.rs:1931-1935`):**
+   Every Gauss-admitted candidate area that fails seed classification
+   (`TangencySolveFailed` when collinear normals fail tangency Newton, or
+   uncaptured `IsolatedSaddle`), Eq. (1) area containment, boundary-crease
+   domain check, `ssi_curve_supports_point`, Bajaj tracing / §4.3.4 refinement,
+   Fig. 11(c) cap construction, local chart CDT splice planning, or exterior
+   non-crossing records a §4.5 `FailureSite` (`FailureTrigger::RelocationDiverged`
+   naming `(face_a, face_b)`) via `record_small_loop_failure` (`:2370`), while
+   collinear-normal non-crossing tangencies (`IsolatedKiss`, `TangentCurve`,
+   e.g. `C0042` / `C0043` parallel cylinder generators; `:567-573` L) do not
+   enter Bajaj loop tracing or spurious §4.5.2 refinement, and
+   `discover_operand_pair_tangent_points_newton` (`:1967-1973`) skips 2D
+   coincident face pairs uniformly via `surfaces_coincident_2d`.
+   `subdivide_segment_s434` (`:769`) returns loud `false` at
+   `depth >= MAX_S434_SUBDIVIDE_DEPTH = 12` on any unrefined chord `> 2 d_p`,
+   and `register_spliced_loop_edges_in_arrangement` (`:2741`) records a
+   `FailureSite` and returns
+   `Err(YangError::Stage4RegionInvalid { reason: LocalRefinementRequired, .. })`
+   if any spliced chord fails to match ≥1 arrangement edge.
+3. **S4 & B2 (`geom.rs:961-1188`, `stage4_small_loop.rs:327-544, 2011-2355`):**
+   Removed all `Surface::` and `SsiCurve::` variant checks and `(Plane, Plane)`
+   pre-skips from `stage4_small_loop.rs`, and retired the unnamed `3·d_p` and
+   `10²·d_p` redundancy radii. `ssi_curve_supports_point` (`:2011`) and
+   `is_redundant_with_solved_curves` (`:2313`, reading both `la.intersection_edges`
+   and shared operand edges in `la.mesh` via `collect_solved_face_pair_segments`
+   `:2246`) evaluate exact 3D distance `≤ d_p` uniformly via
+   `geom::ssi_curve_point_distance` (`:961`) and
+   `geom::ssi_curve_solved_distance` (`:1147`, dispatching multi-branch
+   `SurfacePair` component membership to
+   `surface_pair_connected_component_distance` `:2116` + orthogonal-plane
+   `arc_chord_curve_distance` `:2047`). Matrix row `4.2-19` stays `PARTIAL`
+   (T6 crossing census still uses topological `RingCapture`).
+4. **S9 — `ORDER` deviation (`boolean.rs:1916-1944`):** When
+   `resolve_and_splice_small_loops` splices ≥1 small closed loop into `(M_A, M_B)`,
+   `boolean_once_timed` re-runs Stage 2 (`backend.labeled_arrangement` `:1929`)
+   on the updated meshes and registers the shared loop chords in
+   `la.intersection_edges` (`:1931`), whereas Yang §4.3–§4.4.2 (`:546-579` R)
+   optimizes all curves and updates `(M_A, M_B)` once in §4.4.1 before a single
+   inside/outside classification pass (`N80`). Recorded as `ORDER` in matrix
+   rows `4.2-18`, `4.3-20`, `4.4-14`, and the §4.2 / §4.3 / §4.4 order tables.
+5. **S8 — Non-paper constants in `stage4_small_loop.rs` and `geom.rs` (all
+   absolute length/area floors removed; every geometric bound is scale-relative):**
+   - `stage4_small_loop.rs:68-280`: proximity band `SMALL_LOOP_MODEL_BAND_MULT = 2.0`
+     (`2·d_p` around `d_ε(A) + d_ε(B)`); orthogonal-plane corrector
+     `MAX_ORTHO_CORRECTOR_ITERS = 24`, `ORTHO_MACHINE_RES_EPS_MULT = 16.0`,
+     `ORTHO_SVD_LEADING_SV_MIN = 1e-14`, `ORTHO_SVD_COND_TOL = 1e-10`,
+     `ORTHO_STEP_CONV_EPS_MULT = 4.0`, `MAX_ORTHO_LINE_SEARCH_HALVINGS = 8`,
+     `LINE_SEARCH_SHRINK = 0.5`; §4.3.4 subdivision `S434_MIN_CHORD_DP_MULT = 2.0`
+     (a chord `≤ 2 d_p` has no interior point `> d_p` from both ends, `:535-538` R),
+     `MAX_S434_SUBDIVIDE_DEPTH = 12` (`4096` sub-segments max, loud failure),
+     `S434_MIDPOINT_CHORD_FRAC_MAX = 0.95`; Bajaj closed-loop marching
+     `MAX_BAJAJ_STEPS = 512`, `BAJAJ_CURVATURE_FLOOR_REL = 1e-12` (`κ·scale` floor),
+     `BAJAJ_TARGET_TURN_RAD = π/16` (`~32` steps per closed loop),
+     `BAJAJ_MIN_NOMINAL_STEP_DP_MULT = 0.5`, `MIN_LOOP_VERTS = 4`,
+     `BAJAJ_PRE_CLOSE_MIN_TURN_RAD = 1.45π`, `BAJAJ_PRE_CLOSE_DIST_STEP_MULT = 1.35`,
+     `BAJAJ_PRE_CLOSE_COS_MIN = 0.75`, `BAJAJ_SLOWDOWN_DIST_STEP_MULT = 2.2`,
+     `BAJAJ_SLOWDOWN_ALONG_FRAC = 0.5`, `BAJAJ_SLOWDOWN_COS_MIN = 0.4`,
+     `BAJAJ_SLOWDOWN_STEP_FRAC = 0.55`, `MAX_BAJAJ_STEP_HALVINGS = 8`,
+     `BAJAJ_MIN_STEP_DP_MULT = 0.1`, `BAJAJ_MIN_PREDICTOR_DIR_NORM = 0.5`,
+     `BAJAJ_MAX_CORRECTOR_DRIFT_STEP_FRAC = 0.75`, `BAJAJ_MIN_ACTUAL_STEP_FRAC = 0.1`,
+     `BAJAJ_MAX_STEP_COS_MIN = 0.85` (prevents branch-jumping across narrow necks),
+     `BAJAJ_POST_STEP_CLOSE_MIN_TURN_RAD = 1.65π`,
+     `BAJAJ_POST_STEP_CLOSE_DIST_FRAC = 0.65`, `BAJAJ_MAX_TOTAL_TURN_RAD = 2.5π`,
+     `MIN_REFINED_LOOP_DIAM_DP_MULT = 3.0` (`> 3 d_p` after `d_p` dedup);
+     arc/component curve distance `CHORD_SLAB_OVERLAP_FRAC = 0.1`,
+     `CHORD_ARC_MAX_CORR_FRAC = 0.5`, `PAIR_COMPONENT_EXCURSION_MULT = 8.0`;
+     scale-relative 2D orientation floor `POLY2D_AREA_EPS_MULT = 16.0` (`× ε_mach · scale²`);
+     Fig. 11(c) interior cap & dyadic collar `CAP_RAY_NEWTON_MAX_ITERS = 10`,
+     `CAP_RAY_EARLY_TAU_FRAC = 0.25`, `CAP_RAY_MIN_COS = 1e-4`,
+     `MIN_CAP_AXIS_SEP_TAU_MULT = 2.0`, `MAX_CAP_APEX_FAN_DEGREE = 24`,
+     `CAP_RING_BASE_DELTA_MIN = 1e-3`, `CAP_RING_BASE_DELTA_MAX = 0.25`,
+     `CAP_RING_MAX_DYADIC_SHIFT = 20`, `CAP_RING_LINEAR_RHO_FLOOR = 0.25`,
+     `CAP_RING_MIN_RHO = 0.08`, `CAP_RING_MIN_INNER_RAYS = 8`; local chart CDT
+     splice `SPLICE_CAVITY_CLEARANCE_EDGE_FRAC = 0.35` (`0.35 · min_loop_edge`,
+     zero absolute floor), `MAX_SPLICE_CAVITY_TRIS = 64`,
+     `SPLICE_KEEP_INTERIOR_VERT_EDGE_FRAC = 0.6`, `SPLICE_EXT_COLLAR_STEP_MIN = 0.02`,
+     `SPLICE_EXT_COLLAR_STEP_MAX = 1.0`, `MAX_SPLICE_EXT_COLLAR_RINGS = 16`,
+     `SPLICE_EXT_COLLAR_OUTER_DIAM_FRAC = 0.75`, `SPLICE_EXT_COLLAR_MIN_RAYS = 8`,
+     `SPLICE_EXT_COLLAR_MAX_RAYS = 256`, `SPLICE_EXT_RING_SEP_RAD_FRAC = 0.35`,
+     `SPLICE_EXT_RING_SEP_EDGE_FRAC = 0.4`, `SPLICE_EXT_INNER_CLEAR_FRAC = 0.4`,
+     `SPLICE_EXT_PEER_CLEAR_FRAC = 0.45`; arrangement chord matching
+     `ARRANGEMENT_CHORD_MATCH_WORK_MULT = 2.0` (`2 · TAU_WORK · scale`).
+   - `geom.rs:875-882`: 1D conic closest-point polish `CONIC_CLOSEST_NEWTON_ITERS = 8`,
+     `CONIC_CLOSEST_MAX_PARAM_STEP = π/4`, `CONIC_CLOSEST_LINE_SEARCH_HALVINGS = 6`.
+   - `crates/kernel-v2/src/tessellate/developable.rs:2467-2515` (render-mesh
+     graded hole collar retained for `C0116`, without phase stagger):
+     `COLLAR_EQUILATERAL_ALTITUDE_RATIO = √3/2`,
+     `COLLAR_FINE_HOLE_W_FACET_RATIO = 0.25` (`4 ds_0 < w_facet`),
+     `COLLAR_UNIT_SUM_MIN_NORM = 1e-12`,
+     `COLLAR_MIN_STEP_HEIGHT_FLOOR_MULT = 4.0`, `COLLAR_DYADIC_RATIO = 2.0`,
+     `COLLAR_MAX_DYADIC_RINGS = 24`, `COLLAR_MIN_RING_SAMPLES = 12`,
+     `COLLAR_MAX_RING_SAMPLES = 2048`, `COLLAR_ODD_RING_PHASE = 0.5`,
+     `COLLAR_OWN_HOLE_CLEAR_OFFSET_FRAC = 0.5`,
+     `COLLAR_BOUNDARY_CLEAR_STEP_FRAC = 0.5`,
+     `COLLAR_RING_SELF_CLEAR_STEP_FRAC = 0.5`,
+     `COLLAR_CAVITY_MIN_SEP_STEP_FRAC = 1/3`,
+     `COLLAR_TARGET_CONVERGED_REL_TOL = 16 ε_mach`,
+     `COLLAR_BELT_HALF_BAND_W_FACET_MULT = 1.0`,
+     `COLLAR_OUTER_ROW_MAX_W_FACET_MULT = 4.0`,
+     `COLLAR_OUTER_ROW_SPAN_DIV = 16.0`,
+     `COLLAR_EXCLUSION_OVERLAP_W_FACET_FRAC = 0.25`,
+     `COLLAR_WALK_MAX_STEPS = 128`, `COLLAR_MAX_CAVITY_TRIS = 64`.
 **State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)

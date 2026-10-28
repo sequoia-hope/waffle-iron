@@ -10,6 +10,7 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_3, FRAC_PI_4, PI, TAU};
 
 use cad_primitives::{BoolOp, Point2};
 
+use crate::boolean::boolean_once;
 use crate::boolean::failures::{self, FailureTrigger};
 use crate::gauss_map::{gauss_maps_overlap, GaussMap};
 use crate::geom::surface_normal_at;
@@ -17,12 +18,16 @@ use crate::signed_distance_to_surface;
 use crate::stage4_boundary_curve::CreaseIndex;
 use crate::stage4_correct::paper_chain_sample_redundant;
 use crate::stage4_dt::eval_uv;
-use crate::stage4_small_loop::{discover_small_loop_candidate_areas, trace_and_refine_small_loop};
+use crate::stage4_small_loop::{
+    discover_small_loop_candidate_areas, register_spliced_loop_edges_in_arrangement,
+    resolve_and_splice_small_loops, subdivide_segment_s434, trace_and_refine_small_loop,
+    SplicedLoopChord,
+};
 use crate::stage4_tangency::solve_parametric_pair_newton;
-use crate::tests_unit::rj_cylinder;
+use crate::tests_unit::{rj_box, rj_cylinder};
 use crate::{
     boolean, native_backend, normalize3, ortho_basis, BRep, BRepEdge, BRepFace, BRepVertex, Curve,
-    MeshBoolean, Point3, Surface, Vector3,
+    InputId, MeshBoolean, Point3, Stage4InvalidReason, Surface, Vector3, YangError,
 };
 
 #[inline]
@@ -839,7 +844,7 @@ fn small_loop_boolean_resolves_c0116_and_subband_c0118_on_pass_zero() {
     let boss = extruded_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.5, 2.0);
 
     // (a) C0116 (`0.01`-deep perpendicular graze): resolves on pass 0 with zero
-    // `MissedIntersection` triggers!
+    // failure triggers!
     let tool_c0116 = extruded_cylinder(
         [-1.5, 0.79, 1.0],
         [1.0, 0.0, 0.0],
@@ -849,10 +854,8 @@ fn small_loop_boolean_resolves_c0116_and_subband_c0118_on_pass_zero() {
     );
     let union_c0116 = boolean(&boss, &tool_c0116, BoolOp::Union, &backend).expect("C0116 union");
     assert!(
-        !failures::recorded()
-            .iter()
-            .any(|s| s.trigger == FailureTrigger::MissedIntersection),
-        "C0116 small loop should resolve on pass 0 without T6 refinement: {:?}",
+        failures::recorded().is_empty(),
+        "C0116 small loop should resolve on pass 0 without failure sites: {:?}",
         failures::recorded()
     );
     // Two 3-face cylinders fused along 1 closed loop have 6 faces (2 trimmed
@@ -874,9 +877,38 @@ fn small_loop_boolean_resolves_c0116_and_subband_c0118_on_pass_zero() {
         "C0116 intersection lens has 2 cylindrical cap faces"
     );
 
-    // (b) C0118 (`1e-8`-deep sub-`TAU_MODEL` graze, exact loop diameter `2.0e-4`):
-    // resolved directly on pass 0 into a single fused solid with an exact
-    // `SurfacePair` loop edge (and non-empty 2-face lens under `BoolOp::Intersect`)!
+    // (b) Shallow small loop above `MIN_FEATURE_SIZE` (`2e-5` deep, `|t_A - t_B| = 2e-5
+    // >= MIN_FEATURE_SIZE * scale`): resolves on pass 0 into a single fused solid
+    // with an exact `SurfacePair` loop edge and 2-face intersection lens.
+    let tool_shallow = extruded_cylinder(
+        [-1.5, 0.8 - 2e-5, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        0.3,
+        3.5,
+    );
+    let union_shallow =
+        boolean_once(&boss, &tool_shallow, BoolOp::Union, &backend).expect("2e-5 pass-0 union");
+    assert!(
+        failures::recorded().is_empty(),
+        "2e-5 small loop should resolve on pass 0 with zero failure sites: {:?}",
+        failures::recorded()
+    );
+    assert_eq!(union_shallow.faces().len(), 6);
+    assert!(
+        union_shallow
+            .edges()
+            .iter()
+            .any(|e| matches!(e.curve, Curve::SurfacePair { .. })),
+        "2e-5 small-loop union must carry the exact SurfacePair loop edge"
+    );
+    let inter_shallow = boolean_once(&boss, &tool_shallow, BoolOp::Intersect, &backend)
+        .expect("2e-5 pass-0 intersect");
+    assert_eq!(inter_shallow.faces().len(), 2);
+
+    // (c) C0118 (`1e-8`-deep sub-`MIN_FEATURE_SIZE` graze, `|t_A - t_B| = 1e-8 <
+    // MIN_FEATURE_SIZE * scale`, S1): suppressed by `SubMinFeatureTwinSheet`
+    // without emitting sub-`MIN_FEATURE_SIZE` twin sheets or failure sites.
     let tool_c0118 = extruded_cylinder(
         [-1.5, 0.8 - 1e-8, 1.0],
         [1.0, 0.0, 0.0],
@@ -884,28 +916,229 @@ fn small_loop_boolean_resolves_c0116_and_subband_c0118_on_pass_zero() {
         0.3,
         3.5,
     );
-    let union_c0118 = boolean(&boss, &tool_c0118, BoolOp::Union, &backend).expect("C0118 union");
+    let union_c0118 =
+        boolean_once(&boss, &tool_c0118, BoolOp::Union, &backend).expect("C0118 pass-0 union");
     assert!(
-        !failures::recorded()
-            .iter()
-            .any(|s| s.trigger == FailureTrigger::MissedIntersection),
-        "C0118 sub-band small loop should resolve on pass 0 without T6 refinement: {:?}",
+        failures::recorded().is_empty(),
+        "C0118 sub-MIN_FEATURE_SIZE graze should not record failure sites: {:?}",
         failures::recorded()
     );
     assert_eq!(union_c0118.faces().len(), 6);
-    assert!(
+    assert_eq!(
         union_c0118
             .edges()
             .iter()
-            .any(|e| matches!(e.curve, Curve::SurfacePair { .. })),
-        "C0118 sub-band union must carry the exact SurfacePair small-loop edge"
+            .filter(|e| matches!(e.curve, Curve::SurfacePair { .. }))
+            .count(),
+        0,
+        "C0118 must not emit sub-MIN_FEATURE_SIZE twin sheets"
+    );
+}
+
+/// S10 red-first end-to-end pin (failed RED on base `main` `a236e510` with
+/// `MissedIntersection` on pass 0; passes GREEN here while preserving `C0118`).
+#[test]
+fn small_loop_pass_zero_resolves_c0116_and_preserves_sub_feature_c0118() {
+    let backend = native_backend().expect("native backend");
+    let boss = extruded_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.5, 2.0);
+
+    let tool_c0118 = extruded_cylinder(
+        [-1.5, 0.8 - 1e-8, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        0.3,
+        3.5,
+    );
+    let c0118_p0 = boolean_once(&boss, &tool_c0118, BoolOp::Union, &backend);
+    let c0118_p0_fails = failures::recorded();
+    let c0118_full = boolean(&boss, &tool_c0118, BoolOp::Union, &backend).expect("C0118 union");
+    let c0118_pair_edges = c0118_full
+        .edges()
+        .iter()
+        .filter(|e| matches!(e.curve, Curve::SurfacePair { .. }))
+        .count();
+    assert!(c0118_p0.is_ok(), "C0118 pass 0 must succeed");
+    assert!(
+        c0118_p0_fails.is_empty(),
+        "C0118 pass 0 must record zero failures, got {c0118_p0_fails:?}"
+    );
+    assert_eq!(c0118_full.faces().len(), 6);
+    assert_eq!(
+        c0118_pair_edges, 0,
+        "C0118 must not emit sub-MIN_FEATURE_SIZE SurfacePair twin sheets"
     );
 
-    let inter_c0118 =
-        boolean(&boss, &tool_c0118, BoolOp::Intersect, &backend).expect("C0118 intersect");
-    assert_eq!(
-        inter_c0118.faces().len(),
-        2,
-        "C0118 1e-8 sub-band lens must be non-empty 2-face solid"
+    let tool_c0116 = extruded_cylinder(
+        [-1.5, 0.79, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        0.3,
+        3.5,
+    );
+    let union_c0116 =
+        boolean_once(&boss, &tool_c0116, BoolOp::Union, &backend).expect("C0116 pass-0 union");
+    assert!(
+        failures::recorded().is_empty(),
+        "C0116 small loop should resolve on pass 0 with zero failure sites, got {:?}",
+        failures::recorded()
+    );
+    assert!(
+        union_c0116
+            .edges()
+            .iter()
+            .any(|e| matches!(e.curve, Curve::SurfacePair { .. })),
+        "C0116 pass-0 union must carry the exact SurfacePair small-loop intersection edge"
+    );
+    let inter_c0116 = boolean_once(&boss, &tool_c0116, BoolOp::Intersect, &backend)
+        .expect("C0116 pass-0 intersect");
+    assert_eq!(inter_c0116.faces().len(), 2);
+}
+
+/// S3 & S4 pins:
+/// - `(Plane, Plane)` proximity is inspected without surface-type pre-skips and
+///   pruned by `GaussMap::overlaps` when non-parallel;
+/// - an unresolved Gauss-admitted candidate area records a §4.5 `FailureSite`
+///   instead of silently declining;
+/// - `subdivide_segment_s434` fails loudly (`false`) at `depth >= 12` on an
+///   unrefined chord;
+/// - `register_spliced_loop_edges_in_arrangement` fails loudly with
+///   `Err(Stage4RegionInvalid)` and records a `FailureSite` on a missed chord.
+#[test]
+fn small_loop_loud_failure_sites_plane_pruning_and_depth_overflow() {
+    let backend = native_backend().expect("native backend");
+
+    // (a) S4: `(Plane, Plane)` non-parallel proximity (`< 2 d_p`) is discovered
+    // without a `(Plane, Plane)` pre-skip and pruned by `GaussMap::overlaps`.
+    let box_a = rj_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+    let z_drop = 0.1 * (0.2 / 1.04_f64.sqrt());
+    let tilt_cyl = extruded_cylinder(
+        [0.5, 0.5, 1.0 + z_drop + 5e-8],
+        [0.2, 0.0, 1.0],
+        [1.0, 0.0, -0.2],
+        0.1,
+        0.5,
+    );
+    let la_pp = backend
+        .labeled_arrangement(box_a.as_mesh(), tilt_cyl.as_mesh())
+        .expect("plane-plane arrangement");
+    let areas_pp = discover_small_loop_candidate_areas(
+        &box_a,
+        box_a.as_mesh(),
+        box_a.tri_face(),
+        &tilt_cyl,
+        tilt_cyl.as_mesh(),
+        tilt_cyl.tri_face(),
+        &la_pp,
+    );
+    let plane_plane_areas: Vec<_> = areas_pp
+        .iter()
+        .filter(|ar| {
+            matches!(
+                box_a.faces()[ar.face_a as usize].surface,
+                Surface::Plane { .. }
+            ) && matches!(
+                tilt_cyl.faces()[ar.face_b as usize].surface,
+                Surface::Plane { .. }
+            )
+        })
+        .collect();
+    assert!(
+        !plane_plane_areas.is_empty(),
+        "expected non-parallel (Plane, Plane) proximity area without surface-type pre-skip"
+    );
+    assert!(
+        plane_plane_areas.iter().all(|ar| !ar.gauss_overlap),
+        "non-parallel (Plane, Plane) area must be pruned by GaussMap::overlaps: {plane_plane_areas:?}"
+    );
+
+    // (b) S3: Gauss-admitted boundary-clipped candidate area (`z = 1.04` cap rim
+    // slicing through `C0116`'s `0.01`-deep loop while coarse meshes remain
+    // non-crossing) MUST record a `FailureSite` on `(face_a=0, face_b=0)`.
+    let clipped_boss =
+        extruded_cylinder([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 0.5, 1.04);
+    let tool_c0116 = extruded_cylinder(
+        [-1.5, 0.79, 1.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        0.3,
+        3.5,
+    );
+    let la_clip = backend
+        .labeled_arrangement(clipped_boss.as_mesh(), tool_c0116.as_mesh())
+        .expect("clipped arrangement");
+    assert!(
+        la_clip.intersection_edges.is_empty(),
+        "coarse clipped cylinders remain non-crossing on pass 0"
+    );
+    failures::reset();
+    let upd = resolve_and_splice_small_loops(
+        &clipped_boss,
+        clipped_boss.as_mesh(),
+        clipped_boss.tri_face(),
+        &tool_c0116,
+        tool_c0116.as_mesh(),
+        tool_c0116.tri_face(),
+        &la_clip,
+    );
+    assert!(upd.is_none(), "boundary-clipped loop must not splice");
+    let rec = failures::recorded();
+    assert!(
+        rec.iter().any(|s| {
+            s.trigger == FailureTrigger::RelocationDiverged
+                && s.faces == vec![(InputId::A, 0), (InputId::B, 0)]
+        }),
+        "unresolved Gauss-admitted area must record a §4.5 FailureSite, got {rec:?}"
+    );
+
+    // (c) S3: `subdivide_segment_s434` at `depth == 12` with `chord > 2 * dp`
+    // returns loud `false` instead of silently accepting an unrefined chord.
+    let sph = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 1.0,
+    };
+    let pln = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let mut out_pts = Vec::new();
+    assert!(
+        !subdivide_segment_s434(
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+            sph,
+            pln,
+            &[],
+            &[],
+            1e-7,
+            12,
+            &mut out_pts,
+        ),
+        "depth >= 12 with chord > 2*dp must fail loudly (false)"
+    );
+
+    // (d) S3: `register_spliced_loop_edges_in_arrangement` with a missing chord
+    // fails loudly (`Err(Stage4RegionInvalid)`) and records a `FailureSite`.
+    let mut la_miss = la_clip;
+    failures::reset();
+    let bogus_chord = SplicedLoopChord {
+        p: Point3::new(9.0, 9.0, 9.0),
+        q: Point3::new(9.1, 9.0, 9.0),
+        face_a: 0,
+        face_b: 0,
+    };
+    let reg_res = register_spliced_loop_edges_in_arrangement(&mut la_miss, &[bogus_chord], 1.0);
+    assert!(
+        matches!(
+            reg_res,
+            Err(YangError::Stage4RegionInvalid {
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+                ..
+            })
+        ),
+        "missing spliced chord must return Err(Stage4RegionInvalid), got {reg_res:?}"
+    );
+    assert!(
+        !failures::recorded().is_empty(),
+        "missing spliced chord must record a §4.5 FailureSite"
     );
 }

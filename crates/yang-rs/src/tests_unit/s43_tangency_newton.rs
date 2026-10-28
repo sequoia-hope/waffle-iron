@@ -707,6 +707,47 @@ fn s43_curve_redundancy_removes_point_on_solved_curve_and_keeps_disjoint_loop() 
         &[],
         dp,
     ));
+
+    // (d) S4: Oblique `Torus × Plane` (`SsiCurve::SurfacePair`, neither parallel
+    // nor perpendicular to `axis_dir = +Z`): plane `y + 0.1 z = 0` slices `torus`
+    // (`R = 3, r = 1`) into TWO disjoint degree-4 tube-section ovals (`x ∈ [2, 4]`
+    // and `x ∈ [-4, -2]`). Witnessing one chord near `(4, 0, 0)` on the `x > 0`
+    // oval marks the opposite point `(2, 0, 0)` on the SAME `x > 0` oval
+    // redundant (`<= dp`) while keeping `(-4, 0, 0)` on the disjoint `x < 0`
+    // oval non-redundant!
+    let n_obl = normalize3([0.0, 1.0, 0.1]);
+    let oblique_pln = Surface::Plane {
+        normal: Vector3::new(n_obl[0], n_obl[1], n_obl[2]),
+        d: 0.0,
+    };
+    let w0 = Point3::new(4.0, 0.0, 0.0);
+    let w1 = solve_parametric_pair_newton(
+        Point3::new(3.95, -0.03, 0.3),
+        Point3::new(3.95, -0.03, 0.3),
+        torus,
+        oblique_pln,
+    )
+    .expect("w1 on x>0 oval")
+    .point;
+    let r_same_oval = Point3::new(2.0, 0.0, 0.0);
+    let r_other_oval = Point3::new(-4.0, 0.0, 0.0);
+    let solved_oblique_pos = vec![(w0, w1)];
+    assert!(is_redundant_with_solved_curves(
+        r_same_oval,
+        torus,
+        oblique_pln,
+        &solved_oblique_pos,
+        &[],
+        dp,
+    ));
+    assert!(!is_redundant_with_solved_curves(
+        r_other_oval,
+        torus,
+        oblique_pln,
+        &solved_oblique_pos,
+        &[],
+        dp,
+    ));
 }
 
 /// Pin 7 (B1): `relocate_onto_implicit_pair` delegates ONLY when `det <= rank_eps`
@@ -780,15 +821,18 @@ fn s43_relocate_non_convergence_stays_loud_none_and_drift_is_scale_relative() {
 
 /// Pin 8 (S2 & S4): `solve_and_classify_seed` runs surface-pair optimization
 /// FIRST and compares normals SECOND (§4.3 `:536-569`), returning
-/// `TangencySolveFailed` (never `NoIntersection`) when normals are collinear on
-/// a 1D tangent locus or near-coplanar crossing, `CoincidentSurfaces` on 2D
-/// identical surfaces, and handling `(Plane, Plane)` without surface-type pre-skips.
+/// `Tangent(TangentSolution { kind: TangentCurve, .. })` on a converged 1D
+/// tangent locus (never `NoIntersection` or `CurvePoint`), `TangencySolveFailed`
+/// (never `NoIntersection`) when normals are collinear and tangency Newton
+/// fails to converge, `CoincidentSurfaces` on 2D identical surfaces, and
+/// handling `(Plane, Plane)` without surface-type pre-skips.
 #[test]
 fn s43_classify_seed_pair_first_loud_on_collinear_failure_and_plane_pairs() {
     // 1D parallel tangent cylinders (`x^2 + y^2 = 1` and `(x - 2)^2 + y^2 = 1`
     // kissing along the generator `(1, 0, z)`): pair Newton converges to `(1, 0, z)`
-    // with collinear normals, 2D coincidence is false, and 0D tangency Newton
-    // sees `TangencyKind::TangentCurve` (`rank == 3`), yielding `TangencySolveFailed`.
+    // with collinear normals, 2D coincidence is false, and tangency Newton
+    // classifies `TangencyKind::TangentCurve` (`rank == 3`), never `CurvePoint`
+    // or `NoIntersection`.
     let cyl_a = Surface::Cylinder {
         axis_point: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
@@ -807,8 +851,11 @@ fn s43_classify_seed_pair_first_loud_on_collinear_failure_and_plane_pairs() {
         None,
     );
     assert!(
-        matches!(res_gen, SeedOptimizationResult::TangencySolveFailed),
-        "1D parallel cylinder generator must return TangencySolveFailed, got {res_gen:?}"
+        matches!(
+            res_gen,
+            SeedOptimizationResult::Tangent(ref tsol) if tsol.kind == TangencyKind::TangentCurve
+        ),
+        "1D parallel cylinder generator must return Tangent(TangentCurve), got {res_gen:?}"
     );
 
     // Two planes crossing at `5e-7` rad (`<= 1e-6` rad): pair Newton converges

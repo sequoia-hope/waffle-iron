@@ -1,17 +1,16 @@
-//! F4 / N91, N92 — sub-`f32`-ULP small-loop graded collar render pin (`C0118`).
+//! F4 / N91, N92 — `C0116` pass-0 small-loop resolution and `C0118`
+//! sub-`MIN_FEATURE_SIZE` twin-sheet suppression render pin.
 //!
-//! Two perpendicular cylinders (`R_A = 0.5` along `+Z`, `R_B = 0.3` along `+X`)
-//! grazing `1e-8` deep at `(0, 0.5, 1.0)` (`C0118`'s authored coordinates) meet
-//! in a tiny closed degree-4 intersection loop of diameter `~2.0e-4` (`~32`
-//! samples), resolved on pass 0 via §4.2.2 Gauss-map admission + Fig. 10(c)
-//! barycenter seeding + Bajaj closed-loop tracing (`stage4_small_loop.rs`).
-//!
-//! Near `(0, 0.5, 1.0)`, the two cylinder sheets sit `< 2e-8` apart in `y` —
-//! strictly below 1 `f32` ULP (`5.96e-8` at `0.5_f32`). `insert_graded_hole_collars`
-//! uses reflection-asymmetric ring phases `{0.25, 0.75}` anchored at the
-//! canonical 3D hole vertex so the two twin faces' Steiner collar points are
-//! staggered by `0.5 * ds_k >= 16 f32 ULPs` and never collide into
-//! double-covered (`count > 2`) `f32` render edges.
+//! 1. `C0116` (`R_A = 0.5` along `+Z`, `R_B = 0.3` along `+X` at `y = 0.79`,
+//!    `1e-2` penetration `>> MIN_FEATURE_SIZE`) meets in a closed degree-4
+//!    small loop resolved on pass 0 via §4.2.2 Gauss-map admission + Fig. 10(c)
+//!    barycenter seeding + Bajaj closed-loop tracing, and renders cleanly with
+//!    zero non-manifold (`count != 2`) `f32` edges.
+//! 2. `C0118` (`y = 0.79999999`, `1e-8` penetration `< MIN_FEATURE_SIZE`) has
+//!    twin surface sheets separated by `|t_A - t_B| = 1e-8 < MIN_FEATURE_SIZE`:
+//!    `solve_common_axis_interior_caps` suppresses the sub-`MIN_FEATURE_SIZE`
+//!    twin-sheet splice rather than emitting sheets `1e-8` apart, preserving a
+//!    clean 2-manifold render mesh without renderer collar workarounds.
 
 use std::collections::HashMap;
 
@@ -37,7 +36,7 @@ fn circle(radius: f64) -> (ClosedProfile, HashMap<u32, (f64, f64)>) {
     (profile, positions)
 }
 
-fn over_used_edges(mesh: &RenderMesh) -> Vec<([f32; 3], [f32; 3], usize)> {
+fn non_manifold_edges(mesh: &RenderMesh) -> Vec<([f32; 3], [f32; 3], usize)> {
     let key = |i: u32| -> [u32; 3] {
         let k = i as usize * 3;
         [
@@ -63,15 +62,14 @@ fn over_used_edges(mesh: &RenderMesh) -> Vec<([f32; 3], [f32; 3], usize)> {
     };
     let mut bad: Vec<_> = counts
         .into_iter()
-        .filter(|(_, c)| *c > 2)
+        .filter(|(_, c)| *c != 2)
         .map(|((a, b), c)| (pos(a), pos(b), c))
         .collect();
     bad.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
     bad
 }
 
-#[test]
-fn c0118_sub_ulp_small_loop_union_renders_without_double_covered_collar_edges() {
+fn run_perpendicular_grazing_union(y_offset: f64) -> RenderMesh {
     let mut k = KernelV2Adapter::new();
     let (ca, pa) = circle(0.5);
     let fa = k
@@ -91,7 +89,7 @@ fn c0118_sub_ulp_small_loop_union_renders_without_double_covered_collar_edges() 
     let fb = k
         .make_faces_from_profiles(
             &[cb],
-            [-1.5, 0.79999999, 1.0],
+            [-1.5, y_offset, 1.0],
             [1.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
             &pb,
@@ -103,13 +101,20 @@ fn c0118_sub_ulp_small_loop_union_renders_without_double_covered_collar_edges() 
 
     let union = k
         .boolean_union(&cyl_a, &cyl_b)
-        .expect("C0118 sub-ULP grazing cylinder union must succeed on pass 0");
-    let mesh = k.tessellate(&union, 0.001).expect("render tessellation");
-    let bad = over_used_edges(&mesh);
-    assert!(
-        bad.is_empty(),
-        "{} render edge(s) used by >2 triangles on C0118 collar: {:?}",
-        bad.len(),
-        &bad[..bad.len().min(6)]
-    );
+        .expect("perpendicular grazing cylinder union must succeed");
+    k.tessellate(&union, 0.001).expect("render tessellation")
+}
+
+#[test]
+fn c0116_small_loop_and_c0118_sub_min_feature_graze_render_manifold() {
+    for (label, y_offset) in [("C0116", 0.79), ("C0118", 0.79999999)] {
+        let mesh = run_perpendicular_grazing_union(y_offset);
+        let bad = non_manifold_edges(&mesh);
+        assert!(
+            bad.is_empty(),
+            "{label}: {} non-manifold render edge(s) (count != 2): {:?}",
+            bad.len(),
+            &bad[..bad.len().min(6)]
+        );
+    }
 }

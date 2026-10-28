@@ -1819,8 +1819,8 @@ pub(crate) fn solve_and_classify_seed(
     }
 
     match solve_tangent_point_newton(pair_sol.point, pair_sol.point, s_a, s_b, max_drift) {
-        Some(tan_sol) if tan_sol.is_isolated_point() => SeedOptimizationResult::Tangent(tan_sol),
-        _ => SeedOptimizationResult::TangencySolveFailed,
+        Some(tan_sol) => SeedOptimizationResult::Tangent(tan_sol),
+        None => SeedOptimizationResult::TangencySolveFailed,
     }
 }
 
@@ -1924,6 +1924,9 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
             let tb_idx = tb_idx_u32 as usize;
             let fb = tri_face_b[tb_idx];
             let surf_b = set_b.surf[tb_idx];
+            if surf_a == surf_b {
+                return;
+            }
             let reach = set_a.dev[ta_idx] + set_b.dev[tb_idx] + band;
             if (0..3).any(|k| {
                 set_b.lo[tb_idx][k] > set_a.hi[ta_idx][k] + reach
@@ -1959,6 +1962,15 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
     let a_tris = &a.as_mesh().tris;
     let mut pair_seeds: BTreeMap<(u32, u32), Vec<(Point3, Point3)>> = BTreeMap::new();
     for ((fa, fb), sector_tas) in sectors_by_pair {
+        let surf_a = a.faces()[fa as usize].surface;
+        let surf_b = b.faces()[fb as usize].surface;
+        if let Some(&first_ta) = sector_tas.keys().next() {
+            let p_ref = set_a.pts[first_ta][0];
+            let (tau_c, sc_c) = coincidence_floor(p_ref, p_ref, surf_a, surf_b);
+            if surfaces_coincident_2d(surf_a, surf_b, p_ref, tau_c, sc_c) {
+                continue;
+            }
+        }
         let mut v_owners: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
         for &ta_idx in sector_tas.keys() {
             for &v in &a_tris[ta_idx] {

@@ -978,7 +978,7 @@ impl StageTimer {
     }
 }
 
-fn boolean_once(
+pub(crate) fn boolean_once(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
@@ -1911,7 +1911,8 @@ fn boolean_once_timed(
     // non-crossing candidate areas admitted by closed-form Gauss-map overlap,
     // trace and §4.3.4-refine closed small intersection loops by Bajaj et al.
     // 1988 marching, splice `r_A = r_B = r` + Fig. 11(c) interior cap vertices
-    // via local chart CDT, and re-run Stage 2 on the updated meshes.
+    // via local chart CDT, and re-run Stage 2 on the updated meshes (ORDER
+    // deviation recorded in N91 / matrix rows 4.2-18, 4.3-20, 4.4-06, 4.4-14).
     let small_loop_update = crate::stage4_small_loop::resolve_and_splice_small_loops(
         a,
         mesh_a,
@@ -1931,7 +1932,7 @@ fn boolean_once_timed(
                     &mut la,
                     &upd.loop_chords,
                     upd.scale,
-                );
+                )?;
                 (
                     &upd.mesh_a,
                     upd.tri_face_a.as_slice(),

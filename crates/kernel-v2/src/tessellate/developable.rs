@@ -2463,19 +2463,71 @@ fn tessellate_developable_patch(
     Ok(())
 }
 
+/// Altitude-to-edge ratio `√3 / 2` of an equilateral triangle.
+const COLLAR_EQUILATERAL_ALTITUDE_RATIO: f64 = 0.866_025_403_784_438_6;
+/// Minimum hole-edge-to-facet ratio `ds_0 / w_facet < 1/4` (`4 * ds_0 < w_facet`)
+/// requiring ≥2 dyadic grading doublings (`ds_0 -> 2 ds_0 -> 4 ds_0 = w_facet`);
+/// coarser holes stay byte-identical.
+const COLLAR_FINE_HOLE_W_FACET_RATIO: f64 = 0.25;
+/// Dimensionless minimum norm of the sum of two unit 2D edge normals (`prev + cur`)
+/// before falling back to `cur` on near-`180°` spikes.
+const COLLAR_UNIT_SUM_MIN_NORM: f64 = 1e-12;
+/// Innermost collar step floor in multiples of `render_height_floor` so triangle
+/// altitudes `(√3 / 2) * ds_min >= 2√3 * height_floor` clear `render_subresolution_triangle`.
+const COLLAR_MIN_STEP_HEIGHT_FLOOR_MULT: f64 = 4.0;
+/// Dyadic coarsening factor (`2.0`) per concentric ring (`ds_k = 2^k ds_min`).
+const COLLAR_DYADIC_RATIO: f64 = 2.0;
+/// Maximum dyadic ring index (`2^24 > 1.6e7`, spanning `MIN_FEATURE_SIZE` to `w_facet`).
+const COLLAR_MAX_DYADIC_RINGS: i32 = 24;
+/// Minimum sample count around a concentric collar ring (`30°` angular resolution).
+const COLLAR_MIN_RING_SAMPLES: usize = 12;
+/// Maximum sample count cap on a single collar ring.
+const COLLAR_MAX_RING_SAMPLES: usize = 2048;
+/// Standard equilateral half-step ring stagger (`0.5` on odd rings, `0.0` on even rings;
+/// zero reflection-asymmetric phase stagger).
+const COLLAR_ODD_RING_PHASE: f64 = 0.5;
+/// Clearance from a collar ring to its own hole boundary (`0.5 * offset`, Voronoi bisector).
+const COLLAR_OWN_HOLE_CLEAR_OFFSET_FRAC: f64 = 0.5;
+/// Clearance from collar/grid Steiner points to fixed outer/slit/peer-hole boundaries
+/// (`0.5 * step`, keeping incident boundary triangle altitudes `>= 0.5 * step`).
+const COLLAR_BOUNDARY_CLEAR_STEP_FRAC: f64 = 0.5;
+/// Minimum chord separation between consecutive accepted points on the same collar ring
+/// (`0.5 * ds_k`).
+const COLLAR_RING_SELF_CLEAR_STEP_FRAC: f64 = 0.5;
+/// Minimum separation `(1/3) * step` from any existing cavity vertex (the centroid-to-base
+/// inradius fraction `(√3/6) / (√3/2) = 1/3` of an equilateral triangle).
+const COLLAR_CAVITY_MIN_SEP_STEP_FRAC: f64 = 1.0 / 3.0;
+/// Relative convergence tolerance `16 * ε_mach` for `ds_k` reaching `target_max`.
+const COLLAR_TARGET_CONVERGED_REL_TOL: f64 = 16.0 * f64::EPSILON;
+/// Vertical transition half-belt around `[hg.min_y - offset, hg.max_y + offset]` in
+/// multiples of `w_facet` (`1.0 * w_facet`).
+const COLLAR_BELT_HALF_BAND_W_FACET_MULT: f64 = 1.0;
+/// Sparse outer-row vertical step cap outside the fine-hole belt (`4.0 * w_facet`).
+const COLLAR_OUTER_ROW_MAX_W_FACET_MULT: f64 = 4.0;
+/// Maximum sparse outer-row subdivisions across `v_span` (`v_span / 16`).
+const COLLAR_OUTER_ROW_SPAN_DIV: f64 = 16.0;
+/// Overlap fraction (`0.25 * w_facet`) where the `du = (√3/2) * w_facet` background
+/// equilateral lattice meets the outermost `target_max = (√3/2) * w_facet` collar ring.
+const COLLAR_EXCLUSION_OVERLAP_W_FACET_FRAC: f64 = 0.25;
+/// Maximum visibility-walk steps from `hint_ti` before falling back to linear scan.
+const COLLAR_WALK_MAX_STEPS: usize = 128;
+/// Maximum Bowyer–Watson local Delaunay cavity size per Steiner insertion.
+const COLLAR_MAX_CAVITY_TRIS: usize = 64;
+
 /// Insert concentric dyadic Steiner collar rings around interior hole loops
 /// whose boundary edge spacing `ds_0` is much finer than `w_facet`
-/// (`4 * ds_0 < w_facet`), maintaining exact 2D orientation and Delaunay
-/// edge quality via incremental Lawson flips.
+/// (`ds_0 < COLLAR_FINE_HOLE_W_FACET_RATIO * w_facet`), maintaining exact 2D
+/// orientation and Delaunay edge quality via incremental Lawson flips.
 ///
-/// Without graded interior Steiner nodes, an interior hole with `N` sub-facet
-/// edges (e.g. a §4.3.3/§4.3.4 small closed intersection loop on `C0116` or
-/// `C0118`) fans `N` high-aspect needle triangles directly to the patch rims;
-/// Pass-4 Rivara LEPP + `lift_inverts` (`specs/kv9_f2b_lift_faithful_refinement.md`
-/// §6) then bisects all `N` ribbons across the full barrel height. Coarsening
-/// `ds_k = 2^k ds_0` up to `w_facet` confines the fine spacing to a narrow
-/// geometric collar around the hole while leaving patches without fine holes
-/// byte-identical.
+/// Measured necessity (`C0116`, `f4_small_loop_collar_render`): without graded
+/// interior Steiner nodes, an interior hole with ~380 sub-facet edges (`ds_0 ≈
+/// 1.4e-3 << w_facet ≈ 0.049`) fans needle triangles across the full `[0, 2πR] ×
+/// [0, 2]` cylinder sheet to the `θ = 2π` seam; Pass-4 Rivara LEPP bisection then
+/// splits one side of the `θ = 0 / 2π` seam 16 times (`17` non-manifold `f32`
+/// render edges). Coarsening `ds_k = 2^k ds_min` up to `target_max = (√3/2) *
+/// w_facet` into an equilateral `du = (√3/2) * w_facet`, `dv = (3/4) * w_facet`
+/// lattice confines fine spacing to a narrow collar (all lattice chords `= du <
+/// w_facet`) while leaving patches without fine holes byte-identical.
 #[allow(clippy::too_many_arguments)]
 fn insert_graded_hole_collars(
     pool_p2: &mut Vec<Point2>,
@@ -2493,6 +2545,13 @@ fn insert_graded_hole_collars(
         return Ok(());
     }
 
+    let patch_scale = outer_cdt.iter().fold(w_facet, |acc, &idx| {
+        let p = pool_p2[idx as usize];
+        acc.max(p.x().abs()).max(p.y().abs())
+    });
+    let seg_len_eps = f64::EPSILON * patch_scale;
+    let seg_len2_eps = seg_len_eps * seg_len_eps;
+
     let dist2_2d = |a: Point2, b: Point2| -> f64 {
         let dx = a.x() - b.x();
         let dy = a.y() - b.y();
@@ -2502,7 +2561,7 @@ fn insert_graded_hole_collars(
         let dx = b.x() - a.x();
         let dy = b.y() - a.y();
         let l2 = dx * dx + dy * dy;
-        if l2 <= 1e-30 {
+        if l2 <= seg_len2_eps {
             return dist2_2d(p, a);
         }
         let t = (((p.x() - a.x()) * dx + (p.y() - a.y()) * dy) / l2).clamp(0.0, 1.0);
@@ -2524,7 +2583,7 @@ fn insert_graded_hole_collars(
             perim += dist2_2d(a, b).sqrt();
         }
         let ds0 = perim / (m as f64);
-        if ds0 > 0.0 && ds0 * 4.0 < w_facet {
+        if ds0 > 0.0 && ds0 < COLLAR_FINE_HOLE_W_FACET_RATIO * w_facet {
             fine_holes.push((hi, perim, ds0));
         }
     }
@@ -2623,26 +2682,16 @@ fn insert_graded_hole_collars(
     };
 
     let height_floor = render_height_floor(pool_p3.iter());
+    let target_max = COLLAR_EQUILATERAL_ALTITUDE_RATIO * w_facet;
     let mut ring_batches: Vec<(f64, Vec<Point2>)> = Vec::new();
     let mut fine_hole_extents: Vec<(usize, f64)> = Vec::with_capacity(fine_holes.len());
     let mut belt_vmin = f64::INFINITY;
     let mut belt_vmax = f64::NEG_INFINITY;
 
     for &(hi, perim, ds0) in &fine_holes {
-        let h_ids = &holes_cdt[hi];
         let hg = &hole_groups[hi];
         let h_pts = &hg.pts;
         let m = h_pts.len();
-        let anchor = (0..m)
-            .min_by(|&a, &b| {
-                let pa = pool_p3[h_ids[a] as usize];
-                let pb = pool_p3[h_ids[b] as usize];
-                pa[0]
-                    .total_cmp(&pb[0])
-                    .then_with(|| pa[1].total_cmp(&pb[1]))
-                    .then_with(|| pa[2].total_cmp(&pb[2]))
-            })
-            .unwrap_or(0);
         let mut area2 = 0.0_f64;
         let mut seg_len = Vec::with_capacity(m);
         let mut cum_s = Vec::with_capacity(m + 1);
@@ -2655,18 +2704,13 @@ fn insert_graded_hole_collars(
             seg_len.push(l);
             cum_s.push(cum_s[i] + l);
         }
-        let total_s = cum_s[m];
-        if total_s <= 1e-30 {
-            continue;
-        }
-        let s_anchor = cum_s[anchor];
         let out_sign = if area2 <= 0.0 { 1.0 } else { -1.0 };
         let mut e_nrm: Vec<[f64; 2]> = Vec::with_capacity(m);
         for i in 0..m {
             let a = h_pts[i];
             let b = h_pts[(i + 1) % m];
             let l = seg_len[i];
-            if l > 1e-30 {
+            if l > seg_len_eps {
                 e_nrm.push([
                     out_sign * (-(b.y() - a.y())) / l,
                     out_sign * (b.x() - a.x()) / l,
@@ -2682,45 +2726,42 @@ fn insert_graded_hole_collars(
             let sx = prev[0] + cur[0];
             let sy = prev[1] + cur[1];
             let sl = (sx * sx + sy * sy).sqrt();
-            if sl > 1e-12 {
+            if sl > COLLAR_UNIT_SUM_MIN_NORM {
                 v_nrm.push([sx / sl, sy / sl]);
             } else {
                 v_nrm.push(cur);
             }
         }
 
-        let target_max = 0.85 * w_facet;
-        let ds_min = (4.0 * height_floor).max(2.0 * ds0).min(target_max);
+        let ds_min = (COLLAR_MIN_STEP_HEIGHT_FLOOR_MULT * height_floor)
+            .max(COLLAR_DYADIC_RATIO * ds0)
+            .min(target_max);
         let mut offset = 0.0_f64;
-        for k in 0..=24_i32 {
-            let ds_k = (ds_min * 2.0_f64.powi(k)).min(target_max);
-            offset += 0.85 * ds_k;
+        for k in 0..=COLLAR_MAX_DYADIC_RINGS {
+            let ds_k = (ds_min * COLLAR_DYADIC_RATIO.powi(k)).min(target_max);
+            offset += COLLAR_EQUILATERAL_ALTITUDE_RATIO * ds_k;
             let tube_len = perim + 2.0 * std::f64::consts::PI * offset;
-            let n_k = ((tube_len / ds_k).round() as usize).clamp(12, 2048);
-            // Reflection-asymmetric ring phases `{0.25, 0.75}` anchored at the
-            // canonical 3D vertex `anchor`: consecutive rings on the same face
-            // keep a `0.5` equilateral stagger (`|0.75 - 0.25| = 0.5`), while
-            // a twin face traversing the same shared hole loop in reverse
-            // (`s -> total_s - s` from `anchor`) places its collar vertices at
-            // `1 - phase` (`{0.75, 0.25}`), staggering the two grazing sheets
-            // by `0.5 * ds_k >= 16 f32 ULPs` so their interior Steiner points
-            // never round to identical `f32` coordinates (`C0118`).
-            let phase = if k % 2 == 1 { 0.75 } else { 0.25 };
-            let own_clear = 0.55 * offset;
+            let n_k = ((tube_len / ds_k).round() as usize)
+                .clamp(COLLAR_MIN_RING_SAMPLES, COLLAR_MAX_RING_SAMPLES);
+            let phase = if k % 2 == 1 {
+                COLLAR_ODD_RING_PHASE
+            } else {
+                0.0
+            };
+            let own_clear = COLLAR_OWN_HOLE_CLEAR_OFFSET_FRAC * offset;
             let own_clear2 = own_clear * own_clear;
-            let other_clear = 0.45 * ds_k.min(offset);
+            let other_clear = COLLAR_BOUNDARY_CLEAR_STEP_FRAC * ds_k.min(offset);
             let other_clear2 = other_clear * other_clear;
-            let self_clear2 = (0.45 * ds_k).powi(2);
+            let self_clear2 = (COLLAR_RING_SELF_CLEAR_STEP_FRAC * ds_k).powi(2);
             let mut ring_pts: Vec<Point2> = Vec::with_capacity(n_k);
 
             for j in 0..n_k {
-                let s_target =
-                    (s_anchor + ((j as f64 + phase) / (n_k as f64)) * total_s).rem_euclid(total_s);
+                let s_target = ((j as f64 + phase) / (n_k as f64)) * perim;
                 let seg_i = cum_s
                     .partition_point(|&cs| cs <= s_target)
                     .saturating_sub(1)
                     .min(m - 1);
-                let t = if seg_len[seg_i] > 1e-30 {
+                let t = if seg_len[seg_i] > seg_len_eps {
                     ((s_target - cum_s[seg_i]) / seg_len[seg_i]).clamp(0.0, 1.0)
                 } else {
                     0.0
@@ -2731,7 +2772,7 @@ fn insert_graded_hole_collars(
                 let nx = v_nrm[seg_i][0] + t * (v_nrm[next_i][0] - v_nrm[seg_i][0]);
                 let ny = v_nrm[seg_i][1] + t * (v_nrm[next_i][1] - v_nrm[seg_i][1]);
                 let nl = (nx * nx + ny * ny).sqrt();
-                if nl <= 1e-12 {
+                if nl <= COLLAR_UNIT_SUM_MIN_NORM {
                     continue;
                 }
                 let q = Point2::new(bx + offset * (nx / nl), by + offset * (ny / nl));
@@ -2773,38 +2814,47 @@ fn insert_graded_hole_collars(
             if !ring_pts.is_empty() {
                 ring_batches.push((ds_k, ring_pts));
             }
-            if ds_k >= target_max - 1e-12 {
+            if ds_k >= target_max * (1.0 - COLLAR_TARGET_CONVERGED_REL_TOL) {
                 break;
             }
         }
         fine_hole_extents.push((hi, offset));
-        belt_vmin = belt_vmin.min(hg.min_y - offset - 1.2 * w_facet);
-        belt_vmax = belt_vmax.max(hg.max_y + offset + 1.2 * w_facet);
+        belt_vmin = belt_vmin.min(hg.min_y - offset - COLLAR_BELT_HALF_BAND_W_FACET_MULT * w_facet);
+        belt_vmax = belt_vmax.max(hg.max_y + offset + COLLAR_BELT_HALF_BAND_W_FACET_MULT * w_facet);
     }
 
     // Coarse-to-fine candidate schedule:
-    // 1. Staggered `0.90 * w_facet` horizontal rows (dense `0.85 * w_facet` inside
-    //    `[belt_vmin, belt_vmax]` around the fine hole(s), bounded `dv_outer` outside)
-    //    so every outer-rim-to-interior triangle has `|Δu| < w_facet` and zero high-aspect
-    //    generator ribbons reach the collar.
+    // 1. Equilateral horizontal rows (`du = target_max = (√3/2) * w_facet`,
+    //    `dv_belt = (√3/2) * du = (3/4) * w_facet` inside `[belt_vmin, belt_vmax]`
+    //    so all three edges of every belt triangle equal `du < w_facet`, and
+    //    bounded `dv_outer` outside) so zero high-aspect generator ribbons reach
+    //    the collar or the `θ = 0 / 2π` cylinder seam.
     // 2. Collar rings sorted from largest `ds_k` down to smallest `ds_k` (`k_max -> 0`).
     let mut candidates: Vec<(Point2, f64)> = Vec::new();
-    {
-        let du = 0.90 * w_facet;
-        let dv_belt = 0.85 * w_facet;
+    let row_inset = COLLAR_BOUNDARY_CLEAR_STEP_FRAC * target_max;
+    let grid_clear = COLLAR_CAVITY_MIN_SEP_STEP_FRAC * target_max;
+    let u_lo = outer_group.min_x + row_inset;
+    let u_hi = outer_group.max_x - row_inset;
+    if u_hi > u_lo {
+        let n_u = ((u_hi - u_lo) / target_max).ceil().max(1.0) as usize;
+        let du = (u_hi - u_lo) / (n_u as f64);
+        let dv_belt = COLLAR_EQUILATERAL_ALTITUDE_RATIO * du;
         let v_span = (outer_group.max_y - outer_group.min_y).max(0.0);
-        let dv_outer = (4.0 * w_facet).max(v_span / 16.0);
-        let grid_clear = 0.45 * w_facet;
+        let dv_outer =
+            (COLLAR_OUTER_ROW_MAX_W_FACET_MULT * w_facet).max(v_span / COLLAR_OUTER_ROW_SPAN_DIV);
         let grid_clear2 = grid_clear * grid_clear;
-        let mut v_cur = outer_group.min_y + 0.6 * w_facet;
-        let v_end = outer_group.max_y - 0.6 * w_facet;
+        let mut v_cur = outer_group.min_y + row_inset;
+        let v_end = outer_group.max_y - row_inset;
         let mut row_idx = 0usize;
         while v_cur <= v_end {
-            let phase_u = if row_idx % 2 == 1 { 0.5 * du } else { 0.0 };
-            let mut row_pts: Vec<Point2> = Vec::new();
-            let mut u_cur = outer_group.min_x + 0.5 * w_facet + phase_u;
-            let u_end = outer_group.max_x - 0.45 * w_facet;
-            while u_cur <= u_end {
+            let (col_count, phase_u) = if row_idx % 2 == 1 {
+                (n_u, COLLAR_ODD_RING_PHASE)
+            } else {
+                (n_u + 1, 0.0)
+            };
+            let mut row_pts: Vec<Point2> = Vec::with_capacity(col_count);
+            for col in 0..col_count {
+                let u_cur = u_lo + ((col as f64) + phase_u) * du;
                 let q = Point2::new(u_cur, v_cur);
                 let mut ok = clears_group(q, &outer_group, grid_clear, grid_clear2);
                 if ok {
@@ -2821,7 +2871,8 @@ fn insert_graded_hole_collars(
                         if let Some(&(_, col_off)) =
                             fine_hole_extents.iter().find(|&&(fhi, _)| fhi == ohi)
                         {
-                            let excl = (col_off - 0.25 * w_facet).max(grid_clear);
+                            let excl = (col_off - COLLAR_EXCLUSION_OVERLAP_W_FACET_FRAC * w_facet)
+                                .max(grid_clear);
                             if !clears_group(q, ohg, excl, excl * excl) {
                                 ok = false;
                                 break;
@@ -2832,12 +2883,11 @@ fn insert_graded_hole_collars(
                 if ok && outside_all_holes(q) {
                     row_pts.push(q);
                 }
-                u_cur += du;
             }
             if row_idx % 2 == 1 {
                 row_pts.reverse();
             }
-            let min_sep2 = (0.35 * du).powi(2);
+            let min_sep2 = (COLLAR_CAVITY_MIN_SEP_STEP_FRAC * du).powi(2);
             for q in row_pts {
                 candidates.push((q, min_sep2));
             }
@@ -2855,7 +2905,7 @@ fn insert_graded_hole_collars(
 
     ring_batches.sort_by(|a, b| b.0.total_cmp(&a.0));
     for (ds_k, pts) in ring_batches {
-        let min_sep2 = (0.35 * ds_k).powi(2);
+        let min_sep2 = (COLLAR_CAVITY_MIN_SEP_STEP_FRAC * ds_k).powi(2);
         for q in pts {
             candidates.push((q, min_sep2));
         }
@@ -3049,12 +3099,12 @@ fn insert_graded_hole_collars(
         };
 
     let mut hint_ti = 0usize;
-    let mut cav: Vec<usize> = Vec::with_capacity(32);
+    let mut cav: Vec<usize> = Vec::with_capacity(COLLAR_MAX_CAVITY_TRIS);
     for (q, min_sep2) in candidates {
         let mut seed_opt: Option<Vec<usize>> = None;
         if hint_ti < cdt_tris.len() {
             let mut cur = hint_ti;
-            for _ in 0..128 {
+            for _ in 0..COLLAR_WALK_MAX_STEPS {
                 if let Some(s) = locate_seed(q, cur, cdt_tris, pool_p2, &fixed_edges, &edge_adj) {
                     seed_opt = Some(s);
                     break;
@@ -3102,7 +3152,7 @@ fn insert_graded_hole_collars(
         cav.clear();
         cav.extend_from_slice(&seed);
         let mut head = 0usize;
-        while head < cav.len() && cav.len() < 64 {
+        while head < cav.len() && cav.len() < COLLAR_MAX_CAVITY_TRIS {
             let ct = cav[head];
             head += 1;
             let t = cdt_tris[ct];
@@ -3129,7 +3179,7 @@ fn insert_graded_hole_collars(
                 ) == std::cmp::Ordering::Greater
                 {
                     cav.push(nb);
-                    if cav.len() >= 64 {
+                    if cav.len() >= COLLAR_MAX_CAVITY_TRIS {
                         break;
                     }
                 }

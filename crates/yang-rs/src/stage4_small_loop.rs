@@ -24,13 +24,19 @@
 //!   vertices too close to the loop, inserts an interior surface point `i`
 //!   when no mesh vertex lies inside the loop, and triangulates the trimmed
 //!   patches in the local parametric chart via CDT.
+//! - **§4.5 (`:646-670` L):** Every Gauss-admitted candidate area that fails
+//!   seed classification, domain postconditions, Bajaj loop tracing, interior
+//!   cap construction, or local CDT splice records a [`FailureSite`] on
+//!   `(face_a, face_b)` so `boolean::refine_loop` refines the region (or stops
+//!   loudly with [`YangError::RefinementExhausted`]).
 
-use crate::boolean::failures::{joined_triangle_pairs, RingCapture};
-use crate::gauss_map::GaussMap;
-use crate::shell_contact::{closest_on_triangle, triangle_distance, Bvh, TriSet};
-use crate::stage3_ssi::{
-    curve_contains_point, surface_to_quadric, torus_plane_is_perpendicular_section,
+use crate::boolean::failures::{
+    self, joined_triangle_pairs, FailureSite, FailureTrigger, RingCapture,
 };
+use crate::gauss_map::GaussMap;
+use crate::geom::{ssi_curve_point_distance, ssi_curve_solved_distance};
+use crate::shell_contact::{closest_on_triangle, triangle_distance, Bvh, TriSet};
+use crate::stage3_ssi::surface_to_quadric;
 use crate::stage4_boundary_curve::{boundary_crease_crossed, CreaseIndex, FaceCrease};
 use crate::stage4_correct::paper_chain_sample_redundant;
 use crate::stage4_relocate::{
@@ -40,13 +46,238 @@ use crate::stage4_relocate::{
 use crate::stage4_tangency::{
     add3, coincidence_floor, collinear_angle_rad, cross3, dot3, mag3, norm3, scale3,
     solve_and_classify_seed, solve_parametric_pair_newton, sub3, thin_svd, LocalSurfaceChart,
-    SeedOptimizationResult, V3,
+    SeedOptimizationResult, TangencyKind, V3,
 };
-use crate::{normalize3, ortho_basis, tri_is_degenerate, BRep, Mesh, Point3, Surface, Vector3};
+use crate::{
+    normalize3, ortho_basis, tri_is_degenerate, BRep, InputId, Mesh, Point3, Stage4InvalidReason,
+    Surface, Vector3, YangError,
+};
 use cad_primitives::Point2 as CadPoint2;
 use cherchi_rs::predicates::{segment_intersects_triangle_3d, SegmentTriangleIntersection};
 use std::collections::{BTreeMap, BTreeSet};
 use std::f64::consts::PI;
+
+// ---------------------------------------------------------------------------
+// Named numerical constants for §4.2.1 / §4.3.3 / §4.3.4 / §4.4.1 small-loop
+// discovery, Bajaj marching, parameter-midpoint refinement, and CDT splicing.
+// Non-paper constants are documented with their rationale in ledger N91.
+// ---------------------------------------------------------------------------
+
+/// Multiplier on `TAU_MODEL * scale` for the non-crossing proximity band around
+/// `d_ε(A) + d_ε(B)` in [`model_scale_and_band`] (`2.0 · d_p`).
+const SMALL_LOOP_MODEL_BAND_MULT: f64 = 2.0;
+
+/// Maximum Newton iterations per orthogonal-plane corrector call in
+/// [`correct_orthogonal_plane_newton`].
+const MAX_ORTHO_CORRECTOR_ITERS: usize = 24;
+
+/// Machine-precision residual convergence multiplier (`16 · ε_mach · scale`) in
+/// [`correct_orthogonal_plane_newton`].
+const ORTHO_MACHINE_RES_EPS_MULT: f64 = 16.0;
+
+/// Minimum leading singular value `σ_0` of the dimensionless `4 × 4` unit-chart
+/// Jacobian in [`correct_orthogonal_plane_newton`].
+const ORTHO_SVD_LEADING_SV_MIN: f64 = 1e-14;
+
+/// Relative condition-number floor `σ_3 / σ_0` of the `4 × 4` orthogonal-plane
+/// Jacobian in [`correct_orthogonal_plane_newton`].
+const ORTHO_SVD_COND_TOL: f64 = 1e-10;
+
+/// Parameter-step convergence multiplier (`4 · ε_mach · scale`) in
+/// [`correct_orthogonal_plane_newton`].
+const ORTHO_STEP_CONV_EPS_MULT: f64 = 4.0;
+
+/// Maximum backtracking halvings per Newton step in
+/// [`correct_orthogonal_plane_newton`].
+const MAX_ORTHO_LINE_SEARCH_HALVINGS: usize = 8;
+
+/// Standard backtracking line-search shrink factor (`1 / 2`).
+const LINE_SEARCH_SHRINK: f64 = 0.5;
+
+/// Minimum chord length (`2 · d_p`) for §4.3.4 subdivision: a chord `<= 2 d_p`
+/// cannot admit an interior sample separated by `> d_p` from both endpoints
+/// (Yang §4.3.3 `:535-538` R).
+const S434_MIN_CHORD_DP_MULT: f64 = 2.0;
+
+/// Maximum recursion depth (`2^{12} = 4096` sub-segments per Bajaj step) in
+/// [`subdivide_segment_s434`]; exceeding this depth fails loudly (`false`).
+const MAX_S434_SUBDIVIDE_DEPTH: u32 = 12;
+
+/// Maximum fraction of parent chord length (`0.95 · |q - p|`) allowed between an
+/// optimized §4.3.4 midpoint `m` and either parent endpoint.
+const S434_MIDPOINT_CHORD_FRAC_MAX: f64 = 0.95;
+
+/// Maximum Bajaj predictor–corrector steps per loop trace.
+const MAX_BAJAJ_STEPS: usize = 512;
+
+/// Dimensionless curvature floor (`κ · scale >= 1e-12`) bounding nominal radius
+/// of curvature `ρ = 1 / κ` on near-straight curve segments.
+const BAJAJ_CURVATURE_FLOOR_REL: f64 = 1e-12;
+
+/// Target tangent turning angle per Bajaj step (`π / 16 = 11.25°`, ~32 steps on
+/// a smooth closed loop).
+const BAJAJ_TARGET_TURN_RAD: f64 = PI / 16.0;
+
+/// Minimum nominal Bajaj step as a multiple of `d_p` (`0.5 · d_p`).
+const BAJAJ_MIN_NOMINAL_STEP_DP_MULT: f64 = 0.5;
+
+/// Minimum vertex count (`4`) of a non-degenerate closed polygon loop.
+const MIN_LOOP_VERTS: usize = 4;
+
+/// Minimum accumulated turning angle (`1.45 π`) before pre-step loop closure or
+/// approach slowdown is tested.
+const BAJAJ_PRE_CLOSE_MIN_TURN_RAD: f64 = 1.45 * PI;
+
+/// Maximum distance to `r_0` (`1.35 · h_nom`) for pre-step closure onto `r_0`.
+const BAJAJ_PRE_CLOSE_DIST_STEP_MULT: f64 = 1.35;
+
+/// Minimum tangent alignment `τ · τ_0` (`cos Δθ >= 0.75`) for pre-step closure.
+const BAJAJ_PRE_CLOSE_COS_MIN: f64 = 0.75;
+
+/// Distance threshold (`2.2 · h_nom`) at which Bajaj marching throttles its
+/// nominal step while approaching `r_0`.
+const BAJAJ_SLOWDOWN_DIST_STEP_MULT: f64 = 2.2;
+
+/// Minimum forward projection fraction `(r_0 - x) · τ / |r_0 - x|` (`0.5`) for
+/// approach step throttling.
+const BAJAJ_SLOWDOWN_ALONG_FRAC: f64 = 0.5;
+
+/// Minimum tangent alignment `τ · τ_0` (`0.4`) for approach step throttling.
+const BAJAJ_SLOWDOWN_COS_MIN: f64 = 0.4;
+
+/// Step-throttling fraction (`0.55 · |r_0 - x|`) when approaching `r_0`.
+const BAJAJ_SLOWDOWN_STEP_FRAC: f64 = 0.55;
+
+/// Maximum step-halving attempts per Bajaj predictor step.
+const MAX_BAJAJ_STEP_HALVINGS: i32 = 8;
+
+/// Minimum halved Bajaj step as a multiple of `d_p` (`0.1 · d_p`).
+const BAJAJ_MIN_STEP_DP_MULT: f64 = 0.1;
+
+/// Minimum norm of normalized predictor tangent `normalize(τ + h κ⃗)` (`0.5`)
+/// guarding against zero predictor direction.
+const BAJAJ_MIN_PREDICTOR_DIR_NORM: f64 = 0.5;
+
+/// Maximum corrector displacement (`0.75 · h`) from the quadratic predictor.
+const BAJAJ_MAX_CORRECTOR_DRIFT_STEP_FRAC: f64 = 0.75;
+
+/// Minimum actual chord progress (`0.1 · h`) required to accept a Bajaj step.
+const BAJAJ_MIN_ACTUAL_STEP_FRAC: f64 = 0.1;
+
+/// Minimum consecutive tangent cosine `τ_{k+1} · τ_k` (`0.85`, `Δθ <= 31.8°`),
+/// preventing jumps across narrow ellipse/quartic necks onto opposite branches.
+const BAJAJ_MAX_STEP_COS_MIN: f64 = 0.85;
+
+/// Minimum accumulated turning angle (`1.65 π`) for post-step loop closure.
+const BAJAJ_POST_STEP_CLOSE_MIN_TURN_RAD: f64 = 1.65 * PI;
+
+/// Maximum distance to `r_0` (`0.65 · h_used`) for post-step loop closure.
+const BAJAJ_POST_STEP_CLOSE_DIST_FRAC: f64 = 0.65;
+
+/// Maximum total turning angle (`2.5 π`) before aborting a non-closing trace.
+const BAJAJ_MAX_TOTAL_TURN_RAD: f64 = 2.5 * PI;
+
+/// Minimum diameter (`3 · d_p`) of a refined closed loop after `d_p` dedup.
+const MIN_REFINED_LOOP_DIAM_DP_MULT: f64 = 3.0;
+
+/// Overlap margin (`0.1 · chord`) beyond segment endpoints when testing
+/// orthogonal-plane curve distance along a chord `[p_0, p_1]`.
+const CHORD_SLAB_OVERLAP_FRAC: f64 = 0.1;
+
+/// Maximum corrector drift (`0.5 · chord`) when projecting onto `S_A ∩ S_B`
+/// within the orthogonal slab of a chord `[p_0, p_1]`.
+const CHORD_ARC_MAX_CORR_FRAC: f64 = 0.5;
+
+/// Maximum Euclidean excursion (`8 · max_witness_dist`) when marching an open
+/// `SurfacePair` branch during connected-component redundancy evaluation.
+const PAIR_COMPONENT_EXCURSION_MULT: f64 = 8.0;
+
+/// Scale-relative 2D area tolerance multiplier (`16 · ε_mach`) for segment
+/// collinearity, triangle containment, and star-kernel orientation checks.
+const POLY2D_AREA_EPS_MULT: f64 = 16.0;
+
+/// Maximum 1D Newton iterations along the loop-normal ray `base + t · n_L` in
+/// [`solve_common_axis_interior_caps`].
+const CAP_RAY_NEWTON_MAX_ITERS: usize = 10;
+
+/// Early-exit surface residual fraction (`0.25 · τ`) on a cap-normal ray.
+const CAP_RAY_EARLY_TAU_FRAC: f64 = 0.25;
+
+/// Minimum directional derivative cosine `|∇f · n_L|` (`1e-4`) along a cap ray.
+const CAP_RAY_MIN_COS: f64 = 1e-4;
+
+/// Minimum signed separation (`2 · τ`) required between collar-ring ray hits on
+/// `S_A` and `S_B`.
+const MIN_CAP_AXIS_SEP_TAU_MULT: f64 = 2.0;
+
+/// Maximum fan degree (`24`) at the interior cap apex before concentric dyadic
+/// interior rings are inserted.
+const MAX_CAP_APEX_FAN_DEGREE: usize = 24;
+
+/// Minimum radial step (`1e-3`) for interior cap collar rings.
+const CAP_RING_BASE_DELTA_MIN: f64 = 1e-3;
+
+/// Maximum initial radial step (`0.25`) for interior cap collar rings.
+const CAP_RING_BASE_DELTA_MAX: f64 = 0.25;
+
+/// Maximum dyadic shift exponent (`20`) for interior cap collar rings.
+const CAP_RING_MAX_DYADIC_SHIFT: u32 = 20;
+
+/// Radial fraction floor (`0.25`) switching interior cap rings from dyadic step
+/// subtraction to halving.
+const CAP_RING_LINEAR_RHO_FLOOR: f64 = 0.25;
+
+/// Innermost normalized radius (`0.08`) before terminating interior cap rings.
+const CAP_RING_MIN_RHO: f64 = 0.08;
+
+/// Minimum ray count (`8`) retained on an interior cap collar ring.
+const CAP_RING_MIN_INNER_RAYS: usize = 8;
+
+/// Cavity boundary clearance around `L` as a fraction (`0.35`) of minimum loop
+/// edge length in [`plan_face_loop_splice`] (purely scale-relative).
+const SPLICE_CAVITY_CLEARANCE_EDGE_FRAC: f64 = 0.35;
+
+/// Maximum cavity triangle count (`64`) during local chart CDT expansion.
+const MAX_SPLICE_CAVITY_TRIS: usize = 64;
+
+/// Minimum chart distance (`0.6 · min_loop_edge`) for retaining pre-existing
+/// interior cavity vertices outside `L` (Yang §4.4.1 `:563-564` R).
+const SPLICE_KEEP_INTERIOR_VERT_EDGE_FRAC: f64 = 0.6;
+
+/// Minimum initial radial step (`0.02`) for exterior dyadic collar rings.
+const SPLICE_EXT_COLLAR_STEP_MIN: f64 = 0.02;
+
+/// Maximum initial radial step (`1.0`) for exterior dyadic collar rings.
+const SPLICE_EXT_COLLAR_STEP_MAX: f64 = 1.0;
+
+/// Maximum exterior dyadic collar rings (`16`) around `L`.
+const MAX_SPLICE_EXT_COLLAR_RINGS: usize = 16;
+
+/// Outer cavity radius fraction (`0.75`) bounding exterior collar expansion.
+const SPLICE_EXT_COLLAR_OUTER_DIAM_FRAC: f64 = 0.75;
+
+/// Minimum ray count (`8`) on an exterior collar ring.
+const SPLICE_EXT_COLLAR_MIN_RAYS: usize = 8;
+
+/// Maximum ray count (`256`) on an exterior collar ring.
+const SPLICE_EXT_COLLAR_MAX_RAYS: usize = 256;
+
+/// Radial spacing fraction (`0.35`) for exterior collar clearance.
+const SPLICE_EXT_RING_SEP_RAD_FRAC: f64 = 0.35;
+
+/// Loop-edge spacing fraction (`0.4`) for exterior collar clearance.
+const SPLICE_EXT_RING_SEP_EDGE_FRAC: f64 = 0.4;
+
+/// Inner-loop clearance fraction (`0.4 · ring_sep`) for exterior collar points.
+const SPLICE_EXT_INNER_CLEAR_FRAC: f64 = 0.4;
+
+/// Peer-vertex clearance fraction (`0.45 · ring_sep`) for exterior collar points.
+const SPLICE_EXT_PEER_CLEAR_FRAC: f64 = 0.45;
+
+/// Multiplier on `TAU_WORK * scale` (`2.0`) when matching spliced loop vertices
+/// back to welded arrangement vertices in
+/// [`register_spliced_loop_edges_in_arrangement`].
+const ARRANGEMENT_CHORD_MATCH_WORK_MULT: f64 = 2.0;
 
 /// One connected non-crossing `< 2d_ε` candidate area between `(face_a, face_b)`
 /// (`yang2025_hybrid_boolean.txt:456-461` L, `:487-495` L).
@@ -72,24 +303,27 @@ struct RawProxPair {
     dist: f64,
 }
 
+/// Purely scale-relative model coordinate magnitude and proximity band
+/// (`2 · TAU_MODEL · scale`), with `1.0` fallback only when all coordinates are
+/// identically zero.
 fn model_scale_and_band(set_a: &TriSet, set_b: &TriSet) -> (f64, f64) {
-    let scale = set_a
+    let raw_scale = set_a
         .lo
         .iter()
         .chain(set_a.hi.iter())
         .chain(set_b.lo.iter())
         .chain(set_b.hi.iter())
         .flat_map(|v| v.iter())
-        .fold(0.0_f64, |m, &c| m.max(c.abs()))
-        .max(1.0);
-    let band = 2.0 * cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
+        .fold(0.0_f64, |m, &c| m.max(c.abs()));
+    let scale = if raw_scale > 0.0 { raw_scale } else { 1.0 };
+    let band = SMALL_LOOP_MODEL_BAND_MULT * cad_primitives::TAU_MODEL * scale;
     (scale, band)
 }
 
 /// Detect connected non-crossing `< 2d_ε` candidate areas uncaptured by the
 /// arrangement `la`, and evaluate the §4.2.2 closed-form [`GaussMap::overlaps`]
 /// filter on each area (`yang2025_hybrid_boolean.txt:440-446` R, zero
-/// trim-boundary exemption).
+/// trim-boundary exemption, uniform over all `Surface` types).
 pub(crate) fn discover_small_loop_candidate_areas(
     a: &BRep,
     mesh_a: &Mesh,
@@ -131,12 +365,7 @@ pub(crate) fn discover_small_loop_candidate_areas(
                 return;
             }
             let surf_b = set_b.surf[tb];
-            if surf_a == surf_b
-                || matches!(
-                    (surf_a, surf_b),
-                    (Surface::Plane { .. }, Surface::Plane { .. })
-                )
-            {
+            if surf_a == surf_b {
                 return;
             }
             let reach = set_a.dev[ta] + set_b.dev[tb] + band;
@@ -334,7 +563,7 @@ fn curve_jet_at(pt: Point3, surf_a: Surface, surf_b: Surface) -> Option<(V3, V3,
     }
     let tau_vec = scale3(cr, 1.0 / sin_th);
     let cos_th = dot3(ea.normal, eb.normal).clamp(-1.0, 1.0);
-    let sin2 = (sin_th * sin_th).max(1e-18);
+    let sin2 = sin_th * sin_th;
 
     // At `(0, 0)`, `(su, sv)` is orthonormal on all 5 `LocalSurfaceChart`s:
     // `r'' · n = -τ · (dn/ds) = -τ · ((τ·su) nu + (τ·sv) nv)`.
@@ -370,13 +599,12 @@ fn correct_orthogonal_plane_newton(
     scale: f64,
     max_corr: f64,
 ) -> Option<Point3> {
-    const MAX_ITERS: usize = 24;
     let pred_pt = Point3::new(x_pred[0], x_pred[1], x_pred[2]);
     let chart_a = LocalSurfaceChart::new(surf_a, pred_pt)?;
     let chart_b = LocalSurfaceChart::new(surf_b, pred_pt)?;
     let (u0, v0) = chart_a.project(x_pred)?;
     let (s0, t0) = chart_b.project(x_pred)?;
-    let machine_tol = 16.0 * f64::EPSILON * scale;
+    let machine_tol = ORTHO_MACHINE_RES_EPS_MULT * f64::EPSILON * scale;
 
     let try_accept = |ea_pt: V3, eb_pt: V3| -> Option<Point3> {
         let gap = norm3(sub3(ea_pt, eb_pt));
@@ -400,7 +628,7 @@ fn correct_orthogonal_plane_newton(
     };
 
     let mut x = [u0, v0, s0, t0];
-    for it in 0..=MAX_ITERS {
+    for it in 0..=MAX_ORTHO_CORRECTOR_ITERS {
         let ea = chart_a.eval(x[0], x[1])?;
         let eb = chart_b.eval(x[2], x[3])?;
         let d_pos = sub3(ea.point, eb.point);
@@ -426,7 +654,7 @@ fn correct_orthogonal_plane_newton(
         ];
         let f_vec = [d_pos[0], d_pos[1], d_pos[2], plane_res];
         let (u_svd, sv, v_svd) = thin_svd::<4, 4>(j_mat);
-        if sv[0] <= 1e-14 || sv[3] <= 1e-10 * sv[0] {
+        if sv[0] <= ORTHO_SVD_LEADING_SV_MIN || sv[3] <= ORTHO_SVD_COND_TOL * sv[0] {
             return try_accept(ea.point, eb.point);
         }
 
@@ -444,7 +672,9 @@ fn correct_orthogonal_plane_newton(
         let d_norm =
             (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2] + delta[3] * delta[3])
                 .sqrt();
-        if d_norm <= 1e-15 * scale || it == MAX_ITERS {
+        if d_norm <= ORTHO_STEP_CONV_EPS_MULT * f64::EPSILON * scale
+            || it == MAX_ORTHO_CORRECTOR_ITERS
+        {
             return try_accept(ea.point, eb.point);
         }
         if d_norm > max_corr {
@@ -456,7 +686,7 @@ fn correct_orthogonal_plane_newton(
 
         let mut accepted = false;
         let mut alpha = 1.0;
-        for _ls in 0..8 {
+        for _ls in 0..MAX_ORTHO_LINE_SEARCH_HALVINGS {
             let x_try = [
                 x[0] + alpha * delta[0],
                 x[1] + alpha * delta[1],
@@ -477,7 +707,7 @@ fn correct_orthogonal_plane_newton(
                     break;
                 }
             }
-            alpha *= 0.5;
+            alpha *= LINE_SEARCH_SHRINK;
         }
         if !accepted {
             return try_accept(ea.point, eb.point);
@@ -520,7 +750,7 @@ fn parameter_midpoint_on_curve(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn subdivide_segment_s434(
+pub(crate) fn subdivide_segment_s434(
     p: Point3,
     q: Point3,
     surf_a: Surface,
@@ -534,15 +764,21 @@ fn subdivide_segment_s434(
     let pa = p.as_array();
     let qa = q.as_array();
     let chord = norm3(sub3(qa, pa));
-    if depth >= 12 || chord <= 2.0 * dp {
+    if chord <= S434_MIN_CHORD_DP_MULT * dp {
         return true;
+    }
+    // S3: never silently accept an unrefined chord at `depth >= MAX_S434_SUBDIVIDE_DEPTH`.
+    if depth >= MAX_S434_SUBDIVIDE_DEPTH {
+        return false;
     }
     let Some(m) = parameter_midpoint_on_curve(p, q, surf_a, surf_b) else {
         return false;
     };
     let ma = m.as_array();
     // Guard against midpoint snapping outside the segment neighborhood.
-    if norm3(sub3(ma, pa)) >= 0.95 * chord || norm3(sub3(qa, ma)) >= 0.95 * chord {
+    if norm3(sub3(ma, pa)) >= S434_MIDPOINT_CHORD_FRAC_MAX * chord
+        || norm3(sub3(qa, ma)) >= S434_MIDPOINT_CHORD_FRAC_MAX * chord
+    {
         return false;
     }
     if boundary_crease_crossed(p, m, creases_a).is_some()
@@ -594,10 +830,10 @@ pub(crate) fn trace_and_refine_small_loop(
     creases_b: &[FaceCrease],
     scale_hint: f64,
 ) -> Option<Vec<Point3>> {
-    const MAX_STEPS: usize = 512;
     let (tau, sc0) = coincidence_floor(r0, r0, surf_a, surf_b);
-    let scale = sc0.max(scale_hint).max(1.0);
-    let dp = cad_primitives::TAU_MODEL * (1.0 + scale);
+    let raw_scale = sc0.max(scale_hint);
+    let scale = if raw_scale > 0.0 { raw_scale } else { 1.0 };
+    let dp = cad_primitives::TAU_MODEL * scale;
 
     let (tau0, kvec0, kappa0) = curve_jet_at(r0, surf_a, surf_b)?;
     let mut raw_pts = vec![r0];
@@ -608,18 +844,21 @@ pub(crate) fn trace_and_refine_small_loop(
     let mut turned = 0.0_f64;
     let mut closed = false;
 
-    for _step in 0..MAX_STEPS {
-        let rho = 1.0 / cur_kappa.max(1e-12 / scale);
+    for _step in 0..MAX_BAJAJ_STEPS {
+        let rho = 1.0 / cur_kappa.max(BAJAJ_CURVATURE_FLOOR_REL / scale);
         // Curvature-adaptive Bajaj step (`Δθ ≈ π/16 = 11.25°`, ~32–40 steps per
         // closed loop of any radius); §4.3.4 (`subdivide_segment_s434`) then
         // refines every chord to `paper_chain_sample_redundant`.
-        let mut h_nom = ((PI / 16.0) * rho).max(0.5 * dp);
+        let mut h_nom = (BAJAJ_TARGET_TURN_RAD * rho).max(BAJAJ_MIN_NOMINAL_STEP_DP_MULT * dp);
 
-        if raw_pts.len() >= 4 && turned >= 1.45 * PI {
+        if raw_pts.len() >= MIN_LOOP_VERTS && turned >= BAJAJ_PRE_CLOSE_MIN_TURN_RAD {
             let to_start = sub3(r0.as_array(), cur_pt.as_array());
             let dist_start = norm3(to_start);
             let along = dot3(to_start, cur_tau);
-            if dist_start <= 1.35 * h_nom && along > 0.0 && dot3(cur_tau, tau0) >= 0.75 {
+            if dist_start <= BAJAJ_PRE_CLOSE_DIST_STEP_MULT * h_nom
+                && along > 0.0
+                && dot3(cur_tau, tau0) >= BAJAJ_PRE_CLOSE_COS_MIN
+            {
                 if boundary_crease_crossed(cur_pt, r0, creases_a).is_some()
                     || boundary_crease_crossed(cur_pt, r0, creases_b).is_some()
                 {
@@ -628,15 +867,19 @@ pub(crate) fn trace_and_refine_small_loop(
                 closed = true;
                 break;
             }
-            if dist_start <= 2.2 * h_nom && along > 0.5 * dist_start && dot3(cur_tau, tau0) >= 0.4 {
-                h_nom = (0.55 * dist_start).max(0.5 * dp);
+            if dist_start <= BAJAJ_SLOWDOWN_DIST_STEP_MULT * h_nom
+                && along > BAJAJ_SLOWDOWN_ALONG_FRAC * dist_start
+                && dot3(cur_tau, tau0) >= BAJAJ_SLOWDOWN_COS_MIN
+            {
+                h_nom = (BAJAJ_SLOWDOWN_STEP_FRAC * dist_start)
+                    .max(BAJAJ_MIN_NOMINAL_STEP_DP_MULT * dp);
             }
         }
 
         let mut accepted_step: Option<(Point3, V3, V3, f64, f64)> = None;
-        for halving in 0..8 {
-            let h = h_nom * 0.5_f64.powi(halving);
-            if h < 0.1 * dp {
+        for halving in 0..MAX_BAJAJ_STEP_HALVINGS {
+            let h = h_nom * LINE_SEARCH_SHRINK.powi(halving);
+            if h < BAJAJ_MIN_STEP_DP_MULT * dp {
                 break;
             }
             let x_pred = add3(
@@ -644,7 +887,7 @@ pub(crate) fn trace_and_refine_small_loop(
                 add3(scale3(cur_tau, h), scale3(cur_kvec, 0.5 * h * h)),
             );
             let n_plane = normalize3(add3(cur_tau, scale3(cur_kvec, h)));
-            if norm3(n_plane) <= 0.5 {
+            if norm3(n_plane) <= BAJAJ_MIN_PREDICTOR_DIR_NORM {
                 continue;
             }
             let Some(next_pt) = correct_orthogonal_plane_newton(
@@ -654,12 +897,12 @@ pub(crate) fn trace_and_refine_small_loop(
                 surf_b,
                 tau,
                 scale,
-                0.75 * h,
+                BAJAJ_MAX_CORRECTOR_DRIFT_STEP_FRAC * h,
             ) else {
                 continue;
             };
             let actual_step = norm3(sub3(next_pt.as_array(), cur_pt.as_array()));
-            if actual_step < 0.1 * h {
+            if actual_step < BAJAJ_MIN_ACTUAL_STEP_FRAC * h {
                 continue;
             }
             let Some((next_tau, next_kvec, next_kappa)) = curve_jet_at(next_pt, surf_a, surf_b)
@@ -669,7 +912,7 @@ pub(crate) fn trace_and_refine_small_loop(
             // `next_tau` uses the unflipped canonical orientation `+(n_A × n_B)`:
             // requiring `cos Δθ >= 0.85` (`Δθ <= 31.8°`) prevents jumping across
             // narrow ellipse necks onto the opposite-oriented branch.
-            if dot3(next_tau, cur_tau) < 0.85 {
+            if dot3(next_tau, cur_tau) < BAJAJ_MAX_STEP_COS_MIN {
                 continue;
             }
             accepted_step = Some((next_pt, next_tau, next_kvec, next_kappa, h));
@@ -686,10 +929,11 @@ pub(crate) fn trace_and_refine_small_loop(
         let dtheta = dot3(cur_tau, next_tau).clamp(-1.0, 1.0).acos();
         turned += dtheta;
 
-        if raw_pts.len() >= 4
-            && turned >= 1.65 * PI
-            && norm3(sub3(next_pt.as_array(), r0.as_array())) <= 0.65 * h_used
-            && dot3(next_tau, tau0) >= 0.85
+        if raw_pts.len() >= MIN_LOOP_VERTS
+            && turned >= BAJAJ_POST_STEP_CLOSE_MIN_TURN_RAD
+            && norm3(sub3(next_pt.as_array(), r0.as_array()))
+                <= BAJAJ_POST_STEP_CLOSE_DIST_FRAC * h_used
+            && dot3(next_tau, tau0) >= BAJAJ_MAX_STEP_COS_MIN
         {
             if boundary_crease_crossed(cur_pt, r0, creases_a).is_some()
                 || boundary_crease_crossed(cur_pt, r0, creases_b).is_some()
@@ -700,7 +944,7 @@ pub(crate) fn trace_and_refine_small_loop(
             break;
         }
 
-        if turned > 2.5 * PI {
+        if turned > BAJAJ_MAX_TOTAL_TURN_RAD {
             return None;
         }
 
@@ -711,7 +955,7 @@ pub(crate) fn trace_and_refine_small_loop(
         cur_kappa = next_kappa;
     }
 
-    if !closed || raw_pts.len() < 4 {
+    if !closed || raw_pts.len() < MIN_LOOP_VERTS {
         return None;
     }
 
@@ -756,7 +1000,7 @@ pub(crate) fn trace_and_refine_small_loop(
     {
         deduped.pop();
     }
-    if deduped.len() < 4 {
+    if deduped.len() < MIN_LOOP_VERTS {
         return None;
     }
 
@@ -766,7 +1010,7 @@ pub(crate) fn trace_and_refine_small_loop(
         let d = sub3(pt.as_array(), first);
         max_diam2 = max_diam2.max(dot3(d, d));
     }
-    if max_diam2.sqrt() <= 3.0 * dp {
+    if max_diam2.sqrt() <= MIN_REFINED_LOOP_DIAM_DP_MULT * dp {
         return None;
     }
 
@@ -779,10 +1023,20 @@ fn area2(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
 }
 
 #[inline]
+fn scale2_of_pts_2d(pts: &[[f64; 2]]) -> f64 {
+    let mut m = 0.0_f64;
+    for p in pts {
+        m = m.max(p[0].abs()).max(p[1].abs());
+    }
+    m * m
+}
+
+#[inline]
 fn pt_seg_dist2_2d(p: [f64; 2], a: [f64; 2], b: [f64; 2]) -> f64 {
     let ab = [b[0] - a[0], b[1] - a[1]];
     let len2 = ab[0] * ab[0] + ab[1] * ab[1];
-    if len2 <= 1e-30 {
+    let deg_floor = (f64::EPSILON * f64::EPSILON) * scale2_of_pts_2d(&[a, b]);
+    if len2 <= deg_floor {
         let dx = p[0] - a[0];
         let dy = p[1] - a[1];
         return dx * dx + dy * dy;
@@ -819,7 +1073,7 @@ fn segs_properly_or_improperly_cross_2d(
     {
         return true;
     }
-    let eps = 1e-24;
+    let eps = POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&[a0, a1, b0, b1]);
     (o1.abs() <= eps && pt_seg_dist2_2d(b0, a0, a1) <= eps)
         || (o2.abs() <= eps && pt_seg_dist2_2d(b1, a0, a1) <= eps)
         || (o3.abs() <= eps && pt_seg_dist2_2d(a0, b0, b1) <= eps)
@@ -857,24 +1111,35 @@ fn point_in_tri_2d(p: [f64; 2], t: [[f64; 2]; 3]) -> bool {
     let d1 = area2(p, t[0], t[1]);
     let d2 = area2(p, t[1], t[2]);
     let d3 = area2(p, t[2], t[0]);
-    let has_neg = d1 < -1e-24 || d2 < -1e-24 || d3 < -1e-24;
-    let has_pos = d1 > 1e-24 || d2 > 1e-24 || d3 > 1e-24;
+    let eps = POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&[p, t[0], t[1], t[2]]);
+    let has_neg = d1 < -eps || d2 < -eps || d3 < -eps;
+    let has_pos = d1 > eps || d2 > eps || d3 > eps;
     !(has_neg && has_pos)
 }
 
 fn polygon_is_simple_and_star_around(poly: &[[f64; 2]], center: [f64; 2]) -> bool {
     let m = poly.len();
-    if m < 4 {
+    if m < MIN_LOOP_VERTS {
         return false;
     }
+    let mut max_r2 = 0.0_f64;
+    for p in poly {
+        let dx = p[0] - center[0];
+        let dy = p[1] - center[1];
+        max_r2 = max_r2.max(dx * dx + dy * dy);
+    }
+    if max_r2 == 0.0 {
+        return false;
+    }
+    let area_floor = POLY2D_AREA_EPS_MULT * f64::EPSILON * max_r2;
     let a0 = area2(poly[0], poly[1], center);
-    if a0.abs() <= 1e-26 {
+    if a0.abs() <= area_floor {
         return false;
     }
     let sgn = a0.signum();
     for i in 0..m {
         let ai = area2(poly[i], poly[(i + 1) % m], center);
-        if ai * sgn <= 1e-26 {
+        if ai * sgn <= area_floor {
             return false;
         }
     }
@@ -902,13 +1167,22 @@ struct InteriorCapPlan {
     cap_tris: Vec<[u32; 3]>,
 }
 
+enum CapPlanOutcome {
+    Ok(InteriorCapPlan),
+    /// S1: `|t_A - t_B| < MIN_FEATURE_SIZE · scale` — the two surface sheets
+    /// across `L` sit closer than `MIN_FEATURE_SIZE` (e.g. `C0118` at `1e-8`),
+    /// so splicing would emit sub-`MIN_FEATURE_SIZE` twin sheets.
+    SubMinFeatureTwinSheet,
+    Failed,
+}
+
 /// Solve for the Fig. 11(c) interior cap vertices `(c_A, c_B)` along the common
 /// loop-normal line `m_L + t · n_L` (`yang2025_hybrid_boolean.txt:563-566` R),
-/// plus concentric dyadic interior collar rings when `m > 24`, certifying that
-/// `π(m_L)` lies strictly in the 2D star-kernel of `π(L)` and every interior
-/// cap vertex maintains strict common-sign separation `|t_A - t_B| > 2 · tau`
-/// so the two 3D caps have bounded vertex degree (`<= 24`) and strictly disjoint
-/// interiors meeting exclusively along `L` down to sub-`TAU_MODEL` loops.
+/// plus concentric dyadic interior collar rings when `m > 24`, certifying that:
+/// 1. `|t_A - t_B| >= MIN_FEATURE_SIZE · scale` (rejecting sub-`MIN_FEATURE_SIZE`
+///    twin-sheet emission via [`CapPlanOutcome::SubMinFeatureTwinSheet`], S1),
+/// 2. `π(m_L)` lies strictly in the 2D star-kernel of `π(L)` and every interior
+///    cap vertex maintains common-sign separation `> 2 · τ`.
 fn solve_common_axis_interior_caps(
     loop_pts: &[Point3],
     surf_a: Surface,
@@ -916,7 +1190,7 @@ fn solve_common_axis_interior_caps(
     creases_a: &[FaceCrease],
     creases_b: &[FaceCrease],
     tau: f64,
-) -> Option<InteriorCapPlan> {
+) -> CapPlanOutcome {
     let m = loop_pts.len();
     let mut m_l = [0.0; 3];
     for p in loop_pts {
@@ -925,14 +1199,16 @@ fn solve_common_axis_interior_caps(
     m_l = scale3(m_l, 1.0 / (m as f64));
 
     let mut newell = [0.0; 3];
+    let mut max_rad2 = 0.0_f64;
     for i in 0..m {
         let u = sub3(loop_pts[i].as_array(), m_l);
         let v = sub3(loop_pts[(i + 1) % m].as_array(), m_l);
+        max_rad2 = max_rad2.max(dot3(u, u));
         newell = add3(newell, cross3(u, v));
     }
     let nl_len = norm3(newell);
-    if nl_len <= 1e-24 {
-        return None;
+    if max_rad2 == 0.0 || nl_len <= POLY2D_AREA_EPS_MULT * f64::EPSILON * max_rad2 {
+        return CapPlanOutcome::Failed;
     }
     let n_l = scale3(newell, 1.0 / nl_len);
     let (u_v, v_v) = ortho_basis(Vector3::new(n_l[0], n_l[1], n_l[2]));
@@ -945,19 +1221,19 @@ fn solve_common_axis_interior_caps(
         })
         .collect();
     if !polygon_is_simple_and_star_around(&proj_l, [0.0, 0.0]) {
-        return None;
+        return CapPlanOutcome::Failed;
     }
 
     let solve_ray_at = |surf: Surface, base: V3| -> Option<(f64, Point3)> {
         let mut t = 0.0_f64;
-        for _ in 0..10 {
+        for _ in 0..CAP_RAY_NEWTON_MAX_ITERS {
             let x = add3(base, scale3(n_l, t));
             let (f, grad_n) = surface_distance_and_normal(surf, x)?;
-            if f.abs() <= 0.25 * tau {
+            if f.abs() <= CAP_RAY_EARLY_TAU_FRAC * tau {
                 return Some((t, Point3::new(x[0], x[1], x[2])));
             }
             let df = dot3(grad_n, n_l);
-            if df.abs() <= 1e-4 {
+            if df.abs() <= CAP_RAY_MIN_COS {
                 return None;
             }
             t -= f / df;
@@ -967,37 +1243,47 @@ fn solve_common_axis_interior_caps(
         (f.abs() <= tau).then_some((t, Point3::new(x[0], x[1], x[2])))
     };
 
-    let (t_a, c_a) = solve_ray_at(surf_a, m_l)?;
-    let (t_b, c_b) = solve_ray_at(surf_b, m_l)?;
-    if (t_a - t_b).abs() <= 2.0 * tau {
-        return None;
+    let Some((t_a, c_a)) = solve_ray_at(surf_a, m_l) else {
+        return CapPlanOutcome::Failed;
+    };
+    let Some((t_b, c_b)) = solve_ray_at(surf_b, m_l) else {
+        return CapPlanOutcome::Failed;
+    };
+    let (_, cap_scale) = coincidence_floor(c_a, c_b, surf_a, surf_b);
+    if (t_a - t_b).abs() < cad_primitives::MIN_FEATURE_SIZE * cap_scale {
+        return CapPlanOutcome::SubMinFeatureTwinSheet;
+    }
+    if (t_a - t_b).abs() <= MIN_CAP_AXIS_SEP_TAU_MULT * tau {
+        return CapPlanOutcome::Failed;
     }
     let sep_sgn = (t_a - t_b).signum();
     if boundary_crease_crossed(loop_pts[0], c_a, creases_a).is_some()
         || boundary_crease_crossed(loop_pts[0], c_b, creases_b).is_some()
     {
-        return None;
+        return CapPlanOutcome::Failed;
     }
 
     let proj_sgn = area2(proj_l[0], proj_l[1], [0.0, 0.0]).signum();
+    let ring_area_floor = POLY2D_AREA_EPS_MULT * f64::EPSILON * max_rad2;
     let mut ring_verts_a: Vec<Point3> = Vec::new();
     let mut ring_verts_b: Vec<Point3> = Vec::new();
     let mut cap_tris: Vec<[u32; 3]> = Vec::new();
     let mut cur_rays: Vec<usize> = (0..m).collect();
     let mut cur_ring_ids: Vec<u32> = (0..m as u32).collect();
     let mut cur_rho = 1.0_f64;
-    let base_delta = (2.0 * std::f64::consts::PI / (m as f64)).clamp(1e-3, 0.25);
+    let base_delta = (2.0 * std::f64::consts::PI / (m as f64))
+        .clamp(CAP_RING_BASE_DELTA_MIN, CAP_RING_BASE_DELTA_MAX);
     let mut step_idx = 0u32;
 
-    while cur_rays.len() > 24 {
-        let step_in = base_delta * ((1u64 << step_idx.min(20)) as f64);
+    while cur_rays.len() > MAX_CAP_APEX_FAN_DEGREE {
+        let step_in = base_delta * ((1u64 << step_idx.min(CAP_RING_MAX_DYADIC_SHIFT)) as f64);
         step_idx += 1;
-        let next_rho = if cur_rho - step_in >= 0.25 {
+        let next_rho = if cur_rho - step_in >= CAP_RING_LINEAR_RHO_FLOOR {
             cur_rho - step_in
         } else {
-            0.5 * cur_rho
+            LINE_SEARCH_SHRINK * cur_rho
         };
-        if next_rho <= 0.08 {
+        if next_rho <= CAP_RING_MIN_RHO {
             break;
         }
 
@@ -1007,14 +1293,15 @@ fn solve_common_axis_interior_caps(
         let mut i = 0usize;
         while i < n_cur {
             next_rays.push(cur_rays[i]);
-            if i + 2 <= n_cur && (next_rays.len() + (n_cur - i - 2) / 2 >= 8) {
+            if i + 2 <= n_cur && (next_rays.len() + (n_cur - i - 2) / 2 >= CAP_RING_MIN_INNER_RAYS)
+            {
                 let r0 = cur_rays[i];
                 let r1 = cur_rays[i + 1];
                 let r2 = cur_rays[(i + 2) % n_cur];
                 let u1 = [proj_l[r1][0] * cur_rho, proj_l[r1][1] * cur_rho];
                 let w0 = [proj_l[r0][0] * next_rho, proj_l[r0][1] * next_rho];
                 let w2 = [proj_l[r2][0] * next_rho, proj_l[r2][1] * next_rho];
-                if area2(u1, w2, w0) * proj_sgn > 1e-26 {
+                if area2(u1, w2, w0) * proj_sgn > ring_area_floor * next_rho * next_rho {
                     sectors.push(true);
                     i += 2;
                     continue;
@@ -1028,15 +1315,19 @@ fn solve_common_axis_interior_caps(
         for &ray in &next_rays {
             let q = [proj_l[ray][0] * next_rho, proj_l[ray][1] * next_rho];
             let base = add3(m_l, add3(scale3(u_ax, q[0]), scale3(v_ax, q[1])));
-            let (ta_r, pa_r) = solve_ray_at(surf_a, base)?;
-            let (tb_r, pb_r) = solve_ray_at(surf_b, base)?;
-            if (ta_r - tb_r) * sep_sgn <= 2.0 * tau {
-                return None;
+            let Some((ta_r, pa_r)) = solve_ray_at(surf_a, base) else {
+                return CapPlanOutcome::Failed;
+            };
+            let Some((tb_r, pb_r)) = solve_ray_at(surf_b, base) else {
+                return CapPlanOutcome::Failed;
+            };
+            if (ta_r - tb_r) * sep_sgn <= MIN_CAP_AXIS_SEP_TAU_MULT * tau {
+                return CapPlanOutcome::Failed;
             }
             if boundary_crease_crossed(loop_pts[ray], pa_r, creases_a).is_some()
                 || boundary_crease_crossed(loop_pts[ray], pb_r, creases_b).is_some()
             {
-                return None;
+                return CapPlanOutcome::Failed;
             }
             let vid = (m + ring_verts_a.len()) as u32;
             ring_verts_a.push(pa_r);
@@ -1077,7 +1368,7 @@ fn solve_common_axis_interior_caps(
         cap_tris.push([cur_ring_ids[j], cur_ring_ids[(j + 1) % n_inner], c_id]);
     }
 
-    Some(InteriorCapPlan {
+    CapPlanOutcome::Ok(InteriorCapPlan {
         m_l,
         c_a,
         c_b,
@@ -1145,7 +1436,10 @@ fn plan_face_loop_splice(
         l_hi[0] = l_hi[0].max(a[0]);
         l_hi[1] = l_hi[1].max(a[1]);
     }
-    let clearance = (0.35 * min_loop_edge).max(1e-11);
+    if !(min_loop_edge > 0.0 && min_loop_edge.is_finite()) {
+        return None;
+    }
+    let clearance = SPLICE_CAVITY_CLEARANCE_EDGE_FRAC * min_loop_edge;
     let (max_du, max_dv) = chart.max_non_wrapping_edge_delta();
 
     // Project all chart-valid triangles belonging to `face_idx`.
@@ -1326,7 +1620,7 @@ fn plan_face_loop_splice(
     let outer_global = loop {
         match extract_boundary_cycle(&cavity) {
             Ok(cyc) => break cyc,
-            Err(Some(more)) if cavity.len() + more.len() <= 64 => {
+            Err(Some(more)) if cavity.len() + more.len() <= MAX_SPLICE_CAVITY_TRIS => {
                 for t in more {
                     cavity.insert(t);
                 }
@@ -1338,14 +1632,16 @@ fn plan_face_loop_splice(
     // Verify consistent 2D triangle orientation across `cavity` (`:559-562` R)
     // and verify `loop_uv` lies strictly inside `outer_poly`.
     let first_tuv = valid_tri_uv[cavity.iter().next()?];
+    let first_floor = POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&first_tuv);
     let a_first = area2(first_tuv[0], first_tuv[1], first_tuv[2]);
-    if a_first.abs() <= 1e-26 {
+    if a_first.abs() <= first_floor {
         return None;
     }
     let orient_sign = a_first.signum();
     for &ti in &cavity {
         let tuv = valid_tri_uv[&ti];
-        if area2(tuv[0], tuv[1], tuv[2]) * orient_sign <= 1e-26 {
+        let tri_floor = POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&tuv);
+        if area2(tuv[0], tuv[1], tuv[2]) * orient_sign <= tri_floor {
             return None;
         }
     }
@@ -1411,7 +1707,7 @@ fn plan_face_loop_splice(
 
     let mut interior_local: Vec<u32> = Vec::new();
     let mut interior_uv_list: Vec<[f64; 2]> = Vec::new();
-    let min_keep_dist = (0.6 * min_loop_edge).max(1e-10);
+    let min_keep_dist = SPLICE_KEEP_INTERIOR_VERT_EDGE_FRAC * min_loop_edge;
     for gv in all_cav_verts {
         if outer_set.contains(&gv) {
             continue;
@@ -1435,21 +1731,23 @@ fn plan_face_loop_splice(
     // Dyadic exact-surface exterior collar rings from `c_uv` outward around
     // `loop_uv`, keeping exterior vertex degree bounded and exterior triangles
     // well-shaped and within `d_ε` sagitta (`:568-570` R).
-    if !matches!(surf, Surface::Plane { .. }) || max_loop_rad > 0.0 {
+    if max_loop_rad > 0.0 {
         let mut outer_diam = 0.0_f64;
         for p in &outer_poly {
             outer_diam = outer_diam.max((p[0] - c_uv.0).hypot(p[1] - c_uv.1));
         }
-        let mut step_out = (2.0 * std::f64::consts::PI / (m as f64)).clamp(0.02, 1.0);
-        for _ring in 0..16 {
+        let mut step_out = (2.0 * std::f64::consts::PI / (m as f64))
+            .clamp(SPLICE_EXT_COLLAR_STEP_MIN, SPLICE_EXT_COLLAR_STEP_MAX);
+        for _ring in 0..MAX_SPLICE_EXT_COLLAR_RINGS {
             let factor = 1.0 + step_out;
-            if max_loop_rad * factor >= 0.75 * outer_diam {
+            if max_loop_rad * factor >= SPLICE_EXT_COLLAR_OUTER_DIAM_FRAC * outer_diam {
                 break;
             }
             let n_rays = ((2.0 * std::f64::consts::PI * factor / step_out).round() as usize)
-                .clamp(8, 256)
+                .clamp(SPLICE_EXT_COLLAR_MIN_RAYS, SPLICE_EXT_COLLAR_MAX_RAYS)
                 .min(m);
-            let ring_sep = (0.35 * step_out * min_loop_rad).max(0.4 * min_loop_edge);
+            let ring_sep = (SPLICE_EXT_RING_SEP_RAD_FRAC * step_out * min_loop_rad)
+                .max(SPLICE_EXT_RING_SEP_EDGE_FRAC * min_loop_edge);
             for r_idx in 0..n_rays {
                 let k = (r_idx * m) / n_rays;
                 let dir = [loop_uv[k][0] - c_uv.0, loop_uv[k][1] - c_uv.1];
@@ -1466,13 +1764,12 @@ fn plan_face_loop_splice(
                 let d_in = (0..m)
                     .map(|j| pt_seg_dist2_2d(cand, loop_uv[j], loop_uv[(j + 1) % m]).sqrt())
                     .fold(f64::INFINITY, f64::min);
-                if d_out <= ring_sep || d_in <= 0.4 * ring_sep {
+                if d_out <= ring_sep || d_in <= SPLICE_EXT_INNER_CLEAR_FRAC * ring_sep {
                     continue;
                 }
-                if interior_uv_list
-                    .iter()
-                    .any(|q| (cand[0] - q[0]).hypot(cand[1] - q[1]) <= 0.45 * ring_sep)
-                {
+                if interior_uv_list.iter().any(|q| {
+                    (cand[0] - q[0]).hypot(cand[1] - q[1]) <= SPLICE_EXT_PEER_CLEAR_FRAC * ring_sep
+                }) {
                     continue;
                 }
                 let Some(ev) = chart.eval(cand[0], cand[1]) else {
@@ -1550,12 +1847,13 @@ fn plan_face_loop_splice(
     }
 
     let ct_first = *cap_tris.first()?;
-    let a_cap0 = area2(
+    let ct0_pts = [
         cap_uv[ct_first[0] as usize],
         cap_uv[ct_first[1] as usize],
         cap_uv[ct_first[2] as usize],
-    );
-    if a_cap0.abs() <= 1e-26 {
+    ];
+    let a_cap0 = area2(ct0_pts[0], ct0_pts[1], ct0_pts[2]);
+    if a_cap0.abs() <= POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&ct0_pts) {
         return None;
     }
     let cap_uv_sgn = a_cap0.signum();
@@ -1564,7 +1862,8 @@ fn plan_face_loop_splice(
         let a = cap_uv[ct[0] as usize];
         let b = cap_uv[ct[1] as usize];
         let c = cap_uv[ct[2] as usize];
-        if area2(a, b, c) * cap_uv_sgn <= 1e-26 {
+        let ct_floor = POLY2D_AREA_EPS_MULT * f64::EPSILON * scale2_of_pts_2d(&[a, b, c]);
+        if area2(a, b, c) * cap_uv_sgn <= ct_floor {
             return None;
         }
         let mut gt = [
@@ -1707,31 +2006,32 @@ fn exterior_splices_clean(ext_a: &[[Point3; 3]], ext_b: &[[Point3; 3]]) -> bool 
     true
 }
 
+/// Uniform Stage-3 SSI curve compatibility check via [`ssi_curve_point_distance`]
+/// (zero surface- or curve-type enumeration).
 fn ssi_curve_supports_point(surf_a: Surface, surf_b: Surface, pt: Point3, dp: f64) -> bool {
-    if torus_plane_is_perpendicular_section(surf_a, surf_b) {
-        return true;
-    }
     let (Ok(qa), Ok(qb)) = (surface_to_quadric(surf_a), surface_to_quadric(surf_b)) else {
         return false;
     };
     let Ok(cands) = ssi_rs::intersect(&qa, &qb) else {
         return false;
     };
-    let sphere_r = match (surf_a, surf_b) {
-        (Surface::Sphere { radius, .. }, Surface::Plane { .. })
-        | (Surface::Plane { .. }, Surface::Sphere { radius, .. }) => Some(radius),
-        _ => None,
-    };
     cands
         .iter()
-        .any(|c| curve_contains_point(c, pt, dp, sphere_r))
+        .any(|c| ssi_curve_point_distance(c, pt).is_some_and(|d| d <= dp))
 }
 
 #[inline]
 fn point_to_segment_dist2(p: V3, a: V3, b: V3) -> f64 {
     let ab = sub3(b, a);
     let len2 = dot3(ab, ab);
-    let foot = if len2 <= 1e-30 {
+    let seg_scale = a[0]
+        .abs()
+        .max(a[1].abs())
+        .max(a[2].abs())
+        .max(b[0].abs())
+        .max(b[1].abs())
+        .max(b[2].abs());
+    let foot = if len2 <= (f64::EPSILON * seg_scale).powi(2) {
         a
     } else {
         let t = (dot3(sub3(p, a), ab) / len2).clamp(0.0, 1.0);
@@ -1741,24 +2041,208 @@ fn point_to_segment_dist2(p: V3, a: V3, b: V3) -> f64 {
     dot3(d, d)
 }
 
-fn point_near_any_loop(pt: Point3, loops: &[Vec<Point3>], tol: f64) -> bool {
-    let p = pt.as_array();
-    let tol2 = tol * tol;
-    for lp in loops {
-        for i in 0..lp.len() {
-            let a = lp[i].as_array();
-            let b = lp[(i + 1) % lp.len()].as_array();
-            if point_to_segment_dist2(p, a, b) <= tol2 {
-                return true;
+/// Exact distance from `target` to the procedural curve arc of `surf_a ∩ surf_b`
+/// spanned by chord `[p0, p1]` via orthogonal-plane Newton evaluation in the
+/// normal plane through `target` (`(x - target)·dir = 0`).
+fn arc_chord_curve_distance(
+    target: Point3,
+    p0: Point3,
+    p1: Point3,
+    surf_a: Surface,
+    surf_b: Surface,
+) -> Option<f64> {
+    let ta = target.as_array();
+    let d0 = norm3(sub3(ta, p0.as_array()));
+    let d1 = norm3(sub3(ta, p1.as_array()));
+    let d_end = d0.min(d1);
+    let u = sub3(p1.as_array(), p0.as_array());
+    let chord = norm3(u);
+    let (tau, sc) = coincidence_floor(p0, p1, surf_a, surf_b);
+    if chord <= f64::EPSILON * sc {
+        return Some(d_end);
+    }
+    let dir = scale3(u, 1.0 / chord);
+    let s = dot3(sub3(ta, p0.as_array()), dir);
+    if s < -CHORD_SLAB_OVERLAP_FRAC * chord || s > (1.0 + CHORD_SLAB_OVERLAP_FRAC) * chord {
+        return Some(d_end);
+    }
+    // `x_plane = p0 + s · dir` satisfies `(x_plane - target) · dir == 0`
+    // identically, so `correct_orthogonal_plane_newton` solves on the exact
+    // normal plane through `target` while seeding on the chord `[p0, p1]`.
+    let x_plane = add3(p0.as_array(), scale3(dir, s));
+    if norm3(sub3(ta, x_plane)) > chord {
+        return Some(d_end);
+    }
+    let max_corr = CHORD_ARC_MAX_CORR_FRAC * chord;
+    if let Some(q_arc) =
+        correct_orthogonal_plane_newton(x_plane, dir, surf_a, surf_b, tau, sc, max_corr)
+    {
+        Some(d_end.min(norm3(sub3(ta, q_arc.as_array()))))
+    } else {
+        Some(d_end)
+    }
+}
+
+/// Exact curve distance from `pt` to a closed curve loop `loop_pts` on
+/// `(surf_a, surf_b)`.
+fn loop_curve_distance(
+    pt: Point3,
+    loop_pts: &[Point3],
+    surf_a: Surface,
+    surf_b: Surface,
+) -> Option<f64> {
+    if loop_pts.is_empty() {
+        return None;
+    }
+    let mut best = f64::INFINITY;
+    for i in 0..loop_pts.len() {
+        if let Some(d) = arc_chord_curve_distance(
+            pt,
+            loop_pts[i],
+            loop_pts[(i + 1) % loop_pts.len()],
+            surf_a,
+            surf_b,
+        ) {
+            best = best.min(d);
+        }
+    }
+    best.is_finite().then_some(best)
+}
+
+/// Exact distance from `pt ∈ surf_a ∩ surf_b` to the connected curve component(s)
+/// of `surf_a ∩ surf_b` witnessed by `witness_segs` (`<= dp`), distinguishing
+/// disjoint loops on degree-4 / degree-8 `SurfacePair`s without polygonal
+/// tolerance inflation.
+pub(crate) fn surface_pair_connected_component_distance(
+    pt: Point3,
+    surf_a: Surface,
+    surf_b: Surface,
+    witness_segs: &[(Point3, Point3)],
+    dp: f64,
+) -> Option<f64> {
+    if witness_segs.is_empty() {
+        return None;
+    }
+    let mut best = f64::INFINITY;
+    for &(w0, w1) in witness_segs {
+        if let Some(d) = arc_chord_curve_distance(pt, w0, w1, surf_a, surf_b) {
+            best = best.min(d);
+            if best <= dp {
+                return Some(best);
             }
         }
     }
-    false
+
+    let (tau, sc) = coincidence_floor(pt, pt, surf_a, surf_b);
+    let scale = if sc > 0.0 { sc } else { 1.0 };
+    let (tau0, kvec0, kappa0) = curve_jet_at(pt, surf_a, surf_b)?;
+    let max_witness_dist = witness_segs
+        .iter()
+        .map(|&(w0, _)| norm3(sub3(w0.as_array(), pt.as_array())))
+        .fold(dp, f64::max);
+    let max_excursion = PAIR_COMPONENT_EXCURSION_MULT * max_witness_dist;
+
+    for sign in [1.0_f64, -1.0_f64] {
+        let mut cur_pt = pt;
+        let mut cur_tau = scale3(tau0, sign);
+        let mut cur_kvec = kvec0;
+        let mut cur_kappa = kappa0;
+        let mut turned = 0.0_f64;
+        let mut closed_branch = false;
+
+        for step in 0..MAX_BAJAJ_STEPS {
+            let rho = 1.0 / cur_kappa.max(BAJAJ_CURVATURE_FLOOR_REL / scale);
+            let h_nom = (BAJAJ_TARGET_TURN_RAD * rho).max(BAJAJ_MIN_NOMINAL_STEP_DP_MULT * dp);
+            let mut next_accepted: Option<(Point3, V3, V3, f64)> = None;
+            for halving in 0..MAX_BAJAJ_STEP_HALVINGS {
+                let h = h_nom * LINE_SEARCH_SHRINK.powi(halving);
+                if h < BAJAJ_MIN_STEP_DP_MULT * dp {
+                    break;
+                }
+                let x_pred = add3(
+                    cur_pt.as_array(),
+                    add3(scale3(cur_tau, h), scale3(cur_kvec, 0.5 * h * h)),
+                );
+                let n_plane = normalize3(add3(cur_tau, scale3(cur_kvec, h)));
+                if norm3(n_plane) <= BAJAJ_MIN_PREDICTOR_DIR_NORM {
+                    continue;
+                }
+                let Some(next_pt) = correct_orthogonal_plane_newton(
+                    x_pred,
+                    n_plane,
+                    surf_a,
+                    surf_b,
+                    tau,
+                    scale,
+                    BAJAJ_MAX_CORRECTOR_DRIFT_STEP_FRAC * h,
+                ) else {
+                    continue;
+                };
+                if norm3(sub3(next_pt.as_array(), cur_pt.as_array()))
+                    < BAJAJ_MIN_ACTUAL_STEP_FRAC * h
+                {
+                    continue;
+                }
+                let Some((jt_raw, jk, jkap)) = curve_jet_at(next_pt, surf_a, surf_b) else {
+                    continue;
+                };
+                let jt = scale3(jt_raw, sign);
+                if dot3(jt, cur_tau) < BAJAJ_MAX_STEP_COS_MIN {
+                    continue;
+                }
+                next_accepted = Some((next_pt, jt, jk, jkap));
+                break;
+            }
+            let Some((next_pt, next_tau, next_kvec, next_kappa)) = next_accepted else {
+                break;
+            };
+            for &(w0, _) in witness_segs {
+                if let Some(d) = arc_chord_curve_distance(w0, cur_pt, next_pt, surf_a, surf_b) {
+                    best = best.min(d);
+                    if best <= dp {
+                        return Some(best);
+                    }
+                }
+            }
+            turned += dot3(cur_tau, next_tau).clamp(-1.0, 1.0).acos();
+            let dist_origin = norm3(sub3(next_pt.as_array(), pt.as_array()));
+            if step >= MIN_LOOP_VERTS
+                && turned >= BAJAJ_PRE_CLOSE_MIN_TURN_RAD
+                && dist_origin <= BAJAJ_PRE_CLOSE_DIST_STEP_MULT * h_nom
+            {
+                for &(w0, _) in witness_segs {
+                    if let Some(d) = arc_chord_curve_distance(w0, next_pt, pt, surf_a, surf_b) {
+                        best = best.min(d);
+                        if best <= dp {
+                            return Some(best);
+                        }
+                    }
+                }
+                closed_branch = true;
+                break;
+            }
+            if turned > BAJAJ_MAX_TOTAL_TURN_RAD || dist_origin > max_excursion {
+                break;
+            }
+            cur_pt = next_pt;
+            cur_tau = next_tau;
+            cur_kvec = next_kvec;
+            cur_kappa = next_kappa;
+        }
+        if closed_branch {
+            break;
+        }
+    }
+
+    best.is_finite().then_some(best)
 }
 
-/// Collect and relocate onto `(surf_a, surf_b)` every Stage-2 arrangement
-/// intersection edge `(u, v)` whose incident output triangles attribute to
-/// `(InputId(0), face_a)` and `(InputId(1), face_b)`.
+/// Collect and relocate onto `(surf_a, surf_b)` every Stage-2 arrangement mesh
+/// edge `(u, v)` whose incident output triangles attribute to both
+/// `(InputId(0), face_a)` and `(InputId(1), face_b)` — covering both
+/// constraint-minted intersection edges (`la.intersection_edges`) and exact
+/// input edges shared directly by the two operands in `la.mesh` (such as
+/// Stage-0-minted tangent generators on `C0042` / `C0043`).
 pub(crate) fn collect_solved_face_pair_segments(
     la: &cherchi_rs::LabeledArrangement,
     tri_face_a: &[u32],
@@ -1769,27 +2253,29 @@ pub(crate) fn collect_solved_face_pair_segments(
     surf_b: Surface,
 ) -> Vec<(Point3, Point3)> {
     use cherchi_rs::InputId as LaInputId;
-    if la.intersection_edges.is_empty() {
+    if la.source.is_empty() {
         return Vec::new();
     }
     let mut edge_flags: BTreeMap<(u32, u32), (bool, bool)> = BTreeMap::new();
     for (ot, tri) in la.mesh.tris.iter().enumerate() {
+        let mut tri_has_a = false;
+        let mut tri_has_b = false;
+        for &(inp, raw) in la.source.get(ot).map(Vec::as_slice).unwrap_or(&[]) {
+            if inp == LaInputId(0) && tri_face_a.get(raw as usize).copied() == Some(face_a) {
+                tri_has_a = true;
+            } else if inp == LaInputId(1) && tri_face_b.get(raw as usize).copied() == Some(face_b) {
+                tri_has_b = true;
+            }
+        }
+        if !tri_has_a && !tri_has_b {
+            continue;
+        }
         for k in 0..3 {
             let (i, j) = (tri[k], tri[(k + 1) % 3]);
             let key = (i.min(j), i.max(j));
-            if !la.intersection_edges.contains(&key) {
-                continue;
-            }
             let flags = edge_flags.entry(key).or_insert((false, false));
-            for &(inp, raw) in la.source.get(ot).map(Vec::as_slice).unwrap_or(&[]) {
-                if inp == LaInputId(0) && tri_face_a.get(raw as usize).copied() == Some(face_a) {
-                    flags.0 = true;
-                } else if inp == LaInputId(1)
-                    && tri_face_b.get(raw as usize).copied() == Some(face_b)
-                {
-                    flags.1 = true;
-                }
-            }
+            flags.0 |= tri_has_a;
+            flags.1 |= tri_has_b;
         }
     }
 
@@ -1819,9 +2305,11 @@ pub(crate) fn collect_solved_face_pair_segments(
 }
 
 /// Yang et al. 2025 §4.2.2 (`yang2025_hybrid_boolean.txt:502-505` L): a
-/// candidate intersection point `r0` is redundant if it falls on another
-/// accurately solved intersection curve (either an already-spliced small loop
-/// or an arrangement-witnessed curve on `(surf_a, surf_b)`).
+/// candidate intersection point `r0` is redundant if its exact distance to an
+/// already-solved intersection curve (either an already-spliced loop or an
+/// arrangement-witnessed curve component on `(surf_a, surf_b)`) is `<= dp`.
+/// Uniform over all `Surface` and `SsiCurve` types via
+/// [`ssi_curve_solved_distance`].
 pub(crate) fn is_redundant_with_solved_curves(
     r0: Point3,
     surf_a: Surface,
@@ -1830,7 +2318,10 @@ pub(crate) fn is_redundant_with_solved_curves(
     spliced_loops: &[Vec<Point3>],
     dp: f64,
 ) -> bool {
-    if point_near_any_loop(r0, spliced_loops, 3.0 * dp) {
+    if spliced_loops
+        .iter()
+        .any(|lp| loop_curve_distance(r0, lp, surf_a, surf_b).is_some_and(|d| d <= dp))
+    {
         return true;
     }
     if solved_segs.is_empty() {
@@ -1844,29 +2335,25 @@ pub(crate) fn is_redundant_with_solved_curves(
     {
         return true;
     }
+    let (Ok(qa), Ok(qb)) = (surface_to_quadric(surf_a), surface_to_quadric(surf_b)) else {
+        return false;
+    };
+    let Ok(cands) = ssi_rs::intersect(&qa, &qb) else {
+        return false;
+    };
+    cands
+        .iter()
+        .any(|c| ssi_curve_solved_distance(c, r0, solved_segs, dp).is_some_and(|d| d <= dp))
+}
 
-    // Every non-`SurfacePair` `ssi_rs::SsiCurve` (`Circle`, `Line`, `Ellipse`,
-    // `Parabola`, single-sheet `Hyperbola`) is a single connected 1D curve
-    // branch. If `r0` and a relocated arrangement segment `(a, b)` both lie
-    // within `dp` of the same connected conic branch, `r0` falls on that
-    // already-solved intersection curve (`:502-505` L).
-    if let (Ok(qa), Ok(qb)) = (surface_to_quadric(surf_a), surface_to_quadric(surf_b)) {
-        if let Ok(cands) = ssi_rs::intersect(&qa, &qb) {
-            for c in &cands {
-                if matches!(c, ssi_rs::SsiCurve::SurfacePair { .. }) {
-                    continue;
-                }
-                if curve_contains_point(c, r0, dp, None)
-                    && solved_segs.iter().any(|&(a, b)| {
-                        curve_contains_point(c, a, dp, None) && curve_contains_point(c, b, dp, None)
-                    })
-                {
-                    return true;
-                }
-            }
-        }
-    }
-    false
+/// One spliced small-loop chord together with the `(face_a, face_b)` pair that
+/// produced it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SplicedLoopChord {
+    pub(crate) p: Point3,
+    pub(crate) q: Point3,
+    pub(crate) face_a: u32,
+    pub(crate) face_b: u32,
 }
 
 /// Updated meshes and spliced loop chords when ≥1 small closed intersection
@@ -1876,14 +2363,24 @@ pub(crate) struct SmallLoopMeshUpdate {
     pub(crate) tri_face_a: Vec<u32>,
     pub(crate) mesh_b: Mesh,
     pub(crate) tri_face_b: Vec<u32>,
-    pub(crate) loop_chords: Vec<(Point3, Point3)>,
+    pub(crate) loop_chords: Vec<SplicedLoopChord>,
     pub(crate) scale: f64,
+}
+
+fn record_small_loop_failure(face_a: u32, face_b: u32, detail: String) {
+    s43_tangency_census_log("small_loop_failure_recorded", &detail);
+    failures::record(FailureSite {
+        trigger: FailureTrigger::RelocationDiverged,
+        faces: vec![(InputId::A, face_a), (InputId::B, face_b)],
+        detail,
+    });
 }
 
 /// Detect non-crossing `< 2d_ε` small closed loops admitted by [`GaussMap`],
 /// trace and §4.3.4-refine each loop via Bajaj et al. 1988, and splice
 /// matching `r_A = r_B = r` polylines + Fig. 11(c) interior points into copies
-/// of `(mesh_a, mesh_b)`. Returns `None` when no small loop was spliced.
+/// of `(mesh_a, mesh_b)`. Every Gauss-admitted candidate area that cannot be
+/// resolved records a §4.5 [`FailureSite`] on `(face_a, face_b)` (S3).
 pub(crate) fn resolve_and_splice_small_loops(
     a: &BRep,
     mesh_a: &Mesh,
@@ -1909,7 +2406,7 @@ pub(crate) fn resolve_and_splice_small_loops(
         return None;
     };
     let (scale, band) = model_scale_and_band(&set_a, &set_b);
-    let dp = cad_primitives::TAU_MODEL * (1.0 + scale);
+    let dp = cad_primitives::TAU_MODEL * scale;
 
     let creases_a = CreaseIndex::build(a);
     let creases_b = CreaseIndex::build(b);
@@ -1919,7 +2416,7 @@ pub(crate) fn resolve_and_splice_small_loops(
     let mut mesh_b_work = mesh_b.clone();
     let mut tf_b_work = tri_face_b.to_vec();
     let mut spliced_loops: Vec<Vec<Point3>> = Vec::new();
-    let mut loop_chords: Vec<(Point3, Point3)> = Vec::new();
+    let mut loop_chords: Vec<SplicedLoopChord> = Vec::new();
     let mut solved_segs_by_pair: BTreeMap<(u32, u32), Vec<(Point3, Point3)>> = BTreeMap::new();
 
     for area in &areas {
@@ -1955,11 +2452,91 @@ pub(crate) fn resolve_and_splice_small_loops(
 
         let seed_res =
             solve_and_classify_seed(area.p_seed, area.q_seed, surf_a, surf_b, Some(area_diag));
-        let SeedOptimizationResult::CurvePoint(seed_sol) = seed_res else {
-            s43_tangency_census_log("small_loop_decline", &format!("seed_classify={seed_res:?}"));
-            continue;
+        let r0 = match seed_res {
+            SeedOptimizationResult::CurvePoint(seed_sol) => seed_sol.point,
+            // §4.3.3 (`:524-532` R): Case IV — no intersection between `S_A` and
+            // `S_B` in the candidate area (`record_missed_intersections` below
+            // independently checks `shell_contact` crossings).
+            SeedOptimizationResult::NoIntersection => {
+                s43_tangency_census_log("small_loop_no_intersection", "case_iv_disjoint");
+                continue;
+            }
+            // §4.5.5 2D overlapping surfaces belong to Stage 0 preprocessing.
+            SeedOptimizationResult::CoincidentSurfaces => {
+                s43_tangency_census_log("small_loop_coincident_surfaces", "stage0_domain");
+                continue;
+            }
+            // §4.3.3 (`:567-573` L): collinear-normal non-crossing tangencies —
+            // isolated 0D kiss (`rank == 4`, `det(ΔII) > 0`) and 1D tangent
+            // locus (`rank == 3`, `n_A × n_B = 0`, e.g. `C0042`/`C0043` parallel
+            // cylinder generators) — are tangential contacts, not transversal
+            // Bajaj small loops, and inscribed polygons of non-crossing tangent
+            // surfaces cannot cross under §4.5.2 refinement. A 0D hyperbolic
+            // saddle (`IsolatedSaddle`, `det(ΔII) < 0`) carries genuine 1D
+            // crossing branches and records a §4.5 failure site unless already
+            // captured by `solved_segs` / `spliced_loops`.
+            SeedOptimizationResult::Tangent(tsol) => {
+                match tsol.kind {
+                    TangencyKind::IsolatedKiss => {
+                        s43_tangency_census_log("small_loop_isolated_kiss", "zero_dim_point");
+                        continue;
+                    }
+                    TangencyKind::TangentCurve => {
+                        s43_tangency_census_log(
+                            "small_loop_tangent_curve",
+                            "non_crossing_1d_locus",
+                        );
+                        continue;
+                    }
+                    TangencyKind::IsolatedSaddle => {}
+                }
+                let solved_segs = solved_segs_by_pair
+                    .entry((area.face_a, area.face_b))
+                    .or_insert_with(|| {
+                        collect_solved_face_pair_segments(
+                            la,
+                            tri_face_a,
+                            tri_face_b,
+                            area.face_a,
+                            area.face_b,
+                            surf_a,
+                            surf_b,
+                        )
+                    });
+                if is_redundant_with_solved_curves(
+                    tsol.point,
+                    surf_a,
+                    surf_b,
+                    solved_segs,
+                    &spliced_loops,
+                    dp,
+                ) {
+                    s43_tangency_census_log(
+                        "small_loop_redundant_on_solved_curve",
+                        "tangent_saddle",
+                    );
+                    continue;
+                }
+                record_small_loop_failure(
+                    area.face_a,
+                    area.face_b,
+                    format!(
+                        "small-loop area hit uncaptured {:?} at {:?}",
+                        tsol.kind, tsol.point
+                    ),
+                );
+                continue;
+            }
+            SeedOptimizationResult::TangencySolveFailed => {
+                record_small_loop_failure(
+                    area.face_a,
+                    area.face_b,
+                    "small-loop seed converged with collinear normals but 0D tangency Newton failed"
+                        .to_string(),
+                );
+                continue;
+            }
         };
-        let r0 = seed_sol.point;
 
         let solved_segs = solved_segs_by_pair
             .entry((area.face_a, area.face_b))
@@ -2005,10 +2582,11 @@ pub(crate) fn resolve_and_splice_small_loops(
             }
         }
         if d_area_a > area.max_dev_a + band || d_area_b > area.max_dev_b + band {
-            s43_tangency_census_log(
-                "small_loop_decline",
-                &format!(
-                    "d_area=({d_area_a:.3e},{d_area_b:.3e}) vs ({:.3e},{:.3e})",
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                format!(
+                    "small-loop seed r0 left candidate area d_area=({d_area_a:.3e},{d_area_b:.3e}) vs ({:.3e},{:.3e})",
                     area.max_dev_a + band,
                     area.max_dev_b + band
                 ),
@@ -2023,40 +2601,51 @@ pub(crate) fn resolve_and_splice_small_loops(
         if boundary_crease_crossed(foot_pt_a, r0, cr_a).is_some()
             || boundary_crease_crossed(foot_pt_b, r0, cr_b).is_some()
         {
-            s43_tangency_census_log("small_loop_decline", "seed_crease_crossed");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop seed r0 crossed face boundary crease".to_string(),
+            );
             continue;
         }
         if !ssi_curve_supports_point(surf_a, surf_b, r0, dp) {
-            s43_tangency_census_log("small_loop_decline", "ssi_curve_unsupported");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop seed r0 unsupported by Stage-3 SSI curve within d_p".to_string(),
+            );
             continue;
         }
 
         let Some(loop_pts) = trace_and_refine_small_loop(r0, surf_a, surf_b, cr_a, cr_b, scale)
         else {
-            s43_tangency_census_log("small_loop_decline", "trace_failed");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop Bajaj trace or §4.3.4 refinement failed (open/clipped or non-closing)"
+                    .to_string(),
+            );
             continue;
         };
-        // For degree-4 `SurfacePair`s (whose zero set can contain multiple
-        // disjoint loops), `loop_pts` is refined to §4.3.4 sagitta `< 10² d_p`
-        // (`:590` L): if any relocated arrangement vertex on `(fa, fb)` lies
-        // within `10² d_p` of `loop_pts`, `loop_pts` is the same connected
-        // curve component already captured by the arrangement (`:502-505` L).
-        if !solved_segs.is_empty()
-            && solved_segs.iter().any(|&(p0, p1)| {
-                point_near_any_loop(p0, std::slice::from_ref(&loop_pts), 100.0 * dp)
-                    || point_near_any_loop(p1, std::slice::from_ref(&loop_pts), 100.0 * dp)
-            })
-        {
-            s43_tangency_census_log("small_loop_redundant_on_solved_curve", "post_trace_pair");
-            continue;
-        }
+
         let (tau, _) = coincidence_floor(r0, r0, surf_a, surf_b);
-        let Some(cap_plan) =
-            solve_common_axis_interior_caps(&loop_pts, surf_a, surf_b, cr_a, cr_b, tau)
-        else {
-            s43_tangency_census_log("small_loop_decline", "interior_caps_failed");
-            continue;
-        };
+        let cap_plan =
+            match solve_common_axis_interior_caps(&loop_pts, surf_a, surf_b, cr_a, cr_b, tau) {
+                CapPlanOutcome::Ok(plan) => plan,
+                CapPlanOutcome::SubMinFeatureTwinSheet => {
+                    s43_tangency_census_log("small_loop_sub_min_feature_twin_sheet", "suppressed");
+                    continue;
+                }
+                CapPlanOutcome::Failed => {
+                    record_small_loop_failure(
+                        area.face_a,
+                        area.face_b,
+                        "small-loop Fig. 11(c) interior cap ray/star certification failed"
+                            .to_string(),
+                    );
+                    continue;
+                }
+            };
 
         let Some(plan_a) = plan_face_loop_splice(
             &mesh_a_work,
@@ -2069,7 +2658,11 @@ pub(crate) fn resolve_and_splice_small_loops(
             cap_plan.c_a,
             &cap_plan.cap_tris,
         ) else {
-            s43_tangency_census_log("small_loop_decline", "plan_a_failed");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop local chart CDT splice planning failed on operand A".to_string(),
+            );
             continue;
         };
         let Some(plan_b) = plan_face_loop_splice(
@@ -2083,12 +2676,20 @@ pub(crate) fn resolve_and_splice_small_loops(
             cap_plan.c_b,
             &cap_plan.cap_tris,
         ) else {
-            s43_tangency_census_log("small_loop_decline", "plan_b_failed");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop local chart CDT splice planning failed on operand B".to_string(),
+            );
             continue;
         };
 
         if !exterior_splices_clean(&plan_a.exterior_tri_coords, &plan_b.exterior_tri_coords) {
-            s43_tangency_census_log("small_loop_decline", "exterior_not_clean");
+            record_small_loop_failure(
+                area.face_a,
+                area.face_b,
+                "small-loop exterior spliced triangles cross away from shared loop L".to_string(),
+            );
             continue;
         }
 
@@ -2096,7 +2697,12 @@ pub(crate) fn resolve_and_splice_small_loops(
         apply_face_splice(&mut mesh_b_work, &mut tf_b_work, area.face_b, plan_b);
 
         for k in 0..loop_pts.len() {
-            loop_chords.push((loop_pts[k], loop_pts[(k + 1) % loop_pts.len()]));
+            loop_chords.push(SplicedLoopChord {
+                p: loop_pts[k],
+                q: loop_pts[(k + 1) % loop_pts.len()],
+                face_a: area.face_a,
+                face_b: area.face_b,
+            });
         }
         s43_tangency_census_log(
             "small_loop_spliced",
@@ -2130,13 +2736,15 @@ pub(crate) fn resolve_and_splice_small_loops(
 /// `la.intersection_edges` after re-running Stage 2 on the updated meshes
 /// (Cherchi's `detect_intersecting_pairs` skips shared input edges, while
 /// `compute_all_patches` splits patches along multiplicity-4 shared edges).
+/// Fails loudly (`Err(Stage4RegionInvalid)`) and records a §4.5 [`FailureSite`]
+/// if any spliced loop chord fails to match ≥1 arrangement edge (S3).
 pub(crate) fn register_spliced_loop_edges_in_arrangement(
     la: &mut cherchi_rs::LabeledArrangement,
-    loop_chords: &[(Point3, Point3)],
+    loop_chords: &[SplicedLoopChord],
     scale: f64,
-) {
+) -> Result<usize, YangError> {
     if loop_chords.is_empty() {
-        return;
+        return Ok(0);
     }
     let mut existing_edges: BTreeSet<(u32, u32)> = BTreeSet::new();
     for tri in &la.mesh.tris {
@@ -2146,12 +2754,13 @@ pub(crate) fn register_spliced_loop_edges_in_arrangement(
         }
     }
 
-    let match_tol = cad_primitives::TAU_WORK * (1.0 + scale.max(1.0));
+    let eff_scale = if scale > 0.0 { scale } else { 1.0 };
+    let match_tol = ARRANGEMENT_CHORD_MATCH_WORK_MULT * cad_primitives::TAU_WORK * eff_scale;
     let match_tol2 = match_tol * match_tol;
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
-    for &(p, q) in loop_chords {
-        for pt in [p.as_array(), q.as_array()] {
+    for chord in loop_chords {
+        for pt in [chord.p.as_array(), chord.q.as_array()] {
             for k in 0..3 {
                 lo[k] = lo[k].min(pt[k] - match_tol);
                 hi[k] = hi[k].max(pt[k] + match_tol);
@@ -2186,9 +2795,11 @@ pub(crate) fn register_spliced_loop_edges_in_arrangement(
             .collect()
     };
 
-    for &(p, q) in loop_chords {
-        let vp = matching_verts(p);
-        let vq = matching_verts(q);
+    let mut total_matched_chords = 0usize;
+    for chord in loop_chords {
+        let vp = matching_verts(chord.p);
+        let vq = matching_verts(chord.q);
+        let mut chord_matched = false;
         for &g0 in &vp {
             for &g1 in &vq {
                 if g0 == g1 {
@@ -2197,8 +2808,27 @@ pub(crate) fn register_spliced_loop_edges_in_arrangement(
                 let key = (g0.min(g1), g0.max(g1));
                 if existing_edges.contains(&key) {
                     la.intersection_edges.insert(key);
+                    chord_matched = true;
                 }
             }
         }
+        if !chord_matched {
+            record_small_loop_failure(
+                chord.face_a,
+                chord.face_b,
+                format!(
+                    "spliced loop chord ({:?} -> {:?}) missing from re-run arrangement",
+                    chord.p, chord.q
+                ),
+            );
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+                under_resolution: None,
+            });
+        }
+        total_matched_chords += 1;
     }
+
+    Ok(total_matched_chords)
 }
