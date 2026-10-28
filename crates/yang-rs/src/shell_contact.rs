@@ -359,11 +359,31 @@ pub(crate) fn contact_pairs(
                                 == SegmentTriangleIntersection::Intersects
                         })
                     });
-                    if !crosses {
-                        crate::n100_census::log(
-                            1,
-                            &format!("touch a{t}(f{}) b{s}(f{})", tri_face_a[t], tri_face_b[s]),
-                        );
+                    // Narrowed (2026-10-28): log only the touches T6 itself
+                    // would have flagged had this shortcut not returned — the
+                    // arrangement does not join their one-rings AND their
+                    // exact surfaces cross deeper than the band.
+                    if !crosses && !skip(t as u32, s as u32) {
+                        let pa = Piece {
+                            pts: set_a.pts[t].map(|p| p.as_array()),
+                            surf: set_a.surf[t],
+                            dev: set_a.dev[t],
+                        };
+                        let pb = Piece {
+                            pts: set_b.pts[s].map(|p| p.as_array()),
+                            surf: set_b.surf[s],
+                            dev: set_b.dev[s],
+                        };
+                        if let Some((point, _)) = pieces_cross_point(pa, pb, band, CROSS_REFINE_DEPTH)
+                        {
+                            crate::n100_census::log(
+                                1,
+                                &format!(
+                                    "MISSED-CONTACT a{t}(f{}) b{s}(f{}) at {point:?}",
+                                    tri_face_a[t], tri_face_b[s]
+                                ),
+                            );
+                        }
                     }
                 }
                 return;

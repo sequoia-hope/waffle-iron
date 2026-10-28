@@ -7720,7 +7720,13 @@ kernel-v2 suites; print-only — corpus byte-identical, 360C / 0W / 9E / 5EE /
   in the suites). Exact touches are ubiquitous (curves pass through mesh
   vertices), so this probe is too coarse to find a missed contact; the
   next census must keep only touches whose EXACT surfaces cross deeper
-  than the band (T6's own test). Open.
+  than the band (T6's own test). **Narrowed census (2026-10-28):** the probe
+  now logs only zero-distance non-crossing pairs the arrangement does NOT
+  join (`skip`) whose exact surfaces cross (`pieces_cross_point`, T6's own
+  test) — i.e. the contacts T6 would have flagged had the shortcut not
+  returned. Full corpus + yang-rs suite: **zero** (corpus byte-identical).
+  No missed contact measured; open only in the sense that a corpus is a
+  sample — the probe stays for prospector seeds.
 - Item 2: 140 firings in 5 cases (P0049 82, R0074 48, P0005 4, R0077 4,
   P0045 2), all CORRECT; 2 in the suites. The producer-vouched single
   candidate's endpoints are relocation obligations, and T8 (item 9) now
