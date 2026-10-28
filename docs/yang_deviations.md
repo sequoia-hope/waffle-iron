@@ -7221,6 +7221,30 @@ pipeline, collars, general curve evaluation, ORDER & constants).**
      `COLLAR_OUTER_ROW_SPAN_DIV = 16.0`,
      `COLLAR_EXCLUSION_OVERLAP_W_FACET_FRAC = 0.25`,
      `COLLAR_WALK_MAX_STEPS = 128`, `COLLAR_MAX_CAVITY_TRIS = 64`.
+
+**Amendment (2026-10-28, merge review — two S3 sites returned to named
+declines).** The Gemini agent stopped on a quota limit after the commit
+above; the merge reviewer finished it. The integration suites showed two of
+S3's new failure sites were wrong to add:
+1. *Seed left its candidate area* (`stage4_small_loop.rs`, the `d_area`
+   postcondition). §4.3.3 (`:524-532` R): meshes within `d_ε` that do not
+   cross hold "a tangent point, or a small loop, or no intersection"; a
+   solve with no solution in the domain rules out Case IV. A seed that
+   converges outside its area found no intersection there (it slid onto the
+   large curve on the same face pair, which `:502-505` L removes as
+   redundant). As a failure site it sent five cone-section suites
+   (`yr17_adversary`, `yr21_cone_ellipse`, `yr22_adversary`,
+   `yr22_cone_parabola`, `yr23_adversary`) to `RefinementExhausted`. Now a
+   census-logged decline (`small_loop_seed_left_area`).
+2. *Seed unsupported by any Stage-3 SSI curve.* Measured: ssi-rs collapses
+   a plane 2.1e-8 inside a cylinder (δ = 1e-4·r, below MIN_FEATURE_SIZE)
+   into ONE tangent line, while the Newton-exact r0 sits on the true line
+   pair 3.02e-6 away. As a failure site it drove the §4.5 loop to adopt an
+   output with a vertex 2.13e-8 off its surface (N100 item 9). Now a
+   census-logged decline (`small_loop_seed_unsupported_by_ssi`), as at
+   base; it must not become a site until N100 item 9 is closed. The ssi-rs
+   collapse itself is the MIN_FEATURE_SIZE contract (sub-feature near
+   tangency), not a new deviation.
 **State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)
@@ -7661,7 +7685,19 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    `YANG_S1_SELF_CONTACT`/`_CHART`) are release-active switches that change
    output when set; the Cherchi pair is absent from
    `docs/kernel_probe_registry.md`.
-**State: OPEN** (2026-10-27).
+9. *(Added 2026-10-28, F4 merge review — MEASURED, not a census guess.)*
+   The §4.5.2 loop (`boolean::refine_loop`) adopts a refined output
+   without testing its loop vertices against their faces' surfaces. With
+   F4's small-loop pass recording a site on a near-tangent cylinder × plane
+   (δ = 1e-4·r), the adopted output was Ok with a loop vertex 2.13e-8 off
+   its surface (band 1.0e-9):
+   `n2_rim_mint_adversary::near_tangency_sweep_valid_or_loud`, SILENT-WRONG.
+   That site is declined again (N91 amendment below), so the case is green;
+   the adoption hole stays for any other path that records a site there.
+   Remediation: the loop's acceptance test checks every emitted loop vertex
+   against its face surface (the T4-on-emitted-body rule extended), and
+   only then is the site set's emptiness trusted.
+**State: OPEN** (2026-10-27; item 9 added 2026-10-28).
 
 ### N101 — cherchi-rs ray perturbation exhausted by symmetric 45° vertex fans (UL-02)
 

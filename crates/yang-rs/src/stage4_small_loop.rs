@@ -2581,12 +2581,20 @@ pub(crate) fn resolve_and_splice_small_loops(
                 foot_b = c;
             }
         }
+        // §4.3.3 (`:524-532` R): meshes within `d_ε` that do not cross hold "a
+        // tangent point, or a small loop, or no intersection"; a solve with "no
+        // solution in one of the two parametric domains" is a solving failure
+        // that rules out Case IV. A seed that converges OUTSIDE its candidate
+        // area found no intersection of this area — typically it slid onto the
+        // large curve solved elsewhere on the same face pair, which §4.2.2
+        // (`:502-505` L) removes as redundant. Neither is a §4.5 failure site:
+        // recording one sent cone-section unions (yr17/yr21/yr22/yr23) to
+        // `RefinementExhausted`. Missed crossings stay with T6 / §4.5.
         if d_area_a > area.max_dev_a + band || d_area_b > area.max_dev_b + band {
-            record_small_loop_failure(
-                area.face_a,
-                area.face_b,
-                format!(
-                    "small-loop seed r0 left candidate area d_area=({d_area_a:.3e},{d_area_b:.3e}) vs ({:.3e},{:.3e})",
+            s43_tangency_census_log(
+                "small_loop_seed_left_area",
+                &format!(
+                    "no_intersection_in_area d_area=({d_area_a:.3e},{d_area_b:.3e}) vs ({:.3e},{:.3e})",
                     area.max_dev_a + band,
                     area.max_dev_b + band
                 ),
@@ -2608,11 +2616,22 @@ pub(crate) fn resolve_and_splice_small_loops(
             );
             continue;
         }
+        // The spliced loop must be a curve Stage 3 can represent. A Newton-exact
+        // r0 that no Stage-3 SSI curve passes within `d_p` means the two exact
+        // methods disagree — measured: ssi-rs collapses a plane 2.1e-8 inside a
+        // cylinder (δ = 1e-4·r, below MIN_FEATURE_SIZE) into ONE tangent line
+        // while r0 sits on the true line pair 3.02e-6 away
+        // (`n2_rim_mint_adversary::near_tangency_sweep_valid_or_loud`).
+        // Declined by name, leaving the pair to Stage 3 / T6 as at base:
+        // recording a §4.5 site here sent that case through a refinement whose
+        // ADOPTED output kept a loop vertex 2.13e-8 off its surface on Ok — the
+        // loop's adoption check does not test vertices against their surfaces
+        // (ledger N91 amendment, open). Do not turn this into a failure site
+        // until that check exists.
         if !ssi_curve_supports_point(surf_a, surf_b, r0, dp) {
-            record_small_loop_failure(
-                area.face_a,
-                area.face_b,
-                "small-loop seed r0 unsupported by Stage-3 SSI curve within d_p".to_string(),
+            s43_tangency_census_log(
+                "small_loop_seed_unsupported_by_ssi",
+                "declined_curve_vocabulary_disagrees",
             );
             continue;
         }
