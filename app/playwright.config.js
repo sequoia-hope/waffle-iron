@@ -66,5 +66,11 @@ export default defineConfig({
 		url: baseURL,
 		reuseExistingServer: true,
 		timeout: 30000,
+		// Surface the dev server's own output in the run log ([WebServer]
+		// lines). Two gui-fast failures (2026-10-27 sketch-edit, 2026-10-28
+		// drawing-view-placement) died on "Execution context was destroyed …
+		// because of a navigation" mid-test; a Vite dependency re-optimization
+		// full-reload is the suspect, and with stdout ignored it is invisible.
+		stdout: 'pipe',
 	},
 });
