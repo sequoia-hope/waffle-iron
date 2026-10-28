@@ -25,12 +25,165 @@
 use crate::gauss_map::GaussMap;
 use crate::shell_contact::{closest_on_triangle, triangle_distance, Bvh, TriSet};
 use crate::stage4_relocate::{
-    s43_tangency_census_log, surface_anchor_magnitude, surface_distance_and_normal,
-    surface_kind_tag,
+    s43_tangency_census_log, surface_distance_and_normal, surface_kind_tag,
 };
 use crate::{normalize3, ortho_basis, BRep, Point3, Surface, Vector3};
 use std::collections::BTreeMap;
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
+
+/// Yang et al. 2025 §4.3.3 / §5 (`yang2025_hybrid_boolean.txt:567-573` L,
+/// `:745` R): angular threshold (`10^{-6}` rad) comparing `n_A(r)` and `n_B(r)`
+/// at a converged surface-pair intersection point to distinguish a tangent
+/// point (`≤ 10^{-6}` rad) from a point on a loop (`> 10^{-6}` rad).
+pub(crate) const TANGENT_NORMAL_ANGLE_TOL: f64 = 1e-6;
+
+/// Yang et al. 2025 §4.2.1 Eq. (1) (`:456-461` L): factor `2` in the `< 2 d_ε`
+/// proximity band.
+const PROXIMITY_BAND_FACTOR: f64 = 2.0;
+
+/// Dimensionless relative distance threshold (`10^{-12}`) from a coordinate
+/// singularity (`Sphere` center, `Cylinder`/`Torus` axis, `Cone` apex/axis,
+/// `Torus` tube spine) when constructing or evaluating [`LocalSurfaceChart`].
+const CHART_SINGULAR_REL_TOL: f64 = 1e-12;
+
+/// Dimensionless relative radial threshold (`10^{-15}`) below which `atan2`
+/// falls back to the chart reference azimuth `0` in [`LocalSurfaceChart::project`].
+const CHART_PROJECT_AXIS_REL_TOL: f64 = 1e-15;
+
+/// Dimensionless relative axial threshold (`10^{-9}`) rejecting opposite-nappe
+/// points in [`LocalSurfaceChart::project`] on a [`Surface::Cone`].
+const CONE_PROJECT_NAPPE_REL_TOL: f64 = 1e-9;
+
+/// Maximum unwrapped angular span (`2.2 < π` rad) allowed for a single triangle
+/// edge in a local periodic chart before it straddles the `±π` branch cut.
+const CHART_MAX_NON_WRAPPING_ARC_RAD: f64 = 2.2;
+
+/// Fraction (`0.75`) of the remaining slant distance `s_0 + v` to the cone apex
+/// permitted in a single negative-`v` Newton step so `σ > 0` always holds.
+const CONE_APEX_STEP_FRAC: f64 = 0.75;
+
+/// Latitude threshold (`0.8` rad) triggering equatorial re-centering of a
+/// [`LocalSurfaceChart::Sphere`] during Newton iteration.
+const SPHERE_RECENTER_LAT_RAD: f64 = 0.8;
+
+/// Hard latitude domain bound (`1.48 < π/2` rad) keeping [`LocalSurfaceChart::Sphere`]
+/// strictly away from its `±90°` local chart poles.
+const SPHERE_MAX_CHART_LAT_RAD: f64 = 1.48;
+
+/// Maximum one-sided Jacobi sweeps in [`thin_svd`].
+const SVD_MAX_SWEEPS: usize = 20;
+
+/// Dimensionless relative off-diagonal convergence threshold in [`thin_svd`].
+const SVD_OFFDIAG_REL_TOL: f64 = 1e-15;
+
+/// Dimensionless relative determinant threshold (`|det| <= 10^{-24} · g00 · g11`)
+/// guarding degenerate `2 × 2` tangent-plane Gram solves.
+const GRAM_DET_REL_TOL: f64 = 1e-24;
+
+/// Maximum normal-collinearity angle (`10^{-4}` rad) at which a stationary
+/// positive-gap iterate qualifies for the Sederberg quadratic loop-escape step.
+const ESCAPE_MAX_COLLINEAR_ANGLE_RAD: f64 = 1e-4;
+
+/// Minimum normal-component fraction (`|δ_n| > 10^{-12} · gap`) for the
+/// Sederberg quadratic loop-escape step.
+const ESCAPE_MIN_NORMAL_GAP_FRAC: f64 = 1e-12;
+
+/// Minimum dimensionless curvature-gap product (`λ · δ_n > 10^{-18}`) certifying
+/// local interpenetration in [`quadratic_collinear_loop_escape`].
+const ESCAPE_MIN_CURVATURE_GAP_PROD: f64 = 1e-18;
+
+/// Dimensionless relative off-diagonal threshold in the `2 × 2` curvature
+/// eigensolver of [`quadratic_collinear_loop_escape`].
+const ESCAPE_OFFDIAG_REL_TOL: f64 = 1e-15;
+
+/// Sufficient-decrease factor (`0.9`) on `‖s_1 - s_2‖` for accepting a
+/// Sederberg quadratic loop-escape step.
+const ESCAPE_ACCEPT_GAP_FRAC: f64 = 0.9;
+
+/// Maximum damped Newton iterations in [`solve_parametric_pair_newton`].
+const PAIR_NEWTON_MAX_ITERS: usize = 56;
+
+/// Machine-epsilon multiplier (`16 · ε_mach · scale`) in [`coincidence_floor`].
+const PAIR_GAP_MACHINE_EPS_MULT: f64 = 16.0;
+
+/// Maximum angular step (`0.75` rad of arc) per iteration along curved chart
+/// coordinates in [`solve_parametric_pair_newton`].
+const PAIR_CURV_STEP_CAP_RAD: f64 = 0.75;
+
+/// Multiplier (`2.0`) on `seed_sep + scale` bounding single-iteration steps
+/// along zero-curvature linear coordinates (`Plane`, `Cylinder` ruling, `Cone` `+v`).
+const LINEAR_STEP_CAP_FACTOR: f64 = 2.0;
+
+/// Dimensionless relative gradient stationarity threshold (`10^{-13}`) in
+/// [`solve_parametric_pair_newton`] and [`solve_tangent_with_sign`].
+const STATIONARY_GRAD_REL_TOL: f64 = 1e-13;
+
+/// Singular-value floor (`10^{-14}`) detecting a completely zero Jacobian in
+/// [`solve_parametric_pair_newton`] and [`solve_tangent_with_sign`].
+const SVD_ZERO_SIGMA_TOL: f64 = 1e-14;
+
+/// Relative singular-value cutoff (`10^{-14} · σ_0`) for the `3 × 4`
+/// minimum-norm pseudoinverse step in [`solve_parametric_pair_newton`].
+const PAIR_SVD_REL_CUTOFF: f64 = 1e-14;
+
+/// Relative parameter-step convergence threshold (`10^{-15}`) in Newton loops.
+const STEP_NORM_REL_TOL: f64 = 1e-15;
+
+/// Maximum backtracking line-search halvings (`10`) in [`solve_parametric_pair_newton`]
+/// and [`solve_tangent_with_sign`].
+const NEWTON_LINE_SEARCH_HALVINGS: usize = 10;
+
+/// Normal-alignment cosine threshold (`|n_A · n_B| > 0.75`) selecting a single
+/// orientation sign `σ ∈ {+1, -1}` in [`solve_tangent_point_newton`].
+const TANGENT_SIGN_LOCK_COS: f64 = 0.75;
+
+/// Maximum damped Gauss–Newton iterations in [`solve_tangent_with_sign`].
+const TANGENT_NEWTON_MAX_ITERS: usize = 36;
+
+/// Machine-epsilon multiplier (`4 · ε_mach · scale`) for early polished exit on
+/// position gap in [`solve_tangent_with_sign`].
+const TANGENT_GAP_MACHINE_EPS_MULT: f64 = 4.0;
+
+/// Machine-epsilon multiplier (`8 · ε_mach` rad) for early polished exit on
+/// normal collinearity in [`solve_tangent_with_sign`].
+const TANGENT_ANG_MACHINE_EPS_MULT: f64 = 8.0;
+
+/// Maximum converged normal angle (`10^{-9}` rad) accepted as an exact root of
+/// `n_1(u,v) - σ n_2(s,t) = 0` in [`solve_tangent_with_sign`].
+const TANGENT_SOLVER_MAX_ANGLE_RAD: f64 = 1e-9;
+
+/// Relative gap threshold (`10^{-6}`) at which [`solve_tangent_with_sign`]
+/// re-anchors both local charts once onto the iterate so final polish evaluates
+/// trigonometric functions at `(u, v) ≈ (0, 0)`.
+const TANGENT_REANCHOR_GAP_REL_TOL: f64 = 1e-6;
+
+/// Normal-angle threshold (`10^{-4}` rad) accompanying [`TANGENT_REANCHOR_GAP_REL_TOL`].
+const TANGENT_REANCHOR_ANGLE_RAD: f64 = 1e-4;
+
+/// Relative singular-value rank threshold (`10^{-9} · σ_0`) classifying the
+/// `5 × 4` tangency Jacobian into `rank == 4` (isolated 0D point), `rank == 3`
+/// (1D tangent curve), or `rank <= 2` (2D coincident surface).
+const TANGENT_RANK_REL_TOL: f64 = 1e-9;
+
+/// Relative singular-value pseudoinverse cutoff (`10^{-12} · σ_0`) in
+/// [`solve_tangent_with_sign`].
+const TANGENT_SVD_REL_CUTOFF: f64 = 1e-12;
+
+/// Maximum angular step (`0.85` rad of arc) per iteration along curved chart
+/// coordinates in [`solve_tangent_with_sign`].
+const TANGENT_CURV_STEP_CAP_RAD: f64 = 0.85;
+
+/// Slack multiplier (`2.0`) on `max_drift` permitted for intermediate
+/// backtracking line-search iterates in [`solve_tangent_with_sign`].
+const LINE_SEARCH_DRIFT_SLACK: f64 = 2.0;
+
+/// Dimensionless local-chart probe fraction (`0.05`) testing whether two
+/// collinear-normal surfaces coincide identically in 2D around a converged point.
+const COINCIDENCE_PROBE_STEP_FRAC: f64 = 0.05;
+
+/// Scale-relative trust-region radius fraction (`0.25 · r_min`) around the
+/// input vertex in [`solve_isolated_tangent_point_near`].
+const ISOLATED_TANGENT_DRIFT_RADIUS_FRAC: f64 = 0.25;
 
 pub(crate) type V3 = [f64; 3];
 
@@ -170,7 +323,7 @@ impl LocalSurfaceChart {
                 }
                 let w = sub3(p, c);
                 let wl = norm3(w);
-                let e1 = if wl > 1e-12 * radius.max(1.0) {
+                let e1 = if wl > CHART_SINGULAR_REL_TOL * radius {
                     scale3(w, 1.0 / wl)
                 } else {
                     [1.0, 0.0, 0.0]
@@ -208,7 +361,7 @@ impl LocalSurfaceChart {
                 let origin = add3(ap, scale3(axis, h0));
                 let rad = sub3(w, scale3(axis, h0));
                 let rl = norm3(rad);
-                let (e1, e2) = if rl > 1e-12 * radius.max(1.0) {
+                let (e1, e2) = if rl > CHART_SINGULAR_REL_TOL * radius {
                     let e1 = scale3(rad, 1.0 / rl);
                     let e2 = cross3(axis, e1);
                     (e1, e2)
@@ -249,12 +402,13 @@ impl LocalSurfaceChart {
                 let rl = norm3(rad);
                 let sgn = if h >= 0.0 { 1.0 } else { -1.0 };
                 let s0 = h.abs() * cos_a + rl * sin_a;
-                let eps = 1e-12 * (1.0 + mag3(ap) + mag3(p));
+                let eps = CHART_SINGULAR_REL_TOL * mag3(ap).max(mag3(p));
                 if s0 <= eps {
                     return None;
                 }
-                let u_scale = (s0 * sin_a).max(eps);
-                let (e1, e2) = if rl > eps {
+                let axis_eps = CHART_SINGULAR_REL_TOL * s0;
+                let u_scale = (s0 * sin_a).max(axis_eps);
+                let (e1, e2) = if rl > axis_eps {
                     let e1 = scale3(rad, 1.0 / rl);
                     let e2 = cross3(axis, e1);
                     (e1, e2)
@@ -298,7 +452,7 @@ impl LocalSurfaceChart {
                 let z = dot3(w, axis);
                 let rad = sub3(w, scale3(axis, z));
                 let rho = norm3(rad);
-                let (e1, e2) = if rho > 1e-12 * major_radius.max(1.0) {
+                let (e1, e2) = if rho > CHART_SINGULAR_REL_TOL * major_radius {
                     let e1 = scale3(rad, 1.0 / rho);
                     let e2 = cross3(axis, e1);
                     (e1, e2)
@@ -307,7 +461,7 @@ impl LocalSurfaceChart {
                     (e1v.as_array(), e2v.as_array())
                 };
                 let dr = rho - major_radius;
-                let phi0 = if dr.hypot(z) > 1e-12 * minor_radius.max(1.0) {
+                let phi0 = if dr.hypot(z) > CHART_SINGULAR_REL_TOL * minor_radius {
                     z.atan2(dr)
                 } else {
                     0.0
@@ -333,7 +487,7 @@ impl LocalSurfaceChart {
         match *self {
             Self::Plane { .. } => None,
             Self::Sphere { radius, .. } | Self::Cylinder { radius, .. } => Some(radius),
-            Self::Cone { u_scale, cos_a, .. } => Some((u_scale / cos_a.max(1e-6)).max(1e-12)),
+            Self::Cone { u_scale, cos_a, .. } => Some(u_scale / cos_a),
             Self::Torus {
                 major_radius,
                 minor_radius,
@@ -349,14 +503,22 @@ impl LocalSurfaceChart {
     pub(crate) fn max_non_wrapping_edge_delta(&self) -> (f64, f64) {
         match *self {
             Self::Plane { .. } => (f64::INFINITY, f64::INFINITY),
-            Self::Sphere { radius, .. } => (2.2 * radius, 2.2 * radius),
-            Self::Cylinder { radius, .. } => (2.2 * radius, f64::INFINITY),
-            Self::Cone { u_scale, .. } => (2.2 * u_scale, f64::INFINITY),
+            Self::Sphere { radius, .. } => (
+                CHART_MAX_NON_WRAPPING_ARC_RAD * radius,
+                CHART_MAX_NON_WRAPPING_ARC_RAD * radius,
+            ),
+            Self::Cylinder { radius, .. } => {
+                (CHART_MAX_NON_WRAPPING_ARC_RAD * radius, f64::INFINITY)
+            }
+            Self::Cone { u_scale, .. } => (CHART_MAX_NON_WRAPPING_ARC_RAD * u_scale, f64::INFINITY),
             Self::Torus {
                 u_scale,
                 minor_radius,
                 ..
-            } => (2.2 * u_scale, 2.2 * minor_radius),
+            } => (
+                CHART_MAX_NON_WRAPPING_ARC_RAD * u_scale,
+                CHART_MAX_NON_WRAPPING_ARC_RAD * minor_radius,
+            ),
         }
     }
 
@@ -379,15 +541,15 @@ impl LocalSurfaceChart {
         match *self {
             Self::Plane { .. } => [lin_cap, lin_cap],
             Self::Sphere { radius, .. } => {
-                let c = (curv_factor * radius).max(1e-6);
+                let c = curv_factor * radius;
                 [c, c]
             }
-            Self::Cylinder { radius, .. } => [(curv_factor * radius).max(1e-6), lin_cap],
+            Self::Cylinder { radius, .. } => [curv_factor * radius, lin_cap],
             Self::Cone { u_scale, s0, .. } => {
-                let cu = (curv_factor * u_scale).max(1e-6);
+                let cu = curv_factor * u_scale;
                 let cv = if delta_uv[1] < 0.0 {
                     // Keep `sigma = s0 + v > 0` strictly away from the cone apex.
-                    0.75 * (s0 + x_cur[1]).max(1e-6)
+                    CONE_APEX_STEP_FRAC * (s0 + x_cur[1]).max(CHART_SINGULAR_REL_TOL * s0)
                 } else {
                     lin_cap
                 };
@@ -397,16 +559,13 @@ impl LocalSurfaceChart {
                 u_scale,
                 minor_radius,
                 ..
-            } => [
-                (curv_factor * u_scale).max(1e-6),
-                (curv_factor * minor_radius).max(1e-6),
-            ],
+            } => [curv_factor * u_scale, curv_factor * minor_radius],
         }
     }
 
     /// Re-center a `Sphere` chart onto the local equator `(u, v) = (0, 0)` at
-    /// `point` whenever latitude `|phi| = |v / radius| > 0.8` rad, keeping
-    /// iterates far from the `±90°` chart poles even from coarse seeds.
+    /// `point` whenever latitude `|phi| = |v / radius| > SPHERE_RECENTER_LAT_RAD`,
+    /// keeping iterates far from the `±90°` chart poles even from coarse seeds.
     pub(crate) fn recenter_sphere_if_needed(
         &mut self,
         surface: Surface,
@@ -414,7 +573,7 @@ impl LocalSurfaceChart {
         point: V3,
     ) -> Option<bool> {
         if let Self::Sphere { radius, .. } = *self {
-            if uv.1.abs() > 0.8 * radius {
+            if uv.1.abs() > SPHERE_RECENTER_LAT_RAD * radius {
                 *self = Self::new(surface, Point3::new(point[0], point[1], point[2]))?;
                 *uv = (0.0, 0.0);
                 return Some(true);
@@ -457,7 +616,7 @@ impl LocalSurfaceChart {
                 let phi = v / radius;
                 // Keep iterates strictly away from the local chart's ±90° poles
                 // (90° away from the seed!).
-                if phi.abs() >= 1.48 {
+                if phi.abs() >= SPHERE_MAX_CHART_LAT_RAD {
                     return None;
                 }
                 let (st, ct) = theta.sin_cos();
@@ -512,7 +671,7 @@ impl LocalSurfaceChart {
                 u_scale,
             } => {
                 let sigma = s0 + v;
-                if sigma <= 1e-12 * s0.max(1.0) {
+                if sigma <= CHART_SINGULAR_REL_TOL * s0 {
                     return None;
                 }
                 let theta = u / u_scale;
@@ -591,7 +750,7 @@ impl LocalSurfaceChart {
             } => {
                 let w = sub3(p, center);
                 let wl = norm3(w);
-                if wl <= 1e-15 * radius.max(1.0) {
+                if wl <= CHART_PROJECT_AXIS_REL_TOL * radius {
                     return Some((0.0, 0.0));
                 }
                 let d = scale3(w, 1.0 / wl);
@@ -600,7 +759,7 @@ impl LocalSurfaceChart {
                 let z = dot3(d, e3).clamp(-1.0, 1.0);
                 let theta = y.atan2(x);
                 let phi = z.asin();
-                if phi.abs() >= 1.48 {
+                if phi.abs() >= SPHERE_MAX_CHART_LAT_RAD {
                     return None;
                 }
                 Some((radius * theta, radius * phi))
@@ -616,7 +775,7 @@ impl LocalSurfaceChart {
                 let v = dot3(w, axis);
                 let rad = sub3(w, scale3(axis, v));
                 let rl = norm3(rad);
-                let theta = if rl > 1e-15 * radius.max(1.0) {
+                let theta = if rl > CHART_PROJECT_AXIS_REL_TOL * radius {
                     dot3(rad, e2).atan2(dot3(rad, e1))
                 } else {
                     0.0
@@ -636,16 +795,16 @@ impl LocalSurfaceChart {
             } => {
                 let w = sub3(p, apex);
                 let h = dot3(w, axis);
-                if h * sgn <= 0.0 && h.abs() > 1e-9 * s0 {
+                if h * sgn <= 0.0 && h.abs() > CONE_PROJECT_NAPPE_REL_TOL * s0 {
                     return None;
                 }
                 let rad = sub3(w, scale3(axis, h));
                 let rl = norm3(rad);
                 let sigma = h.abs() * cos_a + rl * sin_a;
-                if sigma <= 1e-12 * s0.max(1.0) {
+                if sigma <= CHART_SINGULAR_REL_TOL * s0 {
                     return None;
                 }
-                let theta = if rl > 1e-15 * u_scale.max(1.0) {
+                let theta = if rl > CHART_PROJECT_AXIS_REL_TOL * u_scale {
                     dot3(rad, e2).atan2(dot3(rad, e1))
                 } else {
                     0.0
@@ -666,13 +825,13 @@ impl LocalSurfaceChart {
                 let z = dot3(w, axis);
                 let rad = sub3(w, scale3(axis, z));
                 let rho = norm3(rad);
-                let theta = if rho > 1e-15 * major_radius.max(1.0) {
+                let theta = if rho > CHART_PROJECT_AXIS_REL_TOL * major_radius {
                     dot3(rad, e2).atan2(dot3(rad, e1))
                 } else {
                     0.0
                 };
                 let dr = rho - major_radius;
-                let phi = if dr.hypot(z) > 1e-15 * minor_radius.max(1.0) {
+                let phi = if dr.hypot(z) > CHART_PROJECT_AXIS_REL_TOL * minor_radius {
                     z.atan2(dr)
                 } else {
                     phi0
@@ -699,7 +858,7 @@ pub(crate) fn thin_svd<const M: usize, const N: usize>(
         row[i] = 1.0;
     }
 
-    for _sweep in 0..20 {
+    for _sweep in 0..SVD_MAX_SWEEPS {
         let mut converged = true;
         for p in 0..N {
             for q in (p + 1)..N {
@@ -711,7 +870,7 @@ pub(crate) fn thin_svd<const M: usize, const N: usize>(
                     beta += row[q] * row[q];
                     gamma += row[p] * row[q];
                 }
-                if gamma.abs() <= 1e-15 * (alpha * beta).sqrt() {
+                if gamma.abs() <= SVD_OFFDIAG_REL_TOL * (alpha * beta).sqrt() {
                     continue;
                 }
                 converged = false;
@@ -842,12 +1001,20 @@ impl TangentSolution {
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SeedOptimizationResult {
-    /// Converged to a tangent point (`∠(n_A, ±n_B) <= 10^{-6}` rad).
+    /// Converged to an isolated 0D tangent point (`∠(n_A, ±n_B) <= 10^{-6}` rad,
+    /// `rank(J_tan) == 4`; `:567-569` L, `:745` R).
     Tangent(TangentSolution),
     /// Converged to an exact point on a non-tangential intersection curve /
     /// small loop (`∠(n_A, ±n_B) > 10^{-6}` rad), suitable as a Bajaj et al.
     /// 1988 marching seed (`:569-573` L).
     CurvePoint(ParametricPairSolution),
+    /// Converged to a common point where the two surfaces coincide identically
+    /// in 2D (`∠(n_A, ±n_B) <= 10^{-6}` rad, owned by §4.5.5 Stage 0).
+    CoincidentSurfaces,
+    /// Pair optimization converged with collinear normals (`<= 10^{-6}` rad),
+    /// but isolated 0D tangency Newton failed or hit a 1D tangent locus
+    /// (`TangencyKind::TangentCurve`). Must be handled loudly by the caller.
+    TangencySolveFailed,
     /// Surfaces do not intersect in the seed's neighborhood (Case IV ruled out,
     /// `:529-534` R).
     NoIntersection,
@@ -861,6 +1028,33 @@ pub(crate) fn collinear_angle_rad(na: V3, nb: V3) -> f64 {
 }
 
 #[inline]
+pub(crate) fn surface_intrinsic_scale(s: Surface) -> f64 {
+    match s {
+        Surface::Plane { normal, d } => {
+            let nl = norm3(normal.as_array());
+            if nl > 0.0 {
+                d.abs() / nl
+            } else {
+                d.abs()
+            }
+        }
+        Surface::Sphere { center, radius } => mag3(center.as_array()).max(radius.abs()),
+        Surface::Cylinder {
+            axis_point, radius, ..
+        } => mag3(axis_point.as_array()).max(radius.abs()),
+        Surface::Cone { apex, .. } => mag3(apex.as_array()),
+        Surface::Torus {
+            center,
+            major_radius,
+            minor_radius,
+            ..
+        } => mag3(center.as_array())
+            .max(major_radius.abs())
+            .max(minor_radius.abs()),
+    }
+}
+
+#[inline]
 pub(crate) fn coincidence_floor(
     p_a: Point3,
     p_b: Point3,
@@ -869,10 +1063,10 @@ pub(crate) fn coincidence_floor(
 ) -> (f64, f64) {
     let scale = mag3(p_a.as_array())
         .max(mag3(p_b.as_array()))
-        .max(surface_anchor_magnitude(s_a))
-        .max(surface_anchor_magnitude(s_b))
-        .max(1.0);
-    let tau = (cad_primitives::TAU_WORK * (1.0 + scale)).max(16.0 * f64::EPSILON * scale);
+        .max(surface_intrinsic_scale(s_a))
+        .max(surface_intrinsic_scale(s_b));
+    let tau = (cad_primitives::TAU_WORK * (1.0 + scale))
+        .max(PAIR_GAP_MACHINE_EPS_MULT * f64::EPSILON * scale);
     (tau, scale)
 }
 
@@ -884,7 +1078,7 @@ fn solve_in_tangent_frame(su: V3, sv: V3, w: V3) -> [f64; 2] {
     let g01 = dot3(su, sv);
     let g11 = dot3(sv, sv);
     let det = g00 * g11 - g01 * g01;
-    if det.abs() <= 1e-24 {
+    if det.abs() <= GRAM_DET_REL_TOL * g00 * g11 {
         return [0.0, 0.0];
     }
     let r0 = dot3(su, w);
@@ -912,7 +1106,7 @@ fn quadratic_collinear_loop_escape(
     gap: f64,
     step_cap: f64,
 ) -> Option<[f64; 4]> {
-    if collinear_angle_rad(ea.normal, eb.normal) > 1e-4 {
+    if collinear_angle_rad(ea.normal, eb.normal) > ESCAPE_MAX_COLLINEAR_ANGLE_RAD {
         return None;
     }
     let sigma_sign = if dot3(ea.normal, eb.normal) >= 0.0 {
@@ -921,7 +1115,7 @@ fn quadratic_collinear_loop_escape(
         -1.0
     };
     let delta_n = dot3(d_vec, ea.normal);
-    if delta_n.abs() <= 1e-16 {
+    if delta_n.abs() <= ESCAPE_MIN_NORMAL_GAP_FRAC * gap {
         return None;
     }
     let b0 = normalize3(ea.su);
@@ -949,12 +1143,14 @@ fn quadratic_collinear_loop_escape(
     // is minimal.
     let mut best_lam: Option<f64> = None;
     for lam in eigs {
-        if lam * delta_n > 1e-18 && best_lam.is_none_or(|prev| lam.abs() > prev.abs()) {
+        if lam * delta_n > ESCAPE_MIN_CURVATURE_GAP_PROD
+            && best_lam.is_none_or(|prev| lam.abs() > prev.abs())
+        {
             best_lam = Some(lam);
         }
     }
     let lam = best_lam?;
-    let v2d = if m01.abs() > 1e-15 * (m00.abs() + m11.abs() + disc) {
+    let v2d = if m01.abs() > ESCAPE_OFFDIAG_REL_TOL * (m00.abs() + m11.abs() + disc) {
         let vx = m01;
         let vy = lam - m00;
         let vn = vx.hypot(vy);
@@ -980,7 +1176,7 @@ fn quadratic_collinear_loop_escape(
             chart_a.eval(x_try[0], x_try[1]),
             chart_b.eval(x_try[2], x_try[3]),
         ) {
-            if norm3(sub3(ta.point, tb.point)) < 0.9 * gap {
+            if norm3(sub3(ta.point, tb.point)) < ESCAPE_ACCEPT_GAP_FRAC * gap {
                 return Some(x_try);
             }
         }
@@ -998,22 +1194,21 @@ pub(crate) fn solve_parametric_pair_newton(
     s_a: Surface,
     s_b: Surface,
 ) -> Option<ParametricPairSolution> {
-    const MAX_ITERS: usize = 56;
     let mut chart_a = LocalSurfaceChart::new(s_a, p_seed)?;
     let mut chart_b = LocalSurfaceChart::new(s_b, q_seed)?;
     let (u0, v0) = chart_a.project(p_seed.as_array())?;
     let (s0, t0) = chart_b.project(q_seed.as_array())?;
     let (tau, scale) = coincidence_floor(p_seed, q_seed, s_a, s_b);
-    let gap_machine_tol = 16.0 * f64::EPSILON * scale;
     let seed_sep = norm3(sub3(p_seed.as_array(), q_seed.as_array()));
-    let lin_cap = 2.0 * (seed_sep + scale.max(1.0));
+    let step_ref_scale = seed_sep + scale;
+    let lin_cap = LINEAR_STEP_CAP_FACTOR * step_ref_scale;
     let curv_cap = match (
         chart_a.characteristic_radius(),
         chart_b.characteristic_radius(),
     ) {
-        (Some(ra), Some(rb)) => 0.75 * ra.min(rb).max(1e-6),
-        (Some(r), None) | (None, Some(r)) => 0.75 * r.max(1e-6),
-        (None, None) => scale,
+        (Some(ra), Some(rb)) => PAIR_CURV_STEP_CAP_RAD * ra.min(rb),
+        (Some(r), None) | (None, Some(r)) => PAIR_CURV_STEP_CAP_RAD * r,
+        (None, None) => step_ref_scale,
     };
 
     let try_accept = |x_cur: [f64; 4], ea: &ChartEval, eb: &ChartEval, gap: f64| {
@@ -1039,7 +1234,7 @@ pub(crate) fn solve_parametric_pair_newton(
     };
 
     let mut x = [u0, v0, s0, t0];
-    for it in 0..=MAX_ITERS {
+    for it in 0..=PAIR_NEWTON_MAX_ITERS {
         let mut ea = chart_a.eval(x[0], x[1])?;
         let mut uv_a = (x[0], x[1]);
         if chart_a.recenter_sphere_if_needed(s_a, &mut uv_a, ea.point)? {
@@ -1056,7 +1251,7 @@ pub(crate) fn solve_parametric_pair_newton(
         }
         let d_vec = sub3(ea.point, eb.point);
         let gap = norm3(d_vec);
-        if gap <= gap_machine_tol {
+        if gap == 0.0 {
             if let Some(sol) = try_accept(x, &ea, &eb, gap) {
                 return Some(sol);
             }
@@ -1079,7 +1274,7 @@ pub(crate) fn solve_parametric_pair_newton(
             let g = row[0] * d_vec[0] + row[1] * d_vec[1] + row[2] * d_vec[2];
             grad_sq += g * g;
         }
-        if grad_sq.sqrt() <= 1e-13 * gap.max(tau) {
+        if grad_sq.sqrt() <= STATIONARY_GRAD_REL_TOL * gap.max(tau) {
             if let Some(x_esc) = quadratic_collinear_loop_escape(
                 &chart_a, &chart_b, x, &ea, &eb, d_vec, gap, curv_cap,
             ) {
@@ -1090,11 +1285,11 @@ pub(crate) fn solve_parametric_pair_newton(
         }
 
         let (u_svd, sigma, v_svd) = thin_svd::<4, 3>(a_mat);
-        if sigma[0] <= 1e-14 {
+        if sigma[0] <= SVD_ZERO_SIGMA_TOL {
             return try_accept(x, &ea, &eb, gap);
         }
         // `∇D = V Σ U^T` ⇒ minimum-norm step `Δ = -U Σ^+ V^T D`.
-        let svd_cut = 1e-14 * sigma[0];
+        let svd_cut = PAIR_SVD_REL_CUTOFF * sigma[0];
         let mut delta = [0.0; 4];
         for j in 0..3 {
             if sigma[j] <= svd_cut {
@@ -1110,13 +1305,29 @@ pub(crate) fn solve_parametric_pair_newton(
         let d_norm =
             (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2] + delta[3] * delta[3])
                 .sqrt();
-        if d_norm <= 1e-15 * scale || it == MAX_ITERS {
+        if d_norm <= STEP_NORM_REL_TOL * step_ref_scale || it == PAIR_NEWTON_MAX_ITERS {
             return try_accept(x, &ea, &eb, gap);
         }
-        let caps_a = chart_a.step_caps([x[0], x[1]], [delta[0], delta[1]], 0.75, lin_cap);
-        let caps_b = chart_b.step_caps([x[2], x[3]], [delta[2], delta[3]], 0.75, lin_cap);
+        let caps_a = chart_a.step_caps(
+            [x[0], x[1]],
+            [delta[0], delta[1]],
+            PAIR_CURV_STEP_CAP_RAD,
+            lin_cap,
+        );
+        let caps_b = chart_b.step_caps(
+            [x[2], x[3]],
+            [delta[2], delta[3]],
+            PAIR_CURV_STEP_CAP_RAD,
+            lin_cap,
+        );
         let caps = [caps_a[0], caps_a[1], caps_b[0], caps_b[1]];
-        let ratio = (0..4).fold(1.0_f64, |m, i| m.max(delta[i].abs() / caps[i]));
+        let ratio = (0..4).fold(1.0_f64, |m, i| {
+            if caps[i] > 0.0 {
+                m.max(delta[i].abs() / caps[i])
+            } else {
+                m
+            }
+        });
         if ratio > 1.0 {
             let sc = 1.0 / ratio;
             for d in &mut delta {
@@ -1126,7 +1337,7 @@ pub(crate) fn solve_parametric_pair_newton(
 
         let mut accepted = false;
         let mut alpha = 1.0;
-        for _ls in 0..10 {
+        for _ls in 0..NEWTON_LINE_SEARCH_HALVINGS {
             let x_try = [
                 x[0] + alpha * delta[0],
                 x[1] + alpha * delta[1],
@@ -1138,7 +1349,7 @@ pub(crate) fn solve_parametric_pair_newton(
                 chart_b.eval(x_try[2], x_try[3]),
             ) {
                 let try_gap = norm3(sub3(ta.point, tb.point));
-                if try_gap < gap || try_gap <= gap_machine_tol {
+                if try_gap < gap {
                     x = x_try;
                     accepted = true;
                     break;
@@ -1169,13 +1380,6 @@ pub(crate) fn solve_tangent_point_newton(
     s_b: Surface,
     max_drift: Option<f64>,
 ) -> Option<TangentSolution> {
-    // Two planes have zero curvature (`nu = nv = 0`): they either cross
-    // transversally along a line or are parallel/coplanar (§4.5.5 Stage 0),
-    // never tangent at an isolated point or grazing curve.
-    if matches!((s_a, s_b), (Surface::Plane { .. }, Surface::Plane { .. })) {
-        return None;
-    }
-
     let chart_a = LocalSurfaceChart::new(s_a, p_seed)?;
     let chart_b = LocalSurfaceChart::new(s_b, q_seed)?;
     let (u0, v0) = chart_a.project(p_seed.as_array())?;
@@ -1183,22 +1387,29 @@ pub(crate) fn solve_tangent_point_newton(
     let ea0 = chart_a.eval(u0, v0)?;
     let eb0 = chart_b.eval(s0, t0)?;
     let (tau, scale) = coincidence_floor(p_seed, q_seed, s_a, s_b);
+    let seed_sep = norm3(sub3(p_seed.as_array(), q_seed.as_array()));
+    let step_ref_scale = seed_sep + scale;
 
     let w_ang = match (
         chart_a.characteristic_radius(),
         chart_b.characteristic_radius(),
     ) {
-        (Some(ra), Some(rb)) => ra.min(rb).max(1e-6),
-        (Some(r), None) | (None, Some(r)) => r.max(1e-6),
-        (None, None) => scale,
+        (Some(ra), Some(rb)) => ra.min(rb),
+        (Some(r), None) | (None, Some(r)) => r,
+        (None, None) => {
+            if step_ref_scale > 0.0 {
+                step_ref_scale
+            } else {
+                1.0
+            }
+        }
     };
-    let seed_sep = norm3(sub3(p_seed.as_array(), q_seed.as_array()));
-    let lin_cap = 2.0 * (seed_sep + scale.max(1.0));
+    let lin_cap = LINEAR_STEP_CAP_FACTOR * step_ref_scale;
 
     let dot0 = dot3(ea0.normal, eb0.normal);
-    let signs: &[f64] = if dot0 > 0.75 {
+    let signs: &[f64] = if dot0 > TANGENT_SIGN_LOCK_COS {
         &[1.0]
-    } else if dot0 < -0.75 {
+    } else if dot0 < -TANGENT_SIGN_LOCK_COS {
         &[-1.0]
     } else if dot0 >= 0.0 {
         &[1.0, -1.0]
@@ -1218,6 +1429,7 @@ pub(crate) fn solve_tangent_point_newton(
             sigma_sign,
             w_ang,
             lin_cap,
+            step_ref_scale,
             tau,
             scale,
             max_drift,
@@ -1242,13 +1454,13 @@ fn solve_tangent_with_sign(
     sigma_sign: f64,
     w_ang: f64,
     lin_cap: f64,
+    step_ref_scale: f64,
     tau: f64,
     scale: f64,
     max_drift: Option<f64>,
 ) -> Option<TangentSolution> {
-    const MAX_ITERS: usize = 36;
-    let gap_machine_tol = 4.0 * f64::EPSILON * scale;
-    let ang_machine_tol = 8.0 * f64::EPSILON;
+    let gap_machine_tol = TANGENT_GAP_MACHINE_EPS_MULT * f64::EPSILON * scale;
+    let ang_machine_tol = TANGENT_ANG_MACHINE_EPS_MULT * f64::EPSILON;
     let try_accept = |x_cur: [f64; 4],
                       ea: &ChartEval,
                       eb: &ChartEval,
@@ -1257,7 +1469,7 @@ fn solve_tangent_with_sign(
                       gap: f64,
                       ang: f64|
      -> Option<TangentSolution> {
-        if !aligned || gap > tau || ang > cad_primitives::MIN_FEATURE_SIZE {
+        if !aligned || gap > tau || ang > TANGENT_SOLVER_MAX_ANGLE_RAD {
             return None;
         }
         let mid = scale3(add3(ea.point, eb.point), 0.5);
@@ -1289,7 +1501,8 @@ fn solve_tangent_with_sign(
     };
 
     let mut x = x_init;
-    for it in 0..=MAX_ITERS {
+    let mut reanchored = false;
+    for it in 0..=TANGENT_NEWTON_MAX_ITERS {
         let mut ea = chart_a.eval(x[0], x[1])?;
         let mut uv_a = (x[0], x[1]);
         if chart_a.recenter_sphere_if_needed(s_a, &mut uv_a, ea.point)? {
@@ -1304,6 +1517,37 @@ fn solve_tangent_with_sign(
             x[3] = uv_b.1;
             eb = chart_b.eval(x[2], x[3])?;
         }
+
+        let pre_gap = norm3(sub3(ea.point, eb.point));
+        let pre_ang = collinear_angle_rad(ea.normal, eb.normal);
+        let pre_aligned = dot3(ea.normal, scale3(eb.normal, sigma_sign)) > 0.0;
+        if !reanchored
+            && pre_aligned
+            && pre_gap <= TANGENT_REANCHOR_GAP_REL_TOL * scale.max(w_ang)
+            && pre_ang <= TANGENT_REANCHOR_ANGLE_RAD
+        {
+            let mid = scale3(add3(ea.point, eb.point), 0.5);
+            let mid_pt = Point3::new(mid[0], mid[1], mid[2]);
+            if let (Some(ca_new), Some(cb_new)) = (
+                LocalSurfaceChart::new(s_a, mid_pt),
+                LocalSurfaceChart::new(s_b, mid_pt),
+            ) {
+                if let (Some((ua, va)), Some((ub, vb))) =
+                    (ca_new.project(ea.point), cb_new.project(eb.point))
+                {
+                    if let (Some(ea_new), Some(eb_new)) = (ca_new.eval(ua, va), cb_new.eval(ub, vb))
+                    {
+                        chart_a = ca_new;
+                        chart_b = cb_new;
+                        x = [ua, va, ub, vb];
+                        ea = ea_new;
+                        eb = eb_new;
+                        reanchored = true;
+                    }
+                }
+            }
+        }
+
         let target_n = scale3(eb.normal, sigma_sign);
         let (l0v, l1v) = ortho_basis(Vector3::new(target_n[0], target_n[1], target_n[2]));
         let (l0, l1) = (l0v.as_array(), l1v.as_array());
@@ -1336,12 +1580,16 @@ fn solve_tangent_with_sign(
         ];
 
         let (u_svd, sv, v_svd) = thin_svd::<5, 4>(j_mat);
-        if sv[0] <= 1e-14 {
+        if sv[0] <= SVD_ZERO_SIGMA_TOL {
             return None;
         }
-        let rank = sv.iter().filter(|&&s| s > 1e-9 * sv[0]).count();
-        // `rank <= 2` means a 2D coincident surface (e.g. identical tori or
-        // spheres), never an isolated tangent point or 1D tangent curve.
+        let rank = sv
+            .iter()
+            .filter(|&&s| s > TANGENT_RANK_REL_TOL * sv[0])
+            .count();
+        // `rank <= 2` means a 2D coincident surface (e.g. coplanar planes,
+        // concentric spheres, or coaxial cylinders/cones/tori), never an
+        // isolated tangent point or 1D tangent curve.
         if rank <= 2 {
             return None;
         }
@@ -1349,11 +1597,9 @@ fn solve_tangent_with_sign(
         let gap = norm3(d_pos);
         let aligned = dot3(ea.normal, target_n) > 0.0;
         let ang = collinear_angle_rad(ea.normal, eb.normal);
-        // Only exit early before polishing if BOTH position and normal angle
-        // have reached IEEE-754 machine floor; otherwise let quadratic Newton
-        // polish `ang` all the way from `MIN_FEATURE_SIZE` (`1e-6`) down to
-        // machine precision!
-        if aligned && gap <= gap_machine_tol && ang <= ang_machine_tol {
+        // Only exit early before polishing after re-anchoring and once BOTH
+        // position and normal angle have reached IEEE-754 machine floor.
+        if reanchored && aligned && gap <= gap_machine_tol && ang <= ang_machine_tol {
             if let Some(sol) = try_accept(x, &ea, &eb, rank, aligned, gap, ang) {
                 return Some(sol);
             }
@@ -1376,11 +1622,11 @@ fn solve_tangent_with_sign(
             + f_vec[3] * f_vec[3]
             + f_vec[4] * f_vec[4])
             .sqrt();
-        if grad_sq.sqrt() <= 1e-13 * f_norm.max(tau) {
+        if grad_sq.sqrt() <= STATIONARY_GRAD_REL_TOL * f_norm.max(tau) {
             return try_accept(x, &ea, &eb, rank, aligned, gap, ang);
         }
 
-        let svd_cut = 1e-12 * sv[0];
+        let svd_cut = TANGENT_SVD_REL_CUTOFF * sv[0];
         let mut delta = [0.0; 4];
         for j in 0..4 {
             if sv[j] <= svd_cut {
@@ -1399,13 +1645,29 @@ fn solve_tangent_with_sign(
         let d_norm =
             (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2] + delta[3] * delta[3])
                 .sqrt();
-        if d_norm <= 1e-15 * scale || it == MAX_ITERS {
+        if d_norm <= STEP_NORM_REL_TOL * step_ref_scale || it == TANGENT_NEWTON_MAX_ITERS {
             return try_accept(x, &ea, &eb, rank, aligned, gap, ang);
         }
-        let caps_a = chart_a.step_caps([x[0], x[1]], [delta[0], delta[1]], 0.85, lin_cap);
-        let caps_b = chart_b.step_caps([x[2], x[3]], [delta[2], delta[3]], 0.85, lin_cap);
+        let caps_a = chart_a.step_caps(
+            [x[0], x[1]],
+            [delta[0], delta[1]],
+            TANGENT_CURV_STEP_CAP_RAD,
+            lin_cap,
+        );
+        let caps_b = chart_b.step_caps(
+            [x[2], x[3]],
+            [delta[2], delta[3]],
+            TANGENT_CURV_STEP_CAP_RAD,
+            lin_cap,
+        );
         let caps = [caps_a[0], caps_a[1], caps_b[0], caps_b[1]];
-        let ratio = (0..4).fold(1.0_f64, |m, i| m.max(delta[i].abs() / caps[i]));
+        let ratio = (0..4).fold(1.0_f64, |m, i| {
+            if caps[i] > 0.0 {
+                m.max(delta[i].abs() / caps[i])
+            } else {
+                m
+            }
+        });
         if ratio > 1.0 {
             let sc = 1.0 / ratio;
             for d in &mut delta {
@@ -1415,7 +1677,7 @@ fn solve_tangent_with_sign(
 
         let mut accepted = false;
         let mut alpha = 1.0;
-        for _ls in 0..10 {
+        for _ls in 0..NEWTON_LINE_SEARCH_HALVINGS {
             let x_try = [
                 x[0] + alpha * delta[0],
                 x[1] + alpha * delta[1],
@@ -1428,7 +1690,7 @@ fn solve_tangent_with_sign(
             ) {
                 if let Some(limit) = max_drift {
                     let mid_try = scale3(add3(ta.point, tb.point), 0.5);
-                    if norm3(sub3(mid_try, p_seed.as_array())) > 2.0 * limit {
+                    if norm3(sub3(mid_try, p_seed.as_array())) > LINE_SEARCH_DRIFT_SLACK * limit {
                         alpha *= 0.5;
                         continue;
                     }
@@ -1476,26 +1738,10 @@ fn solve_tangent_with_sign(
 fn classify_isolated_curvature(ea: &ChartEval, eb: &ChartEval, sigma_sign: f64) -> TangencyKind {
     let b0 = normalize3(ea.su);
     let b1 = normalize3(sub3(ea.sv, scale3(b0, dot3(ea.sv, b0))));
-    // Express `(b0, b1)` in `(su_a, sv_a)` and `(su_b, sv_b)` coordinates via
-    // `2 × 2` Gram solves so non-unit `su` away from `(0, 0)` is handled
-    // exactly.
-    let solve_in_frame = |su: V3, sv: V3, w: V3| -> [f64; 2] {
-        let g00 = dot3(su, su);
-        let g01 = dot3(su, sv);
-        let g11 = dot3(sv, sv);
-        let det = g00 * g11 - g01 * g01;
-        if det.abs() <= 1e-24 {
-            return [0.0, 0.0];
-        }
-        let r0 = dot3(su, w);
-        let r1 = dot3(sv, w);
-        [(g11 * r0 - g01 * r1) / det, (g00 * r1 - g01 * r0) / det]
-    };
-
     let mut m = [[0.0; 2]; 2];
     for (col, basis_vec) in [b0, b1].into_iter().enumerate() {
-        let ca = solve_in_frame(ea.su, ea.sv, basis_vec);
-        let cb = solve_in_frame(eb.su, eb.sv, basis_vec);
+        let ca = solve_in_tangent_frame(ea.su, ea.sv, basis_vec);
+        let cb = solve_in_tangent_frame(eb.su, eb.sv, basis_vec);
         let dna = add3(scale3(ea.nu, ca[0]), scale3(ea.nv, ca[1]));
         let dnb = add3(scale3(eb.nu, cb[0]), scale3(eb.nv, cb[1]));
         let d_rel = sub3(dna, scale3(dnb, sigma_sign));
@@ -1510,10 +1756,44 @@ fn classify_isolated_curvature(ea: &ChartEval, eb: &ChartEval, sigma_sign: f64) 
     }
 }
 
+/// Uniform chart-evaluation test for whether `s_a` and `s_b` coincide as 2D
+/// surfaces in a local neighborhood of `pt` (zero `Surface` variant branching).
+fn surfaces_coincident_2d(s_a: Surface, s_b: Surface, pt: Point3, tau: f64, scale: f64) -> bool {
+    let Some(ca) = LocalSurfaceChart::new(s_a, pt) else {
+        return false;
+    };
+    let Some(cb) = LocalSurfaceChart::new(s_b, pt) else {
+        return false;
+    };
+    let h = match (ca.characteristic_radius(), cb.characteristic_radius()) {
+        (Some(ra), Some(rb)) => COINCIDENCE_PROBE_STEP_FRAC * ra.min(rb),
+        (Some(r), None) | (None, Some(r)) => COINCIDENCE_PROBE_STEP_FRAC * r,
+        (None, None) => {
+            if scale > 0.0 {
+                COINCIDENCE_PROBE_STEP_FRAC * scale
+            } else {
+                COINCIDENCE_PROBE_STEP_FRAC
+            }
+        }
+    };
+    for (du, dv) in [(h, 0.0), (-h, 0.0), (0.0, h), (0.0, -h)] {
+        let Some(ea) = ca.eval(du, dv) else {
+            return false;
+        };
+        let Some((fb, nb)) = surface_distance_and_normal(s_b, ea.point) else {
+            return false;
+        };
+        if fb.abs() > tau || collinear_angle_rad(ea.normal, nb) > TANGENT_SOLVER_MAX_ANGLE_RAD {
+            return false;
+        }
+    }
+    true
+}
+
 /// Yang et al. 2025 §4.3.3 (`yang2025_hybrid_boolean.txt:523-540` R,
 /// `:567-573` L, `:745` R): optimize an isolated seed pair `(p_seed, q_seed)`
-/// on `(s_a, s_b)` and classify the outcome into `Tangent`, `CurvePoint`
-/// (small-loop seed), or `NoIntersection`.
+/// on `(s_a, s_b)` by surface-pair Newton first, then compare normal vectors
+/// at the converged intersection point.
 pub(crate) fn solve_and_classify_seed(
     p_seed: Point3,
     q_seed: Point3,
@@ -1521,69 +1801,62 @@ pub(crate) fn solve_and_classify_seed(
     s_b: Surface,
     max_drift: Option<f64>,
 ) -> SeedOptimizationResult {
-    // First check if a coupled tangency root exists in the seed's immediate
-    // neighborhood: at a multiplicity-2 elliptic kiss (`z = κ u² / 2`),
-    // coupled tangency Newton converges quadratically in 3-5 steps whereas
-    // uncoupled `D = 0` contracts linearly (`u_{k+1} = u_k / 2`). On a genuine
-    // non-tangent small loop (e.g. C0116, penetration 0.01), coupled tangency
-    // Newton stalls at `gap = 0.01 > tau` and returns `None`.
-    if let Some(tan_sol) = solve_tangent_point_newton(p_seed, q_seed, s_a, s_b, max_drift) {
-        // Note: on a hyperbolic saddle (`X`-junction of two 1D curves), `r` IS
-        // an exact tangent point (`∠(n_A, ±n_B) <= 10^{-6}` rad). On a closed
-        // small loop without tangency, `solve_tangent_point_newton` returns
-        // `None` because `‖s_1 - s_2‖ > tau` wherever `n_A ∥ n_B`.
-        return SeedOptimizationResult::Tangent(tan_sol);
-    }
-
-    if let Some(pair_sol) = solve_parametric_pair_newton(p_seed, q_seed, s_a, s_b) {
-        if let Some(limit) = max_drift {
-            if norm3(sub3(pair_sol.point.as_array(), p_seed.as_array())) > limit {
-                return SeedOptimizationResult::NoIntersection;
-            }
-        }
-        if pair_sol.normal_angle_rad <= cad_primitives::MIN_FEATURE_SIZE {
-            if let Some(tan_sol) =
-                solve_tangent_point_newton(pair_sol.point, pair_sol.point, s_a, s_b, max_drift)
-            {
-                return SeedOptimizationResult::Tangent(tan_sol);
-            }
-        } else {
-            return SeedOptimizationResult::CurvePoint(pair_sol);
+    let Some(pair_sol) = solve_parametric_pair_newton(p_seed, q_seed, s_a, s_b) else {
+        return SeedOptimizationResult::NoIntersection;
+    };
+    if let Some(limit) = max_drift {
+        if norm3(sub3(pair_sol.point.as_array(), p_seed.as_array())) > limit {
+            return SeedOptimizationResult::NoIntersection;
         }
     }
+    if pair_sol.normal_angle_rad > TANGENT_NORMAL_ANGLE_TOL {
+        return SeedOptimizationResult::CurvePoint(pair_sol);
+    }
 
-    SeedOptimizationResult::NoIntersection
+    let (tau, scale) = coincidence_floor(pair_sol.point, pair_sol.point, s_a, s_b);
+    if surfaces_coincident_2d(s_a, s_b, pair_sol.point, tau, scale) {
+        return SeedOptimizationResult::CoincidentSurfaces;
+    }
+
+    match solve_tangent_point_newton(pair_sol.point, pair_sol.point, s_a, s_b, max_drift) {
+        Some(tan_sol) if tan_sol.is_isolated_point() => SeedOptimizationResult::Tangent(tan_sol),
+        _ => SeedOptimizationResult::TangencySolveFailed,
+    }
 }
 
-/// Stage-4 near-tangency fallback called by
-/// [`crate::stage4_relocate::relocate_onto_implicit_pair`] when §4.3.2's
-/// geometric two-plane iteration hits parallel or near-parallel surface
+/// §4.3.3 collinear-normal tangency polish called by
+/// [`crate::stage4_relocate::relocate_onto_implicit_pair`] exclusively when
+/// §4.3.2's normal-vector comparison detects parallel or near-parallel surface
 /// normals (`sin θ <= MIN_FEATURE_SIZE`, `yang2025_hybrid_boolean.txt:489-492`,
-/// `:501-505` R).
+/// `:501-505` R, `:536-569`).
 ///
 /// Accepts **only** isolated 0D tangent points (`rank(J_tan) == 4`, i.e.
 /// [`TangencyKind::IsolatedKiss`] or [`TangencyKind::IsolatedSaddle`]) within a
-/// local curvature neighborhood of `seed`, so 2D coincident surfaces (`t == t`,
-/// `rank == 2`) and 1D tangent rims/generators (`rank == 3`) continue to return
-/// `None`.
+/// strictly scale-relative curvature neighborhood (`0.25 · r_min`) of `seed`,
+/// so 2D coincident surfaces (`rank <= 2`) and 1D tangent rims/generators
+/// (`rank == 3`) continue to return `None`.
 pub(crate) fn solve_isolated_tangent_point_near(
+    iterate: Point3,
     seed: Point3,
     s0: Surface,
     s1: Surface,
     residual_floor: f64,
 ) -> Option<Point3> {
-    let c0 = LocalSurfaceChart::new(s0, seed)?;
-    let c1 = LocalSurfaceChart::new(s1, seed)?;
+    let c0 = LocalSurfaceChart::new(s0, iterate)?;
+    let c1 = LocalSurfaceChart::new(s1, iterate)?;
     let max_drift = match (c0.characteristic_radius(), c1.characteristic_radius()) {
-        (Some(r0), Some(r1)) => 0.25 * r0.min(r1).max(1e-3),
-        (Some(r), None) | (None, Some(r)) => 0.25 * r.max(1e-3),
+        (Some(r0), Some(r1)) => ISOLATED_TANGENT_DRIFT_RADIUS_FRAC * r0.min(r1),
+        (Some(r), None) | (None, Some(r)) => ISOLATED_TANGENT_DRIFT_RADIUS_FRAC * r,
         (None, None) => return None,
     };
-    let sol = solve_tangent_point_newton(seed, seed, s0, s1, Some(max_drift))?;
+    let sol = solve_tangent_point_newton(iterate, iterate, s0, s1, Some(max_drift))?;
     if !sol.is_isolated_point() {
         return None;
     }
     let qa = sol.point.as_array();
+    if norm3(sub3(qa, seed.as_array())) > max_drift {
+        return None;
+    }
     let (f0, _) = surface_distance_and_normal(s0, qa)?;
     let (f1, _) = surface_distance_and_normal(s1, qa)?;
     if f0.abs() > residual_floor || f1.abs() > residual_floor {
@@ -1610,7 +1883,7 @@ pub(crate) fn solve_isolated_tangent_point_near(
 /// `:518-540` R).
 ///
 /// Keyed by `(face_idx_a, face_idx_b)` with deterministic deduplicated
-/// `Point3` vectors. Uses zero surface-type-pair closed forms.
+/// `Point3` vectors. Uses zero surface-type-pair closed forms or pre-skips.
 pub(crate) fn discover_operand_pair_tangent_points_newton(
     a: &BRep,
     b: &BRep,
@@ -1632,7 +1905,8 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
         .chain(set_b.hi.iter())
         .flat_map(|v| v.iter())
         .fold(0.0_f64, |m, &c| m.max(c.abs()));
-    let band = 2.0 * cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
+    let band =
+        PROXIMITY_BAND_FACTOR * cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
     let max_dev_b = set_b.dev.iter().copied().fold(0.0_f64, f64::max);
     let bvh_b = Bvh::new(&set_b);
 
@@ -1650,12 +1924,6 @@ pub(crate) fn discover_operand_pair_tangent_points_newton(
             let tb_idx = tb_idx_u32 as usize;
             let fb = tri_face_b[tb_idx];
             let surf_b = set_b.surf[tb_idx];
-            if matches!(
-                (surf_a, surf_b),
-                (Surface::Plane { .. }, Surface::Plane { .. })
-            ) {
-                return;
-            }
             let reach = set_a.dev[ta_idx] + set_b.dev[tb_idx] + band;
             if (0..3).any(|k| {
                 set_b.lo[tb_idx][k] > set_a.hi[ta_idx][k] + reach

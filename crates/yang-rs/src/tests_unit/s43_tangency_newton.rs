@@ -3,6 +3,7 @@
 //! spec `specs/yang_43_tangency_newton.md`, roadmap F4 / N91).
 
 use super::*;
+use crate::boolean::cyl_cyl_tangent_points;
 use crate::shell_contact::closest_on_triangle;
 use crate::signed_distance_to_surface;
 use crate::stage4_relocate::relocate_onto_implicit_pair;
@@ -10,9 +11,9 @@ use crate::stage4_small_loop::{
     discover_small_loop_candidate_areas, is_redundant_with_solved_curves,
 };
 use crate::stage4_tangency::{
-    add3, discover_operand_pair_tangent_points_newton, norm3, scale3, solve_and_classify_seed,
-    solve_parametric_pair_newton, solve_tangent_point_newton, sub3, LocalSurfaceChart,
-    SeedOptimizationResult, TangencyKind,
+    add3, cross3, discover_operand_pair_tangent_points_newton, dot3, norm3, scale3,
+    solve_and_classify_seed, solve_parametric_pair_newton, solve_tangent_point_newton, sub3,
+    LocalSurfaceChart, SeedOptimizationResult, TangencyKind, TANGENT_NORMAL_ANGLE_TOL,
 };
 
 fn dist3(a: Point3, b: Point3) -> f64 {
@@ -491,7 +492,7 @@ fn s43_seed_classifier_distinguishes_small_loop_from_tangency_on_c0116() {
         SeedOptimizationResult::CurvePoint(sol) => {
             assert!(sol.surface_gap <= 1e-12);
             assert!(
-                sol.normal_angle_rad > cad_primitives::MIN_FEATURE_SIZE,
+                sol.normal_angle_rad > TANGENT_NORMAL_ANGLE_TOL,
                 "expected transversal loop normal angle > 1e-6, got {:.3e}",
                 sol.normal_angle_rad
             );
@@ -706,4 +707,285 @@ fn s43_curve_redundancy_removes_point_on_solved_curve_and_keeps_disjoint_loop() 
         &[],
         dp,
     ));
+}
+
+/// Pin 7 (B1): `relocate_onto_implicit_pair` delegates ONLY when `det <= rank_eps`
+/// within the scale-relative `0.25 · r_min` trust region around `p` (down to
+/// microscopic radii with zero absolute `1e-3` floor), and returns `None` loudly
+/// when two-plane Newton diverges/oscillates without hitting `det <= rank_eps`
+/// (even if a tangent point sits within `0.25 · r_min`).
+#[test]
+fn s43_relocate_non_convergence_stays_loud_none_and_drift_is_scale_relative() {
+    // (a) Separated sphere (`z_center = 1 + 1e-4`, `R = 1`) and plane `z = 0`:
+    // off-axis seed `(0.15, 0.0, 0.0)` has non-collinear normals (`sin θ = 0.15`)
+    // throughout 16 two-plane Newton steps while oscillating across the gap
+    // without converging. Even if we compare against a tangent sphere–plane pair
+    // where a seed starts outside `0.25 * R` or oscillates, non-convergence MUST
+    // return `None`.
+    let sph_sep = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, 1.0001),
+        radius: 1.0,
+    };
+    let pln = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    assert!(relocate_onto_implicit_pair(Point3::new(0.15, 0.0, 0.0), sph_sep, pln).is_none());
+
+    // Torus (`R = 0.60, r = 0.55`) and Cylinder (`axis = Y` through `(-0.55, 0, 0)`,
+    // `r_c = 0.50`, so `r_min = 0.50` and `0.25 * r_min = 0.125`) kiss at the
+    // single isolated 0D point `(-0.05, 0, 0)` (`solve_isolated_tangent_point_near`
+    // converges there when seeded near `(-0.05, 0, 0)`). Starting on the opposite
+    // inner wall `p = (0.05, 0.0, 0.03)` (`dist(p, (-0.05, 0, 0)) = 0.1044 < 0.125`),
+    // two-plane Newton bounces across the inner hole without converging in 32
+    // steps. With B1(a)'s post-loop retry removed, non-convergence stays loud `None`.
+    let tor_kiss = Surface::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        major_radius: 0.60,
+        minor_radius: 0.55,
+    };
+    let cyl_kiss = Surface::Cylinder {
+        axis_point: Point3::new(-0.55, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 1.0, 0.0),
+        radius: 0.50,
+    };
+    let near_kiss = relocate_onto_implicit_pair(Point3::new(-0.05, 0.0, 1e-8), tor_kiss, cyl_kiss)
+        .expect("collinear-normal seed at (-0.05, 0, 1e-8) delegates to 0D tangency Newton");
+    assert!(dist3(near_kiss, Point3::new(-0.05, 0.0, 0.0)) < 1e-14);
+    assert!(
+        relocate_onto_implicit_pair(Point3::new(0.05, 0.0, 0.03), tor_kiss, cyl_kiss).is_none(),
+        "post-loop non-convergence must stay loud None even inside 0.25*r_min"
+    );
+
+    // (b) Scale-relative drift bound (`0.25 * r_min`, no `.max(1e-3)` floor):
+    // on a `R = 1e-4` sphere kissing `z = 0` at `(0, 0, 0)`, a collinear-normal
+    // seed at `(0, 0, -5e-4)` (`5 * R > 0.25 * R`, though `< 1e-3`) MUST be
+    // rejected (`None`), whereas `(5e-11, 0, 0)` (`<< 0.25 * R` and `sin θ < 1e-6`)
+    // resolves cleanly to `(0, 0, 0)`.
+    let micro_r = 1e-4;
+    let sph_micro = Surface::Sphere {
+        center: Point3::new(0.0, 0.0, micro_r),
+        radius: micro_r,
+    };
+    assert!(
+        relocate_onto_implicit_pair(Point3::new(0.0, 0.0, -5.0 * micro_r), sph_micro, pln)
+            .is_none(),
+        "seed 5*R away on R=1e-4 sphere must not pass via an absolute 1e-3 floor"
+    );
+    let resolved_micro = relocate_onto_implicit_pair(Point3::new(5e-11, 0.0, 0.0), sph_micro, pln)
+        .expect("near-kiss collinear seed within 0.25*R resolves");
+    assert!(dist3(resolved_micro, Point3::new(0.0, 0.0, 0.0)) < 1e-15);
+}
+
+/// Pin 8 (S2 & S4): `solve_and_classify_seed` runs surface-pair optimization
+/// FIRST and compares normals SECOND (§4.3 `:536-569`), returning
+/// `TangencySolveFailed` (never `NoIntersection`) when normals are collinear on
+/// a 1D tangent locus or near-coplanar crossing, `CoincidentSurfaces` on 2D
+/// identical surfaces, and handling `(Plane, Plane)` without surface-type pre-skips.
+#[test]
+fn s43_classify_seed_pair_first_loud_on_collinear_failure_and_plane_pairs() {
+    // 1D parallel tangent cylinders (`x^2 + y^2 = 1` and `(x - 2)^2 + y^2 = 1`
+    // kissing along the generator `(1, 0, z)`): pair Newton converges to `(1, 0, z)`
+    // with collinear normals, 2D coincidence is false, and 0D tangency Newton
+    // sees `TangencyKind::TangentCurve` (`rank == 3`), yielding `TangencySolveFailed`.
+    let cyl_a = Surface::Cylinder {
+        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let cyl_b = Surface::Cylinder {
+        axis_point: Point3::new(2.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let res_gen = solve_and_classify_seed(
+        Point3::new(0.99, 0.14, 0.5),
+        Point3::new(1.01, 0.14, 0.5),
+        cyl_a,
+        cyl_b,
+        None,
+    );
+    assert!(
+        matches!(res_gen, SeedOptimizationResult::TangencySolveFailed),
+        "1D parallel cylinder generator must return TangencySolveFailed, got {res_gen:?}"
+    );
+
+    // Two planes crossing at `5e-7` rad (`<= 1e-6` rad): pair Newton converges
+    // onto the intersection line with collinear-grade normals, 2D coincidence
+    // is false, and 0D tangency Newton returns `None` -> `TangencySolveFailed`.
+    let pln_z = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    let tilt = 5e-7_f64;
+    let pln_tilt = Surface::Plane {
+        normal: Vector3::new(-tilt.sin(), 0.0, tilt.cos()),
+        d: 0.0,
+    };
+    assert!(solve_tangent_point_newton(
+        Point3::new(0.2, 0.3, 0.0),
+        Point3::new(0.2, 0.3, 1e-7),
+        pln_z,
+        pln_tilt,
+        None,
+    )
+    .is_none());
+    let res_tilt = solve_and_classify_seed(
+        Point3::new(0.2, 0.3, 0.0),
+        Point3::new(0.2, 0.3, 1e-7),
+        pln_z,
+        pln_tilt,
+        None,
+    );
+    assert!(
+        matches!(res_tilt, SeedOptimizationResult::TangencySolveFailed),
+        "sub-1e-6 rad plane wedge must return TangencySolveFailed, got {res_tilt:?}"
+    );
+
+    // Coplanar planes -> `CoincidentSurfaces` (and `solve_tangent_point_newton` -> `None` via `rank == 2`).
+    let pln_anti = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 0.0,
+    };
+    assert!(solve_tangent_point_newton(
+        Point3::new(0.1, -0.2, 0.0),
+        Point3::new(0.1, -0.2, 0.0),
+        pln_z,
+        pln_anti,
+        None,
+    )
+    .is_none());
+    assert!(matches!(
+        solve_and_classify_seed(
+            Point3::new(0.1, -0.2, 0.0),
+            Point3::new(0.1, -0.2, 0.0),
+            pln_z,
+            pln_anti,
+            None,
+        ),
+        SeedOptimizationResult::CoincidentSurfaces
+    ));
+
+    // Separated parallel planes -> `NoIntersection`.
+    let pln_sep = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -1e-4,
+    };
+    assert!(matches!(
+        solve_and_classify_seed(
+            Point3::new(0.1, -0.2, 0.0),
+            Point3::new(0.1, -0.2, 1e-4),
+            pln_z,
+            pln_sep,
+            None,
+        ),
+        SeedOptimizationResult::NoIntersection
+    ));
+}
+
+/// Pin 9 (S6): deterministic sweep property test across cylinder pairs (equal-radius
+/// Steinmetz crossings at 6 angles, unequal-radius internal kisses `±(R_A - R_B)`,
+/// unequal-radius external kisses `±(R_A + R_B)`, rotated 3D frames, off-origin
+/// translations, and separated/unequal crossing non-tangent pairs) verifying
+/// that mesh-seeded `discover_operand_pair_tangent_points_newton` discovers
+/// EVERY closed-form tangent point reported by the `cyl_cyl_tangent_points` oracle.
+#[test]
+fn s43_newton_discovers_every_closed_form_cyl_cyl_tangent_point_across_sweep() {
+    let frames: [([f64; 3], [f64; 3]); 3] = [
+        ([0.0, 0.0, 1.0], [1.0, 0.0, 0.0]),
+        (normalize3([0.3, -0.5, 1.0]), normalize3([1.0, 0.6, 0.0])),
+        (normalize3([-0.7, 0.4, 0.5]), normalize3([0.4, 0.7, 0.0])),
+    ];
+    let origins: [[f64; 3]; 2] = [[0.0, 0.0, 0.0], [3.2, -1.7, 4.5]];
+    let angles_deg: [f64; 5] = [20.0, 35.0, 55.0, 75.0, 90.0];
+
+    let mut total_cases = 0usize;
+    let mut total_tangent_pts = 0usize;
+
+    for &(u_raw, perp_hint) in &frames {
+        let u = normalize3(u_raw);
+        let e1 = normalize3(sub3(perp_hint, scale3(u, dot3(perp_hint, u))));
+        let e2 = cross3(u, e1);
+
+        for &orig in &origins {
+            for &deg in &angles_deg {
+                let beta = deg.to_radians();
+                // `v` lies in `span(u, e1)` at angle `beta` from `u`, so the
+                // common perpendicular is `±e2`.
+                let v = add3(scale3(u, beta.cos()), scale3(e1, beta.sin()));
+                let span = 2.6;
+
+                let configs: [(f64, f64, f64); 6] = [
+                    // 1. Equal-radius Steinmetz crossing (2 saddle tangency points).
+                    (0.35, 0.35, 0.0),
+                    // 2. Internal kiss B inside A (`delta = R_A - R_B`, 1 saddle point).
+                    (0.45, 0.25, 0.45 - 0.25),
+                    // 3. Internal kiss opposite side (`delta = -(R_A - R_B)`, 1 saddle point).
+                    (0.45, 0.25, -(0.45 - 0.25)),
+                    // 4. External kiss (`delta = R_A + R_B`, 1 kiss point).
+                    (0.30, 0.20, 0.30 + 0.20),
+                    // 5. Unequal radii with intersecting axes (`delta = 0`, 0 tangent points).
+                    (0.45, 0.25, 0.0),
+                    // 6. Separated near-miss (`delta = R_A + R_B + 5e-5`, 0 tangent points).
+                    (0.30, 0.20, 0.30 + 0.20 + 5e-5),
+                ];
+
+                for &(ra, rb, delta) in &configs {
+                    total_cases += 1;
+                    // Shift `ap_b` along `u`, `v`, and `delta * e2` so axial feet
+                    // stay well inside `[-span, +span]` on both tubes.
+                    let ap_a = orig;
+                    let ap_b = add3(
+                        add3(orig, scale3(u, 0.15)),
+                        add3(scale3(v, -0.10), scale3(e2, delta)),
+                    );
+
+                    let oracle = cyl_cyl_tangent_points(
+                        (
+                            Point3::new(ap_a[0], ap_a[1], ap_a[2]),
+                            Vector3::new(u[0], u[1], u[2]),
+                            ra,
+                        ),
+                        (
+                            Point3::new(ap_b[0], ap_b[1], ap_b[2]),
+                            Vector3::new(v[0], v[1], v[2]),
+                            rb,
+                        ),
+                    )
+                    .expect("non-parallel axes in sweep");
+
+                    let brep_a = tube_brep(ap_a, u, ra, -span, span);
+                    let brep_b = tube_brep(ap_b, v, rb, -span, span);
+                    let discovered_map =
+                        discover_operand_pair_tangent_points_newton(&brep_a, &brep_b);
+                    let discovered: Vec<Point3> = discovered_map
+                        .get(&(0, 0))
+                        .map(|v| v.iter().map(|s| s.point).collect())
+                        .unwrap_or_default();
+
+                    assert_eq!(
+                        discovered.len(),
+                        oracle.len(),
+                        "count mismatch at deg={deg}, ra={ra}, rb={rb}, delta={delta}: \
+                         discovered={discovered:?} vs oracle={oracle:?}"
+                    );
+                    for &exp in &oracle {
+                        total_tangent_pts += 1;
+                        let best_err = discovered
+                            .iter()
+                            .map(|&got| dist3(got, exp))
+                            .fold(f64::INFINITY, f64::min);
+                        assert!(
+                            best_err < 1e-13,
+                            "missed oracle tangent point {exp:?} (min err {best_err:e}) \
+                             at deg={deg}, ra={ra}, rb={rb}, delta={delta}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(total_cases, 180);
+    assert_eq!(total_tangent_pts, 150);
 }

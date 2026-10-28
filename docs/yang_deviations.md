@@ -7018,6 +7018,83 @@ non-cylinder 0D tangent mesh insertion (`N82`, milestone F2/F1), post-collapse
 single-survivor census on mesh-crossing chains (`N81`, milestone F3), open
 boundary-clipped sub-band grazes (`N89` item 2), and external 0D solid kiss
 non-manifold policy (`C0107`–`C0109`).
+
+**Amendment (2026-10-27, review fixes B1, S2, S4, S5, S6, S7, S8 — tangency &
+Gauss-map hardening).**
+1. **B1 (`stage4_relocate.rs:318-442`, `stage4_tangency.rs:1839-1878`):**
+   Removed the post-loop non-convergence retry in `relocate_onto_implicit_pair`
+   so `MAX_ITERS` exhaustion returns loud `None` (`pair_newton_max_iter`,
+   `:435-441`). Kept the `det <= rank_eps` (`:400`) delegation to
+   `solve_isolated_tangent_point_near` strictly as §4.3.3's normal-comparison
+   handoff (`yang2025_hybrid_boolean.txt:536-540` R, `:567-569` L) when
+   `sin²θ <= MIN_FEATURE_SIZE² = 10^{-12}` (`sin θ <= 10^{-6}` rad, `:745` R),
+   bounded by the scale-relative trust-region radius
+   `ISOLATED_TANGENT_DRIFT_RADIUS_FRAC * min(r_A, r_B)` (`0.25 · r_min`, zero
+   absolute floor; checked against both iterate `x` and seed `p`).
+2. **S2 (`stage4_tangency.rs:1798-1836`):** Reordered `solve_and_classify_seed`
+   to the paper's §4.3.3 order (`:536-573`): `solve_parametric_pair_newton`
+   (`:1191`) runs FIRST (early-exiting only on exact `gap == 0.0`, accepting
+   line-search steps only on strict decrease `try_gap < gap`), THEN surface
+   normals are compared against `TANGENT_NORMAL_ANGLE_TOL = 1e-6` rad (`:38`,
+   `:745` R). Non-collinear normals (`> 10^{-6}` rad) return `CurvePoint`;
+   collinear normals test 2D coincidence via chart perturbation
+   `surfaces_coincident_2d` (`CoincidentSurfaces`) and run
+   `solve_tangent_point_newton` (`:1376`), returning `Tangent` on isolated 0D
+   roots (`rank == 4`) and a loud `TangencySolveFailed` (never
+   `NoIntersection`) if collinear normals fail 0D tangency Newton or hit a 1D
+   `TangentCurve`.
+3. **S4 / S5 / S6 / S7:** Removed `(Surface::Plane, Surface::Plane)` pre-skips
+   from `solve_tangent_point_newton` and
+   `discover_operand_pair_tangent_points_newton`; reverted the unrelated
+   `ssi_rs::intersect` cache from `stage3_ssi.rs`; restored `#[cfg(test)]
+   cyl_cyl_tangent_points` (`boolean/tangency.rs:61`) strictly as a test-only
+   oracle and pinned mesh-seeded Newton discovery across a 180-case /
+   150-tangent-point sweep (`s43_newton_discovers_every_closed_form_cyl_cyl_tangent_point_across_sweep`,
+   `tests_unit/s43_tangency_newton.rs:894`); reverted all `s433_*` pin
+   tolerances in `tests_unit/s433_tangent_relocation.rs` back to `1e-15` via
+   one-time near-convergence chart re-anchoring in `solve_tangent_with_sign`.
+4. **S8 — Non-paper constants in `gauss_map.rs` and `stage4_tangency.rs`
+   (all length/area floors removed; every geometric bound is scale-relative):**
+   - `gauss_map.rs:30-76`: `MAX_GAUSS_REGIONS = 4` (fixed stack region budget
+     covering azimuth `> π` × torus equator splits without merging loss);
+     `FP_ANGLE_GUARD = 64·ε_mach` and `CONE_APEX_REL_TOL = 64·ε_mach`
+     (IEEE-754 trig/basis rounding guards preventing false negatives on
+     boundary-tangent Gauss maps); `CAP_MERGE_TANGENT_MIN_NORM = 1e-12`,
+     `SINGULAR_LOCUS_REL_TOL = 1e-12`, `SPHERE_LAT_POLE_GUARD = 1e-12`,
+     `FULL_REV_ANGLE_GUARD = 1e-12`, `TORUS_BAND_ANGLE_EPS = 1e-15`,
+     `SPHERE_HEMISPHERE_MIN_DOT = 1e-12`, `MAX_ORIGIN_FP_PAD = 1e-4`,
+     `DEGEN_TRI_CROSS_REL_TOL2 = 1e-28` (dimensionless/angular guards on `S²`
+     cap merging, coordinate-singularity widening, full-revolution clamping,
+     and collinear-triangle projection).
+   - `stage4_tangency.rs:47-186` (beyond paper-named
+     `TANGENT_NORMAL_ANGLE_TOL = 1e-6` `:38` and `PROXIMITY_BAND_FACTOR = 2.0`
+     `:42`): local-chart domain & singularity guards
+     `CHART_SINGULAR_REL_TOL = 1e-12`, `CHART_PROJECT_AXIS_REL_TOL = 1e-15`,
+     `CONE_PROJECT_NAPPE_REL_TOL = 1e-9`, `CHART_MAX_NON_WRAPPING_ARC_RAD = 2.2`
+     (`< π` seam guard), `CONE_APEX_STEP_FRAC = 0.75` (keeps `s_0 + v > 0`),
+     `SPHERE_RECENTER_LAT_RAD = 0.8` & `SPHERE_MAX_CHART_LAT_RAD = 1.48`
+     (`< π/2` pole-free sphere chart); Jacobi SVD & Gram cutoffs
+     `SVD_MAX_SWEEPS = 20`, `SVD_OFFDIAG_REL_TOL = 1e-15`,
+     `GRAM_DET_REL_TOL = 1e-24`, `SVD_ZERO_SIGMA_TOL = 1e-14`,
+     `PAIR_SVD_REL_CUTOFF = 1e-14`, `TANGENT_SVD_REL_CUTOFF = 1e-12`,
+     `TANGENT_RANK_REL_TOL = 1e-9` (`rank == 4` vs `3` vs `<= 2`); damped
+     Newton budgets & step caps `PAIR_NEWTON_MAX_ITERS = 56`,
+     `TANGENT_NEWTON_MAX_ITERS = 36`, `NEWTON_LINE_SEARCH_HALVINGS = 10`,
+     `PAIR_CURV_STEP_CAP_RAD = 0.75`, `TANGENT_CURV_STEP_CAP_RAD = 0.85`,
+     `LINEAR_STEP_CAP_FACTOR = 2.0`, `LINE_SEARCH_DRIFT_SLACK = 2.0`,
+     `STATIONARY_GRAD_REL_TOL = 1e-13`, `STEP_NORM_REL_TOL = 1e-15`,
+     `PAIR_GAP_MACHINE_EPS_MULT = 16.0`, `TANGENT_GAP_MACHINE_EPS_MULT = 4.0`,
+     `TANGENT_ANG_MACHINE_EPS_MULT = 8.0`, `TANGENT_SIGN_LOCK_COS = 0.75`,
+     `TANGENT_SOLVER_MAX_ANGLE_RAD = 1e-9`,
+     `TANGENT_REANCHOR_GAP_REL_TOL = 1e-6` &
+     `TANGENT_REANCHOR_ANGLE_RAD = 1e-4`; Sederberg collinear-normal quadratic
+     interpenetration escape `ESCAPE_MAX_COLLINEAR_ANGLE_RAD = 1e-4`,
+     `ESCAPE_MIN_NORMAL_GAP_FRAC = 1e-12`,
+     `ESCAPE_MIN_CURVATURE_GAP_PROD = 1e-18`,
+     `ESCAPE_OFFDIAG_REL_TOL = 1e-15`, `ESCAPE_ACCEPT_GAP_FRAC = 0.9`; 2D
+     coincidence chart probe `COINCIDENCE_PROBE_STEP_FRAC = 0.05`; and
+     scale-relative relocation trust region
+     `ISOLATED_TANGENT_DRIFT_RADIUS_FRAC = 0.25`.
 **State: OPEN.**
 
 ### N92 — The §4.2.2 Gauss-map overlap filter is not built (matrix M-4)

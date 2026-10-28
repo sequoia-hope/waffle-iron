@@ -348,12 +348,12 @@ pub(crate) fn s433_equal_radius_crossing_axes_give_two_tangent_points() {
     let pts = discover_cyl_tube_tangent_points(a, b);
     assert_eq!(pts.len(), 2, "got {pts:?}");
     for p in &pts {
-        assert!(p.x().abs() < 1e-14 && (p.z() - 1.0).abs() < 1e-14, "{p:?}");
+        assert!(p.x().abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15, "{p:?}");
     }
     let mut ys: Vec<f64> = pts.iter().map(Point3::y).collect();
     ys.sort_by(f64::total_cmp);
     assert!(
-        (ys[0] + R).abs() < 1e-14 && (ys[1] - R).abs() < 1e-14,
+        (ys[0] + R).abs() < 1e-15 && (ys[1] - R).abs() < 1e-15,
         "{ys:?}"
     );
 }
@@ -368,7 +368,7 @@ pub(crate) fn s433_perpendicular_equal_radius_gives_two_tangent_points() {
     assert_eq!(pts.len(), 2, "got {pts:?}");
     for p in &pts {
         assert!(
-            p.x().abs() < 1e-14 && p.z().abs() < 1e-14 && (p.y().abs() - 0.2).abs() < 1e-14,
+            p.x().abs() < 1e-15 && p.z().abs() < 1e-15 && (p.y().abs() - 0.2).abs() < 1e-15,
             "{p:?}"
         );
     }
@@ -398,7 +398,7 @@ pub(crate) fn s433_offset_axes_touch_when_offset_equals_the_radius_difference() 
     assert_eq!(pts.len(), 1, "got {pts:?}");
     let p = pts[0];
     assert!(
-        p.x().abs() < 1e-14 && (p.y() - ra).abs() < 1e-14 && (p.z() - 1.0).abs() < 1e-14,
+        p.x().abs() < 1e-15 && (p.y() - ra).abs() < 1e-15 && (p.z() - 1.0).abs() < 1e-15,
         "{p:?}"
     );
 }

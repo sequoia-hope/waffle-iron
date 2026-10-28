@@ -35,6 +35,46 @@ pub const MAX_GAUSS_REGIONS: usize = 4;
 /// This is a pure floating-point rounding bound, never a geometric tolerance.
 const FP_ANGLE_GUARD: f64 = 64.0 * f64::EPSILON;
 
+/// Minimum norm of the orthogonalized unit-cap tangent direction `u = d_B - (d_A · d_B) d_A`
+/// (`sin γ`) before falling back to an arbitrary orthogonal axis on nearly
+/// antipodal caps (`GaussRegion::merge`).
+const CAP_MERGE_TANGENT_MIN_NORM: f64 = 1e-12;
+
+/// Dimensionless relative distance threshold (`ρ_min / scale` or `d_origin / scale`)
+/// below which a triangle approaches a surface's coordinate singularity (axis,
+/// apex, center, or torus tube spine) and conservatively widens to the full
+/// revolution/polar normal set.
+const SINGULAR_LOCUS_REL_TOL: f64 = 1e-12;
+
+/// Dimensionless relative tolerance (`64 · ε_mach`) for detecting whether a
+/// cone `v`-interval `[v0, v1]` touches or straddles the cone apex `v = 0`
+/// relative to `max(|v0|, |v1|, ‖apex‖)`.
+const CONE_APEX_REL_TOL: f64 = 64.0 * f64::EPSILON;
+
+/// Angular guard (radians) beyond `±π/2` on sphere latitude intervals in
+/// `GaussMap::from_uv_rect`.
+const SPHERE_LAT_POLE_GUARD: f64 = 1e-12;
+
+/// Angular guard (radians) below `2π` treating an azimuth/tube span `Δu ≥ 2π - ε`
+/// as a full revolution.
+const FULL_REV_ANGLE_GUARD: f64 = 1e-12;
+
+/// Angular width threshold (radians) on `[0, 4π]` distinguishing zero-measure
+/// band-boundary touches from active torus `v`-sub-bands.
+const TORUS_BAND_ANGLE_EPS: f64 = 1e-15;
+
+/// Minimum strict positive inner-product (`cos θ > 1e-12`) certifying that all
+/// three vertices of a spherical triangle lie inside an open hemisphere on `S²`.
+const SPHERE_HEMISPHERE_MIN_DOT: f64 = 1e-12;
+
+/// Upper cap (radians) on condition-scaled origin-subtraction angular padding
+/// (`fp_pad_for_origin`).
+const MAX_ORIGIN_FP_PAD: f64 = 1e-4;
+
+/// Dimensionless squared-sine threshold (`‖ab × ac‖² / max(‖ab‖², ‖ac‖²)²`)
+/// detecting collinear 3D triangles in `origin_to_triangle_3d_distance`.
+const DEGEN_TRI_CROSS_REL_TOL2: f64 = 1e-28;
+
 /// One elementary closed subset of `S²`: the intersection of a spherical cap
 /// (circular half-cone) `C(cap_axis, cap_half_angle)` and an axial polar-angle
 /// zone `Z(zone_axis, zone_min, zone_max)`:
@@ -153,7 +193,7 @@ impl GaussRegion {
                         other.cap_axis[2] - dot * self.cap_axis[2],
                     ];
                     let u_len = norm3(u);
-                    let tangent = if u_len > 1e-12 {
+                    let tangent = if u_len > CAP_MERGE_TANGENT_MIN_NORM {
                         [u[0] / u_len, u[1] / u_len, u[2] / u_len]
                     } else {
                         let (e1, _) = ortho_basis(Vector3::new(
@@ -421,9 +461,10 @@ impl GaussMap {
                     return Self::FULL;
                 };
                 let (e1, e2) = basis_arrays(*axis_dir);
-                let v_scale = (v0.abs().max(v1.abs()) * half_angle.tan()).max(1e-6);
+                let v_abs_max = v0.abs().max(v1.abs());
+                let v_scale = v_abs_max * half_angle.tan();
                 let pad = fp_pad_for_origin(apex.as_array(), v_scale);
-                let apex_tol = 1e-15;
+                let apex_tol = CONE_APEX_REL_TOL * v_abs_max.max(norm3(apex.as_array()));
                 if v0 < -apex_tol && v1 > apex_tol {
                     Self::FULL
                 } else if v1 >= 0.0 && v0 <= apex_tol {
@@ -440,7 +481,8 @@ impl GaussMap {
                 if !radius.is_finite() || *radius <= 0.0 || !point_is_finite(center.as_array()) {
                     return Self::FULL;
                 }
-                if v0 < -FRAC_PI_2 - 1e-12 || v1 > FRAC_PI_2 + 1e-12 {
+                if v0 < -FRAC_PI_2 - SPHERE_LAT_POLE_GUARD || v1 > FRAC_PI_2 + SPHERE_LAT_POLE_GUARD
+                {
                     return Self::FULL;
                 }
                 let vc0 = v0.clamp(-FRAC_PI_2, FRAC_PI_2);
@@ -502,8 +544,8 @@ impl GaussMap {
                     pts2[k] = [dot3(w, e1), dot3(w, e2)];
                 }
                 let (rho_min, rho_max, closest) = triangle_2d_origin_metrics(pts2);
-                let scale = radius.max(rho_max).max(1e-15);
-                if rho_min <= 1e-12 * scale {
+                let scale = radius.max(rho_max);
+                if rho_min <= SINGULAR_LOCUS_REL_TOL * scale {
                     let pad = fp_pad_for_origin(ap, *radius);
                     return cylinder_from_u_range(e1, e2, axis, [-PI, PI], pad);
                 }
@@ -537,8 +579,11 @@ impl GaussMap {
                     h[k] = dot3(w, axis);
                     pts2[k] = [dot3(w, e1), dot3(w, e2)];
                 }
-                let scale = max_dist.max(1e-15);
-                let tol = 1e-12 * scale;
+                if max_dist <= 0.0 {
+                    return Self::FULL;
+                }
+                let scale = max_dist;
+                let tol = SINGULAR_LOCUS_REL_TOL * scale;
                 let h_min = h[0].min(h[1]).min(h[2]);
                 let h_max = h[0].max(h[1]).max(h[2]);
                 if h_min < -tol && h_max > tol {
@@ -580,9 +625,8 @@ impl GaussMap {
                 let scale = radius
                     .max(norm3(rel[0]))
                     .max(norm3(rel[1]))
-                    .max(norm3(rel[2]))
-                    .max(1e-15);
-                if d_origin <= 1e-12 * scale {
+                    .max(norm3(rel[2]));
+                if d_origin <= SINGULAR_LOCUS_REL_TOL * scale {
                     return Self::FULL;
                 }
                 let (Some(n0), Some(n1), Some(n2)) =
@@ -620,7 +664,7 @@ impl GaussMap {
                     tau[k] = dot3(w, axis);
                 }
                 let (rho_min, rho_max, closest) = triangle_2d_origin_metrics(pts2);
-                let u_range = if rho_min <= 1e-12 * major_radius.max(rho_max).max(1e-15) {
+                let u_range = if rho_min <= SINGULAR_LOCUS_REL_TOL * major_radius.max(rho_max) {
                     [-PI, PI]
                 } else {
                     unwrap_triangle_2d_angles(pts2, closest)
@@ -634,9 +678,11 @@ impl GaussMap {
                 let t0 = tau[0].min(tau[1]).min(tau[2]);
                 let t1 = tau[0].max(tau[1]).max(tau[2]);
                 let spine_dist = rect_origin_dist(d0, d1, t0, t1);
-                let pad_scale = spine_dist.max(1e-12 * minor_radius).min(*minor_radius);
+                let pad_scale = spine_dist
+                    .max(SINGULAR_LOCUS_REL_TOL * minor_radius)
+                    .min(*minor_radius);
                 let pad = fp_pad_for_origin(c, pad_scale);
-                let v_range = if spine_dist <= 1e-12 * minor_radius.max(1e-15) {
+                let v_range = if spine_dist <= SINGULAR_LOCUS_REL_TOL * (*minor_radius) {
                     [-PI, PI]
                 } else {
                     unwrap_rect_angles(d0, d1, t0, t1)
@@ -682,7 +728,7 @@ fn cylinder_from_u_range(
     let du = u_range[1] - u_range[0];
     let z0 = (FRAC_PI_2 - pad).max(0.0);
     let z1 = (FRAC_PI_2 + pad).min(PI);
-    if du >= TAU - 1e-12 {
+    if du >= TAU - FULL_REV_ANGLE_GUARD {
         return GaussMap::single(GaussRegion::from_cap_and_zone(e1, PI, axis, z0, z1));
     }
     if du <= PI {
@@ -736,7 +782,7 @@ fn cone_from_u_range(
     let z0 = (z_center - pad).clamp(0.0, PI);
     let z1 = (z_center + pad).clamp(0.0, PI);
 
-    if du >= TAU - 1e-12 {
+    if du >= TAU - FULL_REV_ANGLE_GUARD {
         let cap_axis = if pos_nappe {
             [-axis[0], -axis[1], -axis[2]]
         } else {
@@ -803,7 +849,7 @@ fn latlon_patch_in_frame(
     let z1 = (FRAC_PI_2 - v0 + pad).clamp(0.0, PI);
 
     let du = u_range[1] - u_range[0];
-    if du >= TAU - 1e-12 {
+    if du >= TAU - FULL_REV_ANGLE_GUARD {
         // Full revolution around `axis`: the polar zone `Z(axis, π/2−v1, π/2−v0)`
         // is already the exact Gauss map. Attach the tightest axial cap.
         let (cap_axis, cap_theta) = if v0 >= 0.0 {
@@ -876,7 +922,7 @@ fn torus_from_uv_range(
 ) -> GaussMap {
     let dv = v_range[1] - v_range[0];
     // Normalize `[v0, v1]` into `[0, 4π]` with width `≤ 2π`.
-    let (v0, v1) = if dv >= TAU - 1e-12 {
+    let (v0, v1) = if dv >= TAU - FULL_REV_ANGLE_GUARD {
         (0.0, TAU)
     } else {
         let shift = (v_range[0] / TAU).floor() * TAU;
@@ -904,10 +950,10 @@ fn torus_from_uv_range(
         // Include degenerate point intervals (`v0 == v1`) on the first band
         // containing `v0`, while skipping zero-measure boundary touches of
         // non-degenerate `[v0, v1]` so adjacent bands do not emit spurious caps.
-        let take = if v1 - v0 <= 1e-15 {
+        let take = if v1 - v0 <= TORUS_BAND_ANGLE_EPS {
             !any && v0 >= b_lo && v0 <= b_hi
         } else {
-            b > a + 1e-15
+            b > a + TORUS_BAND_ANGLE_EPS
         };
         if !take {
             continue;
@@ -978,7 +1024,7 @@ fn sphere_geodesic_triangle_cap(n: [[f64; 3]; 3], pad: f64) -> GaussMap {
     // Proof of conservativeness requires all three vertices strictly inside an
     // open hemisphere (`min_k (n_k · d̂) > 0`), so `w / ‖w‖ · d̂ ≥ cos θ` holds
     // for every positive linear combination `w = ∑ λ_k ‖v_k − c‖ n_k`.
-    if best_min_dot <= 1e-12 {
+    if best_min_dot <= SPHERE_HEMISPHERE_MIN_DOT {
         return GaussMap::FULL;
     }
     let theta = unit_angle(best_axis, n[0])
@@ -1083,12 +1129,19 @@ fn interval_point_dist(x: f64, lo: f64, hi: f64) -> f64 {
 }
 
 /// Condition-scaled IEEE-754 angular rounding bound for subtracting a surface
-/// origin `origin` from points at distance `local_scale`.
+/// origin `origin` from points at distance `local_scale` (purely dimensionless
+/// in `‖origin‖ / local_scale`, with zero absolute length floor).
 #[inline]
 fn fp_pad_for_origin(origin: [f64; 3], local_scale: f64) -> f64 {
     let c_norm = norm3(origin);
-    let cond = 1.0 + c_norm / local_scale.max(1e-15);
-    (FP_ANGLE_GUARD * cond).min(1e-4)
+    if c_norm == 0.0 {
+        return FP_ANGLE_GUARD;
+    }
+    if local_scale <= 0.0 {
+        return MAX_ORIGIN_FP_PAD;
+    }
+    let cond = 1.0 + c_norm / local_scale;
+    (FP_ANGLE_GUARD * cond).min(MAX_ORIGIN_FP_PAD)
 }
 
 #[inline]
@@ -1243,7 +1296,7 @@ fn origin_to_triangle_3d_distance(tri: [[f64; 3]; 3]) -> f64 {
     let n = cross3(ab, ac);
     let n_len2 = dot3(n, n);
     let scale2 = dot3(ab, ab).max(dot3(ac, ac));
-    if n_len2 <= 1e-28 * scale2 * scale2 {
+    if n_len2 <= DEGEN_TRI_CROSS_REL_TOL2 * scale2 * scale2 {
         let seg_dist = |p: [f64; 3], q: [f64; 3]| -> f64 {
             let pq = sub3(q, p);
             let len2 = dot3(pq, pq);

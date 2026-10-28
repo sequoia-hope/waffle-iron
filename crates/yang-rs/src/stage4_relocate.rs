@@ -392,13 +392,15 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
             );
         }
         // §4.3.2's geometric two-plane step requires non-parallel tangent
-        // planes (`yang2025_hybrid_boolean.txt:501-505`); where normals become
-        // parallel (`det <= rank_eps`), switch to §4.3.1/§4.3.3's parametric
-        // tangency Newton (`:489-492`, `:518-534`) for isolated 0D tangent
-        // points (`rank == 4`, e.g. figure-eight saddle pinches or kisses).
+        // planes (`yang2025_hybrid_boolean.txt:501-505` R); where the surface
+        // normals are collinear within `rank_eps` (§4.3.3 "compare the normal
+        // vectors", `:536-540` R, `:567-569` L), switch to §4.3.1/§4.3.3's
+        // parametric tangency Newton (`:489-492` R, `:518-534` R) for isolated
+        // 0D tangent points (`rank == 4`, bounded scale-relatively from `p`).
         if det <= rank_eps {
             if let Some(q) = crate::stage4_tangency::solve_isolated_tangent_point_near(
                 Point3::new(x[0], x[1], x[2]),
+                p,
                 s0,
                 s1,
                 tau0.max(tau1),
@@ -429,11 +431,6 @@ pub(crate) fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -
             x[1] - (n0[1] * m0 + n1[1] * m1),
             x[2] - (n0[2] * m0 + n1[2] * m1),
         ];
-    }
-    if let Some(q) =
-        crate::stage4_tangency::solve_isolated_tangent_point_near(p, s0, s1, tau0.max(tau1))
-    {
-        return Some(q);
     }
     if census {
         s43_tangency_census_log(

@@ -50,6 +50,65 @@ use crate::*;
 
 use std::collections::BTreeMap;
 
+/// Test-only closed-form oracle for the exact surface-tangency points of two
+/// non-parallel cylinders (`s_A·R_A − s_B·R_B = δ` along `m = ±(û × v̂)/|û × v̂|`).
+///
+/// Retired from the production pipeline in favour of mesh-seeded §4.3 parametric
+/// Newton ([`crate::stage4_tangency::discover_operand_pair_tangent_points_newton`]);
+/// retained under `#[cfg(test)]` to verify across cylinder-pair sweeps that
+/// mesh-seeded Newton discovers every closed-form tangent point.
+#[cfg(test)]
+pub(crate) fn cyl_cyl_tangent_points(
+    (ap1, ad1, r1): (Point3, Vector3, f64),
+    (ap2, ad2, r2): (Point3, Vector3, f64),
+) -> Option<Vec<Point3>> {
+    let u = normalize3(ad1.as_array());
+    let v = normalize3(ad2.as_array());
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    let n_len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if n_len < 1e-9 {
+        return None;
+    }
+    let m = [n[0] / n_len, n[1] / n_len, n[2] / n_len];
+    let (a, b) = (ap1.as_array(), ap2.as_array());
+    let w0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let delta = w0[0] * m[0] + w0[1] * m[1] + w0[2] * m[2];
+    let w0xv = [
+        w0[1] * v[2] - w0[2] * v[1],
+        w0[2] * v[0] - w0[0] * v[2],
+        w0[0] * v[1] - w0[1] * v[0],
+    ];
+    let t = (w0xv[0] * n[0] + w0xv[1] * n[1] + w0xv[2] * n[2]) / (n_len * n_len);
+    let f_a = [a[0] + t * u[0], a[1] + t * u[1], a[2] + t * u[2]];
+
+    let scale = f_a
+        .iter()
+        .chain([r1, r2, delta].iter())
+        .fold(0.0f64, |acc, &c| acc.max(c.abs()));
+    let band = cad_primitives::TAU_WORK * (1.0 + scale);
+
+    let mut out: Vec<Point3> = Vec::new();
+    let mut seen: Vec<[u64; 3]> = Vec::new();
+    for (sa, sb) in [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)] {
+        if (sa * r1 - sb * r2 - delta).abs() > band {
+            continue;
+        }
+        let g = sa * r1;
+        let p = [f_a[0] + g * m[0], f_a[1] + g * m[1], f_a[2] + g * m[2]];
+        let key = [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()];
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        out.push(Point3::new(p[0], p[1], p[2]));
+    }
+    Some(out)
+}
+
 /// The exact surface-tangency GENERATOR of two cylinders with PARALLEL axes.
 ///
 /// With `û ∥ v̂` the shared normal `m` is the unit perpendicular from A's axis
