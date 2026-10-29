@@ -978,8 +978,8 @@ fn a_sketch_without_solve_status_loads_and_is_solved_by_the_rebuild() {
 
 #[test]
 fn unknown_operation_is_preserved_verbatim_reported_and_fails_its_rebuild_loudly() {
-    let loft = serde_json::json!({
-        "type": "Loft",
+    let unknown_op = serde_json::json!({
+        "type": "NotARealOperation",
         "params": { "sections": [[10, 11, 12, 13]], "ruled": true },
         "x-tool": "a-newer-build"
     });
@@ -988,11 +988,11 @@ fn unknown_operation_is_preserved_verbatim_reported_and_fails_its_rebuild_loudly
     let features = doc["tabs"][0]["kind"]["features"]["features"]
         .as_array_mut()
         .unwrap();
-    let loft_id = Uuid::new_v4();
+    let unknown_id = Uuid::new_v4();
     features.insert(
         1,
-        serde_json::json!({ "id": loft_id, "name": "Loft 1", "suppressed": false,
-                            "references": [], "operation": loft }),
+        serde_json::json!({ "id": unknown_id, "name": "NotARealOperation 1", "suppressed": false,
+                            "references": [], "operation": unknown_op }),
     );
     let json = doc.to_string();
 
@@ -1002,7 +1002,8 @@ fn unknown_operation_is_preserved_verbatim_reported_and_fails_its_rebuild_loudly
         loaded
             .warnings
             .iter()
-            .any(|w| w.contains("Loft 1") && w.contains("unknown operation kind `Loft`")),
+            .any(|w| w.contains("NotARealOperation 1")
+                && w.contains("unknown operation kind `NotARealOperation`")),
         "{:?}",
         loaded.warnings
     );
@@ -1015,11 +1016,11 @@ fn unknown_operation_is_preserved_verbatim_reported_and_fails_its_rebuild_loudly
     let out: serde_json::Value = serde_json::from_str(&saved).unwrap();
     assert_eq!(
         out["tabs"][0]["kind"]["features"]["features"][1]["operation"],
-        loft
+        unknown_op
     );
     assert_eq!(
         out["tabs"][0]["kind"]["features"]["features"][1]["id"],
-        serde_json::json!(loft_id)
+        serde_json::json!(unknown_id)
     );
 
     // The rebuild errors THAT feature and builds the others.
@@ -1029,11 +1030,11 @@ fn unknown_operation_is_preserved_verbatim_reported_and_fails_its_rebuild_loudly
     engine.tree = tree;
     engine.rebuild_from_scratch(&mut kernel);
     assert_eq!(engine.errors.len(), 1, "{:?}", engine.errors);
-    assert_eq!(engine.errors[0].0, loft_id);
+    assert_eq!(engine.errors[0].0, unknown_id);
     assert!(
         engine.errors[0]
             .1
-            .contains("operation kind `Loft` is not supported"),
+            .contains("operation kind `NotARealOperation` is not supported"),
         "{}",
         engine.errors[0].1
     );

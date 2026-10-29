@@ -10,9 +10,9 @@ use uuid::Uuid;
 use waffle_types::kernel::MockKernel;
 use waffle_types::*;
 
-fn loft() -> serde_json::Value {
+fn unknown_op() -> serde_json::Value {
     serde_json::json!({
-        "type": "Loft",
+        "type": "NotARealOperation",
         "params": { "sections": [[1, 2], [3]], "ruled": false },
         "x-tool": "future-build"
     })
@@ -20,21 +20,21 @@ fn loft() -> serde_json::Value {
 
 #[test]
 fn unknown_operation_round_trips_verbatim() {
-    let op: Operation = serde_json::from_value(loft()).unwrap();
+    let op: Operation = serde_json::from_value(unknown_op()).unwrap();
     assert!(matches!(op, Operation::Unknown(_)));
-    assert_eq!(op.type_tag(), "Loft");
-    assert_eq!(serde_json::to_value(&op).unwrap(), loft());
+    assert_eq!(op.type_tag(), "NotARealOperation");
+    assert_eq!(serde_json::to_value(&op).unwrap(), unknown_op());
 
     // Inside a Feature / FeatureTree too (the shape the file carries).
     let tree = serde_json::json!({
-        "features": [{ "id": Uuid::nil(), "name": "Loft 1", "suppressed": false,
-                       "references": [], "operation": loft() }],
+        "features": [{ "id": Uuid::nil(), "name": "NotARealOperation 1", "suppressed": false,
+                       "references": [], "operation": unknown_op() }],
         "active_index": null
     });
     let parsed: FeatureTree = serde_json::from_value(tree.clone()).unwrap();
     assert_eq!(parsed.features.len(), 1);
     let back = serde_json::to_value(&parsed).unwrap();
-    assert_eq!(back["features"][0]["operation"], loft());
+    assert_eq!(back["features"][0]["operation"], unknown_op());
 }
 
 #[test]
@@ -159,9 +159,10 @@ fn rebuild_fails_the_unknown_feature_loudly_and_builds_the_rest() {
             sketch: square_sketch(),
         },
     );
-    let loft_feature = engine
-        .tree
-        .add_feature("Loft 1".into(), serde_json::from_value(loft()).unwrap());
+    let unknown_feature = engine.tree.add_feature(
+        "NotARealOperation 1".into(),
+        serde_json::from_value(unknown_op()).unwrap(),
+    );
     let extrude_feature = engine.tree.add_feature(
         "Extrude".into(),
         Operation::Extrude {
@@ -190,14 +191,14 @@ fn rebuild_fails_the_unknown_feature_loudly_and_builds_the_rest() {
     let (fid, msg) = engine
         .errors
         .iter()
-        .find(|(fid, _)| *fid == loft_feature)
+        .find(|(fid, _)| *fid == unknown_feature)
         .expect("the unknown feature errors");
-    assert_eq!(*fid, loft_feature);
+    assert_eq!(*fid, unknown_feature);
     assert!(
-        msg.contains("operation kind `Loft` is not supported"),
+        msg.contains("operation kind `NotARealOperation` is not supported"),
         "{msg}"
     );
-    assert!(!engine.feature_results.contains_key(&loft_feature));
+    assert!(!engine.feature_results.contains_key(&unknown_feature));
     // The feature is still in the tree (preserved), and later features build.
     assert_eq!(engine.tree.features.len(), 3);
     assert!(engine.feature_results.contains_key(&extrude_feature));
