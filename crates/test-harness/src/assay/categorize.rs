@@ -533,7 +533,11 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     // Remediation plan O2, RECORD-ONLY: the kernel's exact B-Rep volume
     // against the render mesh's, at the expected-volume oracle's tolerance.
     let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(&mut builder, tess_tol).summary();
-    let on_surface = format!("{on_surface}; {exact_vs_mesh}");
+    // Remediation plan O5, RECORD-ONLY: the authored per-op volume
+    // direction against the exact live volume after each op.
+    let monotonic =
+        crate::assay::monotonicity::measure(&builder, &meta.oracles.volume_monotonicity).summary();
+    let on_surface = format!("{on_surface}; {exact_vs_mesh}; {monotonic}");
 
     if failures.is_empty() {
         CaseOutcome {

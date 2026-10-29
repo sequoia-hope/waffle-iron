@@ -24,6 +24,20 @@ pub struct ExactVsMesh {
     pub rel: f64,
     /// Live solids the kernel could not integrate (mesh-backed imports).
     pub unmeasured: usize,
+    /// Σ exact surface area of the measured solids, m².
+    pub area: f64,
+    /// Tessellation tolerance the mesh was made at, m.
+    pub tol: f64,
+}
+
+impl ExactVsMesh {
+    /// `|mesh − exact| / (tol · area)`: the volume gap measured against what
+    /// the tessellation's own chord tolerance can explain (every mesh point
+    /// within `tol` of the surface moves the enclosed volume by at most
+    /// `tol · area` to first order). ≤ 1 is explained; above 1 is not.
+    pub fn bound_ratio(&self) -> f64 {
+        (self.mesh - self.exact).abs() / (self.tol * self.area)
+    }
 }
 
 impl ExactVsMesh {
@@ -36,8 +50,11 @@ impl ExactVsMesh {
             String::new()
         };
         format!(
-            "exact_vs_mesh: exact {:.9e} mesh {:.9e} rel {:+.3e}{extra}",
-            self.exact, self.mesh, self.rel
+            "exact_vs_mesh: exact {:.9e} mesh {:.9e} rel {:+.3e} bound_ratio {:.3e}{extra}",
+            self.exact,
+            self.mesh,
+            self.rel,
+            self.bound_ratio()
         )
     }
 }
@@ -49,13 +66,17 @@ pub fn measure(builder: &mut ModelBuilder, tol: f64) -> ExactVsMesh {
         mesh: 0.0,
         rel: f64::NAN,
         unmeasured: 0,
+        area: 0.0,
+        tol,
     };
     for h in builder.live_solid_handles() {
         let exact = builder.kernel_ref().as_introspect().solid_volume(&h);
+        let area = builder.kernel_ref().as_introspect().solid_surface_area(&h);
         let mesh = builder.kernel_mut().tessellate(&h, tol);
-        match (exact, mesh) {
-            (Ok(v), Ok(m)) => {
+        match (exact, area, mesh) {
+            (Ok(v), Ok(a), Ok(m)) => {
                 r.exact += v;
+                r.area += a;
                 r.mesh += crate::helpers::mesh_signed_volume(&m);
             }
             _ => r.unmeasured += 1,
