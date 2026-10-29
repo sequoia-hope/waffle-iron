@@ -36,6 +36,8 @@ pub mod randomized_runner;
 pub mod regions;
 pub mod runner;
 pub mod scoring;
+/// The twelve `smoke_*` scenarios of `tests/assay_kv2.rs`, as builders.
+pub mod smoke_scenarios;
 pub mod strategies;
 pub mod strategies_v2;
 /// Independent topology oracle — genus of the composed operand solids.

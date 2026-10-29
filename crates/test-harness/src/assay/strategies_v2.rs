@@ -1095,6 +1095,49 @@ fn check_step_volume_invariants(
 ///
 /// Partial chains are valid: if a step fails with a known kernel limitation,
 /// the completed steps are still returned for oracle checking.
+/// Build a TWO-body boolean from the first two steps of a generated chain:
+/// step 0 as the base body (`ext_0`), step 1 as a standalone tool
+/// (`ext_1`), then `bool_0 = ext_0 <op> ext_1` — the same sketch, extrude
+/// and boolean calls [`execute_chain`] makes, with the operation chosen by
+/// the caller instead of by step index (the always-on generative-pair suite,
+/// `tests/assay_generative_pairs.rs`, cycles all three).
+///
+/// Returns the builder even when a step was refused, together with the
+/// first refusal, so the caller can judge the document as it stands; a
+/// non-extrude step uses the chain executor's fallback depth.
+pub fn build_two_body_pair(
+    scenario: &GenerativeChainScenario,
+    op: BoolOp,
+) -> (ModelBuilder, Option<String>) {
+    let mut builder = ModelBuilder::kernel_v2();
+    let depth = |s: &ChainStep| match &s.operation {
+        OperationSpec::Extrude { depth } => *depth,
+        _ => 20.0,
+    };
+    for (i, step) in scenario.chain.steps.iter().take(2).enumerate() {
+        let (sk_name, ext_name) = (format!("sk_{i}"), format!("ext_{i}"));
+        if let Err(e) = build_sketch_and_extrude(
+            &mut builder,
+            &SketchExtrudeParams {
+                sk_name: &sk_name,
+                ext_name: &ext_name,
+                plane: &step.plane,
+                profile: &step.profile,
+                depth: depth(step),
+                merge: i == 0,
+                region_selection: &scenario.region_selection,
+                rng_index: scenario.rng_index,
+            },
+        ) {
+            return (builder, Some(format!("{ext_name}: {e}")));
+        }
+    }
+    let refusal = execute_boolean_step(&mut builder, "bool_0", "ext_0", "ext_1", op)
+        .err()
+        .map(|e| format!("bool_0: {e}"));
+    (builder, refusal)
+}
+
 pub fn execute_chain(scenario: &GenerativeChainScenario) -> Result<ChainResult, String> {
     let mut builder = ModelBuilder::kernel_v2();
     let chain = &scenario.chain;

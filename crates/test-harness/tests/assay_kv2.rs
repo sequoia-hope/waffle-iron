@@ -63,6 +63,7 @@ use test_harness::assay::categorize::{
 };
 use test_harness::assay::gen::AssayMeta;
 use test_harness::assay::randomized_runner::{discover_cases, DiscoveredCase};
+use test_harness::assay::smoke_scenarios::build_smoke_scenario;
 use test_harness::helpers::mesh_bounding_box;
 use test_harness::oracle;
 use test_harness::ModelBuilder;
@@ -521,52 +522,27 @@ fn assert_scenario_with_allowances(
 
 #[test]
 fn smoke_single_box() {
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("s", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude("e", "s", 2.0).unwrap();
+    let mut b = build_smoke_scenario("single_box");
     assert_scenario_supported_correct("single_box", &mut b, Some(2.0));
 }
 
 #[test]
 fn smoke_thin_slab() {
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("s", [0.0; 3], [0.0, 0.0, 1.0], -2.0, -1.5, 4.0, 3.0)
-        .unwrap();
-    b.extrude("e", "s", 0.2).unwrap();
+    let mut b = build_smoke_scenario("thin_slab");
     assert_scenario_supported_correct("thin_slab", &mut b, Some(4.0 * 3.0 * 0.2));
 }
 
 #[test]
 fn smoke_oblique_plane_box() {
     // Sketch plane with a non-axis-aligned unit normal (1, 2, 2)/3.
-    let n = [1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0];
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("s", [0.5, -0.25, 0.75], n, 0.0, 0.0, 1.0, 0.8)
-        .unwrap();
-    b.extrude("e", "s", 0.6).unwrap();
+    let mut b = build_smoke_scenario("oblique_plane_box");
     assert_scenario_supported_correct("oblique_plane_box", &mut b, Some(1.0 * 0.8 * 0.6));
 }
 
 #[test]
 fn smoke_l_shaped_extrude() {
     // Non-convex profile: L-shape of area 3.
-    let mut b = ModelBuilder::kernel_v2();
-    b.polygon_sketch(
-        "s",
-        [0.0; 3],
-        [0.0, 0.0, 1.0],
-        &[
-            (0.0, 0.0),
-            (2.0, 0.0),
-            (2.0, 1.0),
-            (1.0, 1.0),
-            (1.0, 2.0),
-            (0.0, 2.0),
-        ],
-    )
-    .unwrap();
-    b.extrude("e", "s", 0.5).unwrap();
+    let mut b = build_smoke_scenario("l_shaped_extrude");
     assert_scenario_supported_correct("l_shaped_extrude", &mut b, Some(3.0 * 0.5));
 }
 
@@ -575,13 +551,7 @@ fn smoke_union_offset_boss() {
     // Box A: (0..1)² × z∈[0,1]. Boss B: (0.3..0.7)² sketched at z=0.25,
     // extruded 1.5 → z∈[0.25,1.75]. Overlapping, NO coplanar face pairs.
     // merge=true auto-unions through the adapter's boolean_union.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, 0.25], [0.0, 0.0, 1.0], 0.3, 0.3, 0.4, 0.4)
-        .unwrap();
-    b.extrude("u", "sb", 1.5).unwrap();
+    let mut b = build_smoke_scenario("union_offset_boss");
     // Union volume: 1 + 0.4·0.4·1.5 − 0.4·0.4·0.75 (overlap z∈[0.25,1]).
     // Full oracle set since PR-TH1 (T-junction-aware pairing) — no allowances.
     assert_scenario_supported_correct("union_offset_boss", &mut b, Some(1.0 + 0.24 - 0.12));
@@ -607,13 +577,7 @@ fn smoke_union_face_to_face_stack() {
     // is about coincident/overlapping face pairs, not strict containment.
     // This test pins that capability so a regression (or a gate widening
     // that swallows it) is loud.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 2.0, 2.0)
-        .unwrap();
-    b.extrude("a", "sa", 2.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, 2.0], [0.0, 0.0, 1.0], 0.5, 0.5, 1.0, 1.0)
-        .unwrap();
-    b.extrude("boss", "sb", 1.0).unwrap();
+    let mut b = build_smoke_scenario("union_face_to_face_stack");
     assert_scenario_supported_correct("union_face_to_face_stack", &mut b, Some(9.0));
     assert_eq!(
         b.distinct_solid_count(),
@@ -637,13 +601,7 @@ fn smoke_union_flush_same_radius_cylinder_stack() {
     // samples each cap with its own seam phase, so the rims differed by ulps
     // and the union reassembled non-2-manifold; the Stage-0 identical-disc
     // branch (2026-09-12) emits one shared fan over the merged rim ring.
-    let mut b = ModelBuilder::kernel_v2();
-    b.true_circle_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0)
-        .unwrap();
-    b.extrude("a", "sa", 1.0).unwrap();
-    b.true_circle_sketch("sb", [0.0, 0.0, 1.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0)
-        .unwrap();
-    b.extrude("boss", "sb", 1.0).unwrap();
+    let mut b = build_smoke_scenario("union_flush_same_radius_cylinder_stack");
     assert_scenario_supported_correct("union_flush_same_radius_cylinder_stack", &mut b, None);
     assert_eq!(
         b.distinct_solid_count(),
@@ -670,14 +628,7 @@ fn smoke_union_flush_same_radius_cylinder_stack() {
 fn smoke_subtract_offset_boxes() {
     // Blank (0..1)³ minus tool (0.4..1.4)² × z∈[-0.3,0.6] — offset on all
     // axes, no coplanar pairs. Volume 1 − 0.6³ = 0.784.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude_no_merge("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, -0.3], [0.0, 0.0, 1.0], 0.4, 0.4, 1.0, 1.0)
-        .unwrap();
-    b.extrude_no_merge("t", "sb", 0.9).unwrap();
-    b.boolean_subtract("cut", "a", "t").unwrap();
+    let mut b = build_smoke_scenario("subtract_offset_boxes");
     assert_scenario_with_allowances(
         "subtract_offset_boxes",
         &mut b,
@@ -689,14 +640,7 @@ fn smoke_subtract_offset_boxes() {
 #[test]
 fn smoke_intersect_offset_boxes() {
     // Same operands as the subtract; intersection volume 0.6³ = 0.216.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude_no_merge("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, -0.3], [0.0, 0.0, 1.0], 0.4, 0.4, 1.0, 1.0)
-        .unwrap();
-    b.extrude_no_merge("t", "sb", 0.9).unwrap();
-    b.boolean_intersect("common", "a", "t").unwrap();
+    let mut b = build_smoke_scenario("intersect_offset_boxes");
     assert_scenario_with_allowances(
         "intersect_offset_boxes",
         &mut b,
@@ -710,13 +654,7 @@ fn smoke_blind_pocket_cut() {
     // Box (0..1)³; cut tool (0.3..0.6)² sketched at z=1.5, cut depth 1.2 →
     // tool z∈[0.3,1.5] (the cut path auto-reverses toward the body). Blind
     // pocket, no coplanar pairs. Volume 1 − 0.3·0.3·0.7 = 0.937.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, 1.5], [0.0, 0.0, 1.0], 0.3, 0.3, 0.3, 0.3)
-        .unwrap();
-    b.extrude_cut("pocket", "sb", 1.2).unwrap();
+    let mut b = build_smoke_scenario("blind_pocket_cut");
     // Full oracle set since PR-TH1 — no allowances.
     assert_scenario_supported_correct("blind_pocket_cut", &mut b, Some(1.0 - 0.09 * 0.7));
 }
@@ -725,13 +663,7 @@ fn smoke_blind_pocket_cut() {
 fn smoke_through_hole_cut() {
     // Box (0..1)³; cut tool (0.3..0.6)² × z∈[-0.25,1.5] pierces both caps →
     // genus-1 through-hole. Volume 1 − 0.09.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [0.0, 0.0, 1.5], [0.0, 0.0, 1.0], 0.3, 0.3, 0.3, 0.3)
-        .unwrap();
-    b.extrude_cut("hole", "sb", 1.75).unwrap();
+    let mut b = build_smoke_scenario("through_hole_cut");
     // Full oracle set since PR-TH1 — no allowances.
     assert_scenario_supported_correct("through_hole_cut", &mut b, Some(1.0 - 0.09));
 }
@@ -739,13 +671,7 @@ fn smoke_through_hole_cut() {
 #[test]
 fn smoke_two_standalone_bodies() {
     // Two disjoint no-merge boxes; both tessellate independently.
-    let mut b = ModelBuilder::kernel_v2();
-    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
-        .unwrap();
-    b.extrude_no_merge("a", "sa", 1.0).unwrap();
-    b.rect_sketch("sb", [3.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 0.5, 0.5)
-        .unwrap();
-    b.extrude_no_merge("b", "sb", 0.5).unwrap();
+    let mut b = build_smoke_scenario("two_standalone_bodies");
     assert_scenario_supported_correct("two_standalone_bodies", &mut b, Some(0.5 * 0.5 * 0.5));
     assert_eq!(b.distinct_solid_count(), 2);
     let mesh_a = b.tessellate("a").expect("body a tessellates");
