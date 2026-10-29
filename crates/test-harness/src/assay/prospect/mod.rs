@@ -398,6 +398,13 @@ pub struct ReportLine {
     pub parent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub knob: Option<String>,
+    /// What `signature` was keyed on ([`signature_at`]); absent on report
+    /// lines written before site keys (read them as `text`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signature_key: Option<SignatureKey>,
+    /// The raising site the verdict child supplied, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
 }
 
 /// The line a verdict child prints; the parent parses nothing else.
@@ -667,4 +674,371 @@ pub fn measure_stem(stem: &std::path::Path) -> Result<metamorphic::Measurement, 
         }
     };
     Ok(measure_document(&waffle, &meta))
+}
+
+// ── Site-keyed signatures (spec §8, seed-3 lesson 1; remediation O9) ────
+
+/// What a finding's signature was keyed on (recorded per report line).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureKey {
+    /// A caller-supplied raising site (a structured channel beside the text).
+    Site,
+    /// The kernel error's typed variant and stage / mechanism tokens.
+    Contract,
+    /// Today's fallback: the number-stripped error text.
+    Text,
+}
+
+/// A finding's signature plus how it was derived.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    pub key: String,
+    pub keyed_on: SignatureKey,
+}
+
+/// A finding's signature keyed on its SITE where one is known (spec §8,
+/// seed-3 lesson 1: "dedupe by SITE, not by error text"; remediation O9).
+///
+/// Only ERROR rows change; every other category keeps [`signature`]'s key.
+/// For an ERROR, in order:
+///
+/// 1. `site` — a raising site supplied beside the text by a structured
+///    channel (the verdict child's `"site"` outcome field). It is appended to
+///    the contract (or text) key, so one text raised at two sites makes two
+///    findings. **No producer fills it today:** kernel-v2's `KernelError`
+///    reaches the harness already rendered to a string by the feature
+///    engine, and yang-rs's typed `boolean::failures::FailureSite` is
+///    `pub(crate)`; the `NONMANIFOLD_SITE_PROBE` / `YANG_LRR_PROBE` stderr
+///    lines are not a reliable carrier either, because the §4.5.2 loop
+///    re-runs a failing boolean and prints its refined attempts' raises
+///    AFTER the natural STOP's — the last probe line is not the STOP's site.
+/// 2. [`contract_site`] — the kernel error's typed variant and the yang
+///    stage / mechanism tokens its `Display`/`Debug` renderings put in the
+///    text by contract, WITHOUT the boolean verb, the auto-union wrapper,
+///    feature uuids, vertex / face ids or any later consequence error.
+/// 3. Fallback: today's number-stripped text key.
+pub fn signature_at(
+    category: &crate::assay::categorize::Category,
+    detail: &str,
+    site: Option<&str>,
+) -> Signature {
+    use crate::assay::categorize::Category as C;
+    if !matches!(category, C::Error) {
+        return Signature {
+            key: signature(category, detail),
+            keyed_on: SignatureKey::Text,
+        };
+    }
+    let contract = contract_site(detail);
+    let site = site.map(str::trim).filter(|s| !s.is_empty());
+    // The text fallback reads the FIRST error only: `signature` keys on the
+    // LAST `kernel error:` of the whole detail, so a document whose first
+    // error is a feature-engine consequence (an annihilated chain's next op
+    // failing `GeomRef` resolution) and whose later entry is a kernel error
+    // would be filed under that unrelated kernel signature.
+    let text = || signature(category, first_entry(detail));
+    match (site, contract) {
+        (Some(s), Some(c)) => Signature {
+            key: format!("error@[{c}]@[{s}]"),
+            keyed_on: SignatureKey::Site,
+        },
+        (Some(s), None) => Signature {
+            key: format!("{}@[{s}]", text()),
+            keyed_on: SignatureKey::Site,
+        },
+        (None, Some(c)) => Signature {
+            key: format!("error@[{c}]"),
+            keyed_on: SignatureKey::Contract,
+        },
+        (None, None) => Signature {
+            key: text(),
+            keyed_on: SignatureKey::Text,
+        },
+    }
+}
+
+/// The FIRST engine error of a categorizer detail — the cause; the entries
+/// after it (`; <uuid>: GeomRef resolution failed …`) are its consequences.
+fn first_entry(detail: &str) -> &str {
+    let mut from = 0;
+    while let Some(i) = detail[from..].find("; ") {
+        let at = from + i;
+        let next = &detail[at + 2..];
+        let uuid = next.get(..36).is_some_and(|u| {
+            u.split('-').map(str::len).collect::<Vec<_>>() == [8, 4, 4, 4, 12]
+                && u.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        });
+        if uuid && next[36..].starts_with(':') {
+            return &detail[..at];
+        }
+        from = at + 2;
+    }
+    detail
+}
+
+/// The content of the first Debug-quoted string in `s` (escapes kept raw).
+fn quoted(s: &str) -> Option<&str> {
+    let open = s.find('"')? + 1;
+    let mut escaped = false;
+    for (i, c) in s[open..].char_indices() {
+        match c {
+            '\\' if !escaped => escaped = true,
+            '"' if !escaped => return Some(&s[open..open + i]),
+            _ => escaped = false,
+        }
+    }
+    None
+}
+
+fn ident(s: &str) -> &str {
+    let end = s
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .unwrap_or(s.len());
+    &s[..end]
+}
+
+/// Number-stripped mechanism text: signs folded into `#`, whitespace runs
+/// collapsed, cut at the first ` — ` explanation, capped at 120 chars.
+fn mechanism_text(s: &str) -> String {
+    let s = strip_numbers(s).replace("-#", "#").replace("+#", "#");
+    let s = s.split(" — ").next().unwrap_or("");
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    s.chars().take(120).collect()
+}
+
+/// The stage / mechanism a yang-rs `YangError` message names by its
+/// `Display` contract (`crates/yang-rs/src/errors.rs`).
+fn yang_mechanism(msg: &str) -> String {
+    let (layer, msg) = match msg.strip_prefix("yang-rs rejected the converted input B-Rep: ") {
+        Some(rest) => ("yang-input", rest),
+        None => ("yang", msg),
+    };
+    let msg = msg.strip_prefix("yang-rs: ").unwrap_or(msg);
+    // `Stage4RegionInvalid`: "Stage-4 relocation region around vertex {v}
+    // is invalid: {reason:?}".
+    if msg.contains("relocation region around vertex") {
+        if let Some((_, r)) = msg.split_once(" is invalid: ") {
+            return format!("{layer}/stage4-region-invalid/{}", ident(r));
+        }
+    }
+    // `SsiRefinementFailed`: "Stage-3 SSI refinement failed for
+    // intersection edge {edge:?}: {reason:?}".
+    if msg.starts_with("Stage-3 SSI refinement failed") {
+        if let Some((_, r)) = msg.split_once("): ") {
+            return format!("{layer}/stage3-ssi/{}", ident(r));
+        }
+    }
+    // `RefinementExhausted`: "§4.5.2 local refinement ended with {n}
+    // unresolved failure site(s): {counts}; first {trigger:?} on faces
+    // {faces:?}: {detail}" — the trigger, and the reassembly site name a
+    // `ReassemblyStop` detail leads with (`non_manifold_at`'s `{site}: `).
+    if msg.starts_with("§4.5.2 local refinement ended") {
+        if let Some((_, first)) = msg.split_once("; first ") {
+            let trigger = ident(first);
+            let lead = first
+                .split_once("]: ")
+                .map(|(_, d)| d)
+                .and_then(|d| d.split_once(": "))
+                .map(|(t, _)| t)
+                .filter(|t| {
+                    !t.is_empty()
+                        && t.chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_'))
+                });
+            return match lead {
+                Some(l) => format!("{layer}/s452-exhausted/{trigger}/{l}"),
+                None => format!("{layer}/s452-exhausted/{trigger}"),
+            };
+        }
+    }
+    format!("{layer}/{}", mechanism_text(msg))
+}
+
+/// The site a categorizer ERROR detail names by the kernel's error-text
+/// contract, or `None` when its first error is not a kernel-v2 error (a
+/// feature-engine `GeomRef` failure, a driver failure, …).
+///
+/// kernel-v2 renders an operation failure as `kernel-v2 <op> failed:
+/// <KernelError:?>` (or `rejected:`). The key is `kernel-v2/<op class>/
+/// <variant>[/<mechanism>]`: the op class folds every `boolean_*` verb to
+/// `boolean` (one site is reached through any verb — seed 2 lesson 1); the
+/// mechanism is a `BooleanFailed` yang message's stage / reason
+/// ([`yang_mechanism`]), a struct variant's `reason` field, or a tuple
+/// variant's string; ids and counts in the other fields are dropped (a
+/// vertex id is not a site — seed 5 lesson 3).
+pub fn contract_site(detail: &str) -> Option<String> {
+    let cause = first_entry(detail);
+    let at = cause.find("kernel-v2 ")?;
+    let rest = &cause[at + "kernel-v2 ".len()..];
+    let (op, payload) = ["failed: ", "rejected: "]
+        .iter()
+        .filter_map(|m| rest.find(m).map(|i| (i, m.len())))
+        .min_by_key(|(i, _)| *i)
+        .map(|(i, l)| (rest[..i].trim(), &rest[i + l..]))?;
+    if op.is_empty() || op.contains(char::is_whitespace) {
+        return None;
+    }
+    let op_class = if op.starts_with("boolean_") {
+        "boolean"
+    } else {
+        op
+    };
+    let variant = ident(payload);
+    if !variant.starts_with(|c: char| c.is_ascii_uppercase()) {
+        return None;
+    }
+    let after = &payload[variant.len()..];
+    let mechanism = if after.starts_with("(\"") {
+        quoted(after).map(|m| {
+            if variant == "BooleanFailed" {
+                yang_mechanism(m)
+            } else {
+                mechanism_text(m)
+            }
+        })
+    } else if after.trim_start().starts_with('{') {
+        let body = &after[..after.find('}').unwrap_or(after.len())];
+        body.find("reason: \"")
+            .and_then(|i| quoted(&body[i..]))
+            .map(mechanism_text)
+    } else {
+        None
+    };
+    Some(match mechanism {
+        Some(m) => format!("kernel-v2/{op_class}/{variant}/{m}"),
+        None => format!("kernel-v2/{op_class}/{variant}"),
+    })
+}
+
+#[cfg(test)]
+mod signature_tests {
+    use super::*;
+    use crate::assay::categorize::Category;
+
+    const NONMANIFOLD: &str = "1 engine error(s): 8f233c70-aa83-424b-8a86-cc3c4f6af85b: \
+        operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract \
+        failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")";
+
+    fn lrr(verb: &str, vertex: u32, auto_union: bool) -> String {
+        let body = format!(
+            "kernel error: boolean operation failed: kernel-v2 {verb} failed: \
+             BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex {vertex} is \
+             invalid: LocalRefinementRequired\")"
+        );
+        if auto_union {
+            format!(
+                "1 auto-union failure(s): Extrude 3: Auto-union failed: {body}. Body created \
+                 as standalone."
+            )
+        } else {
+            format!(
+                "1 engine error(s): c30fbb51-48d3-4e36-894b-5bb563426b7f: operation error: {body}"
+            )
+        }
+    }
+
+    #[test]
+    fn same_text_different_site_does_not_collapse() {
+        let a = signature_at(&Category::Error, NONMANIFOLD, Some("s4-halfedge-pairing"));
+        let b = signature_at(&Category::Error, NONMANIFOLD, Some("i6-edge-overuse"));
+        assert_ne!(a.key, b.key, "two raising sites behind one text collapsed");
+        assert_eq!(a.keyed_on, SignatureKey::Site);
+    }
+
+    #[test]
+    fn same_site_different_text_collapses() {
+        // The boolean verb, the auto-union wrapper and the vertex id are not
+        // the site (seed 2 lesson 1; seed 5 lesson 3).
+        let a = signature_at(&Category::Error, &lrr("boolean_subtract", 56, false), None);
+        let b = signature_at(&Category::Error, &lrr("boolean_union", 12, true), None);
+        let c = signature_at(&Category::Error, &lrr("boolean_intersect", 9, false), None);
+        assert_eq!(a.key, b.key);
+        assert_eq!(a.key, c.key);
+        assert_eq!(a.keyed_on, SignatureKey::Contract);
+        // A later consequence appended to the detail is not the cause.
+        let ring = "kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: \
+            TessellationFailed { face: FaceId(19), reason: \"ring rejected by CDT \
+            (degenerate/self-intersecting)\" }";
+        let alone = format!(
+            "1 engine error(s): a43e195d-1c76-4a89-814d-0b8ddc4af15c: operation error: {ring}"
+        );
+        let with_tail = format!(
+            "2 engine error(s): a43e195d-1c76-4a89-814d-0b8ddc4af15c: operation error: {ring}; \
+             08e9a7a8-4678-4d8a-beaa-636b0ef2b2db: GeomRef resolution failed: boolean target \
+             body of feature 5cc2b9d6-e41a-49e4-b4d2-c449553a5417 was already consumed by an \
+             earlier feature"
+        );
+        assert_eq!(
+            signature_at(&Category::Error, &alone, None).key,
+            signature_at(&Category::Error, &with_tail, None).key
+        );
+    }
+
+    #[test]
+    fn distinct_mechanisms_stay_apart() {
+        let lrr = lrr("boolean_subtract", 56, false);
+        let crossed = lrr.replace("LocalRefinementRequired", "RelocationCrossedCarrierVertex");
+        assert_ne!(
+            signature_at(&Category::Error, &lrr, None).key,
+            signature_at(&Category::Error, &crossed, None).key
+        );
+        // The same yang text raised while converting the INPUT is another site.
+        let pipeline = "1 engine error(s): x: operation error: kernel error: boolean operation \
+            failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: face 3 is \
+            degenerate (zero-area / collinear)\")";
+        let input = pipeline.replace(
+            "(\"yang-rs: face",
+            "(\"yang-rs rejected the converted input B-Rep: yang-rs: face",
+        );
+        assert_ne!(
+            signature_at(&Category::Error, pipeline, None).key,
+            signature_at(&Category::Error, &input, None).key
+        );
+        // A kernel-v2 variant's reason is part of its mechanism.
+        let t = |r: &str| {
+            format!(
+                "1 engine error(s): x: operation error: kernel error: boolean operation failed: \
+                 kernel-v2 boolean_union failed: TessellationFailed {{ face: FaceId(4), \
+                 reason: \"{r}\" }}"
+            )
+        };
+        assert_ne!(
+            signature_at(&Category::Error, &t("ring rejected by CDT"), None).key,
+            signature_at(
+                &Category::Error,
+                &t("keyhole outer does not strictly contain a face hole"),
+                None
+            )
+            .key
+        );
+    }
+
+    #[test]
+    fn text_without_a_contract_falls_back_to_the_text_key() {
+        let d = "1 engine error(s): 08e9a7a8-4678-4d8a-beaa-636b0ef2b2db: GeomRef resolution \
+            failed: Output key Main not found in feature 5cc2b9d6-e41a-49e4-b4d2-c449553a5417";
+        let s = signature_at(&Category::Error, d, None);
+        assert_eq!(s.keyed_on, SignatureKey::Text);
+        assert_eq!(s.key, signature(&Category::Error, d));
+        // An annihilated chain's consequence first, a kernel error later:
+        // the finding is the first error, never the later kernel signature.
+        let ring = "kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: \
+            TessellationFailed { face: FaceId(19), reason: \"ring rejected by CDT\" }";
+        let later = format!(
+            "2 engine error(s): {}; c30fbb51-48d3-4e36-894b-5bb563426b7f: operation error: {ring}",
+            d.trim_start_matches("1 engine error(s): ")
+        );
+        let s2 = signature_at(&Category::Error, &later, None);
+        assert_eq!(s2.keyed_on, SignatureKey::Text);
+        assert!(s2.key.contains("Output key Main"), "{}", s2.key);
+        assert!(!s2.key.contains("ring rejected"), "{}", s2.key);
+        // Non-ERROR categories keep their keys.
+        let w = signature_at(
+            &Category::SupportedWrong,
+            "exact_volume: kernel 1 vs exact 2",
+            None,
+        );
+        assert_eq!(w.key, "wrong[exact_volume]");
+    }
 }

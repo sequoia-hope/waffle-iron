@@ -146,7 +146,7 @@ on:
 
 | Category | Signature |
 |---|---|
-| ERROR | the typed error after the feature name: kernel error variant + the yang stage/reason text with numbers stripped (`TessellationFailed{planar triangle collapsed at render precision}`, `Stage4 LocalRefinementRequired`) |
+| ERROR | the SITE where one is known (`prospect::signature_at`, remediation O9, 2026-10-29): a structured raising site from the verdict child's `"site"` field (no producer yet — the kernel error reaches the harness as a string), else the kernel error's CONTRACT read from the FIRST error of the detail — `kernel-v2/<op class>/<variant>[/<mechanism>]`, every `boolean_*` verb folded to `boolean`, ids dropped, a yang message reduced to its stage + reason (`error@[kernel-v2/boolean/BooleanFailed/yang/stage4-region-invalid/LocalRefinementRequired]`) — else the number-stripped text of the first error. Each report line records `signature_key` (`site` / `contract` / `text`); `prospect_resign` re-signs existing reports without the kernel |
 | SUPPORTED_WRONG | the set of failing oracle names (`exact_volume`, `mesh_euler_characteristic`, `watertight_mesh`, …) |
 | UNSUPPORTED(r) | `r` — recorded, not promoted (a declared boundary is roadmap, not a finding) unless the boundary text names something CLAUDE.md says has landed |
 | TIMEOUT | `timeout` + the last stage reached if the trace says |

@@ -115,7 +115,8 @@ use std::time::{Duration, Instant};
 
 use test_harness::assay::prospect::{
     self, gen3, judge_generated, judge_mutant, judge_recipe, metamorphic, minimize,
-    process_cpu_secs, promote, signature, signature_slug, ReportLine, OUTCOME_PREFIX,
+    process_cpu_secs, promote, signature, signature_at, signature_slug, ReportLine, Signature,
+    SignatureKey, OUTCOME_PREFIX,
 };
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -307,16 +308,40 @@ fn run_child(
     }
 }
 
-fn signature_of(category: &str, detail: &str, extra: &serde_json::Value) -> String {
+/// A verdict's signature, keyed on its site where one is known
+/// (`prospect::signature_at`): the child's structured `"site"` field, else
+/// the kernel error's typed contract, else the number-stripped text.
+fn signature_full(category: &str, detail: &str, extra: &serde_json::Value) -> Signature {
     if category == "TIMEOUT" {
-        return "timeout".into();
+        return Signature {
+            key: "timeout".into(),
+            keyed_on: SignatureKey::Text,
+        };
     }
     if extra.get("panic").is_some() {
-        return "panic".into();
+        return Signature {
+            key: "panic".into(),
+            keyed_on: SignatureKey::Text,
+        };
     }
     let cat = test_harness::assay::categorize::Category::from_label(category)
         .unwrap_or(test_harness::assay::categorize::Category::Error);
-    signature(&cat, detail)
+    signature_at(&cat, detail, extra.get("site").and_then(|s| s.as_str()))
+}
+
+fn signature_of(category: &str, detail: &str, extra: &serde_json::Value) -> String {
+    signature_full(category, detail, extra).key
+}
+
+/// Fill a report line's signature, its key kind and the child's site.
+fn sign_line(line: &mut ReportLine, extra: &serde_json::Value) {
+    let s = signature_full(&line.category, &line.detail, extra);
+    line.signature = s.key;
+    line.signature_key = Some(s.keyed_on);
+    line.site = extra
+        .get("site")
+        .and_then(|s| s.as_str())
+        .map(str::to_string);
 }
 
 /// Spawn the verdict child for `(seed, index)` under a CPU budget.
@@ -336,6 +361,8 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
         cpu_secs: 0.0,
         parent: None,
         knob: None,
+        signature_key: None,
+        site: None,
     };
     let (category, detail, v, cpu) = run_child(
         &[
@@ -346,9 +373,9 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
         budget,
     );
     line.cpu_secs = cpu;
-    line.signature = signature_of(&category, &detail, &v);
     line.category = category;
     line.detail = detail;
+    sign_line(&mut line, &v);
     line.summary = v["summary"].as_str().unwrap_or("").to_string();
     line.steps = v["steps"].as_u64().unwrap_or(0) as usize;
     line.scale = v["scale"].as_f64().unwrap_or(0.0);
@@ -603,6 +630,99 @@ fn prospect_minimize() {
     }
 }
 
+/// Re-sign existing reports WITHOUT re-running the kernel: read every
+/// `<root>/*/report.jsonl` (`PROSPECT_RESIGN_ROOT`, default
+/// `target/prospect`), recompute each finding row's signature with
+/// `signature_at` from its recorded category + detail, and print how the
+/// grouping moves — the recorded signatures, today's text key recomputed,
+/// and the site key — plus every merge (one site gathering several text
+/// keys) and split. Rows the categorizer does not label (the metamorphic
+/// driver's `METAMORPHIC` / `ORACLE`) keep their recorded signature.
+/// Writes nothing.
+#[test]
+#[ignore = "report re-signing (reads target/prospect); run by hand — remediation O9"]
+fn prospect_resign() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use test_harness::assay::categorize::Category;
+    let root = std::env::var("PROSPECT_RESIGN_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/prospect"));
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .map(|rd| rd.filter_map(|e| e.ok().map(|e| e.path())).collect())
+        .unwrap_or_default();
+    dirs.retain(|d| d.join("report.jsonl").exists());
+    dirs.sort();
+    if dirs.is_empty() {
+        eprintln!("[resign] no report.jsonl under {}", root.display());
+        return;
+    }
+    for dir in dirs {
+        let lines: Vec<ReportLine> = std::fs::read_to_string(dir.join("report.jsonl"))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|l| serde_json::from_str(l).ok())
+            .collect();
+        let mut recorded: BTreeSet<String> = BTreeSet::new();
+        let mut text: BTreeSet<String> = BTreeSet::new();
+        // site key → the text keys it gathers; text key → site keys.
+        let mut site_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut text_of: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
+        let mut rows = 0usize;
+        for l in &lines {
+            let interesting =
+                !(l.category == "SUPPORTED_CORRECT" || l.category.starts_with("UNSUPPORTED"));
+            if !interesting {
+                continue;
+            }
+            rows += 1;
+            recorded.insert(l.signature.clone());
+            let keep = l.signature == "timeout"
+                || l.signature == "panic"
+                || Category::from_label(&l.category).is_none();
+            let (t, s) = if keep {
+                *kinds.entry("recorded".into()).or_default() += 1;
+                (l.signature.clone(), l.signature.clone())
+            } else {
+                let cat = Category::from_label(&l.category).unwrap();
+                let s = signature_at(&cat, &l.detail, l.site.as_deref());
+                *kinds.entry(format!("{:?}", s.keyed_on)).or_default() += 1;
+                (signature(&cat, &l.detail), s.key)
+            };
+            text.insert(t.clone());
+            site_of.entry(s.clone()).or_default().insert(t.clone());
+            text_of.entry(t).or_default().insert(s);
+        }
+        if rows == 0 {
+            continue;
+        }
+        eprintln!(
+            "[resign] {}: {rows} finding row(s); groups: recorded {} / text key {} / site key {}; keyed on {:?}",
+            dir.file_name().unwrap().to_string_lossy(),
+            recorded.len(),
+            text.len(),
+            site_of.len(),
+            kinds
+        );
+        for (s, ts) in &site_of {
+            if ts.len() > 1 {
+                eprintln!("[resign]   MERGE {} text keys → {s}", ts.len());
+                for t in ts {
+                    eprintln!("[resign]       {t}");
+                }
+            }
+        }
+        for (t, ss) in &text_of {
+            if ss.len() > 1 {
+                eprintln!("[resign]   SPLIT {t} → {} site keys", ss.len());
+                for s in ss {
+                    eprintln!("[resign]       {s}");
+                }
+            }
+        }
+    }
+}
+
 // ── Promotion (spec §8) ──────────────────────────────────────────────────
 
 fn corpus_dir() -> PathBuf {
@@ -816,11 +936,11 @@ fn prospect_mutate() {
                     ],
                     budget,
                 );
-                let line = ReportLine {
+                let mut line = ReportLine {
                     id: id.clone(),
                     seed,
                     index,
-                    signature: signature_of(&category, &detail, &v),
+                    signature: String::new(),
                     category,
                     detail,
                     summary: format!("{parent_id} + {}", v["knob"].as_str().unwrap_or("?")),
@@ -830,7 +950,10 @@ fn prospect_mutate() {
                     cpu_secs: cpu,
                     parent: Some(parent_id),
                     knob: v["knob"].as_str().map(str::to_string),
+                    signature_key: None,
+                    site: None,
                 };
+                sign_line(&mut line, &v);
                 eprintln!(
                     "[mutate] {} {:<18} {:>6.1}s  {}  {}",
                     line.id, line.category, line.cpu_secs, line.summary, line.signature
@@ -1087,6 +1210,9 @@ fn prospect_metamorphic() {
                     cpu_secs: cpu,
                     parent: Some(parent_id),
                     knob: None,
+                    // A broken identity, not an error text.
+                    signature_key: Some(SignatureKey::Text),
+                    site: None,
                 };
                 eprintln!(
                     "[metamorphic] {} {:<18} {}  {}",
