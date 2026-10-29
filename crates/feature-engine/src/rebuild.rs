@@ -289,20 +289,14 @@ pub fn rebuild(
                     Some(kb.as_introspect()),
                 )
             };
-            if !consumed_ids.is_empty() {
-                if let Some(result) = state.feature_results.get(&feature.id) {
-                    let union_failed = result
-                        .diagnostics
-                        .warnings
-                        .iter()
-                        .any(|w| w.contains("Auto-union failed"));
-                    if !union_failed {
-                        for target_id in &consumed_ids {
-                            state.consumed_features.insert(*target_id);
-                        }
-                        state.consumed_by.insert(feature.id, consumed_ids);
-                    }
-                }
+            if let Some(result) = state.feature_results.get(&feature.id) {
+                record_consumption(
+                    &mut state.consumed_features,
+                    &mut state.consumed_by,
+                    feature.id,
+                    result,
+                    consumed_ids,
+                );
             }
             continue;
         }
@@ -400,21 +394,15 @@ pub fn rebuild(
                 if let Some(rs) = recorded {
                     state.feature_references.push((feature.id, rs));
                 }
-                // If this was a merge/boolean that succeeded (no auto-union fallback warning),
-                // mark the target features as consumed so they don't render.
-                if !consumed_ids.is_empty() {
-                    let union_failed = result
-                        .diagnostics
-                        .warnings
-                        .iter()
-                        .any(|w| w.contains("Auto-union failed"));
-                    if !union_failed {
-                        for target_id in &consumed_ids {
-                            state.consumed_features.insert(*target_id);
-                        }
-                        state.consumed_by.insert(feature.id, consumed_ids.clone());
-                    }
-                }
+                // A merge/boolean that took custody of its targets marks them
+                // consumed so they don't render (unless its auto-union fell back).
+                record_consumption(
+                    &mut state.consumed_features,
+                    &mut state.consumed_by,
+                    feature.id,
+                    &result,
+                    consumed_ids,
+                );
                 // KV13 F6: capture this feature's created-face persistent ids
                 // NOW (its faces are current; later ops churn the arena).
                 capture_face_pids(&mut state, feature.id, &result, kb);
@@ -437,6 +425,25 @@ pub fn rebuild(
     }
 
     state
+}
+
+/// Mark `consumed_ids` consumed by `feature_id`, unless `result` is a legacy
+/// auto-union that fell back to a standalone body — then its targets stay
+/// alive. The decision reads the typed `Diagnostics::auto_union_fell_back`
+/// flag set at the fallback, never the warning text (review 2026-10-28
+/// §3.5 item 2, remediation Q9).
+fn record_consumption(
+    consumed_features: &mut std::collections::HashSet<Uuid>,
+    consumed_by: &mut HashMap<Uuid, Vec<Uuid>>,
+    feature_id: Uuid,
+    result: &OpResult,
+    consumed_ids: Vec<Uuid>,
+) {
+    if consumed_ids.is_empty() || result.diagnostics.auto_union_fell_back {
+        return;
+    }
+    consumed_features.extend(consumed_ids.iter().copied());
+    consumed_by.insert(feature_id, consumed_ids);
 }
 
 /// Every UUID a feature's definition names (its sketch, targets, datum planes,

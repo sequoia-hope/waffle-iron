@@ -1785,3 +1785,96 @@ mod positional_selector_tests {
         }));
     }
 }
+
+/// Q9 (review 2026-10-28 §3.5 item 2): a failed legacy auto-union is a TYPED
+/// signal on the result, set at the fallback and read by the consumption
+/// bookkeeping; the human-readable warning is never branched on.
+#[cfg(test)]
+mod auto_union_fallback_tests {
+    use super::*;
+    use crate::types::EffectiveCombine;
+    use std::collections::HashSet;
+    use waffle_types::kernel::{KernelSolidHandle, MockKernel};
+
+    fn result_with(warning: Option<&str>, fell_back: bool) -> OpResult {
+        OpResult {
+            outputs: vec![],
+            provenance: modeling_ops::Provenance {
+                created: vec![],
+                deleted: vec![],
+                modified: vec![],
+                role_assignments: vec![],
+            },
+            diagnostics: modeling_ops::Diagnostics {
+                warnings: warning.map(str::to_string).into_iter().collect(),
+                auto_union_fell_back: fell_back,
+                ..Default::default()
+            },
+        }
+    }
+
+    fn consumed_after(result: &OpResult) -> (HashSet<Uuid>, HashMap<Uuid, Vec<Uuid>>) {
+        let mut consumed = HashSet::new();
+        let mut by = HashMap::new();
+        let (feature, target) = (Uuid::new_v4(), Uuid::new_v4());
+        record_consumption(&mut consumed, &mut by, feature, result, vec![target]);
+        (consumed, by)
+    }
+
+    #[test]
+    fn the_warning_text_alone_does_not_suppress_consumption() {
+        let (consumed, by) = consumed_after(&result_with(
+            Some("Auto-union failed: some kernel error. Body created as standalone."),
+            false,
+        ));
+        assert_eq!(consumed.len(), 1, "no flag: the targets are consumed");
+        assert_eq!(by.len(), 1);
+    }
+
+    #[test]
+    fn the_flag_alone_suppresses_consumption() {
+        let (consumed, by) = consumed_after(&result_with(None, true));
+        assert!(consumed.is_empty(), "flag set: the targets stay alive");
+        assert!(by.is_empty());
+    }
+
+    #[test]
+    fn a_failed_legacy_auto_union_sets_the_flag_and_keeps_the_warning_text() {
+        let mut kernel = MockKernel::new();
+        // A target handle the kernel does not hold: the union step errors,
+        // which the legacy path degrades to a standalone body.
+        let missing = KernelSolidHandle::from_raw(9_999_999);
+        let tool = KernelSolidHandle::from_raw(9_999_998);
+        let mut tool_result = result_with(None, false);
+        tool_result.outputs.push((
+            waffle_types::OutputKey::Main,
+            modeling_ops::BodyOutput {
+                handle: tool,
+                mesh: None,
+                edges: None,
+            },
+        ));
+        let eff = EffectiveCombine {
+            mode: CombineMode::Add,
+            targets: TargetStrategy::MostRecentLegacy,
+        };
+        let out = combine::dispatch_combine(
+            &mut kernel,
+            &eff,
+            &[(Uuid::new_v4(), missing)],
+            tool_result,
+            "Extrude",
+        )
+        .expect("a legacy auto-union degrades to a standalone body");
+        assert!(out.diagnostics.auto_union_fell_back);
+        assert!(
+            out.diagnostics
+                .warnings
+                .iter()
+                .any(|w| w.starts_with("Auto-union failed: ")
+                    && w.ends_with(". Body created as standalone.")),
+            "the human-visible text is unchanged: {:?}",
+            out.diagnostics.warnings
+        );
+    }
+}

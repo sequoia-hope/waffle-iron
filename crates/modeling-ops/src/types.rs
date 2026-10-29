@@ -83,6 +83,12 @@ pub struct Diagnostics {
     pub kernel_time_ms: f64,
     /// Time taken for tessellation, in milliseconds.
     pub tessellation_time_ms: f64,
+    /// A legacy auto-union (`merge: true`, most-recent-solid target) failed
+    /// and the tool was kept as a standalone body: the targets it would have
+    /// consumed stay alive. Set where the fallback happens; consumption
+    /// bookkeeping reads THIS, never the human-readable warning that
+    /// accompanies it (review 2026-10-28 §3.5 item 2, remediation Q9).
+    pub auto_union_fell_back: bool,
 }
 
 /// Errors from modeling operations.

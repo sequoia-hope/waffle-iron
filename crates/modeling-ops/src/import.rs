@@ -71,6 +71,7 @@ fn one_body_result(
             warnings,
             kernel_time_ms: 0.0,
             tessellation_time_ms: 0.0,
+            auto_union_fell_back: false,
         },
     }
 }

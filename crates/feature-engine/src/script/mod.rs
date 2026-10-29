@@ -555,13 +555,8 @@ pub(crate) fn execute(
         )
         .map_err(|e| err("child", format!("child {i} ({}): {e}", child.label)))?;
         // A union-failed auto-merge leaves its targets alive; the loop applies
-        // the same rule to a tree feature.
-        let union_failed = result
-            .diagnostics
-            .warnings
-            .iter()
-            .any(|w| w.contains("Auto-union failed"));
-        if !union_failed {
+        // the same rule to a tree feature (the typed flag, never the warning).
+        if !result.diagnostics.auto_union_fell_back {
             for id in consumed_now {
                 if !is_child(&id) {
                     // An OUTER body (a `body` parameter's target): consumed

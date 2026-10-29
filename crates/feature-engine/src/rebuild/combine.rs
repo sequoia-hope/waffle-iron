@@ -488,6 +488,9 @@ pub(super) fn dispatch_combine(
                     // (byte-identical to pre-N-mb-2); an explicit Add propagates.
                     Err(e) if legacy => {
                         let mut result = tool_result;
+                        // The typed signal the consumption bookkeeping reads;
+                        // the warning is for humans (and assay greps) only.
+                        result.diagnostics.auto_union_fell_back = true;
                         result.diagnostics.warnings.push(format!(
                             "Auto-union failed: {}. Body created as standalone.",
                             e
