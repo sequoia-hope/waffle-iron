@@ -969,14 +969,14 @@
 
 	<!-- Snap text label -->
 	{#if snapLabelData}
-		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper">
+		<HTML position={[snapLabelData.world.x, snapLabelData.world.y, snapLabelData.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper" class="snap-html-wrapper">
 			<span class="snap-label">{snapLabelData.text}</span>
 		</HTML>
 	{/if}
 
 	<!-- Live size readout while drawing -->
 	{#if drawReadout}
-		<HTML position={[drawReadout.world.x, drawReadout.world.y, drawReadout.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper">
+		<HTML position={[drawReadout.world.x, drawReadout.world.y, drawReadout.world.z]} center={false} pointerEvents="none" wrapperClass="snap-html-wrapper" class="snap-html-wrapper">
 			<span class="draw-readout" data-testid="sketch-draw-readout">{drawReadout.text}</span>
 		</HTML>
 	{/if}
@@ -1010,7 +1010,11 @@
 
 <style>
 	/* Threlte <HTML> ignores pointerEvents prop in non-transform mode;
-	   force pointer-events: none on the wrapper so clicks pass through to canvas */
+	   force pointer-events: none so clicks and wheel pass through to canvas.
+	   `wrapperClass` alone does not stick in @threlte/extras 9.x (it is set
+	   on the element before `bind:this` swaps it), which left the inner div
+	   hit-testable: the "Origin" snap label at the canvas centre swallowed
+	   wheel zoom. The `class` prop lands on that inner div, so both carry it. */
 	:global(.snap-html-wrapper) {
 		pointer-events: none !important;
 	}
