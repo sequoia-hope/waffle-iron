@@ -195,6 +195,17 @@ pub enum KernelError {
     #[error("operation not supported: {operation}")]
     NotSupported { operation: String },
 
+    /// A caller-supplied argument the kernel refuses before doing any work —
+    /// today a NaN or infinite coordinate, distance, angle or placement entry
+    /// (2026-10-28 review §1.4). `argument` names it (a path into a structure
+    /// where it sits inside one, e.g. `profiles[0].circle.radius`).
+    ///
+    /// The caller's input, never a capability wall: re-author the argument,
+    /// do not wait for a roadmap item. Feature-engine maps it to
+    /// `ErrorKind::InvalidParameter`.
+    #[error("invalid input `{argument}`: {reason}")]
+    InvalidInput { argument: String, reason: String },
+
     #[error("kernel error: {message}")]
     Other { message: String },
 }

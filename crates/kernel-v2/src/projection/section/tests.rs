@@ -320,26 +320,33 @@ fn the_cap_is_symmetric_in_the_sign_of_the_normal() {
 // ---------------------------------------------------------------------------
 
 /// A degenerate plane is refused by name, before any arena work.
+///
+/// A NON-FINITE plane never reaches the section at all since Q11 (2026-10-28
+/// review §1.4): the adapter's finiteness gate answers it as the typed
+/// `InvalidInput` naming the argument. A finite but zero normal is the
+/// section's own refusal, `SectionDegeneratePlane`.
 #[test]
 fn a_degenerate_cut_plane_is_refused() {
+    use waffle_types::kernel::KernelError;
     let mut a = KernelV2Adapter::new();
     let h = make_box(&mut a, 10.0, 6.0, 4.0);
-    for (o, n, what) in [
-        ([0.0, 0.0, 2.0], [0.0, 0.0, 0.0], "zero normal"),
-        ([0.0, 0.0, 2.0], [f64::NAN, 0.0, 1.0], "non-finite normal"),
-        (
-            [0.0, f64::INFINITY, 2.0],
-            [0.0, 0.0, 1.0],
-            "non-finite origin",
-        ),
+    let err = a
+        .section_with_plane(&h, [0.0, 0.0, 2.0], [0.0, 0.0, 0.0])
+        .expect_err("a zero normal has no section");
+    assert!(
+        format!("{err}").contains("SectionDegeneratePlane"),
+        "zero normal must be refused by name, got {err}"
+    );
+    for (o, n, argument) in [
+        ([0.0, 0.0, 2.0], [f64::NAN, 0.0, 1.0], "plane_normal"),
+        ([0.0, f64::INFINITY, 2.0], [0.0, 0.0, 1.0], "plane_origin"),
     ] {
-        let err = a
-            .section_with_plane(&h, o, n)
-            .expect_err("a degenerate plane has no section");
-        assert!(
-            format!("{err}").contains("SectionDegeneratePlane"),
-            "{what} must be refused by name, got {err}"
-        );
+        match a.section_with_plane(&h, o, n) {
+            Err(KernelError::InvalidInput { argument: got, .. }) => {
+                assert!(got.contains(argument), "named `{got}`, want `{argument}`")
+            }
+            other => panic!("a non-finite {argument} must be InvalidInput, got {other:?}"),
+        }
     }
 }
 

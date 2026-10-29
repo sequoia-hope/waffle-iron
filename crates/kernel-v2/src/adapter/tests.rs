@@ -880,3 +880,196 @@ fn a_mesh_backed_import_is_not_exact() {
     let handle = adapter.import_body(&imported_test_data()).expect("import");
     assert!(!adapter.solid_is_exact(&handle));
 }
+
+// ── Q11: non-finite caller geometry is refused at the adapter boundary ──
+//
+// 2026-10-28 review §1.4: a NaN that reaches a cherchi-rs predicate reads as
+// sign `Zero` and then panics converting to a rational — in WASM that kills
+// the engine. The fix is at the DOOR: every entry that takes caller geometry
+// answers a typed `KernelError::InvalidInput` naming the argument, before
+// any arena work.
+
+/// `r` is the typed refusal, and it names `argument`.
+#[track_caller]
+fn assert_refused_as_non_finite<T: std::fmt::Debug>(r: Result<T, KernelError>, argument: &str) {
+    match r {
+        Err(KernelError::InvalidInput {
+            argument: got,
+            reason,
+        }) => {
+            assert!(
+                got.contains(argument),
+                "the refusal must name `{argument}`, named `{got}` ({reason})"
+            );
+            assert!(reason.contains("finite"), "{reason}");
+        }
+        other => panic!("expected InvalidInput naming `{argument}`, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_non_finite_extrude_distance_or_direction_is_a_typed_refusal() {
+    let mut adapter = KernelV2Adapter::new();
+    let face = stage_unit_square(&mut adapter);
+    for depth in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        assert_refused_as_non_finite(adapter.extrude_face(face, [0.0, 0.0, 1.0], depth), "depth");
+    }
+    assert_refused_as_non_finite(
+        adapter.extrude_face(face, [0.0, f64::NAN, 1.0], 1.0),
+        "direction",
+    );
+    // Refused before any work: the staged profile is still there, so the
+    // same face extrudes once the caller sends a finite depth.
+    let solid = adapter
+        .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+        .expect("the refusal consumed nothing");
+    let v = adapter.solid_volume(&solid).expect("volume");
+    assert!((v - 1.0).abs() < 1e-12, "unit cube, got {v}");
+}
+
+#[test]
+fn a_non_finite_profile_point_is_a_typed_refusal() {
+    let mut adapter = KernelV2Adapter::new();
+    let square = |p: (f64, f64)| -> HashMap<u32, (f64, f64)> {
+        [(0, (0.0, 0.0)), (1, (1.0, 0.0)), (2, p), (3, (0.0, 1.0))]
+            .into_iter()
+            .collect()
+    };
+    let profile = ClosedProfile {
+        entity_ids: vec![0, 1, 2, 3],
+        is_outer: true,
+        vertex_ids: vec![0, 1, 2, 3],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    for bad in [(f64::NAN, 1.0), (1.0, f64::INFINITY)] {
+        assert_refused_as_non_finite(
+            adapter.make_faces_from_profiles(
+                std::slice::from_ref(&profile),
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &square(bad),
+            ),
+            "positions[2]",
+        );
+    }
+    // The plane frame is caller geometry too.
+    assert_refused_as_non_finite(
+        adapter.make_faces_from_profiles(
+            std::slice::from_ref(&profile),
+            [f64::NAN, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &square((1.0, 1.0)),
+        ),
+        "plane_origin",
+    );
+    // A circle profile's radius.
+    let circle = ClosedProfile {
+        entity_ids: vec![7],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: Some(waffle_types::kernel::CircleProfile {
+            center_u: 0.0,
+            center_v: 0.0,
+            radius: f64::NAN,
+        }),
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    assert_refused_as_non_finite(
+        adapter.make_faces_from_profiles(
+            &[circle],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &HashMap::new(),
+        ),
+        "circle.radius",
+    );
+}
+
+#[test]
+fn a_non_finite_transform_or_mirror_plane_is_a_typed_refusal() {
+    let mut adapter = KernelV2Adapter::new();
+    let face = stage_unit_square(&mut adapter);
+    let solid = adapter
+        .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+        .expect("box");
+    let mut placement = waffle_types::kernel::RigidPlacement::IDENTITY;
+    placement.translation[1] = f64::NAN;
+    assert_refused_as_non_finite(adapter.transform_body(&solid, &placement), "translation");
+    let mut placement = waffle_types::kernel::RigidPlacement::IDENTITY;
+    placement.rotation[2][0] = f64::INFINITY;
+    assert_refused_as_non_finite(adapter.transform_body(&solid, &placement), "rotation[2]");
+    assert_refused_as_non_finite(
+        adapter.mirror_body(
+            &solid,
+            &waffle_types::kernel::MirrorPlane {
+                point: [0.0, 0.0, 0.0],
+                normal: [f64::NAN, 0.0, 0.0],
+            },
+        ),
+        "normal",
+    );
+}
+
+#[test]
+fn every_other_geometry_door_refuses_a_nan_by_name() {
+    use waffle_types::kernel::KernelProjection;
+    let mut adapter = KernelV2Adapter::new();
+    let face = stage_unit_square(&mut adapter);
+    let solid = adapter
+        .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+        .expect("box");
+
+    let face = stage_unit_square(&mut adapter);
+    assert_refused_as_non_finite(
+        adapter.revolve_face(face, [5.0, 0.0, 0.0], [0.0, 1.0, 0.0], f64::NAN),
+        "angle",
+    );
+    assert_refused_as_non_finite(
+        adapter.section_with_plane(&solid, [0.0, 0.0, f64::NAN], [0.0, 0.0, 1.0]),
+        "plane_origin",
+    );
+    assert_refused_as_non_finite(
+        adapter.pipe(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &[PipePathSegment::Line {
+                a: (0.0, 0.0),
+                b: (1.0, 0.0),
+            }],
+            f64::NAN,
+            None,
+        ),
+        "radius",
+    );
+    assert_refused_as_non_finite(
+        adapter.distance(
+            &MeasureEntity::Solid(solid.clone()),
+            &MeasureEntity::Point([f64::NAN, 0.0, 0.0]),
+            &DistanceOpts::default(),
+        ),
+        "point",
+    );
+    assert_refused_as_non_finite(
+        adapter.mass_properties(&solid, Some(f64::INFINITY)),
+        "density",
+    );
+    assert_refused_as_non_finite(
+        adapter.project(
+            &solid,
+            &ViewFrame {
+                origin: [0.0, 0.0, 0.0],
+                dir: [0.0, 0.0, f64::NAN],
+                up: [0.0, 1.0, 0.0],
+            },
+            &ProjectOpts::default(),
+        ),
+        "dir",
+    );
+}

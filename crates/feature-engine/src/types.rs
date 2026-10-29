@@ -2340,6 +2340,9 @@ impl From<&waffle_types::kernel::KernelError> for ErrorKind {
             K::NotSupported { operation } => ErrorKind::NotSupported {
                 operation: operation.clone(),
             },
+            // The caller's own argument (a NaN distance, an infinite
+            // coordinate): re-author it, the same as any other bad parameter.
+            K::InvalidInput { .. } => ErrorKind::InvalidParameter,
             K::BooleanEmptyResult => ErrorKind::BooleanEmptyResult,
             K::BooleanFailed { .. } => kernel("BooleanFailed"),
             K::FilletFailed { .. } => kernel("FilletFailed"),
@@ -2407,6 +2410,37 @@ impl From<&EngineError> for ErrorKind {
             | EngineError::NameNotFound { name } => ErrorKind::NameRefused { name: name.clone() },
             EngineError::SketchGenerator { .. } => ErrorKind::InvalidParameter,
         }
+    }
+}
+
+#[cfg(test)]
+mod kernel_invalid_input_kind_tests {
+    //! Q11 (2026-10-28 review §1.4): the kernel's typed refusal of a
+    //! non-finite argument reaches a host as `InvalidParameter`, by both doors
+    //! a kernel error enters an `EngineError` through — never as the opaque
+    //! `KernelFailure { kernel: "Other" }` an untyped message would be.
+    use super::*;
+    use waffle_types::kernel::KernelError;
+
+    fn refused() -> KernelError {
+        KernelError::InvalidInput {
+            argument: "extrude_face.depth".to_string(),
+            reason: "NaN is not a finite number".to_string(),
+        }
+    }
+
+    #[test]
+    fn a_non_finite_kernel_argument_is_an_invalid_parameter() {
+        assert_eq!(
+            ErrorKind::from(&EngineError::KernelError(refused())),
+            ErrorKind::InvalidParameter
+        );
+        assert_eq!(
+            ErrorKind::from(&EngineError::OpError(modeling_ops::OpError::Kernel(
+                refused()
+            ))),
+            ErrorKind::InvalidParameter
+        );
     }
 }
 

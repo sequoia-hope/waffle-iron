@@ -71,6 +71,7 @@ use waffle_types::kernel::{
     DEFAULT_DENSITY_KG_M3,
 };
 
+mod finite;
 mod profile_convert;
 use profile_convert::*;
 
@@ -488,6 +489,8 @@ impl Kernel for KernelV2Adapter {
         direction: [f64; 3],
         depth: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::vec3("extrude_face.direction", direction)?;
+        finite::scalar("extrude_face.depth", depth)?;
         let (tag, idx) = decode(face);
         if tag != TAG_PROFILE {
             return Err(KernelError::EntityNotFound { id: face });
@@ -534,6 +537,9 @@ impl Kernel for KernelV2Adapter {
         axis_direction: [f64; 3],
         angle: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::vec3("revolve_face.axis_origin", axis_origin)?;
+        finite::vec3("revolve_face.axis_direction", axis_direction)?;
+        finite::scalar("revolve_face.angle", angle)?;
         let (tag, idx) = decode(face);
         if tag != TAG_PROFILE {
             return Err(KernelError::EntityNotFound { id: face });
@@ -662,6 +668,14 @@ impl Kernel for KernelV2Adapter {
         radius: f64,
         inner_radius: Option<f64>,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::vec3("pipe.plane_origin", plane_origin)?;
+        finite::vec3("pipe.plane_normal", plane_normal)?;
+        finite::vec3("pipe.plane_x_axis", plane_x_axis)?;
+        for (i, seg) in path.iter().enumerate() {
+            finite::pipe_segment(&format!("pipe.path[{i}]"), seg)?;
+        }
+        finite::scalar("pipe.radius", radius)?;
+        finite::opt_scalar("pipe.inner_radius", inner_radius)?;
         // Same frame convention as `make_faces_from_profiles`: y = n × x.
         let n = plane_normal;
         let x = plane_x_axis;
@@ -718,6 +732,8 @@ impl Kernel for KernelV2Adapter {
         section: &SweepSection,
         path: &waffle_types::sketch3d::Chain3d,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::sweep_section("sweep.section", section)?;
+        finite::chain3d("sweep.path", path)?;
         // Same frame convention as `make_faces_from_profiles` and `pipe`:
         // y = n × x. The section is a polygon in that frame's (u, v).
         let n = section.plane_normal;
@@ -776,6 +792,7 @@ impl Kernel for KernelV2Adapter {
         solid: &KernelSolidHandle,
         placement: &waffle_types::kernel::RigidPlacement,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::placement("transform_body.placement", placement)?;
         if self.imported_slot_of(solid).is_some() {
             return Err(Self::not_supported(
                 "transform_body: imported (STEP) mesh-backed body — placing an imported \
@@ -801,6 +818,8 @@ impl Kernel for KernelV2Adapter {
         solid: &KernelSolidHandle,
         plane: &waffle_types::kernel::MirrorPlane,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::vec3("mirror_body.plane.point", plane.point)?;
+        finite::vec3("mirror_body.plane.normal", plane.normal)?;
         if self.imported_slot_of(solid).is_some() {
             return Err(Self::not_supported(
                 "mirror_body: imported (STEP) mesh-backed body — placing an imported \
@@ -824,6 +843,7 @@ impl Kernel for KernelV2Adapter {
         &mut self,
         data: &waffle_types::kernel::ImportedBodyData,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::imported_body("import_body", data)?;
         if data.is_empty() {
             return Err(KernelError::Other {
                 message: "import_body: no faces to import".to_string(),
@@ -868,6 +888,7 @@ impl Kernel for KernelV2Adapter {
         &mut self,
         shell: &waffle_types::kernel::AnalyticShellData,
     ) -> Result<KernelSolidHandle, KernelError> {
+        finite::analytic_shell("import_analytic_shell", shell)?;
         let solid =
             crate::ingest_analytic(&mut self.arena, shell).map_err(|e| KernelError::Other {
                 message: format!("exact ingestion refused: {e}"),
@@ -895,6 +916,12 @@ impl Kernel for KernelV2Adapter {
         bodies: &[StepExportBody],
         file_name: &str,
     ) -> Result<String, KernelError> {
+        for (i, b) in bodies.iter().enumerate() {
+            finite::opt_placement(
+                &format!("export_step_bodies[{i}].placement"),
+                b.placement.as_ref(),
+            )?;
+        }
         let mut solids = Vec::with_capacity(bodies.len());
         for b in bodies {
             // A mesh-backed imported body never entered the exact arena;
@@ -1029,6 +1056,12 @@ impl Kernel for KernelV2Adapter {
         plane_x_axis: [f64; 3],
         positions: &HashMap<u32, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError> {
+        finite::vec3("make_faces_from_profiles.plane_origin", plane_origin)?;
+        finite::vec3("make_faces_from_profiles.plane_normal", plane_normal)?;
+        finite::vec3("make_faces_from_profiles.plane_x_axis", plane_x_axis)?;
+        for (i, profile) in profiles.iter().enumerate() {
+            finite::closed_profile(&format!("make_faces_from_profiles.profiles[{i}]"), profile)?;
+        }
         // Legacy frame convention: y axis = normal × x axis.
         let n = plane_normal;
         let x = plane_x_axis;
@@ -1124,13 +1157,21 @@ impl Kernel for KernelV2Adapter {
                 });
             }
 
+            // Every position the polygon actually reads, checked where it is
+            // read: `keys` may be the profile's own ids or (legacy) every
+            // position the sketch has, and an unread construction point is
+            // not this profile's geometry.
             let pts2: Vec<Point2> = keys
                 .iter()
                 .map(|k| {
                     let (pu, pv) = positions[k];
-                    Point2::new(pu, pv)
+                    finite::uv(
+                        &format!("make_faces_from_profiles.positions[{k}]"),
+                        (pu, pv),
+                    )?;
+                    Ok(Point2::new(pu, pv))
                 })
-                .collect();
+                .collect::<Result<_, KernelError>>()?;
 
             // KV12 Tier 2: if this profile carries arc segments over an
             // authored `vertex_ids` polygon, reconstruct an exact line/arc
@@ -1362,6 +1403,10 @@ impl Kernel for KernelV2Adapter {
         plane_normal: [f64; 3],
         plane_x_axis: [f64; 3],
     ) -> Result<KernelId, KernelError> {
+        finite::vec3("make_face_from_region.plane_origin", plane_origin)?;
+        finite::vec3("make_face_from_region.plane_normal", plane_normal)?;
+        finite::vec3("make_face_from_region.plane_x_axis", plane_x_axis)?;
+        finite::region("make_face_from_region.region", region)?;
         // Legacy frame convention: y axis = normal × x axis (matches
         // make_faces_from_profiles).
         let n = plane_normal;
@@ -2066,6 +2111,11 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
         view: &ViewFrame,
         opts: &ProjectOpts,
     ) -> Result<ViewGeometry, KernelError> {
+        finite::view_frame("view", view)?;
+        finite::opt_scalar("opts.rel_chord_tolerance", opts.rel_chord_tolerance)?;
+        for (i, body) in bodies.iter().enumerate() {
+            finite::opt_placement(&format!("bodies[{i}].placement"), body.placement.as_ref())?;
+        }
         let basis = view.basis().ok_or_else(|| KernelError::Other {
             message: format!(
                 "degenerate view frame: dir {:?}, up {:?} (up must not be parallel to dir)",
@@ -2129,6 +2179,8 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
     ) -> Result<waffle_types::kernel::projection::SectionResult, KernelError> {
+        finite::vec3("section_with_plane.plane_origin", plane_origin)?;
+        finite::vec3("section_with_plane.plane_normal", plane_normal)?;
         use waffle_types::kernel::projection::SectionResult;
         if self.imported_slot_of(solid).is_some() {
             return Err(KernelError::NotSupported {
@@ -2316,9 +2368,14 @@ impl KernelV2Adapter {
                 _ => Err(KernelError::EntityNotFound { id: *id }),
             },
             MeasureEntity::Point(p) => {
+                finite::vec3("distance.point", *p)?;
                 Ok(crate::measure::Target::Point(Point3::new(p[0], p[1], p[2])))
             }
-            MeasureEntity::Axis { .. } => Err(unsupported("an infinite axis")),
+            MeasureEntity::Axis { origin, direction } => {
+                finite::vec3("distance.axis.origin", *origin)?;
+                finite::vec3("distance.axis.direction", *direction)?;
+                Err(unsupported("an infinite axis"))
+            }
         }
     }
 
@@ -2347,6 +2404,9 @@ impl KernelMeasure for KernelV2Adapter {
         b: &MeasureEntity,
         opts: &DistanceOpts,
     ) -> Result<Distance, KernelError> {
+        if let Some(along) = opts.along {
+            finite::vec3("distance.along", along)?;
+        }
         let (ta, tb) = (self.measure_target(a)?, self.measure_target(b)?);
         let r = match opts.along {
             None => crate::measure::distance(&self.arena, ta, tb),
@@ -2432,6 +2492,7 @@ impl KernelMeasure for KernelV2Adapter {
         solid: &KernelSolidHandle,
         density: Option<f64>,
     ) -> Result<MassProperties, KernelError> {
+        finite::opt_scalar("mass_properties.density", density)?;
         if self.imported_slot_of(solid).is_some() {
             return Err(Self::not_supported(
                 "mass properties: a mesh-backed imported body — its triangles live outside the \
@@ -2523,6 +2584,7 @@ impl KernelMeasure for KernelV2Adapter {
         solid: &KernelSolidHandle,
         opts: &ThicknessOpts,
     ) -> Result<Thickness, KernelError> {
+        finite::opt_scalar("thickness.spacing", opts.spacing)?;
         if self.imported_slot_of(solid).is_some() {
             return Err(Self::not_supported(
                 "wall thickness: a mesh-backed imported body — the sampler needs the arena's own \
