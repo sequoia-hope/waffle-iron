@@ -243,6 +243,17 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     //     a typed ERROR instead: the engine should STOP typed at the op that
     //     emptied the model, and until it does nothing downstream is judged.
     if builder.live_solid_handles().is_empty() {
+        // An EMPTY result the meta authored is the right answer, not a hole:
+        // P0023 (two cubes meeting along one edge, Intersect) pins exactly
+        // that its intersection has no volume, `expected_solid_count: 0`. It
+        // is judged by that expectation alone — never by grading a dead body.
+        if meta.oracles.expected_solid_count == Some(0) {
+            return CaseOutcome {
+                id: id.to_string(),
+                category: Category::SupportedCorrect,
+                detail: "empty result, as authored (expected_solid_count 0)".to_string(),
+            };
+        }
         return err_outcome(
             "empty_result: no live solid — the chain consumed every body \
              (e.g. a disjoint Intersect); nothing left to judge"

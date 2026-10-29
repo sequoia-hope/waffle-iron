@@ -111,7 +111,14 @@ fn run_case(k: usize) {
     // stands on nothing. Adjudicate the emptiness itself: the operands are
     // disjoint (up to touching) exactly when vol(A∪B) = vol(A) + vol(B), and
     // the union document IS covered by the independent lattice.
-    if handles.is_empty() && outcome.category == Category::SupportedCorrect {
+    // Since remediation O6, categorize reports a model left with no live
+    // solid as a typed ERROR `empty_result:` instead of grading a dead body.
+    // Here that verdict is acceptable ONLY once the adjudication below proves
+    // the operands really are disjoint.
+    let empty_result = handles.is_empty()
+        && outcome.category == Category::Error
+        && outcome.detail.starts_with("empty_result:");
+    if handles.is_empty() && (outcome.category == Category::SupportedCorrect || empty_result) {
         let (union, refusal) = build_two_body_pair(&scenario, BoolOp::Union);
         assert!(
             refusal.is_none(),
@@ -149,6 +156,8 @@ fn run_case(k: usize) {
     }
     match outcome.category {
         Category::SupportedCorrect | Category::ExpectedError | Category::Unsupported(_) => {}
+        // Adjudicated above: an empty Intersect of disjoint operands.
+        Category::Error if empty_result => {}
         ref other => panic!(
             "{id} ({op:?}): {} — {}\n  document: {waffle}",
             other.label(),

@@ -140,6 +140,33 @@ fn a_disjoint_intersect_is_a_typed_empty_result_not_correct() {
     );
 }
 
+/// O6's other half: an empty result the meta AUTHORS (`expected_solid_count:
+/// 0`, as P0023 does for two cubes meeting along one edge) is the right
+/// answer and stays CORRECT. Caught by the canonical corpus run of
+/// 2026-10-29, which read P0023 as `empty_result` before this branch.
+#[test]
+fn an_authored_empty_result_stays_correct() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude("a", "sk_a", 1.0).unwrap();
+    b.rect_sketch("sk_b", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 5.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude_no_merge("b", "sk_b", 1.0).unwrap();
+    let _ = b.boolean_intersect("i", "a", "b");
+    let waffle = b.save().unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let mut meta = derive_meta("X-authored-empty", &doc).unwrap();
+    meta.oracles.expected_solid_count = Some(0);
+    let outcome = categorize("X-authored-empty", &waffle, &meta);
+    assert_eq!(
+        outcome.category,
+        Category::SupportedCorrect,
+        "{}",
+        outcome.detail
+    );
+}
+
 // ── The search loop (spec §3.3, §9) ──────────────────────────────────────
 
 use std::io::Write as _;
