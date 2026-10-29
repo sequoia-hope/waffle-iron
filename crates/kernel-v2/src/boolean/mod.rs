@@ -461,7 +461,8 @@ pub fn boolean_op(
     let (out_solid, out_face_ids) =
         from_yang_brep_indexed_with_operands(arena, &out, &operand_points, operand_provenance)?;
     // F1 (design review 2026-07-12): PRODUCTION planarity gate for the
-    // assembled boolean output. The debug-only tripwire in `validate_solid`
+    // assembled boolean output. The strict-tier tripwire in `validate_solid`
+    // (debug / `strict-validation` only, compiled out of production)
     // rests on "planar by construction", which is false for yang re-entry —
     // the F0064/R0051 class shipped planar faces with off-plane loop
     // vertices that evaded the (averaged) Newell orientation checks. Loud

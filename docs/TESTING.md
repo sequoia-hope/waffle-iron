@@ -374,13 +374,18 @@ runtime-switchable in a shipped build); the WASM bundle is built from
 `crates/wasm-bridge`, which does not depend on `test-harness`, so it is
 unaffected.
 
-**What the strict tier does NOT check** (corrected 2026-10-29, review
-2026-10-28 §2.1): a PLANAR face's loop vertices are tested against the plane
-only in debug builds, even with `strict-validation` on
-(`crates/kernel-v2/src/validate/faces.rs`, the `cfg!(debug_assertions)`
-block; boolean-output planarity is gated separately by
-`validate_boolean_output_planarity`). And nothing at the harness level puts
-an output vertex on its surface: `categorize` grades the render mesh's
+**Planar faces** (remediation O4, 2026-10-29): until then a PLANAR face's
+loop vertices were tested against the plane only in debug builds, even with
+`strict-validation` on. The check now runs whenever the strict tier compiles
+(`crates/kernel-v2/src/validate/faces.rs`, `validate_planar_face`, band
+`1e-12·(1+‖p‖∞)` floored at the SI5 provenance tier); enabling it moved no
+corpus verdict (360C / 0W / 9E / 5EE / 0T over 374). Release production
+builds still have no planar loop-vertex check in `validate_solid`; their
+planarity walls are `validate_boolean_output_planarity` (yang boolean outputs,
+`TAU_EVAL·(1+‖p‖∞)`) and STEP ingestion's `AnalyticVertexOffSurface`.
+
+**What the strict tier does NOT check** (review 2026-10-28 §2.1): nothing at
+the harness level puts an output vertex on its surface: `categorize` grades the render mesh's
 topology and volume. Corpus case R0099 carried a loop vertex 7.3e-3 off its
 surface and was graded CORRECT until yang-rs's own T8 check caught it on
 2026-10-28. The harness on-surface oracle is remediation plan item O1

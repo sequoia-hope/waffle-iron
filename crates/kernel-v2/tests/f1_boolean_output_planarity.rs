@@ -5,7 +5,8 @@
 //! output can carry a "planar" face whose loop vertices sit measurably off
 //! the face plane while the AVERAGED Newell normal stays inside
 //! `NORMAL_AGREEMENT_TOLERANCE` — production `validate_solid` (orientation
-//! checks only; the coplanarity residual is a `debug_assertions` tripwire)
+//! checks only; the coplanarity residual is a strict-tier tripwire,
+//! compiled only under `debug_assertions` or `strict-validation`)
 //! passed such solids, and the defect surfaced downstream as tessellation
 //! self-intersections.
 //!
