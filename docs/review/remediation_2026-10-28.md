@@ -90,11 +90,11 @@ was signed.
 | Q4 | ✅ Wheel zoom ignores `deltaMode` | §3.4 | Unit test on the normalizer for modes 0/1/2 |
 | Q5 | ✅ Host-mode `viewport_view` drops `frame` | §3.5-3 | Relay test: `frame` reaches the viewer, result says `framed` |
 | Q6 | ✅ SVG export paints are CSS variables | §3.3 | Test parses `export_svg` output and finds no `var(` |
-| Q7 | Section views leak one solid per evaluate | §3.3 | 100 evaluates of a sectioned sheet leave arena and pid counts flat |
-| Q8 | Same bad `filter` is `Internal` in `face_list`, `InvalidArguments` in `entity_list` | §3.5-5 | Tool test on both |
+| Q7 | ✅ Section views leak one solid per evaluate | §3.3 | 100 evaluates of a sectioned sheet leave arena and pid counts flat |
+| Q8 | ✅ Same bad `filter` is `Internal` in `face_list`, `InvalidArguments` in `entity_list` | §3.5-5 | Tool test on both |
 | Q9 | ✅ `rebuild.rs:293-297` decides consumption by matching the text "Auto-union failed" | §3.5-2, §4.1 | Typed flag on the result; the string match deleted |
 | Q10 | ✅ `UnionAll{All}` and `PatternSeeds::All` stay stale under incremental rebuild | §4.1 | Engine test: edit a seed's sketch, union volume changes |
-| Q11 | NaN coordinate reaches a predicate and panics (`orient.rs:145-146`) | §1.4 | Adapter refuses non-finite input with a typed error; test with a NaN extrude distance |
+| Q11 | ✅ NaN coordinate reaches a predicate and panics (`orient.rs:145-146`) | §1.4 | Adapter refuses non-finite input with a typed error; test with a NaN extrude distance |
 | Q12 | ✅ Two dummy `"Loft"` fixtures will collide with the real operation | §3.1 | Renamed to an obviously-fake op name |
 | Q13 | ✅ Doc drift: `FILE_FORMAT.md` says v9 (code writes 15), schema golden titled v5 and CI step says v4, `relay/README.md` tool list, `TESTING.md` strict-tier claim and counts | §4.1, §3.5, §2.1 | Docs match code; no test |
 
@@ -119,6 +119,16 @@ was signed.
 - **Open, optional:** ~20 test-harness readers still match the text
   "Auto-union failed"; the text is unchanged, so they work, but they could
   read the typed `Diagnostics::auto_union_fell_back` flag.
+- **Q11 diagnosis corrected:** on the four entries probed (extrude depth,
+  profile point, transform, revolve angle) a NaN did NOT panic; inner
+  checks refused it with an untyped `KernelError::Other`. No path reaching
+  the cherchi-rs predicate was found. The fix is still the contract the
+  review asked for: every adapter entry taking caller geometry refuses
+  non-finite input as the new typed `KernelError::InvalidInput`.
+- **Q7 side effect (good):** a released section cut rewinds the arena, so
+  re-cutting mints the same pids and section-view cache keys stop drifting.
+- **Open, small:** `test-harness/tests/section_corpus_oracle.rs` does not
+  release its cuts (test-only).
 - **Environment:** `uv` is not installed on the dev box, so
   `scripts/test.sh relay` cannot run locally (the suite runs from
   `relay/.venv`).
@@ -268,3 +278,4 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 | 2026-10-29 | D-1…D-5 adopted; G1 push gate; G7 pruning (disk 90 % → 77 %); D-1/D-2 rules in CLAUDE.md and GEMINI.md | ecbc2bda |
 | 2026-10-29 | G5 cross-browser; Q12 fixture rename; Q13 + G4 doc corrections; G2/G3 test-harness CI job | git log |
 | 2026-10-29 | Q1–Q6 + G6 (app agent, `29a01b92`…`0537b338`); Q9 + Q10 merged with the WASM rebuild | this commit |
+| 2026-10-29 | Q7 + Q8 + Q11 merged (rewrite tier 3605 passed on the kernel content) with the WASM rebuild. **Phase 1 complete.** | this commit |
