@@ -2806,6 +2806,13 @@ fn measure_section(
                 })
                 .collect(),
         });
+        // Q7: the measurement reads the cap, never the cut body, so a body
+        // the kernel minted goes straight back. One kept whole is the input
+        // handle — the model — and stays.
+        if let Some(minted) = cut.cut_solid.filter(|c| c.raw() != handle.raw()) {
+            kb.release_section_cut(&minted)
+                .map_err(feature_engine::types::EngineError::KernelError)?;
+        }
     }
 
     Ok(EngineToUi::SectionMeasured {

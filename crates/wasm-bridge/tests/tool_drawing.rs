@@ -1771,6 +1771,89 @@ fn a_section_whose_plane_keeps_nothing_says_so_rather_than_drawing_the_uncut_par
     );
 }
 
+/// Q7 (2026-10-28 review §3.3): re-evaluating a sheet with a section view
+/// leaves the kernel exactly as big as the first evaluation left it.
+///
+/// `section_with_plane` copies the cut body into the live arena and the
+/// adapter mints a handle for it, and a drawing is re-evaluated on every tab
+/// switch and sheet edit — so without a release every evaluate leaked one
+/// solid, its faces, its journal entry and its range of persistent ids. The
+/// first evaluate builds the part (that growth is the part's, and stays);
+/// every later one must be flat in slots, pids, journal and live handles.
+#[test]
+fn re_evaluating_a_sectioned_sheet_does_not_grow_the_kernel() {
+    let (mut state, mut kernel, part_tab, drawing_tab) = bored_box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front", "placement_mm": [100.0, 100.0] }),
+    )["view_id"]
+        .as_str()
+        .expect("the front view's id")
+        .to_string();
+    let section = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({
+            "tab_id": part_tab,
+            "parent_view_id": front,
+            "section_mm": [-2.0, H * 1000.0 / 2.0, W * 1000.0 + 2.0, H * 1000.0 / 2.0],
+            "label": "A",
+        }),
+    )["view_id"]
+        .as_str()
+        .expect("the section's id")
+        .to_string();
+    let section = Uuid::parse_str(&section).expect("a uuid");
+
+    let drawing = state
+        .session
+        .drawing(&drawing_tab)
+        .expect("a drawing")
+        .clone();
+    let part_trees = state.session.part_trees(&state.engine);
+    let assembly_trees = state.session.assembly_trees();
+    let sources = state.engine.sources.clone();
+    let parameters = state.session.document_parameters().to_vec();
+    let name = state.session.document().name.clone();
+    let mut reuse = state.take_part_engines();
+    let evaluate = |kernel: &mut kernel_v2::KernelV2Adapter, reuse: &mut Vec<_>| {
+        let eval = drawing_view::evaluate(
+            &drawing,
+            drawing_view::DocumentInputs {
+                name: &name,
+                part_trees: &part_trees,
+                assembly_trees: &assembly_trees,
+                sources: &sources,
+                document_parameters: &parameters,
+            },
+            kernel,
+            reuse,
+        );
+        assert!(eval.errors.is_empty(), "{:?}", eval.errors);
+        assert!(
+            eval.layouts.contains_key(&section),
+            "the section view must be drawn on every pass"
+        );
+        // Park the part engines for the next pass, as the host does, so the
+        // passes after the first rebuild nothing.
+        *reuse = eval.parts;
+    };
+
+    evaluate(&mut kernel, &mut reuse);
+    let after_first = kernel.arena_footprint();
+    for _ in 1..100 {
+        evaluate(&mut kernel, &mut reuse);
+    }
+    assert_eq!(
+        kernel.arena_footprint(),
+        after_first,
+        "100 evaluates of a sectioned sheet must leave the arena where the first left it"
+    );
+}
+
 #[test]
 fn a_detail_view_at_two_to_one_doubles_the_paper_length_of_the_same_crop() {
     // A detail is a magnified crop, so the SAME disc at 2:1 must measure

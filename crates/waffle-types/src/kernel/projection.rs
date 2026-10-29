@@ -1634,7 +1634,9 @@ pub trait KernelProjection {
     ///   does not. Never a silent empty section.
     ///
     /// Takes `&mut self` because the cut solid is a new body in the kernel's
-    /// arena: a section produces geometry, unlike [`Self::project`].
+    /// arena: a section produces geometry, unlike [`Self::project`]. A caller
+    /// done with a minted cut hands it back through
+    /// [`Self::release_section_cut`].
     fn section_with_plane(
         &mut self,
         _solid: &KernelSolidHandle,
@@ -1643,6 +1645,26 @@ pub trait KernelProjection {
     ) -> Result<SectionResult, KernelError> {
         Err(KernelError::NotSupported {
             operation: "section_with_plane".to_string(),
+        })
+    }
+
+    /// Give back the cut solid a [`Self::section_with_plane`] minted, once
+    /// the caller has projected or measured it (Q7 of the 2026-10-28
+    /// remediation).
+    ///
+    /// A section's cut body is TRANSIENT — a drawing re-cuts on every
+    /// evaluate — but it lives in the kernel like any other solid, so without
+    /// this every evaluate of a sectioned sheet grew the kernel by one body
+    /// and its range of persistent ids. After release the handle is dead.
+    ///
+    /// Release only a handle that is NOT the input: the "nothing was cut" arm
+    /// hands the input handle back, and that body is the caller's model, not
+    /// a cut. Releasing cuts in the reverse of the order they were made lets
+    /// an implementation reclaim their space outright (kernel-v2 rewinds its
+    /// arena exactly); any order is correct.
+    fn release_section_cut(&mut self, _cut: &KernelSolidHandle) -> Result<(), KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "release_section_cut".to_string(),
         })
     }
 

@@ -39,6 +39,7 @@ use waffle_types::annotation::tolerance::{
 use waffle_types::annotation::{Annotation, DimensionKind, Measured, Placement2};
 use waffle_types::geom_ref::{Anchor, GeomRef, OutputKey, ResolvePolicy, Selector};
 use waffle_types::kernel::projection::{ProjectionBody, ProjectionDeclines, ViewBasis};
+use waffle_types::kernel::KernelSolidHandle;
 
 /// The open drawing tab's last evaluation, minus the drawing itself.
 ///
@@ -1073,6 +1074,8 @@ pub fn evaluate(
                 ..ViewExtras::default()
             };
             let mut bodies = chosen;
+            // This view's transient cut bodies, released once it is drawn.
+            let mut minted: Vec<KernelSolidHandle> = Vec::new();
             if let Projection::Section { .. } = &view.projection {
                 match cut_bodies(view, sheet, drawing, &bodies, kb) {
                     Ok(cut) => {
@@ -1083,6 +1086,7 @@ pub fn evaluate(
                         );
                         extras.hatch = cut.hatch;
                         bodies = cut.bodies;
+                        minted = cut.minted;
                     }
                     Err(message) => {
                         // A section the kernel refused is reported and the
@@ -1160,6 +1164,14 @@ pub fn evaluate(
                 }
                 Err(e) => out.errors.push(describe(view.name.as_str(), &e)),
             }
+            // Everything that reads the cut bodies — the projection, the
+            // anchors, the measured dimensions, the cache key's pid digest —
+            // is done with them by here.
+            out.warnings.extend(
+                release_cuts(&mut minted, kb)
+                    .into_iter()
+                    .map(|w| format!("view `{}`: {w}", view.name)),
+            );
         }
 
         // The title block is filled AFTER this sheet's views, which is what
@@ -1223,6 +1235,32 @@ struct SectionCut {
     bodies: Vec<ProjectionBody>,
     hatch: Vec<HatchLoop>,
     warnings: Vec<String>,
+    /// The cut bodies the kernel MINTED for this view, in the order it made
+    /// them — what [`release_cuts`] hands back once the view is drawn (Q7).
+    /// A body the plane kept whole comes back as its own input handle and is
+    /// not here: it is the model, not a cut.
+    minted: Vec<KernelSolidHandle>,
+}
+
+/// Hand a view's cut bodies back to the kernel, newest first (Q7 of the
+/// 2026-10-28 remediation).
+///
+/// A section view re-cuts on every evaluate, and each cut is a body in the
+/// kernel; without this every tab switch or sheet edit left one behind.
+/// Newest first is the order that lets the kernel rewind its arena outright
+/// rather than kill the body in place. A refusal leaves the body behind —
+/// a leak, not a wrong drawing — so it is a warning naming it, never silent.
+fn release_cuts(minted: &mut Vec<KernelSolidHandle>, kb: &mut dyn KernelBundle) -> Vec<String> {
+    let mut warnings = Vec::new();
+    while let Some(handle) = minted.pop() {
+        if let Err(e) = kb.release_section_cut(&handle) {
+            warnings.push(format!(
+                "the kernel could not release section cut {}: {e}",
+                handle.raw()
+            ));
+        }
+    }
+    warnings
 }
 
 /// Cut `bodies` with the plane the view's cutting line names.
@@ -1270,6 +1308,7 @@ fn cut_bodies(
         bodies: Vec::new(),
         hatch: Vec::new(),
         warnings: Vec::new(),
+        minted: Vec::new(),
     };
     for body in bodies {
         let placement = body.placement;
@@ -1277,9 +1316,15 @@ fn cut_bodies(
             Some(p) => (p.inverse_apply(cut.origin), p.inverse_dir(cut.normal)),
             None => (cut.origin, cut.normal),
         };
-        let section = kb
-            .section_with_plane(&body.handle, origin, normal)
-            .map_err(|e| format!("body `{}` could not be sectioned: {e}", body.name))?;
+        let section = match kb.section_with_plane(&body.handle, origin, normal) {
+            Ok(section) => section,
+            Err(e) => {
+                // The bodies already cut for this view are not drawn, so they
+                // go back now rather than with a view that will never exist.
+                release_cuts(&mut out.minted, kb);
+                return Err(format!("body `{}` could not be sectioned: {e}", body.name));
+            }
+        };
         let Some(handle) = section.cut_solid else {
             // Typed, not an error: the plane keeps none of this body. A
             // multi-body part sectioned at one end legitimately drops the
@@ -1291,6 +1336,9 @@ fn cut_bodies(
             ));
             continue;
         };
+        if handle.raw() != body.handle.raw() {
+            out.minted.push(handle.clone());
+        }
         out.bodies.push(ProjectionBody {
             handle,
             name: body.name.clone(),

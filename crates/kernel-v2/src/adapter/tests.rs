@@ -1073,3 +1073,138 @@ fn every_other_geometry_door_refuses_a_nan_by_name() {
         "dir",
     );
 }
+
+// ── Q7: a section's cut body is released, and the arena rewinds ──────────
+//
+// 2026-10-28 review §3.3: `section_with_plane` copies the cut body into the
+// live arena and a drawing re-cuts on every evaluate, so without a release
+// the arena and the pid space grew by one body per evaluate.
+
+/// A unit cube from the staged unit square.
+fn unit_cube(adapter: &mut KernelV2Adapter) -> KernelSolidHandle {
+    use waffle_types::kernel::Kernel;
+    let face = stage_unit_square(adapter);
+    adapter
+        .extrude_face(face, [0.0, 0.0, 1.0], 1.0)
+        .expect("unit cube")
+}
+
+#[test]
+fn releasing_section_cuts_in_reverse_rewinds_the_arena_exactly() {
+    use waffle_types::kernel::KernelProjection;
+    let mut adapter = KernelV2Adapter::new();
+    let cube = unit_cube(&mut adapter);
+    let before = adapter.arena.clone();
+    let handles_before = adapter.solids.len();
+
+    let lower = adapter
+        .section_with_plane(&cube, [0.0, 0.0, 0.5], [0.0, 0.0, 1.0])
+        .expect("lower half")
+        .cut_solid
+        .expect("material kept");
+    let upper = adapter
+        .section_with_plane(&cube, [0.0, 0.0, 0.5], [0.0, 0.0, -1.0])
+        .expect("upper half")
+        .cut_solid
+        .expect("material kept");
+    assert_ne!(adapter.arena, before, "a cut is a real body while it lives");
+
+    adapter.release_section_cut(&upper).expect("release upper");
+    adapter.release_section_cut(&lower).expect("release lower");
+    // EQUAL, not merely the same size: no slot, no pid, no journal entry and
+    // no face-pid entry is left behind.
+    assert_eq!(adapter.arena, before);
+    assert_eq!(adapter.solids.len(), handles_before);
+    assert!(
+        adapter.solid_volume(&lower).is_err(),
+        "a released cut is dead"
+    );
+    // A second release of the same handle is refused, not a double free.
+    assert!(adapter.release_section_cut(&lower).is_err());
+}
+
+#[test]
+fn the_same_section_cut_twice_mints_the_same_pids() {
+    use waffle_types::kernel::{KernelProjection, TopoKind};
+    // A rewound arena re-cuts into the same pid range — which is what makes a
+    // section view's cache key and its annotation anchors stable across
+    // evaluates rather than drifting by one body's pids every time.
+    let mut adapter = KernelV2Adapter::new();
+    let cube = unit_cube(&mut adapter);
+    let mut cut_pids = || {
+        let cut = adapter
+            .section_with_plane(&cube, [0.0, 0.0, 0.5], [0.0, 0.0, 1.0])
+            .expect("cut")
+            .cut_solid
+            .expect("material kept");
+        let pids: Vec<u64> = adapter
+            .all_entity_pids(&cut, TopoKind::Face)
+            .into_iter()
+            .map(|(_, p)| p.pid)
+            .collect();
+        adapter.release_section_cut(&cut).expect("release");
+        pids
+    };
+    let first = cut_pids();
+    assert!(!first.is_empty());
+    assert_eq!(cut_pids(), first);
+}
+
+#[test]
+fn a_cut_released_out_of_order_is_killed_and_the_other_survives() {
+    use waffle_types::kernel::KernelProjection;
+    let mut adapter = KernelV2Adapter::new();
+    let cube = unit_cube(&mut adapter);
+    let live_before = adapter.arena.solids.iter().flatten().count();
+    let faces_before = adapter.arena.num_faces();
+
+    let lower = adapter
+        .section_with_plane(&cube, [0.0, 0.0, 0.5], [0.0, 0.0, 1.0])
+        .expect("lower")
+        .cut_solid
+        .expect("kept");
+    let upper = adapter
+        .section_with_plane(&cube, [0.0, 0.0, 0.5], [0.0, 0.0, -1.0])
+        .expect("upper")
+        .cut_solid
+        .expect("kept");
+
+    // Out of order: the LOWER cut is not the arena's tail, so it is killed
+    // in place and the upper one is untouched.
+    adapter.release_section_cut(&lower).expect("release lower");
+    assert!(adapter.solid_volume(&lower).is_err());
+    let v = adapter.solid_volume(&upper).expect("upper still lives");
+    assert!(
+        (v - 0.5).abs() < 1e-12,
+        "upper half of a unit cube, got {v}"
+    );
+
+    adapter.release_section_cut(&upper).expect("release upper");
+    assert_eq!(adapter.arena.solids.iter().flatten().count(), live_before);
+    assert_eq!(adapter.arena.num_faces(), faces_before);
+}
+
+#[test]
+fn a_cut_that_keeps_nothing_or_everything_leaves_the_arena_untouched() {
+    use waffle_types::kernel::KernelProjection;
+    let mut adapter = KernelV2Adapter::new();
+    let cube = unit_cube(&mut adapter);
+    let before = adapter.arena.clone();
+
+    // Every point on the discarded side: no material, no body.
+    let none = adapter
+        .section_with_plane(&cube, [0.0, 0.0, -1.0], [0.0, 0.0, 1.0])
+        .expect("a miss is typed");
+    assert!(none.cut_solid.is_none());
+    assert_eq!(adapter.arena, before);
+
+    // Every point on the kept side: the INPUT comes back, and it is the
+    // caller's model — never a releasable cut.
+    let all = adapter
+        .section_with_plane(&cube, [0.0, 0.0, 2.0], [0.0, 0.0, 1.0])
+        .expect("a miss is typed");
+    assert_eq!(all.cut_solid.as_ref().map(|h| h.raw()), Some(cube.raw()));
+    assert_eq!(adapter.arena, before);
+    assert!(adapter.release_section_cut(&cube).is_err());
+    assert!(adapter.solid_volume(&cube).is_ok());
+}

@@ -127,6 +127,18 @@ fn decode_imported(idx: u32) -> (usize, usize) {
 
 // ── Adapter ────────────────────────────────────────────────────────────────
 
+/// [`KernelV2Adapter::arena_footprint`]: slot counts (live and killed alike —
+/// a killed slot is still memory), the next persistent id, the journal
+/// length and the number of live solid handles.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArenaFootprint {
+    pub solid_slots: usize,
+    pub face_slots: usize,
+    pub next_pid: u64,
+    pub journal_len: usize,
+    pub live_handles: usize,
+}
+
 /// Legacy-trait adapter over a kernel-v2 `BrepArena`. See module docs.
 #[derive(Default)]
 pub struct KernelV2Adapter {
@@ -142,12 +154,38 @@ pub struct KernelV2Adapter {
     imported_handles: HashMap<u64, usize>,
     next_staged: u64,
     next_handle: u64,
+    /// Q7: the live section cuts by handle, each with the arena marks that
+    /// let `release_section_cut` rewind it.
+    section_cuts: HashMap<u64, SectionCutMark>,
+}
+
+/// One live section cut: its solid, and where the arena ended just before
+/// and just after it was copied in.
+struct SectionCutMark {
+    solid: SolidId,
+    before: crate::arena::ArenaMark,
+    after: crate::arena::ArenaMark,
 }
 
 impl KernelV2Adapter {
     /// Fresh adapter with an empty arena.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// How much arena and persistent-id space this adapter has used — the
+    /// narrow read a leak test needs (Q7 of the 2026-10-28 remediation: a
+    /// section view minted one solid per drawing evaluate). Concrete-type
+    /// only: it is not on the `Kernel` traits, so no consumer can come to
+    /// depend on the arena's shape through them.
+    pub fn arena_footprint(&self) -> ArenaFootprint {
+        ArenaFootprint {
+            solid_slots: self.arena.solids.len(),
+            face_slots: self.arena.faces.len(),
+            next_pid: self.arena.next_pid,
+            journal_len: self.arena.journal.len(),
+            live_handles: self.solids.len(),
+        }
     }
 
     fn not_supported(operation: &str) -> KernelError {
@@ -2179,15 +2217,21 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
     ) -> Result<waffle_types::kernel::projection::SectionResult, KernelError> {
+        use waffle_types::kernel::projection::SectionResult;
         finite::vec3("section_with_plane.plane_origin", plane_origin)?;
         finite::vec3("section_with_plane.plane_normal", plane_normal)?;
-        use waffle_types::kernel::projection::SectionResult;
         if self.imported_slot_of(solid).is_some() {
             return Err(KernelError::NotSupported {
                 operation: "section_with_plane of an imported mesh-backed body".to_string(),
             });
         }
         let sid = self.solid_of(solid)?;
+        // Q7: the cut body is transient, so where the arena ended BEFORE the
+        // cut is kept with its handle — `release_section_cut` rewinds to it.
+        // Every arm that keeps no new body rewinds right here: a refusal, and
+        // the misses (which still advanced the pid allocator past the scratch
+        // arena's range).
+        let before = self.arena.mark();
         let cut = crate::projection::section::section_with_plane(
             &mut self.arena,
             sid,
@@ -2214,14 +2258,38 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
             other => KernelError::Other {
                 message: format!("kernel-v2 section_with_plane failed: {other}"),
             },
-        })?;
+        });
+        let cut = match cut {
+            Ok(cut) => cut,
+            Err(e) => {
+                self.arena.truncate_to(&before);
+                return Err(e);
+            }
+        };
         // The "nothing was cut" arm hands back the INPUT solid id, so it must
         // hand back the input HANDLE too rather than minting a second handle
         // for the same body.
         let cut_solid = match cut.cut_solid {
-            None => None,
-            Some(s) if s == sid => Some(solid.clone()),
-            Some(s) => Some(self.alloc_handle(s)),
+            None => {
+                self.arena.truncate_to(&before);
+                None
+            }
+            Some(s) if s == sid => {
+                self.arena.truncate_to(&before);
+                Some(solid.clone())
+            }
+            Some(s) => {
+                let handle = self.alloc_handle(s);
+                self.section_cuts.insert(
+                    handle.raw(),
+                    SectionCutMark {
+                        solid: s,
+                        before,
+                        after: self.arena.mark(),
+                    },
+                );
+                Some(handle)
+            }
         };
         Ok(SectionResult {
             cap_loops: cut.cap_loops,
@@ -2229,6 +2297,39 @@ impl waffle_types::kernel::KernelProjection for KernelV2Adapter {
             plane_basis: cut.plane_basis,
             cap_shared_with_model: cut.cap_shared_with_model,
         })
+    }
+
+    /// Q7: drop a cut body [`Self::section_with_plane`] minted.
+    ///
+    /// Released in the reverse of the order the cuts were made, with nothing
+    /// built in between — what every caller does — the arena is REWOUND to
+    /// where it was before the cut, so it compares equal to an arena that was
+    /// never sectioned: no slot, no pid, no journal entry left behind, and
+    /// the next identical section mints the identical pids. Released out of
+    /// that order, the body is killed in place instead
+    /// ([`BrepArena::discard_solid`]): its geometry and its reachability go,
+    /// its slots' length and its spent pids stay.
+    fn release_section_cut(&mut self, cut: &KernelSolidHandle) -> Result<(), KernelError> {
+        let mark = self
+            .section_cuts
+            .remove(&cut.raw())
+            .ok_or_else(|| KernelError::Other {
+                message: format!(
+                    "release_section_cut: handle {} is not a live section cut",
+                    cut.raw()
+                ),
+            })?;
+        self.solids.remove(&cut.raw());
+        if self.arena.mark() == mark.after {
+            self.arena.truncate_to(&mark.before);
+            Ok(())
+        } else {
+            self.arena
+                .discard_solid(mark.solid)
+                .map_err(|e| KernelError::Other {
+                    message: format!("release_section_cut: {e}"),
+                })
+        }
     }
 
     fn export_dxf_with_declines(

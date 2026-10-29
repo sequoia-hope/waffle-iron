@@ -776,6 +776,20 @@ pub struct BrepArena {
     pub face_seed: Option<FaceSeedScope>,
 }
 
+/// The end of a [`BrepArena`]'s append-only state at one moment
+/// ([`BrepArena::mark`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ArenaMark {
+    vertices: usize,
+    half_edges: usize,
+    loops: usize,
+    faces: usize,
+    shells: usize,
+    solids: usize,
+    next_pid: u64,
+    journal: usize,
+}
+
 macro_rules! checked_getters {
     ($get:ident, $get_mut:ident, $vec:ident, $ty:ty, $id:ty, $kind:literal) => {
         /// Checked read access; `Err(InvalidId)` for dead or out-of-range ids.
@@ -860,6 +874,103 @@ impl BrepArena {
         let p = Pid(self.next_pid);
         self.next_pid += 1;
         Ok(p)
+    }
+
+    /// Where the arena's append-only state ends right now: every slot
+    /// vector's length, the pid allocator and the journal length (Q7).
+    ///
+    /// Paired with [`Self::truncate_to`] it undoes a run of pure APPENDS — a
+    /// body copied in, with its pids and its journal entry — and nothing
+    /// else, which is exactly what a section's transient cut body is.
+    pub(crate) fn mark(&self) -> ArenaMark {
+        ArenaMark {
+            vertices: self.vertices.len(),
+            half_edges: self.half_edges.len(),
+            loops: self.loops.len(),
+            faces: self.faces.len(),
+            shells: self.shells.len(),
+            solids: self.solids.len(),
+            next_pid: self.next_pid,
+            journal: self.journal.len(),
+        }
+    }
+
+    /// Drop everything appended since `mark` and rewind the pid allocator to
+    /// it, so the arena compares EQUAL to what it was when `mark` was taken —
+    /// provided the caller only appended in between (Q7).
+    ///
+    /// Sound only for a run of appends with nothing interleaved: the caller
+    /// checks `self.mark() == after` against the mark it took right after
+    /// its own appends, which proves no one else allocated a slot, a pid or a
+    /// journal entry since. Rewinding `next_pid` is then safe — every pid at
+    /// or above the mark named an entity this call deletes — and the face-pid
+    /// map loses exactly the entries keyed by the deleted faces.
+    pub(crate) fn truncate_to(&mut self, mark: &ArenaMark) {
+        self.vertices.truncate(mark.vertices);
+        self.half_edges.truncate(mark.half_edges);
+        self.loops.truncate(mark.loops);
+        self.faces.truncate(mark.faces);
+        self.shells.truncate(mark.shells);
+        self.solids.truncate(mark.solids);
+        self.next_pid = self.next_pid.min(mark.next_pid);
+        self.journal.truncate(mark.journal);
+        let first_dead = FaceId(mark.faces as u32);
+        let _ = self.face_pids.split_off(&first_dead);
+    }
+
+    /// Kill every entity of `solid` in place: its slots become `None` and its
+    /// faces leave the face-pid map (Q7's fallback when a cut body is
+    /// released out of order and [`Self::truncate_to`] does not apply).
+    ///
+    /// For a solid that shares no entity with any other — a body
+    /// [`crate::transform::copy_solid_into`] wrote — and only that. The slot
+    /// vectors keep their length and the pids and journal entry stay spent;
+    /// what is reclaimed is the solid's geometry and its reachability.
+    pub(crate) fn discard_solid(&mut self, solid: SolidId) -> Result<(), KernelV2Error> {
+        let shells = self.solid(solid)?.shells.clone();
+        let mut faces = Vec::new();
+        for &sh in &shells {
+            faces.extend(self.shell(sh)?.faces.iter().copied());
+        }
+        let mut loops = Vec::new();
+        let mut half_edges = Vec::new();
+        let mut vertices = std::collections::BTreeSet::new();
+        for &f in &faces {
+            let face = self.face(f)?;
+            loops.push(face.outer_loop);
+            loops.extend(face.inner_loops.iter().copied());
+        }
+        for &l in &loops {
+            match self.loop_(l)?.boundary {
+                LoopBoundary::Lone(v) => {
+                    vertices.insert(v);
+                }
+                LoopBoundary::Edges(_) => {
+                    for h in self.loop_half_edges(l)? {
+                        vertices.insert(self.half_edge(h)?.origin);
+                        half_edges.push(h);
+                    }
+                }
+            }
+        }
+        for h in half_edges {
+            self.half_edges[h.index()] = None;
+        }
+        for v in vertices {
+            self.vertices[v.index()] = None;
+        }
+        for l in loops {
+            self.loops[l.index()] = None;
+        }
+        for f in faces {
+            self.faces[f.index()] = None;
+            self.face_pids.remove(&f);
+        }
+        for sh in shells {
+            self.shells[sh.index()] = None;
+        }
+        self.solids[solid.index()] = None;
+        Ok(())
     }
 
     /// Install the content seed for the faces the current construct step
