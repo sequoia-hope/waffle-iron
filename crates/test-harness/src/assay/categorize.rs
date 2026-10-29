@@ -235,6 +235,21 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
         ));
     }
 
+    // 3c. No live solid at all (remediation plan O6, prospector spec §8 seed
+    //     2): the chain consumed every body — a disjoint Intersect, an
+    //     engulfing cut. `tessellate_last_bodies_with_tol` below walks back to
+    //     the last feature WITH outputs regardless of consumption, so it would
+    //     grade a dead body and call the document CORRECT. An empty result is
+    //     a typed ERROR instead: the engine should STOP typed at the op that
+    //     emptied the model, and until it does nothing downstream is judged.
+    if builder.live_solid_handles().is_empty() {
+        return err_outcome(
+            "empty_result: no live solid — the chain consumed every body \
+             (e.g. a disjoint Intersect); nothing left to judge"
+                .to_string(),
+        );
+    }
+
     // 4. Tessellate the last solid (scale-adaptive tolerance like the legacy
     //    runner; the adapter's planar tessellation is exact and ignores it).
     let tess_tol = (meta.scale * 0.01).clamp(1e-9, 0.1);

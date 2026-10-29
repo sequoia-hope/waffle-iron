@@ -105,6 +105,41 @@ fn derived_meta_keeps_a_correct_document_correct() {
     );
 }
 
+/// Remediation plan O6 / `specs/assay_prospector.md` §8 (seed 2): a chain
+/// whose last op annihilates every body read SUPPORTED_CORRECT, because the
+/// harness tessellated the last feature WITH outputs — a consumed body. A
+/// disjoint Intersect leaves no live solid; it must get a typed verdict, never
+/// CORRECT.
+#[test]
+fn a_disjoint_intersect_is_a_typed_empty_result_not_correct() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude("a", "sk_a", 1.0).unwrap();
+    b.rect_sketch("sk_b", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 5.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude_no_merge("b", "sk_b", 1.0).unwrap();
+    // The engine may accept the empty Intersect or refuse it; either way
+    // the document is what a prospector candidate would be.
+    let _ = b.boolean_intersect("i", "a", "b");
+    let waffle = b.save().unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let meta = derive_meta("X-disjoint-intersect", &doc).unwrap();
+    let outcome = categorize("X-disjoint-intersect", &waffle, &meta);
+    assert_ne!(
+        outcome.category,
+        Category::SupportedCorrect,
+        "an annihilated chain must not read CORRECT: {}",
+        outcome.detail
+    );
+    assert_eq!(outcome.category, Category::Error, "{}", outcome.detail);
+    assert!(
+        outcome.detail.starts_with("empty_result:"),
+        "typed detail: {}",
+        outcome.detail
+    );
+}
+
 // ── The search loop (spec §3.3, §9) ──────────────────────────────────────
 
 use std::io::Write as _;
