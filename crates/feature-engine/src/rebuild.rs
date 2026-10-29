@@ -237,7 +237,8 @@ pub fn rebuild(
                             || previous_errors.iter().any(|e| e.feature_id == feature.id))
                         || {
                             let (ids, scoped) = scan_references(feature);
-                            (position_moved && (scoped || depends_on_tree_position(feature, tree)))
+                            (position_moved
+                                && (scoped || depends_on_tree_position(feature, tree, sources)))
                                 || ids.iter().any(|id| reran.contains(id))
                         }
                 }
@@ -485,10 +486,41 @@ fn scan_references(feature: &Feature) -> (Vec<Uuid>, bool) {
 /// Whether a feature finds an input by tree position rather than by id, so a
 /// feature re-executed before it can change what it builds: legacy
 /// most-recent-solid and share-a-face targets, through-all depths (measured
-/// against the most recent solid), and sketches with projected points (their
-/// sources are read when the extrude or revolve runs).
-fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree) -> bool {
+/// against the most recent solid), sketches with projected points (their
+/// sources are read when the extrude or revolve runs), and the "everything
+/// before me" selectors — `UnionTargets::All` and `PatternSeeds::All` fold or
+/// pattern every live body before the feature and serialize no UUID for
+/// `scan_references` to find (review 2026-10-28 §4.1, Q10). A `Script` node
+/// depends on position when any child it records does (an argument-less
+/// `union_all()` is `UnionTargets::All` over the OUTER bodies); its children
+/// are only known by recording it, and a script that cannot be recorded is
+/// assumed positional (it re-executes into its own loud error).
+fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree, sources: &SourceStore) -> bool {
     let (eff, sketch_id, through_all) = match &feature.operation {
+        Operation::UnionAll { params } => {
+            return matches!(params.targets, crate::types::UnionTargets::All)
+        }
+        Operation::PatternCircular { params } => {
+            return matches!(params.seeds, crate::types::PatternSeeds::All)
+        }
+        Operation::PatternLinear { params } => {
+            return matches!(params.seeds, crate::types::PatternSeeds::All)
+        }
+        Operation::PatternMirror { params } => {
+            return matches!(params.seeds, crate::types::PatternSeeds::All)
+        }
+        Operation::Script { params } => {
+            let Some(text) = sources.text(params.source_id) else {
+                return true;
+            };
+            return match crate::script::record(&text, params) {
+                Ok(recorded) => recorded
+                    .children
+                    .iter()
+                    .any(|c| depends_on_tree_position(&c.feature, tree, sources)),
+                Err(_) => true,
+            };
+        }
         Operation::Extrude { params } => (
             normalize_extrude_combine(params),
             params.sketch_id,

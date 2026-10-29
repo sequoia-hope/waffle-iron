@@ -354,3 +354,182 @@ fn a_full_rebuild_reexecutes_everything() {
     f.engine.rebuild_from_scratch(&mut f.kernel);
     assert_ne!(handles(&f.engine, f.cut_b), before);
 }
+
+// ── Q10 (review 2026-10-28 §4.1): positional "everything before me" targets ──
+//
+// `UnionAll { All }`, `PatternSeeds::All` and a script's argument-less
+// `union_all()` name no UUID: they fold or pattern every live body before
+// them, found by tree position. Before the fix the dependency predicate
+// answered `false` for them, so editing a seed re-executed the seed while the
+// union/pattern kept its carried (stale) result and re-marked the fresh seed
+// consumed — the stale lump rendered and the fresh body was hidden.
+
+fn union_all_of_everything() -> Operation {
+    Operation::UnionAll {
+        params: UnionAllParams {
+            targets: UnionTargets::All,
+        },
+    }
+}
+
+fn linear_pattern_of_everything() -> Operation {
+    Operation::PatternLinear {
+        params: PatternLinearParams {
+            seeds: PatternSeeds::All,
+            direction: AxisRef::Explicit {
+                origin: [0.0; 3],
+                direction: [1.0, 0.0, 0.0],
+                origin_expr: None,
+            },
+            count: 2,
+            count_expr: None,
+            spacing: 10.0,
+            spacing_expr: None,
+            second: None,
+            skip: vec![],
+            combine: None,
+            targets: None,
+        },
+    }
+}
+
+fn mirror_of_everything() -> Operation {
+    Operation::PatternMirror {
+        params: PatternMirrorParams {
+            seeds: PatternSeeds::All,
+            plane: AxisRef::Explicit {
+                origin: [-10.0, 0.0, 0.0],
+                direction: [1.0, 0.0, 0.0],
+                origin_expr: None,
+            },
+            combine: None,
+            targets: None,
+        },
+    }
+}
+
+/// Add `op` at the end of the frame, edit sketch A (a seed of every
+/// positional feature), and require that `op` re-executed and consumed the
+/// fresh body A.
+fn assert_positional_feature_reruns_after_a_seed_edit(name: &str, op: Operation) {
+    let mut f = frame();
+    let id = f
+        .engine
+        .add_feature(name.into(), op, &mut f.kernel)
+        .unwrap();
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    assert!(f.engine.consumed_features.contains(&f.body_a));
+    let before = handles(&f.engine, id);
+
+    f.engine
+        .edit_feature(f.sketch_a, make_sketch_op(2.0), &mut f.kernel)
+        .unwrap();
+
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    assert_ne!(
+        handles(&f.engine, id),
+        before,
+        "{name}: it finds its inputs by tree position, so a re-executed seed \
+         before it must re-execute it"
+    );
+    assert!(f.engine.consumed_features.contains(&f.body_a));
+}
+
+#[test]
+fn union_all_of_everything_reruns_after_a_seed_edit() {
+    assert_positional_feature_reruns_after_a_seed_edit("Union all", union_all_of_everything());
+}
+
+#[test]
+fn an_all_seeds_linear_pattern_reruns_after_a_seed_edit() {
+    assert_positional_feature_reruns_after_a_seed_edit(
+        "Pattern all",
+        linear_pattern_of_everything(),
+    );
+}
+
+#[test]
+fn an_all_seeds_mirror_reruns_after_a_seed_edit() {
+    assert_positional_feature_reruns_after_a_seed_edit("Mirror all", mirror_of_everything());
+}
+
+/// A script whose only child is an argument-less `union_all()`: it folds the
+/// OUTER bodies before it, again by tree position.
+const UNION_EVERYTHING_SCRIPT: &str = r#"
+// @feature name="Union everything" version=1
+fn feature(ctx, p) {
+    ctx.union_all()
+}
+"#;
+
+fn script_op(source_id: Uuid) -> Operation {
+    Operation::Script {
+        params: ScriptParams {
+            source_id,
+            entry: "feature".into(),
+            args: Default::default(),
+            arg_exprs: Default::default(),
+            arg_values: Default::default(),
+            arg_dimensions: Default::default(),
+        },
+    }
+}
+
+#[test]
+fn a_script_calling_union_all_reruns_after_a_seed_edit() {
+    let mut f = frame();
+    let source = Uuid::new_v4();
+    f.engine
+        .sources
+        .insert_text(source, UNION_EVERYTHING_SCRIPT);
+    let id = f
+        .engine
+        .add_feature("Script union".into(), script_op(source), &mut f.kernel)
+        .unwrap();
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    let before = handles(&f.engine, id);
+
+    f.engine
+        .edit_feature(f.sketch_a, make_sketch_op(2.0), &mut f.kernel)
+        .unwrap();
+
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    assert_ne!(
+        handles(&f.engine, id),
+        before,
+        "the script's union_all() folds every outer body before it"
+    );
+}
+
+/// The other side of the predicate: a script that only BUILDS (names no
+/// outer body, folds nothing) does not depend on tree position, so an
+/// unrelated upstream edit keeps its result.
+const BOX_ONLY_SCRIPT: &str = r#"
+// @feature name="Box" version=1
+fn feature(ctx, p) {
+    let sk = ctx.sketch(#{ origin: [0.0, 0.0, 50.0], normal: [0.0, 0.0, 1.0] });
+    sk.rect(0.0, 0.0, 1.0, 1.0);
+    let r = sk.finish().regions();
+    ctx.extrude(r[0], #{ depth: 1.0 })
+}
+"#;
+
+#[test]
+fn a_script_that_only_builds_keeps_its_result_after_an_upstream_edit() {
+    let mut f = frame();
+    let source = Uuid::new_v4();
+    f.engine.sources.insert_text(source, BOX_ONLY_SCRIPT);
+    let id = f
+        .engine
+        .add_feature("Script box".into(), script_op(source), &mut f.kernel)
+        .unwrap();
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    let before = handles(&f.engine, id);
+
+    f.engine
+        .edit_feature(f.sketch_a, make_sketch_op(2.0), &mut f.kernel)
+        .unwrap();
+
+    assert!(f.engine.errors.is_empty(), "{:?}", f.engine.errors);
+    assert_eq!(handles(&f.engine, id), before);
+}

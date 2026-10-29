@@ -1645,3 +1645,143 @@ mod profile_addressing_tests {
         ));
     }
 }
+
+/// Q10 (review 2026-10-28 §4.1): the "everything before me" selectors serialize
+/// no UUID, so only `depends_on_tree_position` can make an incremental rebuild
+/// re-execute them after an earlier feature re-ran.
+#[cfg(test)]
+mod positional_selector_tests {
+    use super::*;
+    use crate::types::{
+        AxisRef, PatternCircularParams, PatternLinearParams, PatternMirrorParams, PatternSeeds,
+        ScriptParams, UnionAllParams, UnionTargets,
+    };
+
+    fn feature(operation: Operation) -> Feature {
+        Feature {
+            id: Uuid::new_v4(),
+            name: "f".into(),
+            operation,
+            suppressed: false,
+            references: Vec::new(),
+        }
+    }
+
+    fn axis() -> AxisRef {
+        AxisRef::Explicit {
+            origin: [0.0; 3],
+            direction: [0.0, 0.0, 1.0],
+            origin_expr: None,
+        }
+    }
+
+    fn positional(operation: Operation) -> bool {
+        depends_on_tree_position(
+            &feature(operation),
+            &FeatureTree::new(),
+            &SourceStore::new(),
+        )
+    }
+
+    fn patterns(seeds: PatternSeeds) -> [Operation; 3] {
+        [
+            Operation::PatternCircular {
+                params: PatternCircularParams {
+                    seeds: seeds.clone(),
+                    axis: axis(),
+                    count: 2,
+                    count_expr: None,
+                    angle_deg: 360.0,
+                    angle_expr: None,
+                    skip: vec![],
+                    combine: None,
+                    targets: None,
+                },
+            },
+            Operation::PatternLinear {
+                params: PatternLinearParams {
+                    seeds: seeds.clone(),
+                    direction: axis(),
+                    count: 2,
+                    count_expr: None,
+                    spacing: 1.0,
+                    spacing_expr: None,
+                    second: None,
+                    skip: vec![],
+                    combine: None,
+                    targets: None,
+                },
+            },
+            Operation::PatternMirror {
+                params: PatternMirrorParams {
+                    seeds,
+                    plane: axis(),
+                    combine: None,
+                    targets: None,
+                },
+            },
+        ]
+    }
+
+    fn script_params(source_id: Uuid) -> ScriptParams {
+        ScriptParams {
+            source_id,
+            entry: "feature".into(),
+            args: Default::default(),
+            arg_exprs: Default::default(),
+            arg_values: Default::default(),
+            arg_dimensions: Default::default(),
+        }
+    }
+
+    fn script_is_positional(text: &str) -> bool {
+        let mut sources = SourceStore::new();
+        let source_id = Uuid::new_v4();
+        sources.insert_text(source_id, text);
+        let f = feature(Operation::Script {
+            params: script_params(source_id),
+        });
+        depends_on_tree_position(&f, &FeatureTree::new(), &sources)
+    }
+
+    #[test]
+    fn union_all_of_everything_is_positional_and_a_selected_union_is_not() {
+        assert!(positional(Operation::UnionAll {
+            params: UnionAllParams {
+                targets: UnionTargets::All,
+            },
+        }));
+        assert!(!positional(Operation::UnionAll {
+            params: UnionAllParams {
+                targets: UnionTargets::Selected { bodies: vec![] },
+            },
+        }));
+    }
+
+    #[test]
+    fn all_seeds_patterns_are_positional_and_selected_seeds_are_not() {
+        for op in patterns(PatternSeeds::All) {
+            assert!(positional(op.clone()), "{op:?}");
+        }
+        for op in patterns(PatternSeeds::Selected(vec![])) {
+            assert!(!positional(op.clone()), "{op:?}");
+        }
+    }
+
+    #[test]
+    fn a_script_is_positional_exactly_when_a_recorded_child_is() {
+        assert!(script_is_positional(
+            "// @feature name=\"U\" version=1\nfn feature(ctx, p) {\n    ctx.union_all()\n}\n"
+        ));
+        assert!(!script_is_positional(
+            "// @feature name=\"B\" version=1\nfn feature(ctx, p) {\n    \
+             let sk = ctx.sketch(#{ origin: [0.0, 0.0, 0.0], normal: [0.0, 0.0, 1.0] });\n    \
+             sk.rect(0.0, 0.0, 1.0, 1.0);\n    \
+             ctx.extrude(sk.finish().regions()[0], #{ depth: 1.0 })\n}\n"
+        ));
+        // A source the store does not hold cannot be recorded: assume positional.
+        assert!(positional(Operation::Script {
+            params: script_params(Uuid::new_v4()),
+        }));
+    }
+}

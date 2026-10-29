@@ -354,3 +354,171 @@ fn editing_an_unrelated_sketch_keeps_the_cut_on_the_real_kernel() {
         .collect();
     assert_eq!(incremental, scratch);
 }
+
+// ── Q10 (review 2026-10-28 §4.1): positional "everything before me" targets ──
+//
+// `UnionAll { All }` and `PatternSeeds::All` name no UUID: they fold or
+// pattern every live body before them, by tree position. Editing a seed's
+// sketch must re-execute them, and the incremental result must hold the same
+// VOLUME a rebuild from scratch does (a triangle count cannot see a stale body
+// of the same shape class).
+
+/// Total volume of a feature's output bodies, meshed fresh from the kernel.
+fn output_volume(state: &EngineState, kernel: &mut dyn KernelBundle, id: Uuid) -> f64 {
+    state
+        .engine
+        .get_result(id)
+        .unwrap_or_else(|| panic!("no result for {id}: {:?}", state.engine.errors))
+        .outputs
+        .iter()
+        .map(|(_, body)| {
+            mesh_volume(
+                &kernel
+                    .tessellate(&body.handle, 0.0001)
+                    .expect("output body meshes"),
+            )
+        })
+        .sum()
+}
+
+/// Two disjoint boxes, A (`a_side` square) at the origin and B (0.05 square)
+/// at x = 0.2, both 0.02 deep: `(sketch A, body A)`.
+fn two_boxes(state: &mut EngineState, k: &mut dyn KernelBundle, a_side: f64) -> (Uuid, Uuid) {
+    let sketch_a = finish_sketch(
+        state,
+        k,
+        [0.0; 3],
+        [0.0, 0.0, 1.0],
+        rect_profile(0.0, 0.0, a_side, a_side),
+    );
+    let body_a = add(
+        state,
+        k,
+        extrude(sketch_a, 0.02, CombineMode::NewBody, None, None),
+    );
+    let sketch_b = finish_sketch(
+        state,
+        k,
+        [0.2, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        rect_profile(0.0, 0.0, 0.05, 0.05),
+    );
+    add(
+        state,
+        k,
+        extrude(sketch_b, 0.02, CombineMode::NewBody, None, None),
+    );
+    (sketch_a, body_a)
+}
+
+/// Resize sketch A's square to `side`, then return the positional feature's
+/// incremental volume and its volume after a rebuild from scratch.
+fn edit_seed_then_compare(
+    state: &mut EngineState,
+    k: &mut dyn KernelBundle,
+    sketch_a: Uuid,
+    side: f64,
+    positional: Uuid,
+) -> (f64, f64) {
+    let Operation::Sketch { mut sketch } = operation_of(state, sketch_a) else {
+        unreachable!("sketch_a is a sketch");
+    };
+    let (entities, positions, profiles) = rect_profile(0.0, 0.0, side, side);
+    sketch.entities = entities;
+    sketch.solved_positions = positions;
+    sketch.solved_profiles = profiles;
+    dispatch(
+        state,
+        UiToEngine::EditFeature {
+            feature_id: sketch_a,
+            operation: Operation::Sketch { sketch },
+            provenance: None,
+        },
+        k,
+    );
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    let incremental = output_volume(state, k, positional);
+    state.engine.rebuild_from_scratch(k);
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    let scratch = output_volume(state, k, positional);
+    (incremental, scratch)
+}
+
+#[test]
+fn editing_a_seed_sketch_updates_union_all_of_everything() {
+    let mut state = EngineState::new();
+    let mut kernel = new_kernel();
+    let k = kernel.as_mut();
+    let (sketch_a, body_a) = two_boxes(&mut state, k, 0.05);
+    let union = add(
+        &mut state,
+        k,
+        Operation::UnionAll {
+            params: UnionAllParams {
+                targets: UnionTargets::All,
+            },
+        },
+    );
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    let before = output_volume(&state, k, union);
+
+    let (incremental, scratch) = edit_seed_then_compare(&mut state, k, sketch_a, 0.08, union);
+
+    // A 0.08 square instead of a 0.05 one, 0.02 deep: +7.8e-5 m³.
+    assert!(
+        (scratch - before - (0.08f64.powi(2) - 0.05f64.powi(2)) * 0.02).abs() < 1e-9,
+        "the oracle itself sees the edit: before {before}, scratch {scratch}"
+    );
+    assert!(
+        (incremental - scratch).abs() <= 1e-9 * scratch,
+        "the incremental UnionAll {{ All }} must hold the from-scratch volume: \
+         incremental {incremental}, scratch {scratch} (before the edit {before})"
+    );
+    assert!(state.engine.consumed_features.contains(&body_a));
+}
+
+#[test]
+fn editing_a_seed_sketch_updates_an_all_seeds_pattern() {
+    let mut state = EngineState::new();
+    let mut kernel = new_kernel();
+    let k = kernel.as_mut();
+    let (sketch_a, body_a) = two_boxes(&mut state, k, 0.05);
+    let pattern = add(
+        &mut state,
+        k,
+        Operation::PatternLinear {
+            params: PatternLinearParams {
+                seeds: PatternSeeds::All,
+                direction: AxisRef::Explicit {
+                    origin: [0.0; 3],
+                    direction: [0.0, 1.0, 0.0],
+                    origin_expr: None,
+                },
+                count: 2,
+                count_expr: None,
+                spacing: 0.2,
+                spacing_expr: None,
+                second: None,
+                skip: vec![],
+                combine: None,
+                targets: None,
+            },
+        },
+    );
+    assert!(state.engine.errors.is_empty(), "{:?}", state.engine.errors);
+    let before = output_volume(&state, k, pattern);
+
+    let (incremental, scratch) = edit_seed_then_compare(&mut state, k, sketch_a, 0.08, pattern);
+
+    // Two instances of the resized box A: +2 × 7.8e-5 m³.
+    assert!(
+        (scratch - before - 2.0 * (0.08f64.powi(2) - 0.05f64.powi(2)) * 0.02).abs() < 1e-9,
+        "the oracle itself sees the edit: before {before}, scratch {scratch}"
+    );
+    assert!(
+        (incremental - scratch).abs() <= 1e-9 * scratch,
+        "the incremental PatternSeeds::All pattern must hold the from-scratch \
+         volume: incremental {incremental}, scratch {scratch} (before the edit {before})"
+    );
+    assert!(state.engine.consumed_features.contains(&body_a));
+}
