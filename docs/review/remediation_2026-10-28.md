@@ -77,26 +77,51 @@ was signed.
 | G3 | ✅ Sketch oracles in CI — covered by G2 (they are test-harness binaries) | S | Done with G2 |
 | G4 | ✅ Smoke-gate comment corrected (12 scenarios + 153 pins; 9 min 58 s on run 40652494180) | S | Done |
 | G5 | ✅ Firefox and WebKit projects (opt-in `PW_CROSS_BROWSER=1`), allow-fail CI job `gui-fast-cross-browser` | S | Done; first-run failures to triage |
-| G6 | Un-swallow the 37 GUI specs that wrap `waitForEntityCount`/`waitForFeatureCount` in `try/catch`, plus a grep gate in CI that fails on the pattern | S | Grep gate green; newly exposed reds fixed or quarantined with an issue |
+| G6 | ✅ Un-swallow the 37 GUI specs that wrap `waitForEntityCount`/`waitForFeatureCount` in `try/catch`, plus a grep gate in CI that fails on the pattern | S | Grep gate green; newly exposed reds fixed or quarantined with an issue |
 | G7 | ✅ Pruning per D-4; record before/after disk | S | Done: 39 clean, merged agent worktrees and their branches removed; 19 `target/wt-*` dirs, `target/debug/incremental` and `target/debug/deps` files unwritten since 2026-10-20 deleted (none written after 2026-10-27). `target/` 254 GB → 29 GB; disk 90 % → 77 %. Kept: `wt/agy-f2-unzip-decimation`, `wt/f2-step1`, `wt/agy-loft-l1b-kv2`, `canary-y34`, `agent-a77cc34c25ff4072b` (each dirty or unmerged) |
 
 ### Q: verified quick fixes (each S, each with its red-first pin)
 
 | ID | Fix | Review § | Pin |
 |---|---|---|---|
-| Q1 | Right-click Symmetric emits `entity_c`; Rust wants `symmetry_line` | §3.2-1 | GUI spec: symmetric about a line, then a second constraint still solves |
-| Q2 | Circle tool drops radius ≤ 1 mm; slot resets below 1 mm | §3.2-3 | GUI: 0.4 mm-radius circle at mm units, click-click and click-drag |
-| Q3 | Menu "Distance" applies 1.0 m (and `hDist \|\| 1.0`) | §3.2-3 | Unit test: default is the measured current distance |
-| Q4 | Wheel zoom ignores `deltaMode` | §3.4 | Unit test on the normalizer for modes 0/1/2 |
-| Q5 | Host-mode `viewport_view` drops `frame` | §3.5-3 | Relay test: `frame` reaches the viewer, result says `framed` |
-| Q6 | SVG export paints are CSS variables | §3.3 | Test parses `export_svg` output and finds no `var(` |
+| Q1 | ✅ Right-click Symmetric emits `entity_c`; Rust wants `symmetry_line` | §3.2-1 | GUI spec: symmetric about a line, then a second constraint still solves |
+| Q2 | ✅ Circle tool drops radius ≤ 1 mm; slot resets below 1 mm | §3.2-3 | GUI: 0.4 mm-radius circle at mm units, click-click and click-drag |
+| Q3 | ✅ Menu "Distance" applies 1.0 m (and `hDist \|\| 1.0`) | §3.2-3 | Unit test: default is the measured current distance |
+| Q4 | ✅ Wheel zoom ignores `deltaMode` | §3.4 | Unit test on the normalizer for modes 0/1/2 |
+| Q5 | ✅ Host-mode `viewport_view` drops `frame` | §3.5-3 | Relay test: `frame` reaches the viewer, result says `framed` |
+| Q6 | ✅ SVG export paints are CSS variables | §3.3 | Test parses `export_svg` output and finds no `var(` |
 | Q7 | Section views leak one solid per evaluate | §3.3 | 100 evaluates of a sectioned sheet leave arena and pid counts flat |
 | Q8 | Same bad `filter` is `Internal` in `face_list`, `InvalidArguments` in `entity_list` | §3.5-5 | Tool test on both |
-| Q9 | `rebuild.rs:293-297` decides consumption by matching the text "Auto-union failed" | §3.5-2, §4.1 | Typed flag on the result; the string match deleted |
-| Q10 | `UnionAll{All}` and `PatternSeeds::All` stay stale under incremental rebuild | §4.1 | Engine test: edit a seed's sketch, union volume changes |
+| Q9 | ✅ `rebuild.rs:293-297` decides consumption by matching the text "Auto-union failed" | §3.5-2, §4.1 | Typed flag on the result; the string match deleted |
+| Q10 | ✅ `UnionAll{All}` and `PatternSeeds::All` stay stale under incremental rebuild | §4.1 | Engine test: edit a seed's sketch, union volume changes |
 | Q11 | NaN coordinate reaches a predicate and panics (`orient.rs:145-146`) | §1.4 | Adapter refuses non-finite input with a typed error; test with a NaN extrude distance |
 | Q12 | ✅ Two dummy `"Loft"` fixtures will collide with the real operation | §3.1 | Renamed to an obviously-fake op name |
 | Q13 | ✅ Doc drift: `FILE_FORMAT.md` says v9 (code writes 15), schema golden titled v5 and CI step says v4, `relay/README.md` tool list, `TESTING.md` strict-tier claim and counts | §4.1, §3.5, §2.1 | Docs match code; no test |
+
+### Found while doing Phase 1 (not in the review)
+
+- **Fixed:** the sketch right-click menu could not apply anything by mouse
+  (window `pointerdown` cleared the selection first; with Q1); the "Origin"
+  snap label swallowed wheel zoom (`b3b72050`); a third metre floor, the
+  slot's 0.5 m default width (with Q2); `pipeline.spec.js` save/load read the
+  pre-multi-tab document shape (with G6); `Script` nodes whose argument-less
+  `union_all()` is `UnionTargets::All` had the Q10 staleness too, as did
+  `PatternMirror` (with Q10).
+- **Open, red on main before Phase 1** (outside gui-fast): `sketch-constraint-operations.spec.js:72`,
+  `sketch-polyline.spec.js:88`, `sketch-snap-click-bug.spec.js:35` (samples a
+  point 5 m off-screen), `sketch-snap-click-regression.spec.js:292`, five
+  `viewport-advanced.spec.js` zoom/orbit tests.
+- **Open:** drawing specs flake under 2–3 workers with "Execution context was
+  destroyed … navigation" (baseline too; Vite re-optimization suspected, per
+  the Playwright config comment).
+- **Open, small:** the menu's "Length Ratio" applies 1.0 instead of the
+  measured ratio.
+- **Open, optional:** ~20 test-harness readers still match the text
+  "Auto-union failed"; the text is unchanged, so they work, but they could
+  read the typed `Diagnostics::auto_union_fell_back` flag.
+- **Environment:** `uv` is not installed on the dev box, so
+  `scripts/test.sh relay` cannot run locally (the suite runs from
+  `relay/.venv`).
 
 ## 3. Phase 2: make "corpus held" mean geometry (weeks 1–2)
 
@@ -242,3 +267,4 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 | 2026-10-29 | Plan drafted | 373f056a |
 | 2026-10-29 | D-1…D-5 adopted; G1 push gate; G7 pruning (disk 90 % → 77 %); D-1/D-2 rules in CLAUDE.md and GEMINI.md | ecbc2bda |
 | 2026-10-29 | G5 cross-browser; Q12 fixture rename; Q13 + G4 doc corrections; G2/G3 test-harness CI job | git log |
+| 2026-10-29 | Q1–Q6 + G6 (app agent, `29a01b92`…`0537b338`); Q9 + Q10 merged with the WASM rebuild | this commit |
