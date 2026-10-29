@@ -10,6 +10,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 	import { STANDARD_VIEWS, bodiesBoxFor, fitBoxFor, fitDistance } from './framing.js';
+	import { wheelDeltaPixels } from './wheel.js';
 
 	const { scene, renderer, camera } = useThrelte();
 
@@ -264,10 +265,11 @@
 		const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 		const ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-		// Calculate zoom factor from wheel delta
+		// Calculate zoom factor from wheel delta, in PIXELS whatever unit
+		// the browser reported (Firefox sends lines; see wheel.js).
 		// Positive deltaY = scroll down = zoom out; negative = zoom in
 		const zoomSpeed = 0.001;
-		const delta = -e.deltaY * zoomSpeed;
+		const delta = -wheelDeltaPixels(e, rect.height) * zoomSpeed;
 		const zoomFactor = Math.max(0.1, Math.min(10, Math.pow(2, delta)));
 
 		zoomTowardScreenPoint(zoomFactor, ndcX, ndcY);
