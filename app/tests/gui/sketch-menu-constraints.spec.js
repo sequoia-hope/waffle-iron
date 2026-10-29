@@ -92,4 +92,24 @@ test.describe('right-click constraint menu reaches the solver', () => {
 		expect(await page.evaluate(() => window.__waffle.getFailedConstraintIndices())).toEqual([]);
 	});
 
+	test('Distance on a point and a line applies the measured distance, not 1 m', async ({ waffle }) => {
+		const page = waffle.page;
+		const { a, b } = await twoLines(page);
+		const before = await positions(page);
+		const s = before[a.start_id], e = before[a.end_id], p = before[b.start_id];
+		const measured = Math.abs((p.x - s.x) * (e.y - s.y) - (p.y - s.y) * (e.x - s.x)) / Math.hypot(e.x - s.x, e.y - s.y);
+
+		await applyFromMenu(page, [a.id, b.start_id], 'Distance');
+		await waitForConstraintCount(page, 1, 3000);
+		const c = (await getConstraints(page))[0];
+		expect(c.type).toBe('PointLineDistance');
+		expect(Math.abs(c.value - measured) / measured, `applied ${c.value} vs measured ${measured}`).toBeLessThan(1e-9);
+
+		// The solve runs; geometry must not move.
+		await page.waitForTimeout(500);
+		const after = await positions(page);
+		for (const id of [a.start_id, a.end_id, b.start_id]) {
+			expect(Math.hypot(after[id].x - before[id].x, after[id].y - before[id].y), `point ${id} moved`).toBeLessThan(1e-7);
+		}
+	});
 });

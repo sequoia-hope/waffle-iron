@@ -105,3 +105,27 @@ test('the bridge lowers UI-only spellings', () => {
 		expect(wireProblems(mapConstraintForBridge(c)), JSON.stringify(c)).toEqual([]);
 	}
 });
+
+// Q3 (REVIEW.md §3.2-3): a menu/toolbar dimension applies the geometry's
+// CURRENT value, so applying it moves nothing. It used to apply 1.0 m for
+// point–line Distance, and `|| 1.0` turned a measured 0 into 1 m.
+test('dimension builders default to the measured value', () => {
+	const pl = getApplicableConstraints(new Set([3, 10]), entities, positions);
+	const s = positions.get(1), e = positions.get(2), p = positions.get(3);
+	const measured = Math.abs((p.x - s.x) * (e.y - s.y) - (p.y - s.y) * (e.x - s.x)) / Math.hypot(e.x - s.x, e.y - s.y);
+	for (const name of ['distance', 'pointLineDistance']) {
+		const c = pl[name]();
+		expect(c.type, name).toBe('PointLineDistance');
+		expect(Math.abs(c.value - measured), `${name}: ${c.value} vs ${measured}`).toBeLessThan(1e-15);
+	}
+
+	const pp = getApplicableConstraints(new Set([3, 4]), entities, positions);
+	expect(pp.hDistance().value).toBeCloseTo(0.03, 15);
+	expect(pp.vDistance().value).toBeCloseTo(0.03, 15);
+
+	// Vertically aligned points: the horizontal distance IS zero.
+	const aligned = new Map(positions);
+	aligned.set(4, { x: -0.01, y: 0.05 });
+	const z = getApplicableConstraints(new Set([3, 4]), entities, aligned);
+	expect(z.hDistance().value).toBe(0);
+});

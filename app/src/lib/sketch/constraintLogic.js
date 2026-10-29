@@ -86,20 +86,14 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 		// (Line form emits { type:'Horizontal', entity } in the 1-line branch.)
 		result.horizontal = () => ({ type: 'HorizontalPoints', point_a: points[0].id, point_b: points[1].id });
 		result.vertical = () => ({ type: 'VerticalPoints', point_a: points[0].id, point_b: points[1].id });
-		result.hDistance = () => {
-			const pA = positions.get(points[0].id);
-			const pB = positions.get(points[1].id);
-			let hDist = 1.0;
-			if (pA && pB) hDist = Math.abs(pB.x - pA.x);
-			return { type: 'HDistance', point_a: points[0].id, point_b: points[1].id, value: hDist || 1.0 };
-		};
-		result.vDistance = () => {
-			const pA = positions.get(points[0].id);
-			const pB = positions.get(points[1].id);
-			let vDist = 1.0;
-			if (pA && pB) vDist = Math.abs(pB.y - pA.y);
-			return { type: 'VDistance', point_a: points[0].id, point_b: points[1].id, value: vDist || 1.0 };
-		};
+		// The measured offsets — a measured 0 included (it used to become
+		// 1.0 m via `|| 1.0`). Not offered when the points cannot be measured.
+		const pA = positions.get(points[0].id);
+		const pB = positions.get(points[1].id);
+		if (pA && pB) {
+			result.hDistance = () => ({ type: 'HDistance', point_a: points[0].id, point_b: points[1].id, value: Math.abs(pB.x - pA.x) });
+			result.vDistance = () => ({ type: 'VDistance', point_a: points[0].id, point_b: points[1].id, value: Math.abs(pB.y - pA.y) });
+		}
 	}
 
 	// 2 lines
@@ -135,22 +129,21 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 	if (points.length === 1 && lines.length === 1 && circles.length === 0 && arcs.length === 0) {
 		result.midpoint = () => ({ type: 'Midpoint', point: points[0].id, line: lines[0].id });
 		result.pointOnLine = () => ({ type: 'OnEntity', point: points[0].id, entity: lines[0].id });
-		result.pointLineDistance = () => {
-			// Compute actual perpendicular distance
-			const pos = positions.get(points[0].id);
-			const p1 = positions.get(lines[0].start_id);
-			const p2 = positions.get(lines[0].end_id);
-			let dist = 1.0;
-			if (pos && p1 && p2) {
-				const lx = p2.x - p1.x, ly = p2.y - p1.y;
-				const lLen = Math.sqrt(lx * lx + ly * ly);
-				if (lLen > 1e-10) {
-					dist = Math.abs((pos.x - p1.x) * ly - (pos.y - p1.y) * lx) / lLen;
-				}
-			}
-			return { type: 'PointLineDistance', point: points[0].id, entity: lines[0].id, value: parseFloat(dist.toFixed(4)) };
-		};
-		result.distance = () => ({ type: 'PointLineDistance', point: points[0].id, entity: lines[0].id, value: 1.0 });
+		// The CURRENT perpendicular distance, unrounded, so applying the
+		// dimension moves nothing (REVIEW.md §3.2-3: "Distance" used to apply
+		// 1.0 m, and this path rounded to 0.1 mm). Not offered when the
+		// geometry cannot be measured.
+		const pos = positions.get(points[0].id);
+		const p1 = positions.get(lines[0].start_id);
+		const p2 = positions.get(lines[0].end_id);
+		const lx = p2 && p1 ? p2.x - p1.x : 0, ly = p2 && p1 ? p2.y - p1.y : 0;
+		const lLen = Math.sqrt(lx * lx + ly * ly);
+		if (pos && p1 && p2 && lLen > 1e-10) {
+			const dist = Math.abs((pos.x - p1.x) * ly - (pos.y - p1.y) * lx) / lLen;
+			const build = () => ({ type: 'PointLineDistance', point: points[0].id, entity: lines[0].id, value: dist });
+			result.pointLineDistance = build;
+			result.distance = build;
+		}
 	}
 
 	// 1 point + 1 circle
