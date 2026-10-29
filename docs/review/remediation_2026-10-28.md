@@ -139,15 +139,53 @@ Blocks F2's first retirement (see §0 point 2).
 
 | ID | Item | Effort | Done when |
 |---|---|---|---|
-| O1 | Harness on-surface oracle in `categorize`: every output loop vertex within the band of its own face's surface and of every adjacent face's surface, read through `KernelIntrospect` plus a surface accessor. Lands **record-only** first: one full corpus run census, then promoted to a verdict | S–M | R0099 at the pre-T8 commit categorizes WRONG; census of the current corpus recorded in `docs/yang_tail_triage.md` before promotion |
-| O2 | Exact-versus-mesh volume: `kernel_v2::mass::solid_volume` against `mesh_signed_volume` within the chord band | S | Pin: an inverted patch below 0.5 % of body volume categorizes WRONG |
+| O1 | ✅ Harness on-surface oracle in `categorize`: every output loop vertex within the band of its own face's surface and of every adjacent face's surface, read through `KernelIntrospect` plus a surface accessor. Lands **record-only** first: one full corpus run census, then promoted to a verdict | S–M | R0099 at the pre-T8 commit categorizes WRONG; census of the current corpus recorded in `docs/yang_tail_triage.md` before promotion |
+| O2 | ◐ record-only: Exact-versus-mesh volume: `kernel_v2::mass::solid_volume` against `mesh_signed_volume` within the chord band | S | Pin: an inverted patch below 0.5 % of body volume categorizes WRONG |
 | O3 | `oracle::check_mesh_on_surfaces`: render vertices on their surface, centroids within tessellation tolerance | M | Wired into `categorize` after O1 |
-| O4 | Strict validation tier tests planar loop vertices in release too (`validate/faces.rs:158-175`), and the cylinder lateral's inner loops | S | Or the doc says exactly what the tier checks; decide in the commit |
-| O5 | Wire `volume_monotonicity` through `truncate_ops` prefix replays in the full run | M | A meta that violates it categorizes WRONG |
-| O6 | Annihilated chain: a disjoint Intersect categorizes as a typed verdict, not CORRECT | S | `tests/prospect.rs` pin |
-| O7 | Determinism tests compare a canonical geometry hash across three runs and `cherchi-rs/parallel` on/off | S | Both determinism binaries upgraded |
-| O8 | Always-on `assay_metamorphic.rs` (rigid motion, inclusion–exclusion, commutativity on the 12 smoke scenarios plus ~20 cheap cases) and `assay_generative_pairs.rs` (20 two-body `strats_v2` cases) | S–M | In G2's job |
-| O9 | Prospector dedupes by failure *site* rather than text (`prospect/mod.rs:343-375`) | S | Two cases with one site and different text collapse |
+| O4 | ✅ Strict validation tier tests planar loop vertices in release too (`validate/faces.rs:158-175`), and the cylinder lateral's inner loops | S | Or the doc says exactly what the tier checks; decide in the commit |
+| O5 | ◐ record-only: Wire `volume_monotonicity` through `truncate_ops` prefix replays in the full run | M | A meta that violates it categorizes WRONG |
+| O6 | ✅ Annihilated chain: a disjoint Intersect categorizes as a typed verdict, not CORRECT | S | `tests/prospect.rs` pin |
+| O7 | ✅ Determinism tests compare a canonical geometry hash across three runs and `cherchi-rs/parallel` on/off | S | Both determinism binaries upgraded |
+| O8 | ✅ Always-on `assay_metamorphic.rs` (rigid motion, inclusion–exclusion, commutativity on the 12 smoke scenarios plus ~20 cheap cases) and `assay_generative_pairs.rs` (20 two-body `strats_v2` cases) | S–M | In G2's job |
+| O9 | ✅ Prospector dedupes by failure *site* rather than text (`prospect/mod.rs:343-375`) | S | Two cases with one site and different text collapse |
+
+### Phase 2 results (2026-10-29)
+
+- **Canonical corpus is now 357C / 3W / 9E / 5EE / 0T over 374.** The three
+  WRONG cases are not regressions: R0015, R0026 and R0050 always shipped
+  `LineSegment` chords bounding torus or cylinder faces (ledger N100 item 3,
+  the `recover.rs` bail). O1 made them visible. Under CLAUDE.md's rule a
+  WRONG preempts other kernel work, so they now outrank F2's next step.
+- **O1 band** came from a record-only census: 357 clean cases ≤ 3.5e-10 of
+  scale, the three defects ≥ 1.4e-3; band = Yang's d_p = 1e-7 relative.
+  Red first: R0099 at the pre-T8 commit reads 3.39e-2 m off.
+- **O2 stays record-only.** Its reading now carries the chord bound
+  `|mesh − exact| / (tol · area)`. Over the 208 measurable CORRECT cases, two
+  exceed 1: **F0054 (7.3)** and R0042 (1.01) — to investigate. **148 of 356
+  CORRECT cases cannot be measured** (exact volume or area unavailable,
+  e.g. torus faces): an integrator coverage gap.
+- **O5 stays record-only.** 1,016 steps checked, 47 not covered, **35
+  violations, every one a step whose exact volume did not change at all**,
+  all in R-series generated metas. The lattice already agrees with the
+  kernel's volume on these, so the likely fault is the generator's authored
+  direction for ops that miss the body. Next: adjudicate each against the
+  exact-membership chain before any verdict.
+- **O6** caught an annihilated chain; the canonical run then showed P0023
+  (two cubes meeting on an edge, `expected_solid_count: 0`) needs its empty
+  result read as authored — fixed and pinned.
+- **O4:** planar loop vertices are now checked in release under
+  `strict-validation`; no verdict moved (agent's own full corpus run).
+- **O7/O8 findings (quarantined with `#[ignore = "FINDING …"]`):** P0023's
+  touching operands fail `boolean_union` with `InvalidBooleanOutput` in both
+  orders; the exact-membership lattice disagrees with the kernel under rigid
+  motion on C0059 and C0061 (the known rotation-dependence of the lattice on
+  revolves). No non-determinism anywhere, serial or `cherchi-rs/parallel`.
+- **O9:** findings regroup 64 → 53 across seeds 2–5. The true raising site
+  never reaches the harness (errors arrive as strings); carrying it needs a
+  typed site on the kernel error — a kernel change, not done here.
+- **Not done in O4:** the cylinder lateral's inner-loop check.
+- Agents in isolated worktrees cannot use `reserve -m sequoia-server` (their
+  worktree guard refuses commands that run git in another checkout).
 
 **Policy note for the roadmap's scoreboard:** once O1 is a verdict,
 "corpus held" means category *and* on-surface; the roadmap's §2 gets one line
@@ -279,3 +317,4 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 | 2026-10-29 | G5 cross-browser; Q12 fixture rename; Q13 + G4 doc corrections; G2/G3 test-harness CI job | git log |
 | 2026-10-29 | Q1–Q6 + G6 (app agent, `29a01b92`…`0537b338`); Q9 + Q10 merged with the WASM rebuild | this commit |
 | 2026-10-29 | Q7 + Q8 + Q11 merged (rewrite tier 3605 passed on the kernel content) with the WASM rebuild. **Phase 1 complete.** | this commit |
+| 2026-10-29 | Phase 2: O1, O4, O6–O9 landed; O2, O5 record-only; corpus 357C/3W/9E/5EE/0T (N100 item 3 now measured) | this commit |
