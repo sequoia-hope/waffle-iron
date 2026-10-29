@@ -9194,7 +9194,7 @@
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": true,
-  "description": "Owned mirror of the v5 envelope for schema derivation.",
+  "description": "Owned mirror of the file envelope for schema derivation. (The golden\nkeeps its historical name `waffle-v5.schema.json`, the version it was\nfirst generated at; its content tracks the current format.)",
   "properties": {
     "active_tab": {
       "description": "Id of the tab open when saved; must name a tab.",
@@ -9229,7 +9229,7 @@
       "type": "array"
     },
     "version": {
-      "description": "Format version (5).",
+      "description": "Format version: the writer's `FORMAT_VERSION` (`save.rs`).",
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
@@ -9243,6 +9243,6 @@
     "tabs",
     "active_tab"
   ],
-  "title": "Waffle Iron .waffle document (format v5)",
+  "title": "Waffle Iron .waffle document",
   "type": "object"
 }

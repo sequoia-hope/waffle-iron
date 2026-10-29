@@ -119,7 +119,8 @@ jobs:
       - name: Render-view parity (release)
         run: cargo test --release -p wasm-bridge --test render_view_parity
 
-      # The .waffle v4 JSON Schema golden (docs/schema/waffle-v4.schema.json)
+      # The .waffle JSON Schema golden (docs/schema/waffle-v5.schema.json — the
+      # name is the version it was first generated at; it tracks FORMAT_VERSION)
       # is generated from the Rust types behind an off-by-default feature;
       # this step fails when the committed schema is stale or when a repo
       # .waffle file (assay corpus, fixtures, samples) stops validating.
@@ -138,8 +139,12 @@ jobs:
         run: cargo test -p waffle-types --features json-schema --test annotation_schema_golden
 
       # RELEASE, matching `scripts/test.sh` (corpus replay is release-only
-      # policy, docs/TESTING.md): the gate replays 100 pinned corpus cases
-      # sequentially, and unoptimized they burn ~4.5× the CPU. In debug the
+      # policy, docs/TESTING.md): the gate runs 12 synthetic smoke_* scenarios
+      # and replays 153 pinned corpus cases (smoke_corpus_boundary_categories,
+      # 300 s CPU runaway guard per case), and unoptimized they burn ~4.5× the
+      # CPU. Measured 2026-10-28 (run 40652494180): 9 min 58 s for this step
+      # including the test-harness compile. Figures below are the 2026-09-29
+      # history that moved it to release, when the gate pinned 100 cases. In debug the
       # step took 36 min on a quiet runner (run 36550869201) and on a loaded
       # one ran past the job's 120-minute bound five pushes out of six on
       # 2026-09-29 (runs 36506402663 … 36618859145 — every one cancelled

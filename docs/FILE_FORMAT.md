@@ -1,6 +1,6 @@
 # The `.waffle` File Format — Specification
 
-**Format version: 9** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`; the
+**Format version: 15** (`FORMAT_VERSION`, `crates/file-format/src/save.rs`; the
 version history is §4)
 **Spec written:** 2026-08-28 (v3), from the code as it exists on `main`; **v4
 section added 2026-09-07.** This document is *descriptive of the current

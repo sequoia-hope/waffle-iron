@@ -65,7 +65,7 @@ Quick smoke tests for sketch drawing, UI chrome, and basic interactions:
 - Dimension input and constraints
 - Basic viewport interactions
 
-### GUI Full (~55 spec files, <5min)
+### GUI Full (every spec file — 230 on 2026-10-29)
 
 Everything in GUI Fast, plus heavy workflow and infrastructure specs:
 
@@ -328,7 +328,7 @@ compute load. Run it in `--release`.** The recurring "the sandbox can't run the
 assay cleanly" belief is a **debug-mode artifact**, not a real limitation — see
 the "why it's reliable" note below.
 
-The corpus is 295 cases. The runner is the `#[ignore]`d
+The corpus is 374 cases (canonical run of 2026-10-25). The runner is the `#[ignore]`d
 `full_corpus_categorized` test in `crates/test-harness/tests/assay_kv2.rs`; it
 prints the category table (CORRECT / WRONG / ERROR / UNSUPPORTED / …) and writes
 `target/assay_kv2_report.json` + the committed `app/tests/cases/assay/results.json`.
@@ -373,6 +373,19 @@ not an env var, per the probe-registry policy (validation strength must not be
 runtime-switchable in a shipped build); the WASM bundle is built from
 `crates/wasm-bridge`, which does not depend on `test-harness`, so it is
 unaffected.
+
+**What the strict tier does NOT check** (corrected 2026-10-29, review
+2026-10-28 §2.1): a PLANAR face's loop vertices are tested against the plane
+only in debug builds, even with `strict-validation` on
+(`crates/kernel-v2/src/validate/faces.rs`, the `cfg!(debug_assertions)`
+block; boolean-output planarity is gated separately by
+`validate_boolean_output_planarity`). And nothing at the harness level puts
+an output vertex on its surface: `categorize` grades the render mesh's
+topology and volume. Corpus case R0099 carried a loop vertex 7.3e-3 off its
+surface and was graded CORRECT until yang-rs's own T8 check caught it on
+2026-10-28. The harness on-surface oracle is remediation plan item O1
+(`docs/review/remediation_2026-10-28.md`); until it lands, "corpus held"
+certifies set topology and volume, not geometry.
 
 Enabling it moved **three** cases that had been silently passing —
 F0083, R0027 (a `revolve`, not a boolean), R0099 — from SUPPORTED_CORRECT to a

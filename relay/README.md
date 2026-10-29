@@ -5,8 +5,12 @@ It is an MCP server on stdio for a local agent, and a WebSocket server for
 exactly one paired Waffle Iron browser tab. It holds no modeling logic: every
 page tool call is forwarded to the page, which runs it against its own engine.
 
-Phase 0 (spike): connection tools `waffle_connect` / `waffle_status` and one
-page tool, `model_summary`.
+Tools: the two connection tools `waffle_connect` / `waffle_status`, plus
+every page tool in the bundled manifest
+(`src/waffle_mcp_relay/agent-tools.manifest.json`, generated from the
+engine's Rust types by `app/scripts/gen-agent-manifest.mjs`) — sketching,
+features, scripts, patterns, tabs, assemblies, drawings, measurement,
+inspection, export, the viewport and the document store.
 
 ## Running
 
@@ -58,8 +62,11 @@ instead of a paired browser tab (`specs/waffle_server_mode.md` §3.5). Every
 engine tool (sketching, features, scripts, patterns, export, …) works with
 no page open; documents live as `.waffle` files in `--documents DIR`
 (default `$XDG_DATA_HOME/waffle-iron/documents`) and exports land in
-`DIR/exports/`. The tools that need a page — the viewport, selection, and
-for now the tab and assembly tools — are not listed in this mode.
+`DIR/exports/`. The relay lists exactly the tools the host's `ready` frame
+says it serves (`server.py::_all_tools`), so an agent never sees a name that
+would only answer `HostCapability`. The viewport tools are served through a
+viewer link (`waffle_connect` returns one in this mode); they need that
+link open in a visible, focused browser tab, and the browser runs no engine.
 
 ```
 cargo build -p waffle-host --release

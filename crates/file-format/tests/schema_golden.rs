@@ -61,9 +61,9 @@ fn schema_is_current() {
 }
 
 #[test]
-fn schema_has_the_v4_shape() {
+fn schema_has_the_envelope_shape() {
     let schema = waffle_file_schema();
-    assert_eq!(schema["title"], "Waffle Iron .waffle document (format v5)");
+    assert_eq!(schema["title"], "Waffle Iron .waffle document");
     let required = schema["required"].as_array().unwrap();
     for key in [
         "format",
