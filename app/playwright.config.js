@@ -60,6 +60,26 @@ export default defineConfig({
 			},
 			testDir: './tests/gui/mobile',
 		},
+		// Cross-browser projects (remediation plan G5, 2026-10-29): Firefox and
+		// WebKit had never run a spec. Opt-in via PW_CROSS_BROWSER=1 so a plain
+		// local `test.sh gui-fast` does not demand browsers that are not
+		// installed; CI's allow-fail `gui-fast-cross-browser` job sets it. The
+		// top-level launchOptions are Chromium/ANGLE flags, so both projects
+		// clear them.
+		...(process.env.PW_CROSS_BROWSER === '1'
+			? [
+					{
+						name: 'firefox',
+						use: { browserName: 'firefox', launchOptions: { args: [] } },
+						testIgnore: '**/mobile/**',
+					},
+					{
+						name: 'webkit',
+						use: { browserName: 'webkit', launchOptions: { args: [] } },
+						testIgnore: '**/mobile/**',
+					},
+				]
+			: []),
 	],
 	webServer: {
 		command: 'npm run dev',

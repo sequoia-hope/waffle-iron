@@ -539,7 +539,11 @@ run_gui_fast() {
   # No mem_guard here: Chromium's V8 sandbox reserves ~1TB of VIRTUAL address
   # space per process, so any prlimit --as cap kills the browser at launch
   # (every test then times out at the fixture). mem_guard is for cargo only.
-  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${spec_args[@]}") || rc=$?
+  # PW_PROJECTS (space-separated) narrows the run to named Playwright projects,
+  # e.g. PW_CROSS_BROWSER=1 PW_PROJECTS="firefox webkit" (remediation plan G5).
+  local project_args=()
+  for p in ${PW_PROJECTS:-}; do project_args+=("--project=$p"); done
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${project_args[@]}" "${spec_args[@]}") || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")

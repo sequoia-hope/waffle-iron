@@ -61,3 +61,43 @@ jobs:
           path: app/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  # Remediation plan G5 (2026-10-29): Firefox and WebKit had never run a spec
+  # although the app must work on both. Allow-fail until the first triage of
+  # its failures; then drop continue-on-error so it gates like gui-fast.
+  gui-fast-cross-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install Firefox and WebKit
+        run: npx playwright install --with-deps firefox webkit
+        working-directory: app
+
+      - name: gui-fast tier on Firefox and WebKit
+        run: ./scripts/test.sh gui-fast
+        env:
+          TEST_THREADS: 4
+          PW_CROSS_BROWSER: '1'
+          PW_PROJECTS: firefox webkit
+
+      - name: Upload traces and screenshots of failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-cross-browser-results
+          path: app/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
