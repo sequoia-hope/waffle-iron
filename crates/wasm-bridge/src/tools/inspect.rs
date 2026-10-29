@@ -801,17 +801,23 @@ pub(super) fn face_list(
     )?;
     let body_id = body_id.as_str();
 
-    // An unparseable filter is what the page would have watched the engine
-    // refuse: the message never forms, so it is that same `Internal`.
+    // An unparseable filter is the CALLER's argument error, refused exactly as
+    // `entity_list` refuses its own (Q8 of the 2026-10-28 remediation). It was
+    // `Internal` here — mirroring what the page once saw when the engine
+    // refused the message — but `Internal` is a broken invariant by
+    // `specs/waffle_mcp_server.md` §6.1 and pauses the agent session, which a
+    // typo in a filter is not.
     let filter = match args.get("filter") {
         None | Some(Value::Null) => None,
-        Some(value) => Some(serde_json::from_value(value.clone()).map_err(|e| {
-            ToolFailure::new(
-                "Internal",
-                format!("ListFaces failed: filter is not a TopoQuery: {e}"),
-                json!({ "engine_error": { "kind": Value::Null, "message": e.to_string() } }),
-            )
-        })?),
+        Some(value) => Some(
+            serde_json::from_value::<waffle_types::TopoQuery>(value.clone()).map_err(|e| {
+                ToolFailure::new(
+                    "InvalidArguments",
+                    format!("filter is not a TopoQuery: {e}"),
+                    json!({ "reason": e.to_string() }),
+                )
+            })?,
+        ),
     };
 
     let response = engine_call(

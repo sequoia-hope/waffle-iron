@@ -673,6 +673,52 @@ fn the_arguments_are_checked_and_each_refusal_has_its_own_code() {
     }
 }
 
+/// The SAME malformed `filter` is the same refusal from both listings
+/// (2026-10-28 review §3.5 item 5, remediation Q8).
+///
+/// `face_list` used to answer `Internal` for it, `entity_list`
+/// `InvalidArguments`. By `specs/waffle_mcp_server.md` §6.1 `Internal` is a
+/// broken invariant — it PAUSES the agent session — and a caller's typo is
+/// not one. Both now say `InvalidArguments`, with the parser's reason in
+/// `details.reason`, so an agent branches on one code whichever listing it
+/// called.
+#[test]
+fn a_malformed_filter_is_invalid_arguments_from_both_listings() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let body = block(&mut state, &mut kernel, 0.010, 0.010, 0.010, 1);
+    // Neither a `TopoQuery` (no `filters`) nor an `EntityListFilter` (a
+    // `bbox` that is not a box).
+    let filter = json!({ "bbox": "everything" });
+
+    for (tool, args) in [
+        (
+            "face_list",
+            json!({ "body_id": body, "filter": filter.clone() }),
+        ),
+        (
+            "entity_list",
+            json!({ "body_id": body, "kind": "face", "filter": filter.clone() }),
+        ),
+    ] {
+        let r = call(&mut state, &mut kernel, tool, args.clone());
+        assert!(r.is_error, "{tool} must refuse {args}: {r:?}");
+        let error = &r.structured_content["error"];
+        assert_eq!(error["code"], json!("InvalidArguments"), "{tool}: {error}");
+        let message = error["message"].as_str().unwrap_or_default();
+        assert!(
+            message.starts_with("filter is not "),
+            "{tool}: the message names the argument first: {message}"
+        );
+        assert!(
+            error["details"]["reason"]
+                .as_str()
+                .is_some_and(|r| !r.is_empty()),
+            "{tool}: the parser's reason travels in details.reason: {error}"
+        );
+    }
+}
+
 // -------------------------------------------------------------------------
 // Determinism: the same listing, byte for byte, in a fresh process
 // -------------------------------------------------------------------------
