@@ -6,7 +6,7 @@
 # five consecutive pushes while merges continued, because the only check was
 # an advisory status print. This hook BLOCKS a push to main when:
 #
-#   1. the latest COMPLETED `Rust tests` run on main is not `success`
+#   1. the latest COMPLETED `Rust tests` or `Rust lint` run on main is not `success`
 #      (failure, cancelled = timed out — the workflow has no concurrency
 #      group, so nothing else cancels it — or timed_out), or gh cannot say; or
 #   2. the pushed commits change a kernel-stack path and no passing
@@ -44,23 +44,28 @@ done
 status=0
 
 # --- 1. CI must be green on main -------------------------------------------
+# Gated workflows: tests AND lint — a lint-red main is as broken for the next
+# pusher as a test-red one (2026-10-29: a rustfmt miss reached main).
+GATED_WORKFLOWS=("Rust tests" "Rust lint")
 if [ -n "${CI_GATE_OVERRIDE:-}" ]; then
   override CI_GATE_OVERRIDE "$CI_GATE_OVERRIDE"
 else
-  latest=$(gh run list --workflow "Rust tests" --branch main --status completed --limit 1 \
-             --json conclusion,headSha,url -q '.[0] | "\(.conclusion) \(.headSha[0:8]) \(.url)"' 2>&1)
-  case "$latest" in
-    success\ *) ;;
-    *)
-      cat >&2 <<EOF
-pre-push: BLOCKED — the latest completed 'Rust tests' run on main is not green:
+  for wf in "${GATED_WORKFLOWS[@]}"; do
+    latest=$(gh run list --workflow "$wf" --branch main --status completed --limit 1 \
+               --json conclusion,headSha,url -q '.[0] | "\(.conclusion) \(.headSha[0:8]) \(.url)"' 2>&1)
+    case "$latest" in
+      success\ *) ;;
+      *)
+        cat >&2 <<EOF
+pre-push: BLOCKED — the latest completed '$wf' run on main is not green:
   $latest
 Do not build on a red or timed-out main. Fix it first; if this push IS the
 fix, push with CI_GATE_OVERRIDE="<why>".
 EOF
-      status=1
-      ;;
-  esac
+        status=1
+        ;;
+    esac
+  done
 fi
 
 # --- 2. Kernel changes need a recorded rewrite-tier pass -------------------

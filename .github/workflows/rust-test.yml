@@ -27,8 +27,10 @@ name: Rust tests
 #   - wasm32 `cargo check` for cherchi-rs / yang-rs / kernel-v2 (the M7
 #     standing invariant)
 #
-# NOT gated here: test-harness beyond the assay smoke gate (its full suite is
-# the ~27min manual tier) and predicate-gen's generator runs. Every crate that
+# test-harness's full always-on suite runs in the parallel `test-harness` job
+# below (remediation plan G2, 2026-10-29). NOT gated: test-harness's
+# #[ignore]d binaries (the full corpus, fuzzers) and predicate-gen's
+# generator runs. Every crate that
 # ships in the WASM bundle now runs its suite here — the six that did not were
 # added 2026-08-13 alongside sketch-solver.
 
@@ -161,3 +163,44 @@ jobs:
           cargo check -p cherchi-rs --target wasm32-unknown-unknown
           cargo check -p yang-rs --target wasm32-unknown-unknown
           cargo check -p kernel-v2 --target wasm32-unknown-unknown
+
+  # Remediation plan G2 (2026-10-29): every always-on test-harness binary.
+  # Until now only assay_kv2 ran in CI, so ~70 binaries of integration
+  # coverage — incremental rebuild, sketch oracles, scenario chains —
+  # gated nothing. It runs beside `test` rather than inside it because that
+  # job already uses ~65 of its 120 minutes. No hand-kept binary list: the
+  # whole package runs, #[ignore]d tests stay skipped, and the corpus smoke
+  # (already gated by `test`) is skipped by name. Release, like every
+  # corpus-touching run. Measured 2026-10-29 on the dev box at 4 cores:
+  # 99 binaries, 483 s wall including the release compile.
+  test-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain deps (libclang for bindgen, cmake for sidecars)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake
+
+      - name: Cache C++ sidecars
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/cherchi2022
+          key: cherchi2022-sidecars-${{ runner.os }}-${{ hashFiles('scripts/build_sidecars.sh', 'patches/cherchi2022_labeled_arrangement.patch') }}
+
+      - name: Build C++ sidecars (cached no-op when present)
+        run: ./scripts/build_sidecars.sh
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+
+      - name: test-harness, every always-on binary (release)
+        run: cargo test --release -p test-harness --no-fail-fast -- --skip smoke_corpus_boundary_categories

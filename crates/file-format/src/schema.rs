@@ -16,10 +16,7 @@ use crate::sources::SourceEntry;
 /// keeps its historical name `waffle-v5.schema.json`, the version it was
 /// first generated at; its content tracks the current format.)
 #[derive(Debug, Serialize, JsonSchema)]
-#[schemars(
-    rename = "WaffleFile",
-    title = "Waffle Iron .waffle document"
-)]
+#[schemars(rename = "WaffleFile", title = "Waffle Iron .waffle document")]
 pub struct WaffleFileSchema {
     /// Must be exactly `"waffle-iron"`.
     #[schemars(regex(pattern = "^waffle-iron$"))]
