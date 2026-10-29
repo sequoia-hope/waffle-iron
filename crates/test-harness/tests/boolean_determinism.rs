@@ -3,16 +3,54 @@
 //! Verifies that boolean operations produce identical results across
 //! multiple runs, regardless of memory allocation patterns or hash map
 //! iteration order.
+//!
+//! Remediation plan O7 (2026-10-29): "identical" now means BIT-identical.
+//! Each run is a fresh adapter; every run's result must have the same
+//! canonical B-Rep hash (`test_harness::assay::geometry_hash` — vertex
+//! positions, edge polylines, face signatures and exact volume as `f64`
+//! bits, id- and order-independent) and the same render mesh (triangle
+//! count and mesh volume, both bit-exact). The old check — triangle count
+//! plus mesh volume within 1.0 absolute on a ~1000-unit solid — could not
+//! see a different solid with the same triangle count.
+//!
+//! With `WAFFLE_GEOMETRY_HASH_OUT` set, each scenario's hash is appended to
+//! that file so `scripts/determinism_parallel_parity.sh` can diff a serial
+//! and a `cherchi-rs/parallel` build.
 
+use test_harness::assay::geometry_hash::{feature_geometry_hash, record_hash_for_parity};
 use test_harness::helpers::mesh_volume;
 use test_harness::ModelBuilder;
 
-/// Run a boss union boolean N times and verify all produce identical face counts
-/// and volumes.
+/// One run's fingerprint: B-Rep hash, triangle count, mesh volume bits.
+type RunPrint = (u64, usize, u64);
+
+fn fingerprint(m: &mut ModelBuilder, feature: &str) -> RunPrint {
+    let hash = feature_geometry_hash(m, feature).unwrap();
+    let mesh = m.tessellate(feature).unwrap();
+    (hash, mesh.indices.len() / 3, mesh_volume(&mesh).to_bits())
+}
+
+/// Assert all runs are bit-identical, then record the hash for the
+/// cross-configuration parity diff.
+fn assert_identical(label: &str, runs: &[RunPrint]) {
+    let first = runs[0];
+    for (i, r) in runs.iter().enumerate() {
+        assert_eq!(
+            *r, first,
+            "{label} run {i}: (hash, triangles, volume bits) {:016x?} != run 0 {:016x?}",
+            r, first
+        );
+    }
+    record_hash_for_parity(
+        &format!("boolean_determinism/{label}"),
+        &format!("{:016x}", first.0),
+    );
+}
+
+/// Run a boss union boolean N times and verify every run is bit-identical.
 #[test]
 fn boolean_union_deterministic_10x() {
-    let mut face_counts = Vec::new();
-    let mut volumes = Vec::new();
+    let mut runs = Vec::new();
 
     for _ in 0..10 {
         let mut m = ModelBuilder::kernel_v2();
@@ -25,35 +63,15 @@ fn boolean_union_deterministic_10x() {
             .unwrap();
         m.extrude("boss", "boss_sk", 5.0).unwrap();
 
-        let mesh = m.tessellate("boss").unwrap();
-        let tri_count = mesh.indices.len() / 3;
-        face_counts.push(tri_count);
-        volumes.push(mesh_volume(&mesh));
+        runs.push(fingerprint(&mut m, "boss"));
     }
-
-    let expected_faces = face_counts[0];
-    let expected_vol: f64 = volumes[0];
-    for (i, (&fc, &vol)) in face_counts.iter().zip(volumes.iter()).enumerate() {
-        assert_eq!(
-            fc, expected_faces,
-            "Run {}: face count {} != expected {}",
-            i, fc, expected_faces
-        );
-        assert!(
-            (vol - expected_vol).abs() < 1.0,
-            "Run {}: volume {} != expected {}",
-            i,
-            vol,
-            expected_vol
-        );
-    }
+    assert_identical("union", &runs);
 }
 
 /// Run a subtract boolean N times and verify deterministic results.
 #[test]
 fn boolean_subtract_deterministic_10x() {
-    let mut face_counts = Vec::new();
-    let mut volumes = Vec::new();
+    let mut runs = Vec::new();
 
     for _ in 0..10 {
         let mut m = ModelBuilder::kernel_v2();
@@ -66,35 +84,15 @@ fn boolean_subtract_deterministic_10x() {
             .unwrap();
         m.extrude_cut("pocket", "cut_sk", 5.0).unwrap();
 
-        let mesh = m.tessellate("pocket").unwrap();
-        let tri_count = mesh.indices.len() / 3;
-        face_counts.push(tri_count);
-        volumes.push(mesh_volume(&mesh));
+        runs.push(fingerprint(&mut m, "pocket"));
     }
-
-    let expected_faces = face_counts[0];
-    let expected_vol: f64 = volumes[0];
-    for (i, (&fc, &vol)) in face_counts.iter().zip(volumes.iter()).enumerate() {
-        assert_eq!(
-            fc, expected_faces,
-            "Run {}: face count {} != expected {}",
-            i, fc, expected_faces
-        );
-        assert!(
-            (vol - expected_vol).abs() < 1.0,
-            "Run {}: volume {} != expected {}",
-            i,
-            vol,
-            expected_vol
-        );
-    }
+    assert_identical("subtract", &runs);
 }
 
 /// Chained boolean determinism: boss then cut, repeated.
 #[test]
 fn chained_boolean_deterministic_10x() {
-    let mut face_counts = Vec::new();
-    let mut volumes = Vec::new();
+    let mut runs = Vec::new();
 
     for _ in 0..10 {
         let mut m = ModelBuilder::kernel_v2();
@@ -111,26 +109,7 @@ fn chained_boolean_deterministic_10x() {
             .unwrap();
         m.extrude_cut("cut2", "cut2_sk", 5.0).unwrap();
 
-        let mesh = m.tessellate("cut2").unwrap();
-        let tri_count = mesh.indices.len() / 3;
-        face_counts.push(tri_count);
-        volumes.push(mesh_volume(&mesh));
+        runs.push(fingerprint(&mut m, "cut2"));
     }
-
-    let expected_faces = face_counts[0];
-    let expected_vol: f64 = volumes[0];
-    for (i, (&fc, &vol)) in face_counts.iter().zip(volumes.iter()).enumerate() {
-        assert_eq!(
-            fc, expected_faces,
-            "Run {}: face count {} != expected {}",
-            i, fc, expected_faces
-        );
-        assert!(
-            (vol - expected_vol).abs() < 1.0,
-            "Run {}: volume {} != expected {}",
-            i,
-            vol,
-            expected_vol
-        );
-    }
+    assert_identical("chained", &runs);
 }

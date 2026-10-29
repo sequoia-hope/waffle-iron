@@ -25,6 +25,8 @@ pub mod exact_membership;
 pub mod exact_vs_mesh;
 pub mod gen;
 pub mod gen_complexity;
+/// Canonical, bit-exact geometry hash of a result B-Rep (determinism, O7).
+pub mod geometry_hash;
 pub mod on_surface;
 pub mod properties;
 pub mod properties_v2;

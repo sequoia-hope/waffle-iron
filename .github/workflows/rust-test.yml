@@ -204,3 +204,13 @@ jobs:
 
       - name: test-harness, every always-on binary (release)
         run: cargo test --release -p test-harness --no-fail-fast -- --skip smoke_corpus_boundary_categories
+
+      # Remediation plan O7: the determinism suites' canonical geometry
+      # hashes must be identical with cherchi-rs's `parallel` feature off
+      # (the default and the WASM build) and on. A cargo feature cannot be
+      # toggled inside one test binary, so the script builds the two
+      # determinism binaries in both configurations and diffs the hashes
+      # they print. The serial half reuses the step above's build; the
+      # parallel half recompiles the kernel stack once with rayon.
+      - name: Determinism hashes, cherchi-rs/parallel off vs on (release)
+        run: ./scripts/determinism_parallel_parity.sh
