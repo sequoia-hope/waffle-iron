@@ -27,15 +27,17 @@ async function createFinishedSketch(waffle) {
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('error-paths-draw-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('error-paths-finish-failed');
+		throw err;
 	}
 }
 

@@ -27,18 +27,27 @@ async function createSketchAndExtrude(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('cr-sketch-draw-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('cr-sketch-finish-failed');
+		throw err;
 	}
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 2, 10000);
+	} catch (err) {
 		await waffle.dumpState('cr-extrude-failed');
+		throw err;
 	}
 }
 
@@ -79,12 +88,18 @@ test.describe('cancel and recovery', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('cr-cancel-extrude-draw-failed');
+			throw err;
 		}
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('cr-cancel-extrude-finish-failed');
+			throw err;
 		}
 
 		// Click Extrude, then Cancel
@@ -100,8 +115,11 @@ test.describe('cancel and recovery', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 
 		// Verify 2 features (Sketch + Extrude)
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('cr-retry-extrude-failed');
+			throw err;
 		}
 		const count = await getFeatureCount(waffle.page);
 		expect(count).toBe(2);
@@ -141,8 +159,11 @@ test.describe('cancel and recovery', () => {
 		await waffle.page.waitForTimeout(500);
 
 		// Wait for feature count to reach 2
-		try { await waitForFeatureCount(waffle.page, 2, 5000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 5000);
+		} catch (err) {
 			await waffle.dumpState('cr-redo-failed');
+			throw err;
 		}
 
 		// Verify Extrude is restored

@@ -33,9 +33,10 @@ test.describe('sketch drawing via GUI', () => {
 		// Wait for entities to appear
 		try {
 			await waitForEntityCount(waffle.page, 3, 3000);
-		} catch {
+		} catch (err) {
 			// If entities didn't appear, dump state for debugging
 			await waffle.dumpState('draw-line-failed');
+			throw err;
 		}
 
 		const points = await getEntityCountByType(waffle.page, 'Point');
@@ -53,8 +54,9 @@ test.describe('sketch drawing via GUI', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('draw-rectangle-failed');
+			throw err;
 		}
 
 		const points = await getEntityCountByType(waffle.page, 'Point');
@@ -72,8 +74,9 @@ test.describe('sketch drawing via GUI', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('draw-circle-failed');
+			throw err;
 		}
 
 		const circles = await getEntityCountByType(waffle.page, 'Circle');

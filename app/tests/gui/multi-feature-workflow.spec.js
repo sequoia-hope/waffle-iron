@@ -38,12 +38,18 @@ async function sketchAndExtrude(waffle, { plane = 'front', depth = '10', cut = f
 	await clickSketch(waffle.page, plane);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('mfw-sketch-draw-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('mfw-sketch-finish-failed');
+		throw err;
 	}
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill(depth);
@@ -51,8 +57,11 @@ async function sketchAndExtrude(waffle, { plane = 'front', depth = '10', cut = f
 		await waffle.page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 	}
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 2, 10000);
+	} catch (err) {
 		await waffle.dumpState('mfw-extrude-failed');
+		throw err;
 	}
 }
 
@@ -80,13 +89,19 @@ async function sketchOnFaceAndExtrude(waffle, expectedFeaturesBefore, {
 
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, ...rectCoords);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState(`mfw-${label}-draw-failed`);
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, expectedFeaturesBefore + 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, expectedFeaturesBefore + 1, 10000);
+	} catch (err) {
 		await waffle.dumpState(`mfw-${label}-finish-failed`);
+		throw err;
 	}
 
 	await clickExtrude(waffle.page);
@@ -95,8 +110,11 @@ async function sketchOnFaceAndExtrude(waffle, expectedFeaturesBefore, {
 		await waffle.page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 	}
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, expectedFeaturesBefore + 2, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, expectedFeaturesBefore + 2, 10000);
+	} catch (err) {
 		await waffle.dumpState(`mfw-${label}-extrude-failed`);
+		throw err;
 	}
 }
 
@@ -165,20 +183,29 @@ test.describe('multi-feature workflows', () => {
 		await clickSketch(waffle.page, 'top');
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('mfw-xz-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-xz-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-xz-extrude-failed');
+			throw err;
 		}
 
 		const count = await getFeatureCount(waffle.page);
@@ -192,20 +219,29 @@ test.describe('multi-feature workflows', () => {
 		await clickSketch(waffle.page, 'right');
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('mfw-yz-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-yz-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-yz-extrude-failed');
+			throw err;
 		}
 
 		const count = await getFeatureCount(waffle.page);
@@ -221,26 +257,38 @@ test.describe('multi-feature workflows', () => {
 
 		// First rectangle (left side)
 		await drawRectangle(waffle.page, -120, -60, -40, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('mfw-2rect-first-failed');
+			throw err;
 		}
 
 		// Second rectangle (right side)
 		await drawRectangle(waffle.page, 40, -60, 120, 60);
-		try { await waitForEntityCount(waffle.page, 16, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 16, 3000);
+		} catch (err) {
 			await waffle.dumpState('mfw-2rect-second-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-2rect-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('mfw-2rect-extrude-failed');
+			throw err;
 		}
 
 		const count = await getFeatureCount(waffle.page);

@@ -25,8 +25,9 @@ test.describe('sketch finish via GUI', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('finish-sketch-draw-failed');
+			throw err;
 		}
 
 		// Click Finish Sketch
@@ -39,8 +40,9 @@ test.describe('sketch finish via GUI', () => {
 		// Verify feature tree has a Sketch feature
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('finish-sketch-feature-failed');
+			throw err;
 		}
 
 		const hasSketch = await hasFeatureOfType(waffle.page, 'Sketch');
@@ -52,11 +54,7 @@ test.describe('sketch finish via GUI', () => {
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 
-		try {
-			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
-			// Continue anyway to test finish behavior
-		}
+		await waitForEntityCount(waffle.page, 8, 3000);
 
 		await clickFinishSketch(waffle.page);
 
@@ -77,9 +75,7 @@ test.describe('sketch finish via GUI', () => {
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 
-		try {
-			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {}
+		await waitForEntityCount(waffle.page, 8, 3000);
 
 		await clickFinishSketch(waffle.page);
 
@@ -98,9 +94,7 @@ test.describe('sketch finish via GUI', () => {
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 
-		try {
-			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {}
+		await waitForEntityCount(waffle.page, 8, 3000);
 
 		await clickFinishSketch(waffle.page);
 

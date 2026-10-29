@@ -26,12 +26,18 @@ test.describe('extrude region re-selection', () => {
 		await clickSketch(page);
 		await clickRectangle(page);
 		await drawRectangle(page, -80, -60, 80, 60);
-		try { await waitForEntityCount(page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('region-draw');
+			throw err;
 		}
 		await clickFinishSketch(page);
-		try { await waitForFeatureCount(page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('region-finish');
+			throw err;
 		}
 
 		await clickExtrude(page);
@@ -48,12 +54,18 @@ test.describe('extrude region re-selection', () => {
 		await clickSketch(page);
 		await clickRectangle(page);
 		await drawRectangle(page, -80, -60, 80, 60);
-		try { await waitForEntityCount(page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('region-rm-draw');
+			throw err;
 		}
 		await clickFinishSketch(page);
-		try { await waitForFeatureCount(page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('region-rm-finish');
+			throw err;
 		}
 
 		await clickExtrude(page);
@@ -77,12 +89,18 @@ test.describe('extrude region re-selection', () => {
 		await clickSketch(page);
 		await clickRectangle(page);
 		await drawRectangle(page, -80, -60, 80, 60);
-		try { await waitForEntityCount(page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('region-pick-draw');
+			throw err;
 		}
 		await clickFinishSketch(page);
-		try { await waitForFeatureCount(page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('region-pick-finish');
+			throw err;
 		}
 
 		await clickExtrude(page);
@@ -126,12 +144,18 @@ test.describe('extrude region re-selection', () => {
 		await clickSketch(page);
 		await clickRectangle(page);
 		await drawRectangle(page, -80, -60, 80, 60);
-		try { await waitForEntityCount(page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('region-hint-draw');
+			throw err;
 		}
 		await clickFinishSketch(page);
-		try { await waitForFeatureCount(page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('region-hint-finish');
+			throw err;
 		}
 
 		await clickExtrude(page);

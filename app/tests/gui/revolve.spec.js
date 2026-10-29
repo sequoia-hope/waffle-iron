@@ -28,13 +28,19 @@ async function createFinishedSketch(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('revolve-sketch-draw-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('revolve-sketch-failed');
+		throw err;
 	}
 }
 
@@ -107,8 +113,9 @@ test.describe('revolve dialog lifecycle', () => {
 		// Wait for feature creation
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('revolve-apply-failed');
+			throw err;
 		}
 
 		expect(await getFeatureCount(waffle.page)).toBe(2);
@@ -129,8 +136,9 @@ test.describe('revolve dialog lifecycle', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('revolve-enter-failed');
+			throw err;
 		}
 
 		expect(await hasFeatureOfType(waffle.page, 'Revolve')).toBe(true);
@@ -199,8 +207,9 @@ test.describe('revolve dialog state after apply', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('revolve-close-after-apply');
+			throw err;
 		}
 
 		// Dialog should be closed after apply
@@ -217,8 +226,9 @@ test.describe('revolve dialog state after apply', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('revolve-tree-update');
+			throw err;
 		}
 
 		// Verify feature tree contains both Sketch and Revolve

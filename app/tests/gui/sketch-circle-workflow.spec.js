@@ -33,8 +33,9 @@ test.describe('circle sketch end-to-end workflow', () => {
 		// 4. Wait for entities: 1 Point (center) + 1 Circle
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('circle-workflow-draw-failed');
+			throw err;
 		}
 
 		const circles = await getEntityCountByType(waffle.page, 'Circle');
@@ -53,8 +54,9 @@ test.describe('circle sketch end-to-end workflow', () => {
 		// 7. Verify feature tree has a Sketch feature
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('circle-workflow-feature-failed');
+			throw err;
 		}
 
 		const featureCount = await getFeatureCount(waffle.page);

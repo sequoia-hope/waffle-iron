@@ -66,15 +66,17 @@ test.describe('undo/redo sketch operations', () => {
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('undo-sketch-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('undo-finish-failed');
+			throw err;
 		}
 
 		const featuresBefore = await getFeatureCount(waffle.page);
@@ -95,15 +97,17 @@ test.describe('undo/redo sketch operations', () => {
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('redo-sketch-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('redo-sketch-finish-failed');
+			throw err;
 		}
 
 		// Undo
@@ -116,8 +120,9 @@ test.describe('undo/redo sketch operations', () => {
 		// Wait for feature to reappear
 		try {
 			await waitForFeatureCount(waffle.page, 1, 5000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('redo-sketch-restore-failed');
+			throw err;
 		}
 
 		expect(await getFeatureCount(waffle.page)).toBe(1);
@@ -133,15 +138,17 @@ test.describe('undo/redo extrude operations', () => {
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('undo-extrude-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('undo-extrude-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -151,8 +158,9 @@ test.describe('undo/redo extrude operations', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('undo-extrude-apply-failed');
+			throw err;
 		}
 
 		expect(await getFeatureCount(waffle.page)).toBe(2);
@@ -172,20 +180,29 @@ test.describe('undo/redo extrude operations', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('redo-extrude-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('redo-extrude-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('redo-extrude-apply-failed');
+			throw err;
 		}
 
 		// Undo then redo
@@ -193,8 +210,11 @@ test.describe('undo/redo extrude operations', () => {
 		expect(await getFeatureCount(waffle.page)).toBe(1);
 
 		await clickRedo(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 2, 5000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 5000);
+		} catch (err) {
 			await waffle.dumpState('redo-extrude-restore-failed');
+			throw err;
 		}
 
 		expect(await getFeatureCount(waffle.page)).toBe(2);
@@ -207,13 +227,19 @@ test.describe('undo/redo keyboard shortcuts', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('ctrlz-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('ctrlz-finish-failed');
+			throw err;
 		}
 
 		// Ctrl+Z to undo
@@ -227,13 +253,19 @@ test.describe('undo/redo keyboard shortcuts', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('ctrlsz-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('ctrlsz-finish-failed');
+			throw err;
 		}
 
 		// Undo via Ctrl+Z
@@ -245,8 +277,11 @@ test.describe('undo/redo keyboard shortcuts', () => {
 		await waffle.page.keyboard.press('Control+Shift+z');
 		await waffle.page.waitForTimeout(500);
 
-		try { await waitForFeatureCount(waffle.page, 1, 5000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 5000);
+		} catch (err) {
 			await waffle.dumpState('ctrlsz-restore-failed');
+			throw err;
 		}
 		expect(await getFeatureCount(waffle.page)).toBe(1);
 	});

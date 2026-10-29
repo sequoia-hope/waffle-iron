@@ -30,13 +30,19 @@ async function createSketchFeature(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('ft-sketch-draw-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('ft-sketch-failed');
+		throw err;
 	}
 }
 
@@ -61,8 +67,11 @@ async function createSketchAndExtrude(waffle) {
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 2, 10000);
+	} catch (err) {
 		await waffle.dumpState('ft-extrude-failed');
+		throw err;
 	}
 }
 

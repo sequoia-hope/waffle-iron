@@ -44,15 +44,17 @@ test.describe('NURBS circle full-depth cut', () => {
 		await drawCircle(waffle.page, 0, 0, 60, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-circle-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-finish-sketch-failed');
+			throw err;
 		}
 
 		// Extrude depth=10 to create cylinder
@@ -61,8 +63,9 @@ test.describe('NURBS circle full-depth cut', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 2, 15000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-extrude-failed');
+			throw err;
 		}
 		await waitForMeshWithGeometry(waffle.page);
 
@@ -77,15 +80,17 @@ test.describe('NURBS circle full-depth cut', () => {
 		await drawCircle(waffle.page, 0, 0, 30, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-inner-circle-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-inner-finish-failed');
+			throw err;
 		}
 
 		// Step 4: Extrude cut with SAME depth (10) — full through-cut
@@ -95,8 +100,9 @@ test.describe('NURBS circle full-depth cut', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 30000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-cut-extrude-failed');
+			throw err;
 		}
 
 		// Verify: mesh still exists and no crashes
@@ -114,15 +120,17 @@ test.describe('NURBS circle full-depth cut', () => {
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-sketch-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -130,8 +138,9 @@ test.describe('NURBS circle full-depth cut', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 2, 15000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-extrude-failed');
+			throw err;
 		}
 		await waitForMeshWithGeometry(waffle.page);
 
@@ -145,15 +154,17 @@ test.describe('NURBS circle full-depth cut', () => {
 		await drawCircle(waffle.page, 0, 0, 40, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-circle-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-circle-finish-failed');
+			throw err;
 		}
 
 		// Step 3: Extrude cut with same depth (10) — full through-cut
@@ -163,8 +174,9 @@ test.describe('NURBS circle full-depth cut', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 30000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('ncd-box-cut-failed');
+			throw err;
 		}
 
 		// Verify

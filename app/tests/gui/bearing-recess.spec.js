@@ -81,11 +81,7 @@ async function bearingRecess(page, { r0, depth0, ox, oy, r1, cutDepth }) {
 	await page.locator('[data-testid="extrude-depth"]').fill(String(cutDepth));
 	await page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 	await page.locator('[data-testid="extrude-apply"]').click();
-	try {
-		await waitForFeatureCount(page, 4, 30000);
-	} catch {
-		// non-fatal: the assertions below capture the real failure mode
-	}
+	await waitForFeatureCount(page, 4, 30000);
 
 	const errors = await getFeatureErrors(page);
 	const hasMesh = await hasMeshWithGeometry(page);

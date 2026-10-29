@@ -29,12 +29,18 @@ async function createFinishedSketch(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('revolve-e2e-draw-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('revolve-e2e-finish-failed');
+		throw err;
 	}
 }
 
@@ -47,8 +53,11 @@ async function applyRevolve(waffle, angle = '360') {
 	const angleInput = waffle.page.locator('#revolve-angle');
 	await angleInput.fill(angle);
 	await waffle.page.locator('[data-testid="revolve-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 15000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 2, 15000);
+	} catch (err) {
 		await waffle.dumpState(`revolve-e2e-apply-${angle}-failed`);
+		throw err;
 	}
 }
 

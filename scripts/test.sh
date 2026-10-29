@@ -530,6 +530,14 @@ run_gui_fast() {
   local tier_start rc=0
   tier_start=$(timer_start)
 
+  # Gate before Playwright: no spec may swallow a failed expected-state wait
+  # (CLAUDE.md "GUI Test Rules"; remediation plan G6). Covers every spec,
+  # not only the fast tier's, so a swallow cannot hide in gui-full either.
+  if ! node "$ROOT_DIR/scripts/check-gui-swallowed-waits.mjs"; then
+    fail "GUI Fast: a spec swallows a failed wait (scripts/check-gui-swallowed-waits.mjs)"
+    return
+  fi
+
   # Build spec file arguments
   local spec_args=()
   for spec in "${GUI_FAST_SPECS[@]}"; do

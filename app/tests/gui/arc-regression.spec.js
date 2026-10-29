@@ -29,8 +29,9 @@ test.describe('arc tool regression', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 5000); // 3 points + 1 arc
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-click-click-failed');
+			throw err;
 		}
 
 		const arcs = await getEntityCountByType(waffle.page, 'Arc');
@@ -46,8 +47,9 @@ test.describe('arc tool regression', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 5000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-type-check-failed');
+			throw err;
 		}
 
 		const entities = await getEntities(waffle.page);
@@ -87,8 +89,9 @@ test.describe('arc tool regression', () => {
 		await drawLine(waffle.page, -100, 0, 100, 0);
 		try {
 			await waitForEntityCount(waffle.page, 3, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-accum-line-failed');
+			throw err;
 		}
 
 		const countAfterLine = await getEntityCount(waffle.page);
@@ -100,8 +103,9 @@ test.describe('arc tool regression', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 7, 5000); // 3 + 4 = 7
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-accum-arc-failed');
+			throw err;
 		}
 
 		const totalCount = await getEntityCount(waffle.page);
@@ -147,8 +151,9 @@ test.describe('arc tool regression', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 5000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-tool-switch-failed');
+			throw err;
 		}
 
 		// Arc entity should exist

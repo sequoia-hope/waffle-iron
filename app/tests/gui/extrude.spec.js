@@ -26,16 +26,18 @@ async function sketchRectangle(waffle) {
 
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('extrude-sketch-draw-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
 
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('extrude-sketch-finish-failed');
+		throw err;
 	}
 }
 
@@ -90,8 +92,9 @@ async function applyExtrudeViaDialog(waffle, { depth = '10', cut = false, flipDi
 	// Wait for extrude feature
 	try {
 		await waitForFeatureCount(waffle.page, 2, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('extrude-apply-failed');
+		throw err;
 	}
 }
 
@@ -147,8 +150,9 @@ test.describe('extrude dialog basics', () => {
 		// Wait for feature to be added
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-apply-failed');
+			throw err;
 		}
 
 		// Feature tree should have Sketch + Extrude
@@ -220,8 +224,9 @@ test.describe('extrude keyboard shortcuts', () => {
 		// Feature should be created
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-enter-apply-failed');
+			throw err;
 		}
 		const hasExtrude = await hasFeatureOfType(waffle.page, 'Extrude');
 		expect(hasExtrude).toBe(true);
@@ -320,8 +325,9 @@ test.describe('extrude flip direction', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-flip-direction-failed');
+			throw err;
 		}
 
 		// Verify the extrude feature was created
@@ -346,8 +352,9 @@ test.describe('extrude flip direction', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-normal-dir-failed');
+			throw err;
 		}
 
 		const tree = await getFeatureTree(waffle.page);
@@ -618,8 +625,9 @@ test.describe('extrude dialog state management', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-api-failed');
+			throw err;
 		}
 
 		const hasExtrude = await hasFeatureOfType(waffle.page, 'Extrude');
@@ -635,8 +643,9 @@ test.describe('extrude dialog state management', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-api-flip-failed');
+			throw err;
 		}
 
 		const tree = await getFeatureTree(waffle.page);

@@ -199,7 +199,7 @@ test.describe('context menu with geometry', () => {
 		await clickSketch(page);
 		await clickRectangle(page);
 		await drawRectangle(page, -50, -50, 50, 50);
-		try { await waitForEntityCount(page, 8, 3000); } catch { /* draw might not produce 8 */ }
+		await waitForEntityCount(page, 8, 3000);
 		await clickFinishSketch(page);
 		await waitForFeatureCount(page, 1, 10000);
 

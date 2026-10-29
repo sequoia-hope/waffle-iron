@@ -91,15 +91,15 @@ test.describe('modeling buttons after extrude', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {}
+		await waitForEntityCount(waffle.page, 8, 3000);
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {}
+		await waitForFeatureCount(waffle.page, 1, 10000);
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {}
+		await waitForFeatureCount(waffle.page, 2, 10000);
 
 		// After extrude, modeling buttons should still be visible
 		await expect(waffle.page.locator('[data-testid="toolbar-btn-fillet"]')).toBeVisible();

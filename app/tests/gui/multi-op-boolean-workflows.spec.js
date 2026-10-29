@@ -42,22 +42,25 @@ async function createBaseBox(waffle, { depth = '10' } = {}) {
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-base-sketch-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-base-finish-failed');
+		throw err;
 	}
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill(depth);
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
 	try {
 		await waitForFeatureCount(waffle.page, 2, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-base-extrude-failed');
+		throw err;
 	}
 }
 
@@ -70,22 +73,25 @@ async function createBaseCylinder(waffle, { radius = 60, depth = '10' } = {}) {
 	await drawCircle(waffle.page, 0, 0, radius, 0);
 	try {
 		await waitForEntityCount(waffle.page, 2, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-cyl-sketch-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-cyl-finish-failed');
+		throw err;
 	}
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill(depth);
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
 	try {
 		await waitForFeatureCount(waffle.page, 2, 15000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('mob-cyl-extrude-failed');
+		throw err;
 	}
 }
 
@@ -108,16 +114,18 @@ test.describe('multi-op boolean workflows', () => {
 		await drawCircle(waffle.page, 0, 0, 30, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-boss-circle-failed');
+			throw err;
 		}
 
 		// Step 4: Finish sketch
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-boss-finish-failed');
+			throw err;
 		}
 
 		// Step 5: Extrude as BOSS (NOT cut) — depth 5
@@ -127,8 +135,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 15000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-boss-extrude-failed');
+			throw err;
 		}
 
 		// Verify
@@ -154,15 +163,17 @@ test.describe('multi-op boolean workflows', () => {
 		await drawRectangle(waffle.page, -40, -30, 40, 30);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-rect-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-rect-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -170,8 +181,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 15000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-rect-extrude-failed');
+			throw err;
 		}
 
 		// Step 3: Select face → sketch circle → extrude as cut
@@ -184,15 +196,17 @@ test.describe('multi-op boolean workflows', () => {
 		await drawCircle(waffle.page, 0, 0, 20, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-circle-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 5, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-circle-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -201,8 +215,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 6, 30000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-chain-circle-cut-failed');
+			throw err;
 		}
 
 		// Verify
@@ -228,15 +243,17 @@ test.describe('multi-op boolean workflows', () => {
 		await drawCircle(waffle.page, 0, 0, 30, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-inner-circle-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-inner-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -245,8 +262,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 30000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-cut-failed');
+			throw err;
 		}
 
 		// Step 3: Select top face → draw small circle at offset → extrude cut (notch)
@@ -260,15 +278,17 @@ test.describe('multi-op boolean workflows', () => {
 		await drawCircle(waffle.page, 35, 0, 45, 0);
 		try {
 			await waitForEntityCount(waffle.page, 2, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-notch-circle-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 5, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-notch-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -277,8 +297,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 6, 30000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-ring-notch-cut-failed');
+			throw err;
 		}
 
 		// Verify: mesh present, no crash
@@ -304,15 +325,17 @@ test.describe('multi-op boolean workflows', () => {
 		await drawRectangle(waffle.page, -60, -40, 60, 40);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-stack-sketch-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 3, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-stack-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
@@ -320,8 +343,9 @@ test.describe('multi-op boolean workflows', () => {
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
 		try {
 			await waitForFeatureCount(waffle.page, 4, 15000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('mob-stack-extrude-failed');
+			throw err;
 		}
 
 		// Verify

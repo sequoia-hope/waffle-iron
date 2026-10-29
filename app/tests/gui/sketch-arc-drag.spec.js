@@ -121,8 +121,9 @@ test.describe('arc click-click verification', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 5000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('click-arc-count-failed');
+			throw err;
 		}
 
 		const clickClickCount = await getEntityCount(waffle.page);
@@ -139,8 +140,9 @@ test.describe('arc click-click verification', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 5000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-tool-persist-failed');
+			throw err;
 		}
 
 		// Tool should remain as arc (ready for next arc)

@@ -33,15 +33,17 @@ async function createRevolveSketch(waffle) {
 	await drawRectangle(waffle.page, 10, -60, 100, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('revolve-opt-sketch-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('revolve-opt-finish-failed');
+		throw err;
 	}
 }
 
@@ -66,8 +68,9 @@ async function applyRevolve(waffle, { angle = '360', reverse = false } = {}) {
 
 	try {
 		await waitForFeatureCount(waffle.page, 2, 15000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('revolve-opt-apply-failed');
+		throw err;
 	}
 }
 

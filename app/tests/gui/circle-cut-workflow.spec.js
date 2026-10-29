@@ -42,18 +42,27 @@ async function createBaseBox(waffle, { depth = '10' } = {}) {
 	await clickSketch(waffle.page, 'front');
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+	try {
+		await waitForEntityCount(waffle.page, 8, 3000);
+	} catch (err) {
 		await waffle.dumpState('ccw-base-sketch-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 1, 10000);
+	} catch (err) {
 		await waffle.dumpState('ccw-base-finish-failed');
+		throw err;
 	}
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill(depth);
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+	try {
+		await waitForFeatureCount(waffle.page, 2, 10000);
+	} catch (err) {
 		await waffle.dumpState('ccw-base-extrude-failed');
+		throw err;
 	}
 }
 
@@ -74,14 +83,20 @@ test.describe('circle cut workflow', () => {
 		// Step 3: Draw circle on the face
 		await clickCircle(waffle.page);
 		await drawCircle(waffle.page, 0, 0, 40, 0);
-		try { await waitForEntityCount(waffle.page, 2, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 2, 3000);
+		} catch (err) {
 			await waffle.dumpState('ccw-circle-draw-failed');
+			throw err;
 		}
 
 		// Step 4: Finish sketch
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 3, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 3, 10000);
+		} catch (err) {
 			await waffle.dumpState('ccw-circle-finish-failed');
+			throw err;
 		}
 
 		// Step 5: Extrude with cut enabled
@@ -89,8 +104,11 @@ test.describe('circle cut workflow', () => {
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('5');
 		await waffle.page.locator('[data-testid="extrude-combine"]').selectOption('Cut');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 4, 15000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 4, 15000);
+		} catch (err) {
 			await waffle.dumpState('ccw-circle-cut-extrude-failed');
+			throw err;
 		}
 
 		// Step 6: Verify mesh is present and no crashes

@@ -35,8 +35,9 @@ async function sketchWithLine(waffle) {
 	await drawLine(waffle.page, -100, 0, 100, 0);
 	try {
 		await waitForEntityCount(waffle.page, 3, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('sketchWithLine-failed');
+		throw err;
 	}
 }
 
@@ -48,8 +49,9 @@ async function sketchWithTwoLines(waffle) {
 	await drawLine(waffle.page, -100, -50, 0, -50);
 	try {
 		await waitForEntityCount(waffle.page, 3, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('sketchWithTwoLines-line1-failed');
+		throw err;
 	}
 
 	await pressKey(waffle.page, 'Escape');
@@ -58,8 +60,9 @@ async function sketchWithTwoLines(waffle) {
 	await drawLine(waffle.page, -100, 80, 0, 80);
 	try {
 		await waitForEntityCount(waffle.page, 6, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('sketchWithTwoLines-failed');
+		throw err;
 	}
 }
 
@@ -72,8 +75,9 @@ async function sketchWithRectangle(waffle) {
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('sketchWithRectangle-failed');
+		throw err;
 	}
 }
 

@@ -50,8 +50,9 @@ test.describe('arc tool drawing', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 4, 3000); // 3 points + 1 arc
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('arc-draw-failed');
+			throw err;
 		}
 
 		const arcs = await getEntityCountByType(waffle.page, 'Arc');
@@ -137,11 +138,7 @@ test.describe('line chaining behavior', () => {
 		await clickAt(waffle.page, 100, 0);     // end of line 2
 		await waffle.page.waitForTimeout(300);
 
-		try {
-			await waitForEntityCount(waffle.page, 5, 3000); // 3 points + 2 lines
-		} catch {
-			// May have fewer if snap merges points
-		}
+		await waitForEntityCount(waffle.page, 5, 3000); // 3 points + 2 lines
 
 		const entities = await getEntities(waffle.page);
 		const lines = entities.filter(e => e.type === 'Line');

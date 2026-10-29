@@ -38,8 +38,9 @@ test.describe('sketch → extrude pipeline', () => {
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('pipeline-draw-failed');
+			throw err;
 		}
 
 		// Verify 4 lines created
@@ -50,8 +51,9 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickFinishSketch(waffle.page);
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('pipeline-finish-failed');
+			throw err;
 		}
 
 		// Step 5: Click Extrude button, fill depth, click Apply (real dialog interaction)
@@ -62,8 +64,9 @@ test.describe('sketch → extrude pipeline', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('pipeline-extrude-failed');
+			throw err;
 		}
 
 		// Verify feature tree (read-only verification via __waffle)
@@ -81,20 +84,29 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('geomref-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('geomref-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('pipeline-geomref-extrude-failed');
+			throw err;
 		}
 
 		// Verify face ranges (read-only verification)
@@ -137,20 +149,29 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('saveload-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('saveload-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('saveload-extrude-failed');
+			throw err;
 		}
 
 		// Verify 2 features before save
@@ -165,7 +186,11 @@ test.describe('sketch → extrude pipeline', () => {
 		// Parse and verify format
 		const parsed = JSON.parse(jsonData);
 		expect(parsed.format).toBe('waffle-iron');
-		expect(parsed.features.features.length).toBe(2);
+		// A document is multi-tab (docs/FILE_FORMAT.md §14.4): the part's
+		// tree lives on its tab, not at the top level.
+		const partTabs = (parsed.tabs ?? []).filter((t) => t.kind?.features);
+		expect(partTabs.length).toBe(1);
+		expect(partTabs[0].kind.features.features.length).toBe(2);
 
 		// Load back (API call — no GUI open dialog exists yet)
 		await waffle.page.evaluate((data) => window.__waffle.loadProject(data), jsonData);
@@ -183,20 +208,29 @@ test.describe('sketch → extrude pipeline', () => {
 		await clickSketch(waffle.page);
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
-		try { await waitForEntityCount(waffle.page, 8, 3000); } catch {
+		try {
+			await waitForEntityCount(waffle.page, 8, 3000);
+		} catch (err) {
 			await waffle.dumpState('sof-pipeline-draw-failed');
+			throw err;
 		}
 
 		await clickFinishSketch(waffle.page);
-		try { await waitForFeatureCount(waffle.page, 1, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 1, 10000);
+		} catch (err) {
 			await waffle.dumpState('sof-pipeline-finish-failed');
+			throw err;
 		}
 
 		await clickExtrude(waffle.page);
 		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 		await waffle.page.locator('[data-testid="extrude-apply"]').click();
-		try { await waitForFeatureCount(waffle.page, 2, 10000); } catch {
+		try {
+			await waitForFeatureCount(waffle.page, 2, 10000);
+		} catch (err) {
 			await waffle.dumpState('pipeline-sof-extrude-failed');
+			throw err;
 		}
 
 		// Get a face ref (read-only API — face picking requires 3D raycast)

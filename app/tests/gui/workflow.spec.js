@@ -16,6 +16,7 @@ import {
 	isSketchActive,
 	getActiveTool,
 	getEntityCount,
+	getEntities,
 	getEntityCountByType,
 	getFeatureCount,
 	hasFeatureOfType,
@@ -41,8 +42,9 @@ test.describe('full workflows', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-draw-failed');
+			throw err;
 		}
 
 		const points = await getEntityCountByType(waffle.page, 'Point');
@@ -57,8 +59,9 @@ test.describe('full workflows', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-finish-failed');
+			throw err;
 		}
 
 		// Step 5: Click Extrude, set depth, Apply
@@ -70,8 +73,9 @@ test.describe('full workflows', () => {
 		// Step 6: Verify 3D box
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-extrude-failed');
+			throw err;
 		}
 
 		const hasSketch = await hasFeatureOfType(waffle.page, 'Sketch');
@@ -111,8 +115,9 @@ test.describe('full workflows', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-kb-draw-failed');
+			throw err;
 		}
 
 		// Step 4: Escape to deselect the tool (Escape never finishes a sketch),
@@ -129,8 +134,9 @@ test.describe('full workflows', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-kb-finish-failed');
+			throw err;
 		}
 
 		// Step 5: Press E for extrude
@@ -145,8 +151,9 @@ test.describe('full workflows', () => {
 		// Verify results
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('tutorial1-kb-extrude-failed');
+			throw err;
 		}
 
 		const hasSketch = await hasFeatureOfType(waffle.page, 'Sketch');
@@ -167,21 +174,22 @@ test.describe('full workflows', () => {
 
 		try {
 			await waitForEntityCount(waffle.page, 3, 3000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('multiline-first-failed');
+			throw err;
 		}
 
-		// Draw second line
+		// Draw second line from the first one's end. The line tool chains, so
+		// the second line REUSES the shared endpoint: 3 points + 2 lines.
 		await drawLine(waffle.page, 0, 0, 100, 0);
 
-		try {
-			await waitForEntityCount(waffle.page, 6, 3000);
-		} catch {
-			// May have fewer if points are shared via snapping
-		}
+		await waitForEntityCount(waffle.page, 5, 3000);
 
-		const totalEntities = await getEntityCount(waffle.page);
-		expect(totalEntities).toBeGreaterThanOrEqual(4); // At least 2 lines + endpoints
+		const entities = await getEntities(waffle.page);
+		const lines = entities.filter((e) => e.type === 'Line');
+		expect(lines.length).toBe(2);
+		expect(entities.filter((e) => e.type === 'Point').length).toBe(3);
+		expect(lines[1].start_id).toBe(lines[0].end_id);
 	});
 
 	test('sketch-extrude preserves orbit after completion', async ({ waffle }) => {
@@ -190,15 +198,11 @@ test.describe('full workflows', () => {
 		await clickRectangle(waffle.page);
 		await drawRectangle(waffle.page, -80, -60, 80, 60);
 
-		try {
-			await waitForEntityCount(waffle.page, 8, 3000);
-		} catch {}
+		await waitForEntityCount(waffle.page, 8, 3000);
 
 		await clickFinishSketch(waffle.page);
 
-		try {
-			await waitForFeatureCount(waffle.page, 1, 10000);
-		} catch {}
+		await waitForFeatureCount(waffle.page, 1, 10000);
 
 		// After sketch is done, orbit should work
 		const { orbitDrag } = await import('./helpers/canvas.js');

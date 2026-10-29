@@ -73,13 +73,13 @@ async function createSimpleModel(waffle) {
 	await clickSketch(waffle.page);
 	await clickRectangle(waffle.page);
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
-	try { await waitForEntityCount(waffle.page, 8, 5000); } catch { /* best effort */ }
+	await waitForEntityCount(waffle.page, 8, 5000);
 	await clickFinishSketch(waffle.page);
-	try { await waitForFeatureCount(waffle.page, 1, 10000); } catch { /* best effort */ }
+	await waitForFeatureCount(waffle.page, 1, 10000);
 	await clickExtrude(waffle.page);
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
-	try { await waitForFeatureCount(waffle.page, 2, 10000); } catch { /* best effort */ }
+	await waitForFeatureCount(waffle.page, 2, 10000);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────

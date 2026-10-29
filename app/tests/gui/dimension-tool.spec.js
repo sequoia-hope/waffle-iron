@@ -35,8 +35,9 @@ async function sketchLineAndSwitchToDim(waffle) {
 	await drawLine(waffle.page, -100, 0, 100, 0);
 	try {
 		await waitForEntityCount(waffle.page, 3, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('dim-line-setup-failed');
+		throw err;
 	}
 
 	// Switch to dimension tool
@@ -54,8 +55,9 @@ async function sketchCircleAndSwitchToDim(waffle) {
 	await drawCircle(waffle.page, 0, 0, 60, 0);
 	try {
 		await waitForEntityCount(waffle.page, 2, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('dim-circle-setup-failed');
+		throw err;
 	}
 
 	// Switch to dimension tool
@@ -472,8 +474,9 @@ async function sketchWithRectangle(waffle) {
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('rect-draw-failed');
+		throw err;
 	}
 }
 

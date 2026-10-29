@@ -24,16 +24,18 @@ async function sketchRectangle(waffle) {
 
 	try {
 		await waitForEntityCount(waffle.page, 8, 5000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('region-sketch-draw-failed');
+		throw err;
 	}
 
 	await clickFinishSketch(waffle.page);
 
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('region-sketch-finish-failed');
+		throw err;
 	}
 }
 
@@ -244,8 +246,9 @@ test.describe('extrude region list', () => {
 		// Feature count should increase by 1
 		try {
 			await waitForFeatureCount(waffle.page, featuresBefore + 1, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('region-extrude-apply-failed');
+			throw err;
 		}
 
 		const featuresAfter = await getFeatureCount(waffle.page);

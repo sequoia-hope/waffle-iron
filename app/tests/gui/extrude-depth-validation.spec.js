@@ -25,14 +25,16 @@ async function sketchRectangle(waffle) {
 	await drawRectangle(waffle.page, -80, -60, 80, 60);
 	try {
 		await waitForEntityCount(waffle.page, 8, 3000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('extrude-val-sketch-failed');
+		throw err;
 	}
 	await clickFinishSketch(waffle.page);
 	try {
 		await waitForFeatureCount(waffle.page, 1, 10000);
-	} catch {
+	} catch (err) {
 		await waffle.dumpState('extrude-val-finish-failed');
+		throw err;
 	}
 }
 
@@ -48,8 +50,9 @@ test.describe('extrude depth value edge cases', () => {
 		await expect(waffle.page.locator('[data-testid="extrude-dialog"]')).not.toBeVisible();
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-small-depth-failed');
+			throw err;
 		}
 
 		expect(await hasFeatureOfType(waffle.page, 'Extrude')).toBe(true);
@@ -68,8 +71,9 @@ test.describe('extrude depth value edge cases', () => {
 		await expect(waffle.page.locator('[data-testid="extrude-dialog"]')).not.toBeVisible();
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-large-depth-failed');
+			throw err;
 		}
 
 		expect(await hasFeatureOfType(waffle.page, 'Extrude')).toBe(true);
@@ -104,8 +108,9 @@ test.describe('extrude depth value edge cases', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-decimal-depth-failed');
+			throw err;
 		}
 
 		expect(await hasFeatureOfType(waffle.page, 'Extrude')).toBe(true);
@@ -124,8 +129,9 @@ test.describe('extrude depth stored in feature params', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-depth-params-failed');
+			throw err;
 		}
 
 		const tree = await getFeatureTree(waffle.page);
@@ -153,8 +159,9 @@ test.describe('extrude depth stored in feature params', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-cut-params-failed');
+			throw err;
 		}
 
 		const tree = await getFeatureTree(waffle.page);
@@ -181,8 +188,9 @@ test.describe('extrude depth stored in feature params', () => {
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
-		} catch {
+		} catch (err) {
 			await waffle.dumpState('extrude-through-all-params-failed');
+			throw err;
 		}
 
 		const tree = await getFeatureTree(waffle.page);
