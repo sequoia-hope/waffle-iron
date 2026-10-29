@@ -584,8 +584,18 @@ async function answerCapture(ws, frame) {
 async function answerView(ws, frame) {
 	const { VIEWPORT_QUERIES } = await import('$lib/agent/viewport.js');
 	try {
-		const result = VIEWPORT_QUERIES.viewport_view.run({ view: frame.view ?? null, fit: frame.fit !== false });
-		send(ws, { type: 'view_result', id: frame.id, camera: result.structuredContent.camera });
+		// The relay forwards the tool's whole argument object (as for a
+		// capture); a relay older than that sends the fields alone. `frame`
+		// used to be dropped here, so a framed view fitted the whole model.
+		const args = frame.arguments ?? { view: frame.view ?? null, fit: frame.fit !== false, frame: frame.frame ?? null };
+		const result = VIEWPORT_QUERIES.viewport_view.run(args);
+		send(ws, {
+			type: 'view_result',
+			id: frame.id,
+			camera: result.structuredContent.camera,
+			framed: result.structuredContent.framed ?? null,
+			structured: result.structuredContent
+		});
 	} catch (err) {
 		send(ws, { type: 'view_result', id: frame.id, error: errorOf(err) });
 	}

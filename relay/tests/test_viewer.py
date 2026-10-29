@@ -438,6 +438,60 @@ async def test_the_viewer_tools_are_served_from_the_focused_visible_viewer(
     await other.close()
 
 
+async def test_viewport_view_forwards_frame_and_reports_framed(
+    stack: tuple[HostBackend, ViewerServer, str],
+) -> None:
+    """Host-mode `viewport_view` carries `frame` to the viewer and reports what
+    it framed (REVIEW.md §3.5-3). The relay used to forward only `view` and
+    `fit`, so the viewer fitted the whole model while the tool said
+    `fitted: true` and had no `framed` at all."""
+    backend, server, url = stack
+    viewer, _welcome, _ = await attached(url, server)
+    region = {"point": [0.01, 0.0, 0.02], "radius": 0.005}
+    box = {"min": [0.005, -0.005, 0.015], "max": [0.015, 0.005, 0.025]}
+
+    async def answer_view() -> None:
+        request = await viewer.recv_type("view_request", skip=("update",))
+        assert request["frame"] == region
+        assert request["arguments"] == {"view": "front", "frame": region}
+        await viewer.send(
+            {
+                "type": "view_result",
+                "id": request["id"],
+                "camera": {"position": [0, -1, 0]},
+                "framed": box,
+                "structured": {
+                    "view": "front",
+                    "fitted": True,
+                    "framed": box,
+                    "camera": {"position": [0, -1, 0]},
+                },
+            }
+        )
+
+    answering = asyncio.create_task(answer_view())
+    viewed = await backend.call("viewport_view", {"view": "front", "frame": region})
+    await answering
+    out = viewed["structuredContent"]
+    assert out["framed"] == box
+    assert out["fitted"] is True
+    assert out["camera"] == {"position": [0, -1, 0]}
+
+    # A viewer older than this answers with the camera alone: `framed` is
+    # null rather than absent, matching the page-mode output schema.
+    async def answer_old() -> None:
+        request = await viewer.recv_type("view_request", skip=("update",))
+        await viewer.send(
+            {"type": "view_result", "id": request["id"], "camera": {"position": [1, 1, 1]}}
+        )
+
+    answering = asyncio.create_task(answer_old())
+    old = await backend.call("viewport_view", {"view": "iso", "fit": False})
+    await answering
+    assert old["structuredContent"]["framed"] is None
+    assert old["structuredContent"]["fitted"] is False
+
+
 async def test_presence_changes_reach_every_viewer_as_an_activity_update(
     stack: tuple[HostBackend, ViewerServer, str],
 ) -> None:

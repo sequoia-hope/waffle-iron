@@ -476,11 +476,18 @@ class ViewerServer:
                 "arguments": arguments,
             }
         elif tool == "viewport_view":
+            # Like the capture: the whole argument object goes through, so
+            # `frame` (a region instead of the whole model) reaches the page —
+            # it used to be dropped, and the viewer fitted everything while
+            # the tool answered `fitted: true`. `view`, `fit` and `frame` stay
+            # spelled out for a page that reads the fields directly.
             frame = {
                 "type": "view_request",
                 "id": request_id,
                 "view": arguments.get("view"),
                 "fit": arguments.get("fit", True),
+                "frame": arguments.get("frame"),
+                "arguments": arguments,
             }
         else:
             raise LinkError("ToolUnavailable", f"{tool} is not a viewer tool", {"tool": tool})
@@ -524,12 +531,21 @@ class ViewerServer:
                 "structuredContent": structured,
                 "isError": False,
             }
-        structured = {
-            "view": arguments.get("view"),
-            "fitted": arguments.get("fit", True),
-            "camera": answer.get("camera"),
-            "viewer_id": viewer.viewer_id,
-        }
+        # The page's own answer (view, fitted, framed, camera) is the result,
+        # as in page mode; a viewer older than `structured` sends the camera
+        # (and maybe `framed`) alone, and the rest is derived the page's way.
+        page = answer.get("structured")
+        if isinstance(page, dict):
+            structured = dict(page)
+        else:
+            structured = {
+                "view": arguments.get("view"),
+                "fitted": True if arguments.get("frame") else arguments.get("fit", True),
+                "framed": answer.get("framed"),
+                "camera": answer.get("camera"),
+            }
+        structured.setdefault("framed", None)
+        structured["viewer_id"] = viewer.viewer_id
         return {
             "content": [{"type": "text", "text": json.dumps(structured)}],
             "structuredContent": structured,

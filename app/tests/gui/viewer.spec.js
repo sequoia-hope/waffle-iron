@@ -158,6 +158,23 @@ test.describe('Viewer (server mode P-D)', () => {
 		expect(viewed.camera).toBeTruthy();
 		expect(viewed.viewer_id).toBe((await viewerState(page)).viewerId);
 
+		// `frame` reaches the viewer (REVIEW.md §3.5-3): a 1 mm region about a
+		// corner of the box is framed, reported as `framed`, and the camera
+		// aims at it. The relay used to drop `frame` and say `fitted: true`.
+		const corner = [0.02, 0.01, 0.005];
+		const framedView = ok(await relay.callTool('viewport_view', { view: 'iso', frame: { point: corner, radius: 0.001 } }));
+		expect(framedView.fitted).toBe(true);
+		expect(framedView.framed, JSON.stringify(framedView)).toBeTruthy();
+		for (let i = 0; i < 3; i++) {
+			expect(framedView.framed.min[i]).toBeCloseTo(corner[i] - 0.001, 9);
+			expect(framedView.framed.max[i]).toBeCloseTo(corner[i] + 0.001, 9);
+			expect(framedView.camera.target[i]).toBeCloseTo(corner[i], 6);
+		}
+		const unframed = ok(await relay.callTool('viewport_view', { view: 'iso', fit: false }));
+		expect(unframed.framed).toBeNull();
+		// Back to the whole model for the click below.
+		ok(await relay.callTool('viewport_view', { view: 'iso', fit: true }));
+
 		// viewport_capture renders this tab's viewport.
 		const captured = await relay.callTool('viewport_capture', { max_edge_px: 320 });
 		expect(captured.isError).toBe(false);
