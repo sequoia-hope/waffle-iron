@@ -61,6 +61,17 @@
 					e.clientY < rect.top || e.clientY > rect.bottom) {
 					return;
 				}
+				// A press on UI floating OVER the canvas (the right-click
+				// constraint menu, a dialog, a button) is not a sketch click.
+				// Without this the select tool reads a menu-item press as a
+				// click on empty canvas, clears the selection, and the menu —
+				// whose items derive from that selection — unmounts before the
+				// item's click lands: no menu constraint could ever apply.
+				const target = /** @type {Element | null} */ (e.target instanceof Element ? e.target : null);
+				if (target && target !== canvas &&
+					target.closest('button, input, select, textarea, a, [role="menu"], [role="dialog"]')) {
+					return;
+				}
 			}
 
 			const sm = getSketchMode();

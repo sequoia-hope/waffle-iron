@@ -27,6 +27,7 @@ import { renderViewSvg } from '$lib/drawings/svg.js';
 import { DEFAULT_DISPLAY, resolveDisplay, setDisplay } from '$lib/units.js';
 import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew, editDocumentMeta } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
+import { mapConstraintForBridge } from '$lib/sketch/bridgeConstraint.js';
 
 /**
  * Generate a UUID, with fallback for non-secure contexts (e.g. HTTP without localhost).
@@ -3201,44 +3202,6 @@ function projectEdgeRange(mesh, range, getCorner) {
 }
 
 /**
- * Map a JS sketch constraint to the Rust bridge format.
- * Some constraint type names differ between JS and Rust (waffle-types).
- * @param {object} c - Constraint in JS format
- * @returns {object | null} Constraint in Rust bridge format, or null to skip
- */
-function mapConstraintForBridge(c) {
-	if (c.type === 'WhereDragged') {
-		// Live drag pins keep Dragged semantics (weight 1/20, target = the
-		// point's current position, refreshed per pointermove). Persistent
-		// pins (origin/reference snaps, the Fix modal) lower to Pinned so the
-		// stored (x, y) target survives every solve at full constraint weight
-		// — Dragged would re-anchor to the drifted position and let the lock
-		// walk away. See specs/pinned_constraint.md.
-		if (c._isDrag || c.x == null || c.y == null) {
-			return { type: 'Dragged', point: c.point };
-		}
-		return { type: 'Pinned', point: c.point, x: c.x, y: c.y };
-	}
-	// `EqualRadius` and `LengthRatio` are UI-side names with no matching
-	// waffle-types variant — the Rust enum spells them `Equal` and `Ratio`.
-	// Sent unmapped, serde rejects the whole message ("unknown variant
-	// `EqualRadius`"), and because SolveSketch resends the FULL constraint
-	// list every subsequent solve in the sketch fails to parse too — one
-	// Equal-Radius click silently kills constraint solving for the rest of
-	// the session. `Equal` dispatches on entity kind (circle/circle,
-	// arc/arc, circle/arc), which covers every selection that produces
-	// these. Emitted by the toolbar's Eq button, the right-click menu's
-	// Equal Radius / Length Ratio items, and the sketch fillet tool.
-	if (c.type === 'EqualRadius') {
-		return { type: 'Equal', entity_a: c.entity_a, entity_b: c.entity_b };
-	}
-	if (c.type === 'LengthRatio') {
-		return { type: 'Ratio', entity_a: c.entity_a, entity_b: c.entity_b, value: c.value };
-	}
-	return c;
-}
-
-/**
  * Add a constraint locally and send to engine.
  * @param {object} constraint - SketchConstraint object
  */
@@ -3758,7 +3721,7 @@ export function removeSketchEntities(entityIds) {
 	const removedConstraints = [];
 	const survivingConstraints = [];
 	for (const c of sketchConstraints) {
-		const refs = [c.entity, c.entity_a, c.entity_b, c.entity_c,
+		const refs = [c.entity, c.entity_a, c.entity_b, c.entity_c, c.symmetry_line,
 			c.line, c.curve, c.line_a, c.line_b,
 			c.point, c.point_a, c.point_b, ...offsetConstraintRefs(c)].filter(v => v != null);
 		if (refs.some(id => toRemove.has(id))) {

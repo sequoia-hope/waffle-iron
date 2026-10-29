@@ -35,7 +35,7 @@ export function offsetConstraintRefs(c) {
 /** Stable, presentation-order-independent key for a constraint (for offsets). */
 export function constraintKey(c) {
 	const refs = [
-		c.entity, c.entity_a, c.entity_b, c.entity_c,
+		c.entity, c.entity_a, c.entity_b, c.entity_c, c.symmetry_line,
 		c.line, c.curve, c.line_a, c.line_b,
 		c.point, c.point_a, c.point_b,
 		...offsetConstraintRefs(c),
