@@ -500,17 +500,37 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
         }
     }
 
+    // Remediation plan O1: the exact B-Rep's worst boundary-to-surface
+    // distance over every live solid (vertices and edge-curve samples against
+    // each adjacent face's surface). Outside `ON_SURFACE_BAND_REL` of the
+    // case scale it is a geometric defect the mesh oracles cannot see; the
+    // band and its census are in `assay::on_surface`.
+    let reading = crate::assay::on_surface::measure(&builder, meta.scale);
+    if reading.is_defect() {
+        failures.push(format!(
+            "on_surface: boundary {:.3e} m off its surface (rel {:.3e} > band {:.0e})",
+            reading.worst,
+            reading.rel,
+            crate::assay::on_surface::ON_SURFACE_BAND_REL
+        ));
+    }
+    let on_surface = reading.summary();
+    // Remediation plan O2, RECORD-ONLY: the kernel's exact B-Rep volume
+    // against the render mesh's, at the expected-volume oracle's tolerance.
+    let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(&mut builder, tess_tol).summary();
+    let on_surface = format!("{on_surface}; {exact_vs_mesh}");
+
     if failures.is_empty() {
         CaseOutcome {
             id: id.to_string(),
             category: Category::SupportedCorrect,
-            detail: "all checks passed".to_string(),
+            detail: format!("all checks passed; {on_surface}"),
         }
     } else {
         CaseOutcome {
             id: id.to_string(),
             category: Category::SupportedWrong,
-            detail: failures.join("; "),
+            detail: format!("{}; {on_surface}", failures.join("; ")),
         }
     }
 }

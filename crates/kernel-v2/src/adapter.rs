@@ -1595,6 +1595,34 @@ impl KernelIntrospect for KernelV2Adapter {
         })
     }
 
+    /// Remediation plan O1: raw boundary-to-surface distances per face
+    /// (`crate::conformance`). A mesh-backed import has no surface to
+    /// measure against.
+    fn surface_conformance(
+        &self,
+        solid: &KernelSolidHandle,
+    ) -> Result<waffle_types::kernel::SurfaceConformance, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "surface conformance of an imported (mesh-backed) body".to_string(),
+            });
+        }
+        let sid = self.solid_of(solid)?;
+        let faces = crate::conformance::surface_conformance(&self.arena, sid)
+            .map_err(|e| KernelError::Other {
+                message: format!("surface conformance unavailable: {e:?}"),
+            })?
+            .into_iter()
+            .map(|d| waffle_types::kernel::FaceConformance {
+                face: encode_face(d.face),
+                samples: d.samples,
+                max_distance: d.max_distance,
+                at: d.at.as_array(),
+            })
+            .collect();
+        Ok(waffle_types::kernel::SurfaceConformance { faces })
+    }
+
     /// `specs/b4_balanced_union.md` §2.2: the conservative box
     /// (`introspect::conservative_aabb`). An imported (mesh-backed) body IS
     /// its mesh, so its vertex hull is exact.

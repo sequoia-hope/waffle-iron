@@ -50,6 +50,44 @@ pub struct FaceProvenance {
     pub root_pid: u64,
 }
 
+/// How far one face's boundary strays from the face's own surface
+/// (remediation plan O1, review 2026-10-28 §2.1). Measured on the EXACT
+/// B-Rep, not a render mesh: every loop vertex and interior samples of every
+/// bounding edge curve, each against this face's surface. Because each edge
+/// bounds two faces, the solid-level report checks every edge against BOTH
+/// adjacent surfaces.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceConformance {
+    /// The face.
+    pub face: KernelId,
+    /// Boundary points measured on this face (vertices + edge samples).
+    pub samples: usize,
+    /// The largest point-to-surface distance among them, in meters.
+    pub max_distance: f64,
+    /// Where that largest distance was measured.
+    pub at: [f64; 3],
+}
+
+/// Per-face [`FaceConformance`] for a whole solid, from
+/// [`super::KernelIntrospect::surface_conformance`]. The kernel reports raw
+/// distances; whether a distance is a defect is the CONSUMER's call (the
+/// assay's band), so the oracle stays independent of the kernel's own
+/// tolerances.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SurfaceConformance {
+    /// One entry per face of the solid.
+    pub faces: Vec<FaceConformance>,
+}
+
+impl SurfaceConformance {
+    /// The face with the largest boundary-to-surface distance, if any.
+    pub fn worst(&self) -> Option<&FaceConformance> {
+        self.faces
+            .iter()
+            .max_by(|a, b| a.max_distance.total_cmp(&b.max_distance))
+    }
+}
+
 /// The persistent identity of ONE topological entity — a face, an edge or a
 /// vertex (drawings spec D0, `specs/drawings_and_mbd.md` §4 item 4).
 ///

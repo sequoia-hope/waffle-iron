@@ -22,8 +22,10 @@ pub mod determinism;
 /// EXACT analytic membership of a corpus document — the composed solid as a
 /// closed-form point predicate, no tessellation and no kernel anywhere.
 pub mod exact_membership;
+pub mod exact_vs_mesh;
 pub mod gen;
 pub mod gen_complexity;
+pub mod on_surface;
 pub mod properties;
 pub mod properties_v2;
 /// Assay prospector library parts (`specs/assay_prospector.md`).

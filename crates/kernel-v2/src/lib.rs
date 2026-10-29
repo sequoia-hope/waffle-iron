@@ -69,6 +69,7 @@ pub mod boolean;
 mod cone_boolean_test;
 #[cfg(test)]
 pub(crate) mod cone_fixtures;
+pub mod conformance;
 pub mod construct;
 pub mod dxf_export;
 pub mod error;

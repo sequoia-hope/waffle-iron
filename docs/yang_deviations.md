@@ -7669,7 +7669,16 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    curve, the curve is attached on producer provenance alone, with no
    containment test (a Case-IV ghost edge).
 3. `kernel-v2/src/recover.rs:254-270`: `None => orig()` ships a curved rim
-   as a chord with no signal (A15.5 erosion).
+   as a chord with no signal (A15.5 erosion). **MEASURED 2026-10-29
+   (remediation O1):** the harness on-surface oracle's corpus census found
+   exactly three CORRECT cases with boundary samples off their surfaces, all
+   this path — `LineSegment` chords bounding torus faces (R0050, 6.05e-2 m,
+   rel 5.3e-3; R0026, rel 1.4e-3) and cylinder + torus faces (R0015, rel
+   5.0e-3). Every other CORRECT case reads ≤ 3.5e-10 of its scale. The three
+   are now SUPPORTED_WRONG (band d_p = 1e-7 relative,
+   `test-harness/src/assay/on_surface.rs`); still OPEN — the fix is typing
+   the rim at emission (`specs/yang_output_curve_typing_migration.md`),
+   not a band.
 4. `stage5_topology/patches.rs:858` `select_outer_cycle`: sphere, torus and
    other surfaces fall to `by_edges` (most edges wins — a sampling-density
    proxy, the R0070 class), so a holed sphere/torus face can be labelled

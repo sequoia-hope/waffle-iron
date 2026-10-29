@@ -1208,3 +1208,152 @@ fn a_cut_that_keeps_nothing_or_everything_leaves_the_arena_untouched() {
     assert!(adapter.release_section_cut(&cube).is_err());
     assert!(adapter.solid_volume(&cube).is_ok());
 }
+
+// ---- surface_conformance (remediation plan O1) ---------------------------
+
+fn worst_deviation(adapter: &KernelV2Adapter, h: &KernelSolidHandle) -> f64 {
+    adapter
+        .surface_conformance(h)
+        .expect("conformance measures an exact solid")
+        .worst()
+        .map(|f| f.max_distance)
+        .expect("a solid has faces")
+}
+
+/// D-shape extrude (two cylinder patches bounded by ARC edges) — shared by
+/// the conformance tests below.
+fn d_shape(adapter: &mut KernelV2Adapter) -> KernelSolidHandle {
+    let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+    positions.insert(0, (-1.0, 0.0));
+    positions.insert(1, (1.0, 0.0));
+    for (k, deg) in [
+        (2u32, 30.0f64),
+        (3, 60.0),
+        (4, 90.0),
+        (5, 120.0),
+        (6, 150.0),
+    ] {
+        let t = deg.to_radians();
+        positions.insert(k, (t.cos(), t.sin()));
+    }
+    let profile = ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![0, 1, 2, 3, 4, 5, 6],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![waffle_types::ArcSegment {
+            start_vertex_index: 1,
+            end_vertex_index: 0,
+            center_u: 0.0,
+            center_v: 0.0,
+            radius: 1.0,
+        }],
+    };
+    let ids = adapter
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("D-shape stages");
+    adapter
+        .extrude_face(ids[0], [0.0, 0.0, 1.0], 2.0)
+        .expect("D-shape extrudes")
+}
+
+#[test]
+fn constructed_and_boolean_solids_lie_on_their_surfaces() {
+    let mut adapter = KernelV2Adapter::new();
+    let cube = unit_cube(&mut adapter);
+    let cyl_face = stage_circle(&mut adapter, [0.0, 0.0, 0.0], (0.5, 0.5), 0.25);
+    let cyl = adapter
+        .extrude_face(cyl_face, [0.0, 0.0, 1.0], 2.0)
+        .expect("cylinder");
+    let d = d_shape(&mut adapter);
+    for (name, h) in [("cube", &cube), ("cylinder", &cyl), ("D-shape", &d)] {
+        let c = adapter.surface_conformance(h).expect("measures");
+        assert!(
+            c.faces.iter().all(|f| f.samples > 0),
+            "{name}: every face sampled"
+        );
+        let w = worst_deviation(&adapter, h);
+        assert!(
+            w <= 1e-12,
+            "{name}: constructed solid off its surfaces by {w:e}"
+        );
+    }
+
+    // A yang boolean output (intersection curves on both operands' surfaces).
+    let mut adapter = KernelV2Adapter::new();
+    let cyl_face = stage_circle(&mut adapter, [0.0, 0.0, -0.5], (0.5, 0.5), 0.25);
+    let cyl = adapter
+        .extrude_face(cyl_face, [0.0, 0.0, 1.0], 2.0)
+        .expect("cylinder");
+    let box_face = stage_unit_square(&mut adapter);
+    let bx = adapter
+        .extrude_face(box_face, [0.0, 0.0, 1.0], 1.0)
+        .expect("box");
+    let out = adapter.boolean_union(&cyl, &bx).expect("union");
+    let w = worst_deviation(&adapter, &out);
+    assert!(w <= 1e-9, "cylinder ∪ box off its surfaces by {w:e}");
+}
+
+#[test]
+fn a_vertex_moved_off_its_surface_is_measured() {
+    let mut adapter = KernelV2Adapter::new();
+    let d = d_shape(&mut adapter);
+    // Push the rim vertex at (1, 0, 0) radially outward by 1e-4. Moving it
+    // along +x keeps it on the cap plane z = 0 and on the flat side y = 0,
+    // so the ONLY surface it leaves is the cylinder, by exactly 1e-4.
+    let target = adapter
+        .arena
+        .vertices
+        .iter()
+        .position(|v| {
+            v.as_ref().is_some_and(|v| {
+                (v.point.x() - 1.0).abs() < 1e-12
+                    && v.point.y().abs() < 1e-12
+                    && v.point.z().abs() < 1e-12
+            })
+        })
+        .expect("the D-shape has a rim vertex at (1, 0, 0)");
+    adapter.arena.vertices[target].as_mut().unwrap().point =
+        cad_primitives::Point3::new(1.0 + 1e-4, 0.0, 0.0);
+    let w = worst_deviation(&adapter, &d);
+    assert!(
+        (w - 1e-4).abs() < 1e-9,
+        "the moved vertex must read 1e-4 off the cylinder, got {w:e}"
+    );
+}
+
+#[test]
+fn an_arc_shipped_as_a_chord_is_measured_at_its_middle() {
+    // Ledger N100 item 3's shape: both ends on the cylinder, the edge
+    // between them a straight chord. A vertex-only check reads zero.
+    let mut adapter = KernelV2Adapter::new();
+    let d = d_shape(&mut adapter);
+    let arc = adapter
+        .arena
+        .half_edges
+        .iter()
+        .position(|h| {
+            h.as_ref()
+                .is_some_and(|h| matches!(h.curve, crate::arena::Curve::Arc { .. }))
+        })
+        .expect("the D-shape has arc edges");
+    let twin = adapter.arena.half_edges[arc].as_ref().unwrap().twin;
+    for h in [arc, twin.0 as usize] {
+        adapter.arena.half_edges[h].as_mut().unwrap().curve = crate::arena::Curve::LineSegment;
+    }
+    let w = worst_deviation(&adapter, &d);
+    // Each sub-arc spans 90°: the chord's middle sits 1 − cos 45° ≈ 0.293
+    // inside the unit cylinder; seven interior samples include it exactly.
+    let sagitta = 1.0 - std::f64::consts::FRAC_1_SQRT_2;
+    assert!(
+        w > 0.9 * sagitta,
+        "a chord standing in for an arc must read ~{sagitta:.3} off, got {w:e}"
+    );
+}

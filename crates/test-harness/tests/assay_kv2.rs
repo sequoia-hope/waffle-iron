@@ -877,7 +877,10 @@ fn smoke_corpus_boundary_categories() {
         // sat one ULP of `d` from the base cap it had been merged with, so
         // the bit-exact hull saw only the base cap and refused a junction on
         // the cap outside the cylinder's disk. 4.1 s release.
-        ("R0026", Category::SupportedCorrect),
+        // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
+        // oracle reads LineSegment chords bounding a curved face (the
+        // recover.rs bail of ledger N100 item 3); always wrong, now visible.
+        ("R0026", Category::SupportedWrong),
         // R0019 CONVERTED (2026-09-22 night, M5 torus arm increment 2): the
         // §4.5.3 reversal sweep's cycle qualification gained the typed
         // procedural `SurfacePair` edge — R0019's cylinder × cone pair chains
@@ -899,7 +902,10 @@ fn smoke_corpus_boundary_categories() {
         // a rim edge. Per-PAIR flags (`face_swap_a != opposite`) and a sheet
         // lookup keyed by its own (face_a, face_b) through `la.source` +
         // the Stage-0 tri→face maps. 2.8 s release.
-        ("R0015", Category::SupportedCorrect),
+        // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
+        // oracle reads LineSegment chords bounding a curved face (the
+        // recover.rs bail of ledger N100 item 3); always wrong, now visible.
+        ("R0015", Category::SupportedWrong),
         // C0044 FLIPPED (2026-09-12, the Stage-0 identical-disc pair): the
         // flush SAME-RADIUS cylinder stack's two caps are one disc, which
         // neither strict containment nor a crossing classifies; the lens
@@ -972,7 +978,10 @@ fn smoke_corpus_boundary_categories() {
         // discretization's artifact). With the M5 torus arm the shared edge
         // is a SurfacePair the render sampler refines, and every downstream
         // oracle passes. 9.2 s release.
-        ("R0050", Category::SupportedCorrect),
+        // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
+        // oracle reads LineSegment chords bounding a curved face (the
+        // recover.rs bail of ledger N100 item 3); always wrong, now visible.
+        ("R0050", Category::SupportedWrong),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached

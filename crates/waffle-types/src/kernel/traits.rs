@@ -450,6 +450,21 @@ pub trait KernelIntrospect {
         None
     }
 
+    /// Geometric conformance of an exact solid's B-Rep: for every face, the
+    /// largest distance from a point of its boundary (loop vertices and
+    /// samples of each bounding edge curve) to the face's own surface
+    /// (remediation plan O1). An imported mesh-backed body, or a kernel that
+    /// does not carry analytic surfaces, answers `NotSupported` — the
+    /// default, so this is additive for every implementor.
+    fn surface_conformance(
+        &self,
+        _solid: &KernelSolidHandle,
+    ) -> Result<crate::kernel::SurfaceConformance, crate::kernel::KernelError> {
+        Err(crate::kernel::KernelError::NotSupported {
+            operation: "surface conformance".to_string(),
+        })
+    }
+
     /// The solid's total surface area in m², exactly from its B-Rep. Same
     /// contract as [`Self::solid_volume`].
     fn solid_surface_area(
