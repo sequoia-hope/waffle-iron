@@ -1,0 +1,62 @@
+name: GUI cross-browser
+
+# Remediation plan G5 (2026-10-29): the gui-fast tier on Firefox and WebKit,
+# which had never run a spec although the app must support both.
+#
+# Its own workflow, nightly + on demand, NOT per push: as a job inside
+# "GUI tests" it hit its 45-minute bound on its first run (952 tests, 4
+# workers) and the cancellation marked the whole "GUI tests" workflow
+# cancelled on every push, hiding gui-fast's real verdict. The `list`
+# reporter names every test so a timeout still leaves a readable record.
+# Allow-fail in spirit: nothing gates on this workflow until its failures
+# are triaged (plan G5).
+
+on:
+  schedule:
+    - cron: '17 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gui-fast-cross-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: app
+
+      - name: Install ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: app
+
+      - name: gui-fast tier on ${{ matrix.browser }}
+        run: ./scripts/test.sh gui-fast
+        env:
+          TEST_THREADS: 4
+          PW_CROSS_BROWSER: '1'
+          PW_PROJECTS: ${{ matrix.browser }}
+          PW_REPORTER: list
+
+      - name: Upload traces and screenshots of failures
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.browser }}-results
+          path: app/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

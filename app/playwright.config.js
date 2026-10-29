@@ -10,6 +10,10 @@ export default defineConfig({
 	retries: 0,
 	workers: parseInt(process.env.PW_WORKERS || '4', 10),
 	outputDir: './test-results',
+	// PW_REPORTER overrides Playwright's own default (`dot` on CI, `list`
+	// locally); the nightly cross-browser workflow asks for `list` so a
+	// timed-out run still names every test it reached.
+	reporter: process.env.PW_REPORTER || (process.env.CI ? 'dot' : 'list'),
 	use: {
 		baseURL,
 		headless: true,
