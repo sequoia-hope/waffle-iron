@@ -30,6 +30,7 @@ import {
 } from '$lib/engine/store.svelte.js';
 import { renderSheetSvg } from '$lib/drawings/sheet.js';
 import { renderSheetPdf } from '$lib/drawings/pdf.js';
+import { standaloneSheetSvg } from '$lib/drawings/standalone.js';
 import { fail, toolOk } from './results.js';
 
 /** Q6: the largest file returned inline to the agent (16 MiB), as in Rust. */
@@ -107,9 +108,14 @@ export const DRAWING_QUERIES = {
 		run: (args = {}) => {
 			const deliver = deliverArg(args);
 			const { sheet, rendered } = renderedSheet(args, 'export_svg');
+			// The file carries literal colours and a literal font: on screen
+			// the sheet paints with theme variables, which nothing outside
+			// the app can resolve (REVIEW.md §3.3, `drawings/standalone.js`).
+			const file = standaloneSheetSvg(rendered.svg);
+			const warnings = [...rendered.warnings, ...file.warnings];
 			const fileName = `${safeName(sheet.name)}.svg`;
 			// UTF-8 length, the number the engine's exports report.
-			const bytes = new TextEncoder().encode(rendered.svg).length;
+			const bytes = new TextEncoder().encode(file.svg).length;
 			if (deliver === 'agent' && bytes > MAX_AGENT_PAYLOAD_BYTES) {
 				throw fail(
 					'PayloadTooLarge',
@@ -122,10 +128,10 @@ export const DRAWING_QUERIES = {
 				file_name: fileName,
 				mime_type: 'image/svg+xml',
 				bytes,
-				warnings: rendered.warnings
+				warnings
 			};
 			if (deliver === 'download') {
-				triggerStepDownload(rendered.svg, fileName);
+				triggerStepDownload(file.svg, fileName);
 				return toolOk(structured);
 			}
 			const result = toolOk(structured);
@@ -134,7 +140,7 @@ export const DRAWING_QUERIES = {
 				resource: {
 					uri: `waffle://export/${encodeURIComponent(fileName)}`,
 					mimeType: 'image/svg+xml',
-					text: rendered.svg
+					text: file.svg
 				}
 			});
 			return result;

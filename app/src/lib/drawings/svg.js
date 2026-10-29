@@ -33,7 +33,7 @@
  * Every paint is a `var(--drawing-…)` reference (see `style.js`), never a
  * literal. The tokens are defined in `app/src/app.css` in terms of the
  * theme's own, so a drawing follows the document theme with no per-theme
- * drawing block.
+ * drawing block. The exported file resolves them (`standalone.js`).
  */
 
 import { INCH_DENOMINATORS, resolveDisplay } from '$lib/units.js';

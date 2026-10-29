@@ -22,6 +22,7 @@
  * another would pass a text-only assertion and fail this one.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { standaloneSheetSvg } from '../../src/lib/drawings/standalone.js';
 
 /** A 40 × 25 mm plate's top view, as `ViewLayout` JSON (meters, v up). */
 const PLATE_W = 0.04;
@@ -699,7 +700,7 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(r.svg).toContain('&quot;');
 	});
 
-	test('every paint is a CSS variable, so the sheet follows the theme', async ({
+	test('on screen every paint is a CSS variable (the sheet follows the theme); the exported file has none', async ({
 		page,
 		waffle
 	}) => {
@@ -715,6 +716,13 @@ test.describe('D3 SVG dimension renderer', () => {
 		expect(r.svg).toContain('var(--drawing-ink)');
 		expect(r.svg).toContain('var(--drawing-paper)');
 		expect(r.svg).toContain('var(--drawing-annotation)');
+
+		// …but a FILE has no stylesheet to resolve them (REVIEW.md §3.3):
+		// export_svg writes this markup through `standaloneSheetSvg`, which
+		// must leave no `var(` and know every token the renderer used.
+		const file = standaloneSheetSvg(r.svg);
+		expect(file.svg).not.toContain('var(');
+		expect(file.warnings).toEqual([]);
 	});
 
 	test('the renderer is deterministic — the same input gives the same bytes', async ({

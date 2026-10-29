@@ -378,6 +378,17 @@ test.describe('Drawing tab', () => {
 		expect(paths(exported)).toEqual(paths(shown));
 		expect(exported).toContain('class="wi-sheet"');
 
+		// The FILE stands alone (REVIEW.md §3.3): on screen the sheet paints
+		// with `var(--drawing-…)` so it follows the theme, but a .svg opened
+		// anywhere else has no stylesheet to resolve those against, and every
+		// line would fall back to the SVG default (black fill, NO stroke).
+		// The export carries the print palette and a literal font instead.
+		expect(shown).toContain('var(--drawing-ink)');
+		expect(exported, 'the exported SVG must carry no CSS variable').not.toContain('var(');
+		expect(exported).toMatch(/stroke="#000000"/);
+		expect(exported).toMatch(/fill="#ffffff"/);
+		expect(answer.structuredContent.warnings ?? []).not.toContainEqual(expect.stringMatching(/no print colour/));
+
 		// And the file OPENS. The export is consumed as `image/svg+xml`,
 		// which is XML, not HTML: a duplicate attribute on an element is a
 		// fatal well-formedness error there and a silently-dropped one in

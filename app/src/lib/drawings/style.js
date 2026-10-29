@@ -35,6 +35,10 @@
  * tokens are defined once in `app/src/app.css` in terms of the theme's own
  * (`--text-primary`, `--bg-primary`, …), which is why a new theme needs no
  * drawing block of its own.
+ *
+ * That holds ON SCREEN only. An exported file has no stylesheet, so
+ * `export_svg` resolves every token to the print palette and a literal font
+ * (`standalone.js`), and the PDF writer does the same (`pdf.js`).
  */
 
 /** The CSS custom properties a rendered sheet paints with. */
