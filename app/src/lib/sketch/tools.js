@@ -890,13 +890,13 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 			toolState = 'centerPlaced';
 		} else if (toolState === 'centerPlaced') {
 			// Click-click mode: second click sets radius
-			finalizeCircle(snap);
+			finalizeCircle(snap, screenPixelSize);
 		}
 	}
 
 	if (eventType === 'pointerup') {
 		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'centerPlaced') {
-			finalizeCircle(snap);
+			finalizeCircle(snap, screenPixelSize);
 			isDragging = false;
 			pointerDownPos = null;
 		} else {
@@ -906,13 +906,22 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 	}
 }
 
-/** Finalize a circle from centerPos with radius to snap position. */
-function finalizeCircle(snap) {
+/**
+ * Finalize a circle from centerPos with radius to snap position.
+ *
+ * Degenerate means a SCREEN distance: a radius inside the click-vs-drag
+ * threshold is a second click on (or next to) the centre, not a circle the
+ * user drew. It used to be a `radius > 0.001` metre literal, which silently
+ * dropped every circle of radius ≤ 1 mm at any zoom (REVIEW.md §3.2-3).
+ * @param {{x: number, y: number}} snap
+ * @param {number} screenPixelSize - sketch units per screen pixel
+ */
+function finalizeCircle(snap, screenPixelSize) {
 	const dx = snap.x - centerPos.x;
 	const dy = snap.y - centerPos.y;
 	const radius = Math.sqrt(dx * dx + dy * dy);
 
-	if (radius > 0.001) {
+	if (radius > DRAG_THRESHOLD_PX * screenPixelSize) {
 		const circleId = allocEntityId();
 		addLocalEntity({
 			type: 'Circle', id: circleId,
@@ -2315,7 +2324,9 @@ function handleSlotTool(eventType, x, y, screenPixelSize) {
 			const dx = slotSecondCenterPos.x - slotFirstCenterPos.x;
 			const dy = slotSecondCenterPos.y - slotFirstCenterPos.y;
 			const dist = Math.sqrt(dx * dx + dy * dy);
-			const defaultWidth = Math.max(dist / 3, 0.5);
+			// A third of the centre distance, at any scale (it was floored at
+			// 0.5 m, so a millimetre slot proposed a half-metre width).
+			const defaultWidth = dist / 3;
 
 			// Show dimension popup for width
 			const mx = (slotFirstCenterPos.x + slotSecondCenterPos.x) / 2;
@@ -2326,7 +2337,7 @@ function handleSlotTool(eventType, x, y, screenPixelSize) {
 				sketchX: mx,
 				sketchY: my,
 				dimType: 'distance',
-				defaultValue: parseFloat(defaultWidth.toFixed(4)),
+				defaultValue: defaultWidth,
 				customApply: (width) => finalizeSlot(width)
 			});
 			toolState = 'slotWidthPending';
@@ -2342,7 +2353,11 @@ function finalizeSlot(width) {
 	const cx2 = slotSecondCenterPos.x, cy2 = slotSecondCenterPos.y;
 	const dx = cx2 - cx1, dy = cy2 - cy1;
 	const len = Math.sqrt(dx * dx + dy * dy);
-	if (len < 0.001) { resetSlotState(); return; }
+	// Degenerate only: the two centres are distinct points (findOrCreatePoint
+	// merges a click inside the pick radius), so any positive length is a
+	// slot the user placed. A `len < 0.001` metre literal used to reset every
+	// slot shorter than 1 mm (REVIEW.md §3.2-3).
+	if (!(len > 0)) { resetSlotState(); return; }
 
 	const radius = width / 2;
 	// Perpendicular direction (normalized)
