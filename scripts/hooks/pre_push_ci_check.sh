@@ -2,7 +2,8 @@
 # PreToolUse hook (Bash matcher): before any `git push`, surface the latest CI
 # runs so red CI is seen before more work lands on top of it. The status lags
 # one push by design (it reflects runs from BEFORE the push about to happen).
-# Non-blocking: always exits 0; the push proceeds regardless.
+# Non-blocking: always exits 0. The BLOCKING gate is the git hook
+# .githooks/pre-push (remediation plan G1); this only adds context.
 
 payload=$(cat)
 case "$payload" in

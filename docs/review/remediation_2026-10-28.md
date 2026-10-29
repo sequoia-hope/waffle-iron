@@ -35,16 +35,17 @@ The review's recommendations have three dependencies that set the order:
 Every item lands red-first where a test can express it, and the checkbox
 gets the commit hash. Kernel items obey the P2 ledger rule as usual.
 
-## 1. Decisions the user needs to make
+## 1. Decisions (all five ADOPTED by the user, 2026-10-29)
 
-These change governance or are hard to reverse, so no agent should act on
-them without a sign-off. Each is stated with the review's recommendation.
+The user adopted every recommendation below as written ("adopt all five
+recommendations and start phase 1"). The text is kept as the record of what
+was signed.
 
 - **D-1 Merge gate strength.** The review asks for a *blocking* gate. On this
   repo's commit-to-main workflow, the practical form is: the pre-push hook
   refuses a push when the latest `Rust tests` run on `main` is failed or
-  cancelled, overridable only with `CI_GATE_OVERRIDE="<reason>"`, which the
-  hook appends to the commit trailer. Kernel-crate commits additionally need a
+  cancelled, overridable only with `CI_GATE_OVERRIDE="<reason>"`, which is
+  logged to `<git-common-dir>/gate-overrides.log`. Kernel-crate commits additionally need a
   recorded `test.sh rewrite` pass (≈490 s) on the branch. Recommendation: adopt
   both.
 - **D-2 One owner for F2 and a cap on parallel kernel milestones** until F2
@@ -71,13 +72,13 @@ them without a sign-off. Each is stated with the review's recommendation.
 
 | ID | Item | Effort | Done when |
 |---|---|---|---|
-| G1 | Pre-push gate per D-1 (`scripts/hooks/pre_push_ci_check.sh` becomes blocking on a red/cancelled `Rust tests` run on `main`) | S | Hook exits non-zero on a cancelled run in a dry test; override is logged |
+| G1 | ✅ Pre-push gate per D-1: a git hook `.githooks/pre-push` (binds every pusher, not only Claude Code), kernel content fingerprint `scripts/kernel_fingerprint.sh`, `test.sh rewrite/fast/full` records its pass | S | Done: dry runs block a cancelled CI run and an unstamped kernel range, pass a stamped one, a docs-only range and a non-main push; override logged |
 | G2 | New CI job `test-harness (release)` running every test-harness binary with an always-on test, in parallel with the existing job (the existing job is at 65/120 min and cannot absorb it) | S–M | Job green on `main`; binary list is generated (no hand list to go stale) |
 | G3 | Add the sketch oracles (`sketch_corpus`, `sketch_rank_oracle`, `agent_sketch_edit_survival`, `sketch_arc_rederive`) to CI (covered by G2 if generated) | S | Present in the G2 run log |
 | G4 | Fix the smoke-gate comment in `rust-test.yml` (says 100 cases / 238 s; real is 12 scenarios + 153 cases at 300 s CPU) | S | Comment matches `assay_kv2` |
 | G5 | Firefox and WebKit Playwright projects on gui-fast, allow-fail at first | S | Both projects run in CI; failures listed in `app/tests/gui/` notes |
 | G6 | Un-swallow the 37 GUI specs that wrap `waitForEntityCount`/`waitForFeatureCount` in `try/catch`, plus a grep gate in CI that fails on the pattern | S | Grep gate green; newly exposed reds fixed or quarantined with an issue |
-| G7 | Pruning per D-4; record before/after disk | S | Disk under 80 %; no worktree with uncommitted work removed |
+| G7 | ✅ Pruning per D-4; record before/after disk | S | Done: 39 clean, merged agent worktrees and their branches removed; 19 `target/wt-*` dirs, `target/debug/incremental` and `target/debug/deps` files unwritten since 2026-10-20 deleted (none written after 2026-10-27). `target/` 254 GB → 29 GB; disk 90 % → 77 %. Kept: `wt/agy-f2-unzip-decimation`, `wt/f2-step1`, `wt/agy-loft-l1b-kv2`, `canary-y34`, `agent-a77cc34c25ff4072b` (each dirty or unmerged) |
 
 ### Q: verified quick fixes (each S, each with its red-first pin)
 
@@ -238,4 +239,5 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 
 | Date | Items | Commit |
 |---|---|---|
-| 2026-10-29 | Plan drafted | — |
+| 2026-10-29 | Plan drafted | 373f056a |
+| 2026-10-29 | D-1…D-5 adopted; G1 push gate; G7 pruning (disk 90 % → 77 %); D-1/D-2 rules in CLAUDE.md and GEMINI.md | (this commit) |

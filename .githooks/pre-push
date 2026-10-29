@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Waffle Iron pre-push gate (remediation plan G1, decision D-1 adopted
+# 2026-10-29; docs/review/remediation_2026-10-28.md).
+#
+# On 2026-10-27 the `Rust tests` job was cancelled at its 120-minute limit on
+# five consecutive pushes while merges continued, because the only check was
+# an advisory status print. This hook BLOCKS a push to main when:
+#
+#   1. the latest COMPLETED `Rust tests` run on main is not `success`
+#      (failure, cancelled = timed out — the workflow has no concurrency
+#      group, so nothing else cancels it — or timed_out), or gh cannot say; or
+#   2. the pushed commits change a kernel-stack path and no passing
+#      `scripts/test.sh rewrite|fast|full` run was recorded against exactly
+#      that kernel content (scripts/kernel_fingerprint.sh).
+#
+# Overrides, each logged with its reason to <git-common-dir>/gate-overrides.log:
+#   CI_GATE_OVERRIDE="<reason>" git push        skips check 1 (e.g. the push
+#                                               IS the fix for the red run)
+#   REWRITE_GATE_OVERRIDE="<reason>" git push   skips check 2
+# An empty reason does not count.
+set -u
+root=$(git rev-parse --show-toplevel)
+fp="$root/scripts/kernel_fingerprint.sh"
+log="$(git rev-parse --path-format=absolute --git-common-dir)/gate-overrides.log"
+zero=0000000000000000000000000000000000000000
+
+override() { # name reason
+  printf '%s %s %s: %s\n' "$(date -u +%FT%TZ)" "$(git rev-parse --short HEAD)" "$1" "$2" >>"$log"
+  echo "pre-push: $1 overridden: $2 (logged to $log)" >&2
+}
+
+pushes_main=0
+ranges=()
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [ "$remote_ref" = refs/heads/main ] || continue
+  [ "$local_sha" = "$zero" ] && continue
+  pushes_main=1
+  base=$remote_sha
+  [ "$base" = "$zero" ] && base=$(git merge-base "$local_sha" origin/main 2>/dev/null || echo "$local_sha")
+  ranges+=("$base $local_sha")
+done
+[ "$pushes_main" = 1 ] || exit 0
+
+status=0
+
+# --- 1. CI must be green on main -------------------------------------------
+if [ -n "${CI_GATE_OVERRIDE:-}" ]; then
+  override CI_GATE_OVERRIDE "$CI_GATE_OVERRIDE"
+else
+  latest=$(gh run list --workflow "Rust tests" --branch main --status completed --limit 1 \
+             --json conclusion,headSha,url -q '.[0] | "\(.conclusion) \(.headSha[0:8]) \(.url)"' 2>&1)
+  case "$latest" in
+    success\ *) ;;
+    *)
+      cat >&2 <<EOF
+pre-push: BLOCKED — the latest completed 'Rust tests' run on main is not green:
+  $latest
+Do not build on a red or timed-out main. Fix it first; if this push IS the
+fix, push with CI_GATE_OVERRIDE="<why>".
+EOF
+      status=1
+      ;;
+  esac
+fi
+
+# --- 2. Kernel changes need a recorded rewrite-tier pass -------------------
+if [ -n "${REWRITE_GATE_OVERRIDE:-}" ]; then
+  override REWRITE_GATE_OVERRIDE "$REWRITE_GATE_OVERRIDE"
+else
+  stamps=$("$fp" stamp-dir)
+  for r in "${ranges[@]}"; do
+    set -- $r
+    if "$fp" touches "$1" "$2"; then
+      want=$("$fp" "$2")
+      if [ ! -e "$stamps/$want" ]; then
+        cat >&2 <<EOF
+pre-push: BLOCKED — ${2:0:8} changes the kernel stack, and no passing
+'scripts/test.sh rewrite' (or fast/full) was recorded for this kernel content
+(fingerprint $want). Run, on exactly the committed content:
+  ~/.claude/bin/reserve -c 8 -l "rewrite tier" -- ./scripts/test.sh rewrite
+then push again. Mechanism-free exceptions: REWRITE_GATE_OVERRIDE="<why>".
+EOF
+        status=1
+      fi
+    fi
+  done
+fi
+
+exit $status

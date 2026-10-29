@@ -87,6 +87,15 @@ Workflow: commit directly to `main`, then **`git push`** after each commit
 (`*.waffle.json`, `*.step`, `pendant/`, a file named `1`) — those are the
 user's scratch; leave them alone.
 
+**Pushing to main is gated** (`.githooks/pre-push`, 2026-10-29). It refuses a
+push when the latest completed `Rust tests` CI run on main is not green, or
+when your commits change a kernel crate and no passing
+`./scripts/test.sh rewrite` was recorded for exactly that kernel content (a
+passing run records itself; editing a kernel file mid-run voids it). Run the
+tier under `~/.claude/bin/reserve`; do not reach for `CI_GATE_OVERRIDE` /
+`REWRITE_GATE_OVERRIDE` to get past a red result — they exist for pushing the
+fix to a red main and for mechanism-free changes, and every use is logged.
+
 ## 4. Running things — traps that have bitten before
 
 - **Assays run in `--release`.** Debug builds are ~10–50× slower, so a debug

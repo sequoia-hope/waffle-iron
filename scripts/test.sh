@@ -781,6 +781,15 @@ print_help() {
 main() {
   local cmd="${1:-help}"
 
+  # Pre-push gate G1 (.githooks/pre-push): a passing tier that includes the
+  # kernel rewrite crates is recorded against the kernel content it tested.
+  local kernel_fp_start=""
+  case "$cmd" in
+    rewrite|fast|full|all-fast|all)
+      kernel_fp_start=$("$SCRIPT_DIR/kernel_fingerprint.sh" worktree 2>/dev/null || true)
+      ;;
+  esac
+
   case "$cmd" in
     rewrite)
       run_rust_rewrite
@@ -845,6 +854,18 @@ main() {
     echo ""
     if [[ $OVERALL_STATUS -eq 0 ]]; then
       echo -e "${GREEN}${BOLD}All tests passed.${NC}"
+      if [[ -n "$kernel_fp_start" ]]; then
+        local kernel_fp_end
+        kernel_fp_end=$("$SCRIPT_DIR/kernel_fingerprint.sh" worktree 2>/dev/null || true)
+        if [[ "$kernel_fp_end" == "$kernel_fp_start" ]]; then
+          local stamps
+          stamps=$("$SCRIPT_DIR/kernel_fingerprint.sh" stamp-dir)
+          mkdir -p "$stamps" && date -u +%FT%TZ >"$stamps/$kernel_fp_start"
+          echo "  Recorded rewrite-tier pass for kernel fingerprint $kernel_fp_start (pre-push gate)."
+        else
+          echo -e "${YELLOW}  Kernel sources changed during the run; no pass recorded for the pre-push gate.${NC}"
+        fi
+      fi
     else
       echo -e "${RED}${BOLD}Some tests failed.${NC}"
     fi

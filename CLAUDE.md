@@ -116,6 +116,13 @@ The pre-commit hook now blocks a kernel commit whose ledger did not move
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
+**Review remediation (adopted 2026-10-29, `docs/review/remediation_2026-10-28.md`).**
+F2 has ONE owner, and no other kernel milestone (F3, F5, F6) starts until F2
+lands; parallel agents take the plan's non-kernel lanes (A, S, D, P, U, L, H)
+or its gate/oracle items instead. F2's repair-pass retirements wait for the
+harness on-surface oracle (plan O1–O3), because today's corpus cannot see an
+off-surface vertex.
+
 1. **Faithfulness to Yang 2025 — the STANDING PRIORITY (2026-10-27).**
    **`docs/yang_faithfulness_roadmap.md` sets the work order:** take the
    first unchecked item of the earliest open milestone (F0 bookkeeping →
@@ -243,6 +250,16 @@ Do NOT skip to lower-priority items because they are easier.
 4. Update PLAN.md — mark completed tasks, add discovered tasks. (For the new
    kernel crates, update milestones/notes in `docs/yang_functional_roadmap.md`
    instead — those crates have no per-crate PLAN.md.)
+
+**Pushing to main is gated** (`.githooks/pre-push`, decision D-1 of the
+remediation plan). The push is refused when the latest completed `Rust tests`
+run on main is not green (a `cancelled` run there means the 120-min limit was
+hit), and when the pushed commits change a kernel-stack crate with no passing
+`./scripts/test.sh rewrite` (or `fast`/`full`) recorded against exactly that
+kernel content; a passing run records itself. Overrides take a reason and
+are logged: `CI_GATE_OVERRIDE="…"` (the push is the fix for red CI),
+`REWRITE_GATE_OVERRIDE="…"` (mechanism-free change). Never merge or push on
+top of a red or timed-out main.
 
 ## Test Tiers
 
