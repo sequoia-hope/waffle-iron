@@ -65,6 +65,7 @@
 	import { internalToDisplay, UNITS } from '$lib/units.js';
 	import { describeLocator } from '$lib/storage/git/locator.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
+	import Icon from '$lib/ui/icons/Icon.svelte';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
@@ -1322,22 +1323,22 @@
 		onclick={(e) => e.stopPropagation()}
 	>
 		{#if contextMenu.isSketch}
-			<button class="ctx-item" data-testid="ft-ctx-edit-sketch" onclick={handleEditSketch}>Edit Sketch</button>
+			<button class="ctx-item" data-testid="ft-ctx-edit-sketch" onclick={handleEditSketch}><Icon name="sketch" />Edit Sketch</button>
 		{/if}
 		{#if contextMenu.operationType === 'Extrude' || contextMenu.operationType === 'Revolve' || contextMenu.operationType === 'Pipe' || contextMenu.operationType === 'MateConnector'}
-			<button class="ctx-item" data-testid="ft-ctx-edit-feature" onclick={handleEditFeature}>Edit Feature</button>
+			<button class="ctx-item" data-testid="ft-ctx-edit-feature" onclick={handleEditFeature}><Icon name="pencil" />Edit Feature</button>
 		{/if}
-		<button class="ctx-item" data-testid="ft-ctx-rename" onclick={handleRenameFromMenu}>Rename</button>
-		<button class="ctx-item" data-testid="ft-ctx-suppress" onclick={handleSuppress}>
+		<button class="ctx-item" data-testid="ft-ctx-rename" onclick={handleRenameFromMenu}><Icon name="text-cursor-input" />Rename</button>
+		<button class="ctx-item" data-testid="ft-ctx-suppress" onclick={handleSuppress}><Icon name={contextMenu.suppressed ? 'eye' : 'eye-off'} />
 			{contextMenu.suppressed ? 'Unsuppress' : 'Suppress'}
 		</button>
-		<button class="ctx-item danger" data-testid="ft-ctx-delete" onclick={handleDelete}>Delete</button>
+		<button class="ctx-item danger" data-testid="ft-ctx-delete" onclick={handleDelete}><Icon name="trash-2" />Delete</button>
 		{#if contextMenu.isSketch}
 			<div class="ctx-sep"></div>
 			{#if isSketchVisible(contextMenu.featureId)}
-				<button class="ctx-item" data-testid="ft-ctx-hide-all-sketches" onclick={handleHideAllSketches}>Hide All Sketches</button>
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-sketches" onclick={handleHideAllSketches}><Icon name="eye-off" />Hide All Sketches</button>
 			{:else}
-				<button class="ctx-item" data-testid="ft-ctx-show-all-sketches" onclick={handleShowAllSketches}>Show All Sketches</button>
+				<button class="ctx-item" data-testid="ft-ctx-show-all-sketches" onclick={handleShowAllSketches}><Icon name="eye" />Show All Sketches</button>
 			{/if}
 		{/if}
 	</div>
@@ -1352,15 +1353,15 @@
 	>
 		{#if originContextMenu.kind === 'plane'}
 			{#if originContextMenu.visible}
-				<button class="ctx-item" data-testid="ft-ctx-hide-all-planes" onclick={handleHideAllPlanes}>Hide All Planes</button>
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-planes" onclick={handleHideAllPlanes}><Icon name="eye-off" />Hide All Planes</button>
 			{:else}
-				<button class="ctx-item" data-testid="ft-ctx-show-all-planes" onclick={handleShowAllPlanes}>Show All Planes</button>
+				<button class="ctx-item" data-testid="ft-ctx-show-all-planes" onclick={handleShowAllPlanes}><Icon name="eye" />Show All Planes</button>
 			{/if}
 		{:else}
 			{#if originContextMenu.visible}
-				<button class="ctx-item" data-testid="ft-ctx-hide-all-axes" onclick={handleHideAllAxes}>Hide All Axes</button>
+				<button class="ctx-item" data-testid="ft-ctx-hide-all-axes" onclick={handleHideAllAxes}><Icon name="eye-off" />Hide All Axes</button>
 			{:else}
-				<button class="ctx-item" data-testid="ft-ctx-show-all-axes" onclick={handleShowAllAxes}>Show All Axes</button>
+				<button class="ctx-item" data-testid="ft-ctx-show-all-axes" onclick={handleShowAllAxes}><Icon name="eye" />Show All Axes</button>
 			{/if}
 		{/if}
 	</div>
@@ -1373,7 +1374,7 @@
 		style="left: {bodyContextMenu.x}px; top: {bodyContextMenu.y}px"
 		onclick={(e) => e.stopPropagation()}
 	>
-		<button class="ctx-item" data-testid="body-ctx-export-stl" onclick={handleBodyExport}>
+		<button class="ctx-item" data-testid="body-ctx-export-stl" onclick={handleBodyExport}><Icon name="export-stl" />
 			Export STL
 		</button>
 	</div>
@@ -1948,13 +1949,15 @@
 	}
 
 	.ctx-item {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		width: 100%;
 		background: transparent;
 		border: none;
 		color: var(--text-primary);
 		font-size: 12px;
-		padding: 5px 16px;
+		padding: 5px 12px;
 		cursor: pointer;
 		text-align: left;
 	}

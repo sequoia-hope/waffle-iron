@@ -6,6 +6,7 @@
 		isEngineReady,
 		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
+	import Icon from '$lib/ui/icons/Icon.svelte';
 
 	let { visible = $bindable(false), pos = $bindable({ x: 0, y: 0 }) } = $props();
 
@@ -75,16 +76,16 @@
 		onclick={(e) => e.stopPropagation()}
 	>
 		{#if hasSelection}
-			<button class="ctx-item" data-testid="ctx-sketch-on-face" onclick={handleNewSketch}>Sketch on Face</button>
+			<button class="ctx-item" data-testid="ctx-sketch-on-face" onclick={handleNewSketch}><Icon name="sketch" />Sketch on Face</button>
 			<div class="ctx-separator"></div>
 		{/if}
-		<button class="ctx-item" data-testid="ctx-new-sketch" onclick={handleNewSketch} disabled={!ready}>New Sketch (XY)</button>
+		<button class="ctx-item" data-testid="ctx-new-sketch" onclick={handleNewSketch} disabled={!ready}><Icon name="sketch" />New Sketch (XY)</button>
 		<div class="ctx-separator"></div>
-		<button class="ctx-item" data-testid="ctx-fit-all" onclick={handleFitAll}>Fit All (F)</button>
-		<button class="ctx-item" data-testid="ctx-view-front" onclick={() => handleSnapView('front')}>Front View</button>
-		<button class="ctx-item" data-testid="ctx-view-top" onclick={() => handleSnapView('top')}>Top View</button>
-		<button class="ctx-item" data-testid="ctx-view-right" onclick={() => handleSnapView('right')}>Right View</button>
-		<button class="ctx-item" data-testid="ctx-view-iso" onclick={() => handleSnapView('iso')}>Isometric</button>
+		<button class="ctx-item" data-testid="ctx-fit-all" onclick={handleFitAll}><Icon name="maximize" />Fit All (F)</button>
+		<button class="ctx-item" data-testid="ctx-view-front" onclick={() => handleSnapView('front')}><Icon name="view-front" />Front View</button>
+		<button class="ctx-item" data-testid="ctx-view-top" onclick={() => handleSnapView('top')}><Icon name="view-top" />Top View</button>
+		<button class="ctx-item" data-testid="ctx-view-right" onclick={() => handleSnapView('right')}><Icon name="view-right" />Right View</button>
+		<button class="ctx-item" data-testid="ctx-view-iso" onclick={() => handleSnapView('iso')}><Icon name="view-iso" />Isometric</button>
 	</div>
 {/if}
 
@@ -101,13 +102,15 @@
 	}
 
 	.ctx-item {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		width: 100%;
 		background: transparent;
 		border: none;
 		color: var(--text-primary, #eee);
 		font-size: 12px;
-		padding: 5px 16px;
+		padding: 5px 12px;
 		cursor: pointer;
 		text-align: left;
 	}

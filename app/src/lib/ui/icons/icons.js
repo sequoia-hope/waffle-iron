@@ -122,6 +122,12 @@ export const ICONS = {
 	'mirror': '<path class="axis" d="M12 3v18"/><path d="M9 6L3 18h6z"/><path class="c" d="M15 6l6 12h-6z"/>',
 	'toggle-planes': '<path d="M3 16l4-4h14l-4 4z"/><path d="M8 3h8v13H8z"/>',
 	'toggle-axes': '<path d="M6 18V5M6 18h13M6 18l-3.5 3.5"/><path class="a" d="M6 3l-2.2 3.5h4.4zM21 18l-3.5-2.2v4.4z"/>',
+	// Standard views: a ghost cube with the face you will look at solid and shaded
+	// (iso: the whole cube, solid). Same cube as 'section', which shades the cut.
+	'view-front': '<path class="c" d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path class="f" d="M4 9l8 4v8l-8-4z"/><path d="M4 9l8 4v8l-8-4z"/>',
+	'view-top': '<path class="c" d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path class="f" d="M4 9l8-4 8 4-8 4z"/><path d="M4 9l8-4 8 4-8 4z"/>',
+	'view-right': '<path class="c" d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path class="f" d="M12 13l8-4v8l-8 4z"/><path d="M12 13l8-4v8l-8 4z"/>',
+	'view-iso': '<path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/>',
 	'section': '<path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/><path class="f" d="M4 9l8 4v8l-8-4z"/>',
 	'section-flip': '<path d="M12 3v18"/><path d="M5 10a7 7 0 0 1 14 0"/><path class="a" d="M19 12.5l-2.2-3.5h4.4zM5 12.5L2.8 9h4.4z"/>',
 	'section-clear': '<path d="M4 9l8-4 8 4v8l-8 4-8-4z"/><path d="M4 9l8 4 8-4M12 13v8"/><path d="M16 2l5 5M21 2l-5 5"/>',

@@ -8,6 +8,7 @@
 		setSketchSelection
 	} from '$lib/engine/store.svelte.js';
 	import { getApplicableConstraints } from './constraintLogic.js';
+	import Icon from '$lib/ui/icons/Icon.svelte';
 
 	let { menuPos = $bindable({ x: 0, y: 0 }), visible = $bindable(false) } = $props();
 
@@ -40,27 +41,27 @@
 		const result = [];
 
 		// Map from constraint logic to menu items
-		if (applicable.coincident) result.push({ label: 'Coincident', build: applicable.coincident });
-		if (applicable.horizontal) result.push({ label: 'Horizontal', build: applicable.horizontal });
-		if (applicable.vertical) result.push({ label: 'Vertical', build: applicable.vertical });
-		if (applicable.parallel) result.push({ label: 'Parallel', build: applicable.parallel });
-		if (applicable.perpendicular) result.push({ label: 'Perpendicular', build: applicable.perpendicular });
-		if (applicable.equal) result.push({ label: 'Equal', build: applicable.equal });
-		if (applicable.tangent) result.push({ label: 'Tangent', build: applicable.tangent });
-		if (applicable.midpoint) result.push({ label: 'Midpoint', build: applicable.midpoint });
-		if (applicable.fix) result.push({ label: 'Fix', build: applicable.fix });
-		if (applicable.distance) result.push({ label: 'Distance', build: applicable.distance });
-		if (applicable.radius) result.push({ label: 'Radius', build: applicable.radius });
-		if (applicable.angle) result.push({ label: 'Angle', build: applicable.angle });
-		if (applicable.symmetric) result.push({ label: 'Symmetric', build: applicable.symmetric });
-		if (applicable.symmetricH) result.push({ label: 'Symmetric H', build: applicable.symmetricH });
-		if (applicable.symmetricV) result.push({ label: 'Symmetric V', build: applicable.symmetricV });
-		if (applicable.pointOnLine) result.push({ label: 'Point on Line', build: applicable.pointOnLine });
-		if (applicable.pointOnCircle) result.push({ label: 'Point on Circle', build: applicable.pointOnCircle });
-		if (applicable.equalRadius) result.push({ label: 'Equal Radius', build: applicable.equalRadius });
-		if (applicable.lengthRatio) result.push({ label: 'Length Ratio', build: applicable.lengthRatio });
-		if (applicable.pointLineDistance) result.push({ label: 'Point-Line Distance', build: applicable.pointLineDistance });
-		if (applicable.diameter) result.push({ label: 'Diameter', build: applicable.diameter });
+		if (applicable.coincident) result.push({ label: 'Coincident', icon: 'constraint-coincident', build: applicable.coincident });
+		if (applicable.horizontal) result.push({ label: 'Horizontal', icon: 'constraint-horizontal', build: applicable.horizontal });
+		if (applicable.vertical) result.push({ label: 'Vertical', icon: 'constraint-vertical', build: applicable.vertical });
+		if (applicable.parallel) result.push({ label: 'Parallel', icon: 'constraint-parallel', build: applicable.parallel });
+		if (applicable.perpendicular) result.push({ label: 'Perpendicular', icon: 'constraint-perpendicular', build: applicable.perpendicular });
+		if (applicable.equal) result.push({ label: 'Equal', icon: 'constraint-equal', build: applicable.equal });
+		if (applicable.tangent) result.push({ label: 'Tangent', icon: 'constraint-tangent', build: applicable.tangent });
+		if (applicable.midpoint) result.push({ label: 'Midpoint', icon: 'constraint-midpoint', build: applicable.midpoint });
+		if (applicable.fix) result.push({ label: 'Fix', icon: 'constraint-fix', build: applicable.fix });
+		if (applicable.distance) result.push({ label: 'Distance', icon: 'dim-distance', build: applicable.distance });
+		if (applicable.radius) result.push({ label: 'Radius', icon: 'dim-radius', build: applicable.radius });
+		if (applicable.angle) result.push({ label: 'Angle', icon: 'constraint-angle', build: applicable.angle });
+		if (applicable.symmetric) result.push({ label: 'Symmetric', icon: 'constraint-symmetric', build: applicable.symmetric });
+		if (applicable.symmetricH) result.push({ label: 'Symmetric H', icon: 'constraint-symmetric-h', build: applicable.symmetricH });
+		if (applicable.symmetricV) result.push({ label: 'Symmetric V', icon: 'constraint-symmetric-v', build: applicable.symmetricV });
+		if (applicable.pointOnLine) result.push({ label: 'Point on Line', icon: 'constraint-point-on-line', build: applicable.pointOnLine });
+		if (applicable.pointOnCircle) result.push({ label: 'Point on Circle', icon: 'constraint-point-on-circle', build: applicable.pointOnCircle });
+		if (applicable.equalRadius) result.push({ label: 'Equal Radius', icon: 'constraint-equal-radius', build: applicable.equalRadius });
+		if (applicable.lengthRatio) result.push({ label: 'Length Ratio', icon: 'constraint-length-ratio', build: applicable.lengthRatio });
+		if (applicable.pointLineDistance) result.push({ label: 'Point-Line Distance', icon: 'dim-pointline', build: applicable.pointLineDistance });
+		if (applicable.diameter) result.push({ label: 'Diameter', icon: 'dim-diameter', build: applicable.diameter });
 
 		return result;
 	});
@@ -90,7 +91,7 @@
 	<div class="constraint-menu" style="left: {clampedPos.x}px; top: {clampedPos.y}px" role="menu">
 		{#each applicableConstraints as item}
 			<button class="constraint-item" onclick={() => applyConstraint(item)} role="menuitem">
-				{item.label}
+				<Icon name={item.icon} />{item.label}
 			</button>
 		{/each}
 	</div>
@@ -109,7 +110,9 @@
 	}
 
 	.constraint-item {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		width: 100%;
 		background: none;
 		border: none;
