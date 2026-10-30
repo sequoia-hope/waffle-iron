@@ -806,7 +806,11 @@ fn smoke_corpus_boundary_categories() {
         // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
         // oracle reads LineSegment chords bounding a curved face (the
         // recover.rs bail of ledger N100 item 3); always wrong, now visible.
-        ("R0026", Category::SupportedWrong),
+        // 2026-10-30: WRONG → CORRECT (N60 amendment). The torus × box-bottom
+        // curve lies on a Stage-0 overlay face credited to one input, so
+        // Stage 3 never typed it; emission now types any chord between two
+        // different surfaces from the surfaces' own intersection.
+        ("R0026", Category::SupportedCorrect),
         // R0019 CONVERTED (2026-09-22 night, M5 torus arm increment 2): the
         // §4.5.3 reversal sweep's cycle qualification gained the typed
         // procedural `SurfacePair` edge — R0019's cylinder × cone pair chains
@@ -831,7 +835,11 @@ fn smoke_corpus_boundary_categories() {
         // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
         // oracle reads LineSegment chords bounding a curved face (the
         // recover.rs bail of ledger N100 item 3); always wrong, now visible.
-        ("R0015", Category::SupportedWrong),
+        // 2026-10-30: WRONG → CORRECT (N60 amendment). The rim circle's two
+        // carried copies differ by one ULP and read as ambiguous; candidates
+        // equal within band are now one, and the torus face's perpendicular
+        // section (untyped at Stage 3, N104) is typed from its surfaces.
+        ("R0015", Category::SupportedCorrect),
         // C0044 FLIPPED (2026-09-12, the Stage-0 identical-disc pair): the
         // flush SAME-RADIUS cylinder stack's two caps are one disc, which
         // neither strict containment nor a crossing classifies; the lens
@@ -907,7 +915,10 @@ fn smoke_corpus_boundary_categories() {
         // 2026-10-29, remediation O1: CORRECT → WRONG. The new on-surface
         // oracle reads LineSegment chords bounding a curved face (the
         // recover.rs bail of ledger N100 item 3); always wrong, now visible.
-        ("R0050", Category::SupportedWrong),
+        // 2026-10-30: WRONG → CORRECT (N60 amendment). Stage 3 leaves the
+        // perpendicular torus × plane section untyped (N104); emission now
+        // types it from the owner surfaces' intersection.
+        ("R0050", Category::SupportedCorrect),
         // C0065 FLIPPED (2026-09-17, Yang §4.5.2 local refinement ALWAYS-ON
         // + KV14 Slice F-4): the x = 1.45 wall grazes the torus 0.05 deep
         // while the natural rim chord sags 0.038, so the mesh loop reached
