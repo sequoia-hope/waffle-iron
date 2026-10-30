@@ -146,6 +146,23 @@ test.describe('Agent link documents (Phase 1)', () => {
 		// The pending change is the USER's: an agent tool stores its edit before
 		// it answers, so only the user's own edits can be waiting for autosave.
 		await createExtrudedBox(page);
+		// Everything from here to the declined discard must happen inside ONE
+		// 3 s autosave delay, and no autosave may still be composing: a
+		// compose restores the timer it found ("not pending") when its
+		// SetDocumentMeta answers, and that answer queues behind any edit in
+		// flight. When the box's extrude outlasted the sketch's 3 s timer
+		// (loaded CI runners, 3 of 5 gui-relay runs on 2026-10-30), the
+		// autosave stored the box and `unsaved` was rightly false. So store
+		// the box first: the worker answers in order, so once document_save
+		// answers, any earlier compose is past that point. Then make the
+		// pending edit, a quick one of the user's own, and check at once.
+		ok(await relay.callTool('document_save'));
+		await page.evaluate(() =>
+			void window.__waffle.setDocumentParameters([{ name: 'pending', expression: '1', value: 1 }])
+		);
+		await page.waitForFunction(() => (window.__waffle.getDocumentParameters()?.length ?? 0) === 1, null, {
+			timeout: 10000
+		});
 		expect(ok(await relay.callTool('document_info')).unsaved).toBe(true);
 
 		refused(await relay.callTool('document_new', {}), 'UnsavedChanges');

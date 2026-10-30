@@ -117,15 +117,21 @@ was signed.
   extrude never reaches the feature count, 20 s timeout). Both fail with the
   spec, the WASM bundle and the app all at HEAD 02bab531+ (bisected while
   landing icon step 1), so they predate that work.
-- **Open, under watch (found 2026-10-30):** relay-tier
-  `agent-documents.spec.js:142` (S3) read `unsaved: false` on 2 of 6 relay
-  runs since e9ff8bc9 (first attempt of e9ff8bc9, then e7624358); it passed on
-  rerun, and in about 37 earlier runs it never failed. Not tied to a mechanism:
-  `unsaved` is `hasPendingAutoSave()`. Every ModelUpdated reschedules the 3 s
-  autosave, so the window between the extrude and `document_info` is well under
-  1 s. `createExtrudedBox` measures 1.5–2.1 s locally with the app at
-  fa7c836e and at HEAD alike. A tab-hide `flushAutoSave` would also clear the
-  flag; unverified. The relay tier cannot run locally (no uv).
+- **Fixed 2026-10-30 (test race):** relay-tier `agent-documents.spec.js:142`
+  (S3) read `unsaved: false` in 3 of 5 relay runs since e9ff8bc9, after about
+  37 green runs. Mechanism: the sketch's ModelUpdated arms the 3 s autosave;
+  when the box's extrude outlasts it, the autosave fires mid-extrude, its
+  `SetDocumentMeta` queues behind the extrude in the worker, the extrude's
+  ModelUpdated re-arms the timer, and the compose then restores the timer it
+  found, "not pending" (`buildDocumentJson`, by design: a save must not dirty
+  the document). The following `SaveDocument` stores the box, so `false` was
+  the true answer and no edit was lost. Slower extrudes on the loaded runner
+  since the icon commits made it common. The test now stores the box with
+  `document_save`, which answers only after any earlier compose has passed
+  that point, then makes one quick user edit (a document variable) and checks
+  inside that edit's 3 s. The previous note's "every ModelUpdated reschedules,
+  so the window is under 1 s" was right but missed the compose already in
+  flight.
 - **Open:** drawing specs flake under 2–3 workers with "Execution context was
   destroyed … navigation" (baseline too; Vite re-optimization suspected, per
   the Playwright config comment).
