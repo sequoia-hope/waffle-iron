@@ -12,6 +12,7 @@ import {
 	addLocalConstraint,
 	beginSketchAction,
 	endSketchAction,
+	discardUnfinishedConstruction,
 	findPointNear,
 	getSketchPositions,
 	getSketchEntities,
@@ -286,6 +287,9 @@ export function clearToolEventLog() { toolEventLog.length = 0; }
  */
 export function resetTool() {
 	log('sketch', 'Tool reset');
+	// A shape cancelled mid-construction leaves nothing behind; whatever the
+	// pending action finished (an open polyline's segments) is committed.
+	discardUnfinishedConstruction();
 	endSketchAction();
 	toolState = 'idle';
 	startPointId = null;

@@ -117,6 +117,7 @@ GUI_FAST_SPECS=(
   layout-overflow.spec.js
   icon-gallery.spec.js
   toolbar-icons.spec.js
+  sketch-cancel-unfinished.spec.js
   sketch-draw.spec.js
   sketch-tools.spec.js
   sketch-entry.spec.js

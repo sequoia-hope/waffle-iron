@@ -295,7 +295,7 @@ chords; its offset kept a radius at only one corner.
       equal-circles test).
 - TRAP: sketch units are METRES (~0.005 for a 100 px line). Absolute
   tolerances like `1e-3` are ~20% at that scale — assert relative.
-- [ ] **NEXT ITEM — cancelled first click leaves a stray point** (reported
+- [x] **DONE 2026-10-30 — cancelled first click leaves a stray point** (`discardUnfinishedConstruction` in the store, called by `resetTool`; pin `sketch-cancel-unfinished.spec.js`, gui-fast) (reported
       by the user 2026-10-30): with the rectangle tool (and other multi-click
       sketch tools), place the first point, then cancel. The first point
       stays in the sketch. A cancelled in-progress entity must leave nothing

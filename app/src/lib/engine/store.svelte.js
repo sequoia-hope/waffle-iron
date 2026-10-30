@@ -5,6 +5,7 @@
  * feature tree, mesh data, and engine status.
  */
 
+import { untrack } from 'svelte';
 import { base } from '$app/paths';
 import * as THREE from 'three';
 import { INFERENCE_SOURCES_MAX } from '$lib/config.js';
@@ -2675,6 +2676,71 @@ export function endSketchAction() {
 		sketchRedoStack = [];
 	}
 	pendingSketchAction = null;
+}
+
+/**
+ * Cancel an UNFINISHED construction: a cancelled shape leaves nothing behind
+ * (user report 2026-10-30 — Rect's first corner stayed in the sketch after
+ * Escape). Called by `resetTool()` BEFORE it commits the pending action.
+ *
+ * A tool's first click mints a point into the pending action before the
+ * shape exists. On cancel, every point this pending action minted that no
+ * other entity references is dropped, with every constraint that names it.
+ * Points that already bound a finished element stay: an open polyline
+ * finished with Escape keeps all its segments, and a line chain keeps the
+ * lines it drew. If nothing of the action survives, it was purely the
+ * unfinished construction, so its constraints and any solver movement they
+ * caused are reverted too, and no undo entry is left.
+ */
+export function discardUnfinishedConstruction() {
+	// resetTool() runs inside SketchInteraction's tool-switch $effect: reading
+	// sketch state tracked would make that effect re-run (and reset the tool)
+	// on every entity change.
+	untrack(discardUnfinishedConstructionNow);
+}
+
+function discardUnfinishedConstructionNow() {
+	const action = pendingSketchAction;
+	if (!action || action.entities.length === 0) return;
+	/** @type {Set<number>} */
+	const referenced = new Set();
+	for (const e of sketchEntities) {
+		if (e.type === 'Point') continue;
+		for (const [k, v] of Object.entries(e)) {
+			if (k.endsWith('_id') && typeof v === 'number') referenced.add(v);
+		}
+	}
+	const orphans = new Set(
+		action.entities.filter((e) => e.type === 'Point' && !referenced.has(e.id)).map((e) => e.id)
+	);
+	if (orphans.size === 0) return;
+
+	const refsOf = (c) =>
+		[c.entity, c.entity_a, c.entity_b, c.line, c.curve, c.line_a, c.line_b, c.point,
+			c.point_a, c.point_b, ...offsetConstraintRefs(c)].filter((v) => v != null);
+	const survivors = action.entities.filter((e) => !orphans.has(e.id));
+	const wholeActionCancelled = survivors.length === 0;
+	const actionConstraintJsons = new Set(action.constraints.map((c) => JSON.stringify(c)));
+	const dropConstraint = (c) =>
+		refsOf(c).some((id) => orphans.has(id)) ||
+		(wholeActionCancelled && actionConstraintJsons.has(JSON.stringify(c)));
+
+	sketchEntities = sketchEntities.filter((e) => !orphans.has(e.id));
+	sketchConstraints = sketchConstraints.filter((c) => !dropConstraint(c));
+	projectedBindings = projectedBindings.filter((b) => !orphans.has(b.point_id));
+	const positions = wholeActionCancelled && action.positionsBefore
+		? new Map([...action.positionsBefore].map(([k, v]) => [k, { x: v.x, y: v.y }]))
+		: new Map(sketchPositions);
+	for (const id of orphans) positions.delete(id);
+	sketchPositions = positions;
+
+	action.entities = survivors;
+	action.constraints = action.constraints.filter((c) => !dropConstraint(c));
+	log('sketch', 'Unfinished construction discarded', { points: [...orphans] });
+
+	recomputeOverConstrained();
+	reExtractProfiles();
+	triggerSolve();
 }
 
 // -- Sketch operations in the engine (S1, specs/agent_mechanical_design.md §10.1) --
