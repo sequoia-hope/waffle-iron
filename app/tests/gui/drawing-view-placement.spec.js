@@ -76,14 +76,16 @@ async function plateAndDrawingTab(page) {
 		},
 		[PLATE_W, PLATE_D]
 	);
-	await page.evaluate(() => window.__waffle.finishSketch());
+	// Started, not awaited over the protocol: the wait below is the sync
+	// (see createExtrudedBox in helpers/geometry.js for why).
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1,
 		null,
 		{ timeout: 10000 }
 	);
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
-	await page.evaluate((t) => window.__waffle.applyExtrude(t, 0, false), PLATE_T);
+	await page.evaluate((t) => void window.__waffle.applyExtrude(t, 0, false), PLATE_T);
 	await page.waitForFunction(
 		() => (window.__waffle?.getMeshes() ?? []).some((m) => m.triangleCount > 0),
 		null,

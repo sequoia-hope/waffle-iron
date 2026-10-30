@@ -132,9 +132,17 @@ was signed.
   inside that edit's 3 s. The previous note's "every ModelUpdated reschedules,
   so the window is under 1 s" was right but missed the compose already in
   flight.
-- **Open:** drawing specs flake under 2–3 workers with "Execution context was
-  destroyed … navigation" (baseline too; Vite re-optimization suspected, per
-  the Playwright config comment).
+- **Fixed 2026-10-30 (drawing family):** drawing specs failing with
+  "Execution context was destroyed … navigation". Not a navigation and not
+  Vite: the trace of d4c45cda's shard 1/2 shows the same page logging on
+  (autosave 3 s later) after the error, and no reload in the dev server log.
+  The failing call awaited `finishSketch()`'s promise across the protocol,
+  the gui-relay failure `createExtrudedBox` already documents (2026-10-01..03).
+  The plate setup in `helpers/drawing.js`, `drawing-view-placement` and
+  `drawing-tab` now starts finishSketch / applyExtrude with `void`; the
+  waitForFunction after each one is the sync. About 20 other specs still
+  await those promises (`grep -n "__waffle.finishSketch()" tests/gui`).
+  Convert each when it flakes, checking that a wait follows.
 - **Open, small:** the menu's "Length Ratio" applies 1.0 instead of the
   measured ratio.
 - **Open, optional:** ~20 test-harness readers still match the text
