@@ -16,13 +16,18 @@ Build the Svelte application shell: feature tree panel, toolbar, property editor
 
 ## Key Files
 
+Paths are under `app/`.
+
 - `src/routes/+page.svelte` — Main application layout
-- `src/lib/FeatureTree.svelte` — Feature tree panel
-- `src/lib/Toolbar.svelte` — Tool buttons and state
-- `src/lib/PropertyEditor.svelte` — Parameter editing
-- `src/lib/StatusBar.svelte` — Status information
-- `src/lib/ContextMenu.svelte` — Right-click menus
-- `src/lib/RollbackSlider.svelte` — Feature tree rollback control
+- `src/lib/ui/FeatureTree.svelte` — Feature tree panel, with its feature, origin and body context menus
+- `src/lib/ui/Toolbar.svelte` — Part / Sketch toolbar: tool descriptors, collapse ladder
+- `src/lib/ui/DrawingToolbar.svelte` — Drawing-tab toolbar
+- `src/lib/ui/PropertyEditor.svelte` — Parameter editing (and the sketch constraint list)
+- `src/lib/ui/StatusBar.svelte` — Status information
+- `src/lib/viewport/ViewportContextMenu.svelte` — Viewport right-click menu
+- `src/lib/sketch/ConstraintMenu.svelte` — Sketch right-click constraint menu
+- `src/lib/ui/icons/` — Icon registry (`icons.js`) and `Icon.svelte`; see ARCHITECTURE.md "Icons"
+- `src/lib/ui/iconOnly.svelte.js` — Phone check: icons without labels
 
 ## Dependencies
 

@@ -93,7 +93,7 @@
       `findOutOfBounds()`; specs reach toolbar buttons via `clickTool` /
       `clickToolbarAction` (helpers/toolbar.js).
 
-### M13: Toolbar and menu icons (PLANNED 2026-10-30)
+### M13: Toolbar and menu icons (COMPLETE 2026-10-30)
 
 Plan of record: `specs/ui_toolbar_icons.md` (inventory, design system,
 collapse-ladder changes, open questions for the user).
@@ -105,7 +105,7 @@ collapse-ladder changes, open questions for the user).
 - [x] Step 5: Drawing toolbar (DRAWING_TOOLS / VIEW_PLACEMENT_TOOLS icons; the phone check shared via `lib/ui/iconOnly.svelte.js`)
 - [x] Step 6: context menus (viewport, feature tree incl. origin + body, sketch constraint menu); new `view-front/top/right/iso` glyphs (ghost cube, the viewed face solid); `context-menu-icons.spec.js`
 - [x] Step 7: feature-tree icons from the registry (features = their toolbar picture; origin planes `datum-plane`, axes a new one-arrow `axis` coloured by the row; sources `link`/`script`, missing `triangle-alert`; bodies `box`); `feature-tree-icons.spec.js`
-- [ ] Step 8: baselines + dossier docs
+- [x] Step 8: screenshot baselines regenerated (all 21 were stale, not only the toolbar: tabs, variables panel, view cube; the suite runs only in gui-full); dossier CLAUDE.md paths fixed, ARCHITECTURE.md "Icons". Note: the `sketch-mode-active` baseline shows the sketch-plane prompt, not an active sketch (the suite clicks Sketch without picking a plane)
 - Fillet / chamfer / shell get icons only (deferred indefinitely).
 
 ## Blockers

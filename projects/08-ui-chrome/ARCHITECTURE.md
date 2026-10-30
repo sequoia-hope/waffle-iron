@@ -67,6 +67,22 @@ Drawing and operation tools with active-tool state management.
 
 **State:** Only one tool is active at a time. Active tool has visual indicator (pressed/highlighted state). Tool changes are communicated to sketch-ui and viewport.
 
+### Icons (M13, `specs/ui_toolbar_icons.md`)
+
+Every toolbar button, ⋮ / "More ▾" row, context-menu row and feature-tree row
+shows an icon from one registry, `app/src/lib/ui/icons/icons.js`. Each entry is
+the inner markup of a 24×24 stroke SVG: Lucide 1.54.0 (ISC) for generic actions,
+plus hand-drawn CAD glyphs. `Icon.svelte` renders it inline with
+`currentColor`. Glyph parts use classes, not colours: `.c` construction, `.axis`,
+`.p` points, `.d` dimension strokes, `.a` arrowheads, `.f` shaded faces.
+`scripts/check-icons.mjs` (gui-fast) rejects a colour in the registry and any
+`icon:` / `<Icon name=` that names no icon. `/dev/icons` shows them all.
+
+On desktop a button shows its icon and its label. On phones
+(`iconOnly.svelte.js`) it shows the icon only. Fillet / chamfer / shell are
+drawn muted, as not yet available. A feature-tree row uses the same icon as
+the toolbar button that makes that feature.
+
 ### Property Editor (Right Sidebar)
 
 Display and edit parameters for the selected feature.
