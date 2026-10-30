@@ -45,11 +45,13 @@ test.describe('tool switching mid-operation', () => {
 		await drawRectangle(page, -80, -60, 80, 60);
 		await waitForEntityCount(page, 8, 5000);
 
-		// Rectangle creates 4 lines + 4 points; the stale point from line tool's first click
-		// remains in the sketch (it was committed), so total points = 5
+		// Rectangle creates 4 lines + 4 points. The line tool's first click is
+		// an UNFINISHED shape: switching tools cancels it, and since 2026-10-30
+		// a cancelled shape leaves nothing behind (sketch-cancel-unfinished.spec.js),
+		// so there is no stale fifth point.
 		const points = await getEntityCountByType(page, 'Point');
 		const lines = await getEntityCountByType(page, 'Line');
-		expect(points).toBe(5);
+		expect(points).toBe(4);
 		expect(lines).toBe(4);
 
 		expectNoAnyCrash(crashes);
@@ -77,8 +79,9 @@ test.describe('tool switching mid-operation', () => {
 		const circles = await getEntityCountByType(page, 'Circle');
 		const points = await getEntityCountByType(page, 'Point');
 		expect(circles).toBe(1);
-		// Circle center point (1) + stale point from rectangle's first corner click (1) = 2
-		expect(points).toBe(2);
+		// Only the circle's centre point: the rectangle's cancelled first corner
+		// leaves nothing behind (2026-10-30).
+		expect(points).toBe(1);
 
 		expectNoAnyCrash(crashes);
 	});
