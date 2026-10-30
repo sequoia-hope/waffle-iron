@@ -3835,16 +3835,11 @@ export function removeSketchEntities(entityIds) {
 	const removedEntities = sketchEntities.filter(e => toRemove.has(e.id))
 		.map(e => JSON.parse(JSON.stringify(e)));
 
-	// Push to undo stack
-	if (removedEntities.length > 0 || removedConstraints.length > 0) {
-		sketchUndoStack = [...sketchUndoStack, {
-			entities: removedEntities,
-			constraints: removedConstraints,
-			_isDeletion: true,
-			camera: getCameraState()
-		}];
-		sketchRedoStack = [];
-	}
+	// The undo entry is a snapshot pair (taken here and after the removal
+	// below): an add/remove-list entry undoes by REMOVING its items, so a
+	// deletion recorded as one made Ctrl+Z a silent no-op (2026-10-30).
+	const before = removedEntities.length > 0 || removedConstraints.length > 0 ? sketchSnapshot() : null;
+	const cameraBefore = getCameraState();
 
 	// Apply removals
 	sketchEntities = survivingEntities.filter(e => !toRemove.has(e.id));
@@ -3869,6 +3864,11 @@ export function removeSketchEntities(entityIds) {
 	// Clear selection
 	sketchSelection = new Set();
 
+	if (before) {
+		sketchUndoStack = [...sketchUndoStack, { _isSnapshot: true, before, after: sketchSnapshot(), camera: cameraBefore }];
+		sketchRedoStack = [];
+	}
+
 	recomputeOverConstrained();
 	reExtractProfiles();
 	triggerSolve();
@@ -3884,18 +3884,15 @@ export function removeSketchConstraint(index) {
 	if (index < 0 || index >= sketchConstraints.length) return;
 
 	const removed = JSON.parse(JSON.stringify(sketchConstraints[index]));
+	// Snapshot pair, so undo puts it back at its own index (see
+	// removeSketchEntities for why a list entry cannot record a deletion).
+	const before = sketchSnapshot();
+	const cameraBefore = getCameraState();
 	sketchConstraints = [
 		...sketchConstraints.slice(0, index),
 		...sketchConstraints.slice(index + 1)
 	];
-
-	// Push to undo stack as a constraint-only action
-	sketchUndoStack = [...sketchUndoStack, {
-		entities: [],
-		constraints: [removed],
-		_isDeletion: true,
-		camera: getCameraState()
-	}];
+	sketchUndoStack = [...sketchUndoStack, { _isSnapshot: true, before, after: sketchSnapshot(), camera: cameraBefore }];
 	sketchRedoStack = [];
 
 	recomputeOverConstrained();
@@ -4580,6 +4577,32 @@ export function resetSketchState() {
 async function rebuildGearsFromEntities() {
 	const gearEntities = sketchEntities.filter(e => e.type === 'Gear' || e.type === 'Sprocket');
 	for (const ge of gearEntities) {
+		const gearId = nextGearId++;
+		await expandGearForDisplay(gearId, ge.params, ge.type);
+		const nextReg = new Map(gearRegistry);
+		nextReg.set(gearId, { ...ge.params, entityId: ge.id, kind: ge.type });
+		gearRegistry = nextReg;
+		const nextMap = new Map(entityToGearMap);
+		nextMap.set(ge.id, gearId);
+		entityToGearMap = nextMap;
+	}
+}
+
+/**
+ * Bring the gear bookkeeping back in line with the entity list after the list
+ * was replaced wholesale (a snapshot undo/redo): drop entries whose Gear or
+ * Sprocket entity is gone, and register any that came back.
+ */
+async function syncGearBookkeeping() {
+	const live = new Set(sketchEntities.map((e) => e.id));
+	for (const [entityId, gearId] of [...entityToGearMap]) {
+		if (live.has(entityId)) continue;
+		const nextReg = new Map(gearRegistry); nextReg.delete(gearId); gearRegistry = nextReg;
+		const nextMap = new Map(entityToGearMap); nextMap.delete(entityId); entityToGearMap = nextMap;
+		const nextDisp = new Map(gearDisplay); nextDisp.delete(gearId); gearDisplay = nextDisp;
+	}
+	for (const ge of sketchEntities) {
+		if ((ge.type !== 'Gear' && ge.type !== 'Sprocket') || entityToGearMap.has(ge.id)) continue;
 		const gearId = nextGearId++;
 		await expandGearForDisplay(gearId, ge.params, ge.type);
 		const nextReg = new Map(gearRegistry);
@@ -10680,6 +10703,7 @@ function undoSketchAction() {
 	// one step, which the entities/constraints add-lists below cannot express.
 	if (action._isSnapshot) {
 		restoreSketchSnapshot(action.before);
+		void syncGearBookkeeping();
 		sketchRedoStack = [
 			...sketchRedoStack,
 			{ _isSnapshot: true, before: action.before, after: action.after, camera: getCameraState() }
@@ -10772,6 +10796,7 @@ function redoSketchAction() {
 	if (action._isSnapshot) {
 		const cameraBefore = getCameraState();
 		restoreSketchSnapshot(action.after);
+		void syncGearBookkeeping();
 		sketchUndoStack = [
 			...sketchUndoStack,
 			{ _isSnapshot: true, before: action.before, after: action.after, camera: cameraBefore }
