@@ -117,6 +117,15 @@ was signed.
   extrude never reaches the feature count, 20 s timeout). Both fail with the
   spec, the WASM bundle and the app all at HEAD 02bab531+ (bisected while
   landing icon step 1), so they predate that work.
+- **Open, under watch (found 2026-10-30):** relay-tier
+  `agent-documents.spec.js:142` (S3) read `unsaved: false` on 2 of 6 relay
+  runs since e9ff8bc9 (first attempt of e9ff8bc9, then e7624358); it passed on
+  rerun, and in about 37 earlier runs it never failed. Not tied to a mechanism:
+  `unsaved` is `hasPendingAutoSave()`. Every ModelUpdated reschedules the 3 s
+  autosave, so the window between the extrude and `document_info` is well under
+  1 s. `createExtrudedBox` measures 1.5–2.1 s locally with the app at
+  fa7c836e and at HEAD alike. A tab-hide `flushAutoSave` would also clear the
+  flag; unverified. The relay tier cannot run locally (no uv).
 - **Open:** drawing specs flake under 2–3 workers with "Execution context was
   destroyed … navigation" (baseline too; Vite re-optimization suspected, per
   the Playwright config comment).
