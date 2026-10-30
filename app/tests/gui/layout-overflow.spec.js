@@ -90,7 +90,9 @@ test.describe('Layout overflow', () => {
 		await resizeTo(page, { width: 900, height: 720 });
 		const narrow = Number(await toolbar.getAttribute('data-collapse-level'));
 		expect(narrow).toBeGreaterThan(0);
-		await resizeTo(page, { width: 2400, height: 720 });
+		// Wide enough for every rung to undo, icons and labels included
+		// (measured 2026-10-30: the modeling toolbar's content is ~2.9k px).
+		await resizeTo(page, { width: 3200, height: 720 });
 		expect(Number(await toolbar.getAttribute('data-collapse-level'))).toBe(0);
 		await expect(page.getByTestId('toolbar-btn-export-step')).toBeVisible();
 	});

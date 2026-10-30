@@ -37,6 +37,11 @@ async function clickRedo(page) {
 }
 
 test.describe('undo/redo buttons', () => {
+	// Inline Undo/Redo is a desktop-width fact: below ~1600 px the collapse
+	// ladder moves them into the ⋮ menu (icons + labels, ui-chrome M13), and
+	// clickToolbarAction covers that path for the operation tests below.
+	test.use({ viewport: { width: 1920, height: 900 } });
+
 	test('undo and redo buttons are visible', async ({ waffle }) => {
 		const undoBtn = waffle.page.locator('[data-testid="toolbar-btn-undo"]');
 		const redoBtn = waffle.page.locator('[data-testid="toolbar-btn-redo"]');

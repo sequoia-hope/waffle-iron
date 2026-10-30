@@ -70,6 +70,7 @@
 	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
+	import Icon from '$lib/ui/icons/Icon.svelte';
 	import { resetTool, projectRef, isProjectableRef, seedOffsetFromSelection } from '$lib/sketch/tools.js';
 	import { onMount, flushSync } from 'svelte';
 
@@ -84,6 +85,20 @@
 	let positions = $derived(getSketchPositions());
 
 	let isMobile = $derived(getMobileLayout());
+	// Icons only, labels visually hidden (ui-chrome M13, user decision
+	// 2026-10-30: "only icons on mobile"). Wider than the mobile LAYOUT
+	// switch (max-width 768px): a phone held landscape is ~950 px wide and
+	// keeps the desktop layout, but it is still a phone. A coarse pointer
+	// tells a phone from a narrow desktop window.
+	const ICON_ONLY_QUERY = '(max-width: 768px), (pointer: coarse) and (max-width: 960px)';
+	let iconOnly = $state(false);
+	$effect(() => {
+		const mql = window.matchMedia(ICON_ONLY_QUERY);
+		iconOnly = mql.matches;
+		const onChange = (/** @type {MediaQueryListEvent} */ e) => { iconOnly = e.matches; scheduleRelayout(); };
+		mql.addEventListener('change', onChange);
+		return () => mql.removeEventListener('change', onChange);
+	});
 	let section = $derived(getSectionState());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
@@ -210,8 +225,8 @@
 
 	// The two rectangle construction variants offered by the Rect split button.
 	const rectVariants = [
-		{ id: 'rectangle', label: 'Corner Rectangle', hint: 'Two opposite corners' },
-		{ id: 'rectangle-center', label: 'Center Rectangle', hint: 'Center, then a corner' },
+		{ id: 'rectangle', icon: 'rectangle', label: 'Corner Rectangle', hint: 'Two opposite corners' },
+		{ id: 'rectangle-center', icon: 'rectangle-center', label: 'Center Rectangle', hint: 'Center, then a corner' },
 	];
 	let showModelingTools = $state(false);
 
@@ -252,21 +267,21 @@
 	let exportingStep = $state(false);
 
 	const constraintButtons = [
-		{ id: 'horizontal', label: 'H', title: 'Horizontal' },
-		{ id: 'vertical', label: 'V', title: 'Vertical' },
-		{ id: 'coincident', label: 'Co', title: 'Coincident' },
-		{ id: 'perpendicular', label: 'Perp', title: 'Perpendicular' },
-		{ id: 'parallel', label: 'Par', title: 'Parallel' },
-		{ id: 'equal', label: 'Eq', title: 'Equal' },
-		{ id: 'tangent', label: 'Tan', title: 'Tangent' },
-		{ id: 'midpoint', label: 'Mid', title: 'Midpoint' },
-		{ id: 'fix', label: 'Fix', title: 'Fix Point' },
-		{ id: 'angle', label: 'Ang', title: 'Angle' },
-		{ id: 'symmetricH', label: 'SH', title: 'Symmetric Horizontal' },
-		{ id: 'symmetricV', label: 'SV', title: 'Symmetric Vertical' },
-		{ id: 'pointOnLine', label: 'OnL', title: 'Point on Line' },
-		{ id: 'hDistance', label: 'HD', title: 'Horizontal Distance' },
-		{ id: 'vDistance', label: 'VD', title: 'Vertical Distance' },
+		{ id: 'horizontal', icon: 'constraint-horizontal', label: 'H', title: 'Horizontal' },
+		{ id: 'vertical', icon: 'constraint-vertical', label: 'V', title: 'Vertical' },
+		{ id: 'coincident', icon: 'constraint-coincident', label: 'Co', title: 'Coincident' },
+		{ id: 'perpendicular', icon: 'constraint-perpendicular', label: 'Perp', title: 'Perpendicular' },
+		{ id: 'parallel', icon: 'constraint-parallel', label: 'Par', title: 'Parallel' },
+		{ id: 'equal', icon: 'constraint-equal', label: 'Eq', title: 'Equal' },
+		{ id: 'tangent', icon: 'constraint-tangent', label: 'Tan', title: 'Tangent' },
+		{ id: 'midpoint', icon: 'constraint-midpoint', label: 'Mid', title: 'Midpoint' },
+		{ id: 'fix', icon: 'constraint-fix', label: 'Fix', title: 'Fix Point' },
+		{ id: 'angle', icon: 'constraint-angle', label: 'Ang', title: 'Angle' },
+		{ id: 'symmetricH', icon: 'constraint-symmetric-h', label: 'SH', title: 'Symmetric Horizontal' },
+		{ id: 'symmetricV', icon: 'constraint-symmetric-v', label: 'SV', title: 'Symmetric Vertical' },
+		{ id: 'pointOnLine', icon: 'constraint-point-on-line', label: 'OnL', title: 'Point on Line' },
+		{ id: 'hDistance', icon: 'constraint-h-distance', label: 'HD', title: 'Horizontal Distance' },
+		{ id: 'vDistance', icon: 'constraint-v-distance', label: 'VD', title: 'Vertical Distance' },
 	];
 
 	function applyConstraint(id) {
@@ -283,41 +298,47 @@
 	}
 
 	const modelingTools = [
-		{ id: 'sketch', label: 'Sketch', shortcut: 'S' },
-		{ id: 'extrude', label: 'Extrude', shortcut: 'E' },
-		{ id: 'revolve', label: 'Revolve', shortcut: '' },
-		{ id: 'pipe', label: 'Pipe', shortcut: '' },
-		{ id: 'script', label: 'Script', shortcut: '' },
-		{ id: 'fillet', label: 'Fillet', shortcut: '' },
-		{ id: 'chamfer', label: 'Chamfer', shortcut: '' },
-		{ id: 'shell', label: 'Shell', shortcut: '' },
-		{ id: 'boolean', label: 'Boolean', shortcut: '' },
-		{ id: 'datum-plane', label: 'Plane', shortcut: '' },
-		{ id: 'mate-connector', label: 'Connector', shortcut: '' },
-		{ id: 'import-step', label: 'Import', shortcut: '' },
-		{ id: 'import-link', label: 'Link STEP', shortcut: '' },
-		{ id: 'import-kicad', label: 'KiCad', shortcut: '' },
-		{ id: 'link-kicad', label: 'Link KiCad', shortcut: '' },
+		{ id: 'sketch', icon: 'sketch', name: 'Sketch', label: 'Sketch', shortcut: 'S' },
+		{ id: 'extrude', icon: 'extrude', name: 'Extrude', label: 'Extrude', shortcut: 'E' },
+		{ id: 'revolve', icon: 'revolve', name: 'Revolve', label: 'Revolve', shortcut: '' },
+		{ id: 'pipe', icon: 'pipe', name: 'Pipe', label: 'Pipe', shortcut: '' },
+		{ id: 'script', icon: 'script', name: 'Script', label: 'Script', shortcut: '' },
+		{ id: 'fillet', icon: 'fillet', name: 'Fillet', label: 'Fillet', shortcut: '', deferred: true },
+		{ id: 'chamfer', icon: 'chamfer', name: 'Chamfer', label: 'Chamfer', shortcut: '', deferred: true },
+		{ id: 'shell', icon: 'shell', name: 'Shell', label: 'Shell', shortcut: '', deferred: true },
+		{ id: 'boolean', icon: 'boolean', name: 'Boolean', label: 'Boolean', shortcut: '' },
+		{ id: 'datum-plane', icon: 'datum-plane', name: 'Datum plane', label: 'Plane', shortcut: '' },
+		{ id: 'mate-connector', icon: 'mate-connector', name: 'Mate connector', label: 'Connector', shortcut: '' },
+		{ id: 'import-step', icon: 'import-step', name: 'Import STEP', label: 'Import', shortcut: '' },
+		{ id: 'import-link', icon: 'import-link', name: 'Link STEP', label: 'Link STEP', shortcut: '' },
+		{ id: 'import-kicad', icon: 'import-kicad', name: 'Import KiCad board', label: 'KiCad', shortcut: '' },
+		{ id: 'link-kicad', icon: 'link-kicad', name: 'Link KiCad board', label: 'Link KiCad', shortcut: '' },
 	];
 
 	const sketchTools = [
-		{ id: 'select', label: 'Select', shortcut: '' },
-		{ id: 'point', label: 'Point', shortcut: '' },
-		{ id: 'line', label: 'Line', shortcut: 'L' },
-		{ id: 'polyline', label: 'Poly', shortcut: 'P' },
-		{ id: 'rectangle', label: 'Rect', shortcut: 'R' },
-		{ id: 'circle', label: 'Circle', shortcut: 'C' },
-		{ id: 'arc', label: 'Arc', shortcut: 'A' },
-		{ id: 'project', label: 'Proj', shortcut: 'J' },
-		{ id: 'offset', label: 'Offset', shortcut: 'O' },
-		{ id: 'slot', label: 'Slot', shortcut: 'T' },
-		{ id: 'gear', label: 'Gear', shortcut: 'G' },
-		{ id: 'sprocket', label: 'Sprkt', shortcut: 'K' },
-		{ id: 'planetary', label: 'Planet', shortcut: '' },
-		{ id: 'trim', label: 'Trim', shortcut: '' },
-		{ id: 'sketch-fillet', label: 'Fillet', shortcut: 'F' },
-		{ id: 'construction', label: 'Constr', shortcut: 'X' },
+		{ id: 'select', icon: 'mouse-pointer-2', name: 'Select', label: 'Select', shortcut: '' },
+		{ id: 'point', icon: 'point', name: 'Point', label: 'Point', shortcut: '' },
+		{ id: 'line', icon: 'line', name: 'Line', label: 'Line', shortcut: 'L' },
+		{ id: 'polyline', icon: 'polyline', name: 'Polyline', label: 'Poly', shortcut: 'P' },
+		{ id: 'rectangle', icon: 'rectangle', name: 'Rectangle', label: 'Rect', shortcut: 'R' },
+		{ id: 'circle', icon: 'circle', name: 'Circle', label: 'Circle', shortcut: 'C' },
+		{ id: 'arc', icon: 'arc', name: 'Arc', label: 'Arc', shortcut: 'A' },
+		{ id: 'project', icon: 'project', name: 'Project geometry', label: 'Proj', shortcut: 'J' },
+		{ id: 'offset', icon: 'offset', name: 'Offset', label: 'Offset', shortcut: 'O' },
+		{ id: 'slot', icon: 'slot', name: 'Slot', label: 'Slot', shortcut: 'T' },
+		{ id: 'gear', icon: 'gear', name: 'Gear', label: 'Gear', shortcut: 'G' },
+		{ id: 'sprocket', icon: 'sprocket', name: 'Sprocket', label: 'Sprkt', shortcut: 'K' },
+		{ id: 'planetary', icon: 'planetary', name: 'Planetary gear', label: 'Planet', shortcut: '' },
+		{ id: 'trim', icon: 'trim', name: 'Trim', label: 'Trim', shortcut: '' },
+		{ id: 'sketch-fillet', icon: 'sketch-fillet', name: 'Sketch fillet', label: 'Fillet', shortcut: 'F' },
+		{ id: 'construction', icon: 'construction', name: 'Construction', label: 'Constr', shortcut: 'X' },
 	];
+
+	/** Tooltip: the tool's full name and shortcut; a deferred tool says so. */
+	function toolTitle(t) {
+		const base = `${t.name ?? t.label}${t.shortcut ? ` (${t.shortcut})` : ''}`;
+		return t.deferred ? `${base} — not yet available` : base;
+	}
 
 	async function handleToolClick(toolId) {
 		if (agentBusy) {
@@ -594,6 +615,12 @@
 	});
 </script>
 
+<!-- A toolbar button's face: icon + label. On a phone (`iconOnly`) the label is visually
+     hidden (icons only) but stays the button's accessible name and text. -->
+{#snippet tb(icon, label)}
+	<Icon name={icon} size={iconOnly ? 20 : 16} /><span class="tb-label" class:sr-only={iconOnly}>{label}</span>
+{/snippet}
+
 <div class="toolbar" data-testid="toolbar" data-collapse-level={collapseLevel} data-relayout-seq={relayoutSeq} bind:this={toolbarEl}>
 	{#if !hideBrand}
 		<div class="toolbar-brand">Waffle Iron</div>
@@ -604,7 +631,7 @@
 		data-testid="toolbar-btn-home"
 		title="Home"
 		onclick={() => goto(`${base}/home`)}
-	>Home</button>
+	>{@render tb('house', 'Home')}</button>
 
 	{#if !hideName}
 	<div class="project-name" data-testid="project-name">
@@ -632,7 +659,7 @@
 					class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-sketch-tools-dropdown"
 					onclick={(e) => { openDropdown(e.currentTarget, () => { showSketchTools = !showSketchTools; showConstraints = false; }); }}
-				>Tools ▾</button>
+				>{@render tb('line', 'Tools ▾')}</button>
 			</div>
 			{#if showSketchTools}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -647,10 +674,10 @@
 								class="toolbar-btn"
 								class:active={t.id !== 'construction' && tool === t.id}
 								disabled={!ready}
-								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+								title={toolTitle(t)}
 								data-testid="toolbar-btn-{t.id}"
 								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : setActiveTool(t.id); showSketchTools = false; }}
-							>{t.label}</button>
+							>{@render tb(t.icon, t.label)}</button>
 							{#if t.id === 'rectangle'}
 								<!-- Center-rectangle variant as its own entry on mobile. -->
 								<button
@@ -660,7 +687,7 @@
 									title="Center Rectangle"
 									data-testid="toolbar-btn-rectangle-center"
 									onclick={() => { setActiveTool('rectangle-center'); showSketchTools = false; }}
-								>Rect ⌖</button>
+								>{@render tb('rectangle-center', 'Center Rect')}</button>
 							{/if}
 						{/each}
 					</div>
@@ -682,7 +709,7 @@
 								title="{rectMode === 'rectangle-center' ? 'Center Rectangle' : 'Corner Rectangle'} (R)"
 								data-testid="toolbar-btn-rectangle"
 								onclick={() => setActiveTool(rectMode)}
-							>Rect</button>
+							>{@render tb(rectMode, 'Rect')}</button>
 							<button
 								class="split-btn-arrow"
 								disabled={!ready}
@@ -703,7 +730,7 @@
 											data-testid="rect-variant-{rv.id}"
 											title={rv.hint}
 											onclick={() => { setActiveTool(rv.id); showRectMenu = false; }}
-										>{rv.label}</button>
+										><Icon name={rv.icon} />{rv.label}</button>
 									{/each}
 								</div>
 							{/if}
@@ -713,10 +740,10 @@
 							class="toolbar-btn"
 							class:active={t.id !== 'construction' && tool === t.id}
 							disabled={!ready}
-							title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+							title={toolTitle(t)}
 							data-testid="toolbar-btn-{t.id}"
 							onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : setActiveTool(t.id)}
-						>{t.label}</button>
+						>{@render tb(t.icon, t.label)}</button>
 					{/if}
 				{/each}
 				{#if overflowTools.length > 0}
@@ -726,7 +753,7 @@
 							data-testid="toolbar-btn-more-tools"
 							title="More sketch tools"
 							onclick={(e) => { openDropdown(e.currentTarget, () => { showMoreTools = !showMoreTools; showConstraints = false; }); }}
-						>More ▾</button>
+						>{@render tb('chevrons-right', 'More ▾')}</button>
 					</div>
 					{#if showMoreTools}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -741,10 +768,10 @@
 										class="toolbar-btn"
 										class:active={t.id !== 'construction' && (tool === t.id || (t.id === 'rectangle' && tool === 'rectangle-center'))}
 										disabled={!ready}
-										title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+										title={toolTitle(t)}
 										data-testid="toolbar-btn-{t.id}"
 										onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : t.id === 'offset' ? activateOrRunOffset() : t.id === 'rectangle' ? setActiveTool(rectMode) : setActiveTool(t.id); showMoreTools = false; }}
-									>{t.label}</button>
+									>{@render tb(t.icon, t.label)}</button>
 									{#if t.id === 'rectangle'}
 										<button
 											class="toolbar-btn"
@@ -753,7 +780,7 @@
 											title="Center Rectangle"
 											data-testid="toolbar-btn-rectangle-center"
 											onclick={() => { setActiveTool('rectangle-center'); showMoreTools = false; }}
-										>Rect ⌖</button>
+										>{@render tb('rectangle-center', 'Center Rect')}</button>
 									{/if}
 								{/each}
 							</div>
@@ -770,7 +797,7 @@
 					class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-constraints-dropdown"
 					onclick={(e) => { openDropdown(e.currentTarget, () => { showConstraints = !showConstraints; showSketchTools = false; }); }}
-				>Constraints ▾</button>
+				>{@render tb('constraint-perpendicular', 'Constraints ▾')}</button>
 			</div>
 			{#if showConstraints}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -787,7 +814,7 @@
 								title={cb.title}
 								data-testid="toolbar-constraint-{cb.id}"
 								onclick={() => { applyConstraint(cb.id); showConstraints = false; }}
-							>{cb.label}</button>
+							><Icon name={cb.icon} size={20} /><span class="cb-label" class:sr-only={iconOnly}>{cb.label}</span></button>
 						{/each}
 					</div>
 				</div>
@@ -798,7 +825,7 @@
 					class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-constraints-dropdown"
 					onclick={() => { showConstraints = !showConstraints; showSketchTools = false; }}
-				>Constraints ▾</button>
+				>{@render tb('constraint-perpendicular', 'Constraints ▾')}</button>
 				{#if showConstraints}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div class="dropdown-backdrop" onclick={() => showConstraints = false} onpointerdown={(e) => e.stopPropagation()}></div>
@@ -814,7 +841,7 @@
 									title={cb.title}
 									data-testid="toolbar-constraint-{cb.id}"
 									onclick={() => { applyConstraint(cb.id); showConstraints = false; }}
-								>{cb.label}</button>
+								><Icon name={cb.icon} size={20} /><span class="cb-label" class:sr-only={iconOnly}>{cb.label}</span></button>
 							{/each}
 						</div>
 					</div>
@@ -828,7 +855,7 @@
 			title="Smart Dimension (D)"
 			data-testid="toolbar-btn-dimension"
 			onclick={() => setActiveTool('dimension')}
-		>Dim</button>
+		>{@render tb('dimension', 'Dim')}</button>
 		<div class="toolbar-sep"></div>
 		<!-- The badge slot has a fixed width so the solve status changing (or
 		     first appearing) never re-lays-out the toolbar mid-sketch. -->
@@ -859,8 +886,8 @@
 	{/if}
 		</span>
 		<div class="toolbar-sep"></div>
-		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
-			Finish Sketch
+		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" title="Finish Sketch" onclick={handleFinishSketch}>
+			<Icon name="check" size={iconOnly ? 20 : 16} /><span class="tb-label">{iconOnly ? 'Finish' : 'Finish Sketch'}</span>
 		</button>
 	{:else}
 		<!-- Modeling tools -->
@@ -871,7 +898,7 @@
 					class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-modeling-dropdown"
 					onclick={(e) => { openDropdown(e.currentTarget, () => { showModelingTools = !showModelingTools; }); }}
-				>Model ▾</button>
+				>{@render tb('extrude', 'Model ▾')}</button>
 			</div>
 			{#if showModelingTools}
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -885,11 +912,12 @@
 							<button
 								class="toolbar-btn"
 								class:active={tool === t.id}
+								class:deferred={t.deferred}
 								disabled={!ready || agentBusy}
-								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+								title={toolTitle(t)}
 								data-testid="toolbar-btn-{t.id}"
 								onclick={async () => { await handleToolClick(t.id); showModelingTools = false; }}
-							>{t.label}</button>
+							>{@render tb(t.icon, t.label)}</button>
 						{/each}
 					</div>
 				</div>
@@ -902,11 +930,12 @@
 					<button
 						class="toolbar-btn"
 						class:active={tool === t.id}
+						class:deferred={t.deferred}
 						disabled={!ready || agentBusy}
-						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+						title={toolTitle(t)}
 						data-testid="toolbar-btn-{t.id}"
 						onclick={async () => { await handleToolClick(t.id); }}
-					>{t.label}</button>
+					>{@render tb(t.icon, t.label)}</button>
 				{/each}
 				{#if overflowTools.length > 0}
 					<div class="dropdown-container">
@@ -915,7 +944,7 @@
 							data-testid="toolbar-btn-more-tools"
 							title="More modeling tools"
 							onclick={(e) => { openDropdown(e.currentTarget, () => { showMoreTools = !showMoreTools; }); }}
-						>More ▾</button>
+						>{@render tb('chevrons-right', 'More ▾')}</button>
 					</div>
 					{#if showMoreTools}
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -929,11 +958,12 @@
 									<button
 										class="toolbar-btn"
 										class:active={tool === t.id}
+										class:deferred={t.deferred}
 										disabled={!ready || agentBusy}
-										title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+										title={toolTitle(t)}
 										data-testid="toolbar-btn-{t.id}"
 										onclick={async () => { showMoreTools = false; await handleToolClick(t.id); }}
-									>{t.label}</button>
+									>{@render tb(t.icon, t.label)}</button>
 								{/each}
 							</div>
 						</div>
@@ -950,14 +980,14 @@
 					title="Toggle Datum Planes"
 					data-testid="toolbar-btn-toggle-planes"
 					onclick={() => toggleDatumPlanes()}
-				>Planes</button>
+				>{@render tb('toggle-planes', 'Planes')}</button>
 				<button
 					class="toolbar-btn"
 					class:active={getShowOriginTriad()}
 					title="Toggle Origin Axes"
 					data-testid="toolbar-btn-toggle-axes"
 					onclick={() => toggleOriginTriad()}
-				>Axes</button>
+				>{@render tb('toggle-axes', 'Axes')}</button>
 			</div>
 			<div class="toolbar-sep"></div>
 			<div class="toolbar-group">
@@ -968,14 +998,14 @@
 					title="Section view — clip the model at the selected plane/face (capped)"
 					data-testid="toolbar-btn-section"
 					onclick={handleToggleSection}
-				>Section</button>
+				>{@render tb('section', 'Section')}</button>
 				{#if section.active}
 					<button
 						class="toolbar-btn"
 						title="Flip which half is kept"
 						data-testid="toolbar-btn-section-flip"
 						onclick={() => flipSection()}
-					>Flip</button>
+					>{@render tb('section-flip', 'Flip')}</button>
 					<label class="section-offset" title="Move the cut along the plane normal">
 						<input
 							type="range"
@@ -992,7 +1022,7 @@
 						title="Exit section view"
 						data-testid="toolbar-btn-section-clear"
 						onclick={() => clearSection()}
-					>Clear</button>
+					>{@render tb('section-clear', 'Clear')}</button>
 				{/if}
 			</div>
 		{/if}
@@ -1001,8 +1031,8 @@
 	{#if !compactHistory}
 		<div class="toolbar-sep"></div>
 		<div class="toolbar-group">
-			<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready || agentBusy} title="Undo (Ctrl+Z)" onclick={undo}>Undo</button>
-			<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready || agentBusy} title="Redo (Ctrl+Shift+Z)" onclick={redo}>Redo</button>
+			<button class="toolbar-btn" data-testid="toolbar-btn-undo" disabled={!ready || agentBusy} title="Undo (Ctrl+Z)" onclick={undo}>{@render tb('undo-2', 'Undo')}</button>
+			<button class="toolbar-btn" data-testid="toolbar-btn-redo" disabled={!ready || agentBusy} title="Redo (Ctrl+Shift+Z)" onclick={redo}>{@render tb('redo-2', 'Redo')}</button>
 		</div>
 	{/if}
 	{#if compactFile}
@@ -1010,8 +1040,8 @@
 		<div class="toolbar-sep"></div>
 		<div class="overflow-container">
 			<button class="toolbar-btn overflow-trigger" title="More actions" onclick={(e) => openOverflow(e.currentTarget)}
-				data-testid="toolbar-btn-overflow">
-				&#x22EE;
+				aria-label="More actions" data-testid="toolbar-btn-overflow">
+				<Icon name="ellipsis-vertical" size={iconOnly ? 20 : 16} />
 			</button>
 		</div>
 		{#if showOverflow}
@@ -1021,76 +1051,79 @@
 					{#if compactHistory}
 						<button class="overflow-item" disabled={!ready || agentBusy}
 							data-testid="toolbar-btn-undo" title="Undo (Ctrl+Z)"
-							onclick={() => { closeOverflow(); undo(); }}>Undo</button>
+							onclick={() => { closeOverflow(); undo(); }}><Icon name="undo-2" />Undo</button>
 						<button class="overflow-item" disabled={!ready || agentBusy}
 							data-testid="toolbar-btn-redo" title="Redo (Ctrl+Shift+Z)"
-							onclick={() => { closeOverflow(); redo(); }}>Redo</button>
+							onclick={() => { closeOverflow(); redo(); }}><Icon name="redo-2" />Redo</button>
 						<div class="overflow-separator"></div>
 					{/if}
 					<button class="overflow-item" disabled={!ready || saving}
 						data-testid="toolbar-btn-save"
 						onclick={async () => { closeOverflow(); saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
-						{saving ? 'Saving...' : 'Save'}
+						<Icon name="save" />{saving ? 'Saving...' : 'Save'}
 					</button>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-export-waffle-main"
 						onclick={async () => { closeOverflow(); await saveProject(); }}>
-						Export .waffle
+						<Icon name="export-waffle" />Export .waffle
 					</button>
 					<button class="overflow-item" disabled={!ready || agentBusy}
 						data-testid="toolbar-btn-open"
-						onclick={() => { closeOverflow(); loadProject(); }}>Open</button>
+						onclick={() => { closeOverflow(); loadProject(); }}><Icon name="folder-open" />Open</button>
 					<button class="overflow-item" disabled={!ready || exportingStl}
 						data-testid="toolbar-btn-export-stl"
 						onclick={async () => { closeOverflow(); exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
-						{exportingStl ? 'Exporting...' : 'Export STL'}
+						<Icon name="export-stl" />{exportingStl ? 'Exporting...' : 'Export STL'}
 					</button>
 					<button class="overflow-item" disabled={!ready || exportingStep}
 						data-testid="toolbar-btn-export-step"
 						onclick={async () => { closeOverflow(); exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
-						{exportingStep ? 'Exporting...' : 'Export STEP'}
+						<Icon name="export-step" />{exportingStep ? 'Exporting...' : 'Export STEP'}
 					</button>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-tests"
-						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}>Tests</button>
+						onclick={() => { closeOverflow(); toggleTestCaseBrowser(); }}><Icon name="flask-conical" />Tests</button>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-examples"
-						onclick={() => { closeOverflow(); toggleExamplesBrowser(); }}>Examples</button>
+						onclick={() => { closeOverflow(); toggleExamplesBrowser(); }}><Icon name="book-open" />Examples</button>
 					<button class="overflow-item" disabled={!ready}
 						data-testid="toolbar-btn-assay"
-						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}>Assay</button>
+						onclick={() => { closeOverflow(); toggleAssayBrowser(); }}><Icon name="microscope" />Assay</button>
 					<div class="overflow-separator"></div>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-debug-viewport"
-						onclick={() => { closeOverflow(); handleViewportDebug(); }}>Viewport Info</button>
+						onclick={() => { closeOverflow(); handleViewportDebug(); }}><Icon name="info" />Viewport Info</button>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-debug-wireframe"
-						onclick={() => { closeOverflow(); handleToggleWireframeDebug(); }}>Toggle Wireframe</button>
+						onclick={() => { closeOverflow(); handleToggleWireframeDebug(); }}><Icon name="wireframe" />Toggle Wireframe</button>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-debug-shader"
-						onclick={() => { closeOverflow(); handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
+						onclick={() => { closeOverflow(); handleToggleShaderDebug(); }}><Icon name="palette" />Toggle Shader Debug</button>
 					{#if compactView && !inSketch}
 						<div class="overflow-separator"></div>
 						<button class="overflow-item" disabled={!ready}
 							data-testid="toolbar-btn-toggle-planes"
+							role="menuitemcheckbox" aria-checked={getShowDatumPlanes()}
 							onclick={() => { closeOverflow(); toggleDatumPlanes(); }}>
-							{getShowDatumPlanes() ? '✓ ' : ''}Planes
+							<Icon name="toggle-planes" />Planes{#if getShowDatumPlanes()}<span class="overflow-check"><Icon name="check" size={14} /></span>{/if}
 						</button>
 						<button class="overflow-item" disabled={!ready}
 							data-testid="toolbar-btn-toggle-axes"
+							role="menuitemcheckbox" aria-checked={getShowOriginTriad()}
 							onclick={() => { closeOverflow(); toggleOriginTriad(); }}>
-							{getShowOriginTriad() ? '✓ ' : ''}Axes
+							<Icon name="toggle-axes" />Axes{#if getShowOriginTriad()}<span class="overflow-check"><Icon name="check" size={14} /></span>{/if}
 						</button>
 						<button class="overflow-item" disabled={!ready}
 							data-testid="toolbar-btn-section"
 							title="Section view — clip the model at the selected plane/face (capped)"
+							role="menuitemcheckbox" aria-checked={section.active}
 							onclick={() => { closeOverflow(); handleToggleSection(); }}>
-							{section.active ? '✓ ' : ''}Section
+							<Icon name="section" />Section{#if section.active}<span class="overflow-check"><Icon name="check" size={14} /></span>{/if}
 						</button>
 						{#if section.active}
 							<button class="overflow-item"
 								data-testid="toolbar-btn-section-flip"
-								onclick={() => { closeOverflow(); flipSection(); }}>Flip section</button>
+								onclick={() => { closeOverflow(); flipSection(); }}><Icon name="section-flip" />Flip section</button>
 							<label class="overflow-item overflow-range" title="Move the cut along the plane normal">
 								<span>Offset</span>
 								<input
@@ -1105,13 +1138,13 @@
 							</label>
 							<button class="overflow-item"
 								data-testid="toolbar-btn-section-clear"
-								onclick={() => { closeOverflow(); clearSection(); }}>Clear section</button>
+								onclick={() => { closeOverflow(); clearSection(); }}><Icon name="section-clear" />Clear section</button>
 						{/if}
 					{/if}
 					<div class="overflow-separator"></div>
 					<button class="overflow-item"
 						data-testid="toolbar-btn-reload"
-						onclick={() => { closeOverflow(); location.reload(); }}>Reload</button>
+						onclick={() => { closeOverflow(); location.reload(); }}><Icon name="rotate-cw" />Reload</button>
 				</div>
 		{/if}
 	{:else}
@@ -1120,51 +1153,51 @@
 			<button class="toolbar-btn" disabled={!ready || saving} title="Save (Ctrl+S)"
 				data-testid="toolbar-btn-save"
 				onclick={async () => { saving = true; try { await saveToStorage(); } finally { saving = false; } }}>
-				{saving ? 'Saving...' : 'Save'}
+				{@render tb('save', saving ? 'Saving...' : 'Save')}
 			</button>
 			<button class="toolbar-btn" disabled={!ready || agentBusy} title="Open (Ctrl+O)"
 				data-testid="toolbar-btn-open"
-				onclick={() => loadProject()}>Open</button>
+				onclick={() => loadProject()}>{@render tb('folder-open', 'Open')}</button>
 			<button class="toolbar-btn" disabled={!ready} title="Download a .waffle file (Save persists to the browser)"
 				data-testid="toolbar-btn-export-waffle-main"
-				onclick={async () => { await saveProject(); }}>Export .waffle</button>
+				onclick={async () => { await saveProject(); }}>{@render tb('export-waffle', 'Export .waffle')}</button>
 			<button class="toolbar-btn" disabled={!ready || exportingStl} title="Export STL"
 				data-testid="toolbar-btn-export-stl"
 				onclick={async () => { exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
-				{exportingStl ? 'Exporting...' : 'Export STL'}
+				{@render tb('export-stl', exportingStl ? 'Exporting...' : 'Export STL')}
 			</button>
 			<button class="toolbar-btn" disabled={!ready || exportingStep} title="Export STEP"
 				data-testid="toolbar-btn-export-step"
 				onclick={async () => { exportingStep = true; try { await exportStep(); } finally { exportingStep = false; } }}>
-				{exportingStep ? 'Exporting...' : 'Export STEP'}
+				{@render tb('export-step', exportingStep ? 'Exporting...' : 'Export STEP')}
 			</button>
 			<button class="toolbar-btn" disabled={!ready} title="Test Cases (Ctrl+Shift+T)"
 				data-testid="toolbar-btn-tests"
-				onclick={() => toggleTestCaseBrowser()}>Tests</button>
+				onclick={() => toggleTestCaseBrowser()}>{@render tb('flask-conical', 'Tests')}</button>
 			<button class="toolbar-btn" disabled={!ready} title="Official example documents"
 				data-testid="toolbar-btn-examples"
-				onclick={() => toggleExamplesBrowser()}>Examples</button>
+				onclick={() => toggleExamplesBrowser()}>{@render tb('book-open', 'Examples')}</button>
 			<button class="toolbar-btn" disabled={!ready} title="Assay Browser"
 				data-testid="toolbar-btn-assay"
-				onclick={() => toggleAssayBrowser()}>Assay</button>
+				onclick={() => toggleAssayBrowser()}>{@render tb('microscope', 'Assay')}</button>
 			<div class="dropdown-container">
 				<button class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-debug-dropdown"
 					onclick={() => { showDebugMenu = !showDebugMenu; }}
-				>Debug ▾</button>
+				>{@render tb('bug', 'Debug ▾')}</button>
 				{#if showDebugMenu}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div class="dropdown-backdrop" onclick={() => showDebugMenu = false}></div>
 					<div class="dropdown-panel" data-testid="debug-dropdown">
 						<button class="overflow-item"
 							data-testid="toolbar-btn-debug-viewport"
-							onclick={() => { showDebugMenu = false; handleViewportDebug(); }}>Viewport Info</button>
+							onclick={() => { showDebugMenu = false; handleViewportDebug(); }}><Icon name="info" />Viewport Info</button>
 						<button class="overflow-item"
 							data-testid="toolbar-btn-debug-wireframe"
-							onclick={() => { showDebugMenu = false; handleToggleWireframeDebug(); }}>Toggle Wireframe</button>
+							onclick={() => { showDebugMenu = false; handleToggleWireframeDebug(); }}><Icon name="wireframe" />Toggle Wireframe</button>
 						<button class="overflow-item"
 							data-testid="toolbar-btn-debug-shader"
-							onclick={() => { showDebugMenu = false; handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
+							onclick={() => { showDebugMenu = false; handleToggleShaderDebug(); }}><Icon name="palette" />Toggle Shader Debug</button>
 						<div class="build-info" data-testid="build-info"
 							title="Bundle build provenance (vite define __BUILD_INFO__)">
 							Build {__BUILD_INFO__.date} ({__BUILD_INFO__.commit})
@@ -1182,7 +1215,7 @@
 		aria-label="Settings"
 		data-testid="toolbar-btn-settings"
 		onclick={() => (settingsOpen = true)}
-	>&#x2699;</button>
+	><Icon name="settings" size={iconOnly ? 20 : 16} /></button>
 	<div class="toolbar-status">
 		{#if ready}
 			<span class="status-dot ready" data-testid="status-dot"></span>
@@ -1274,11 +1307,22 @@
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--text-primary);
-		padding: 4px 8px;
+		padding: 4px 6px;
 		border-radius: 3px;
 		cursor: pointer;
 		font-size: 12px;
 		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+	}
+
+	/* Fillet / chamfer / shell: deferred indefinitely — they open a dialog
+	   whose Apply is disabled, so the button reads as unavailable too. */
+	.toolbar-btn.deferred,
+	.toolbar-btn.deferred:hover:not(:disabled) {
+		color: var(--text-muted);
+		opacity: 0.6;
 	}
 
 	.toolbar-btn:hover:not(:disabled) {
@@ -1384,6 +1428,14 @@
 		cursor: pointer;
 		font-size: 11px;
 		white-space: nowrap;
+		display: inline-flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.cb-label {
+		font-size: 10px;
 	}
 
 	.constraint-btn:hover:not(:disabled) {
@@ -1515,7 +1567,9 @@
 	}
 
 	.overflow-item {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		width: 100%;
 		background: none;
 		border: none;
@@ -1525,6 +1579,13 @@
 		text-align: left;
 		cursor: pointer;
 		white-space: nowrap;
+	}
+
+	/* A view toggle that is on: a trailing check. */
+	.overflow-check {
+		margin-left: auto;
+		display: inline-flex;
+		color: var(--accent);
 	}
 
 	.overflow-item:hover:not(:disabled) {
@@ -1592,6 +1653,13 @@
 		min-width: 60px;
 		text-align: center;
 		padding: 6px 8px;
+	}
+
+	/* Tiles in the tool dropdowns: icon above its label. */
+	.dropdown-grid .toolbar-btn {
+		flex-direction: column;
+		justify-content: center;
+		gap: 2px;
 	}
 
 	.constraints-panel {

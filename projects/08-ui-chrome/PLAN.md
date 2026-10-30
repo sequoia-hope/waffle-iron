@@ -98,10 +98,10 @@
 Plan of record: `specs/ui_toolbar_icons.md` (inventory, design system,
 collapse-ladder changes, open questions for the user).
 
-- [ ] Step 1: width-independent GUI tests (13 raw-testid specs → helpers)
-- [ ] Step 2: `lib/ui/icons/` module + generic Lucide set + `check-icons.mjs`
-- [ ] Step 3: custom CAD glyphs (sketch, constraints, features, drawing, views)
-- [ ] Step 4: Part + Sketch toolbars wired, labels → icon-only rung, `toolbar-icons.spec.js`
+- [x] Step 1: width-independent GUI tests (15 raw-testid specs → helpers)
+- [x] Step 2: `lib/ui/icons/` module + generic Lucide set + `check-icons.mjs` + `/dev/icons` gallery
+- [x] Step 3: custom CAD glyphs (sketch, constraints, features, drawing, views)
+- [x] Step 4: Part + Sketch toolbars wired (icon + label on desktop; icons only on phones via `(max-width: 768px), (pointer: coarse) and (max-width: 960px)`); NO icon-only rung on desktop (user decision); `toolbar-icons.spec.js` + `mobile/mobile-toolbar-icons.spec.js`. Measured cost: modeling toolbar collapse level at 1280 px 2 → 6 (Undo/Redo into ⋮, one tool into More), sketch 7 → 12; level 0 now needs ~2.9k px
 - [ ] Step 5: Drawing toolbar
 - [ ] Step 6: context menus
 - [ ] Step 7: feature-tree icons from the registry
