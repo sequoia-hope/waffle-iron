@@ -5,7 +5,7 @@
  * and applies appropriate constraints.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, pressKey, clickTool } from './helpers/toolbar.js';
+import { clickSketch, pressKey, clickTool, isToolOffered } from './helpers/toolbar.js';
 import { clickAt, drawLine } from './helpers/canvas.js';
 import { getEntities, getEntityCountByType, waitForEntityCount, getToolState } from './helpers/state.js';
 import { getConstraints, getConstraintCountByType } from './helpers/constraint.js';
@@ -18,11 +18,11 @@ test.describe('sketch slot tool', () => {
 	test('slot tool activates via toolbar button', async ({ waffle }) => {
 		const page = waffle.page;
 
-		const btn = page.locator('[data-testid="toolbar-btn-slot"]');
-		const visible = await btn.isVisible().catch(() => false);
-		expect(visible).toBe(true);
+		// Offered inline or in "More ▾" depending on width (toolbar icons,
+		// ui-chrome M13, moved Slot into More at 1280 px).
+		expect(await isToolOffered(page, 'slot')).toBe(true);
 
-		await btn.click();
+		await clickTool(page, 'slot');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'slot',
 			{ timeout: 3000 }
@@ -53,8 +53,7 @@ test.describe('sketch slot tool', () => {
 		const page = waffle.page;
 
 		// Activate slot tool
-		const btn = page.locator('[data-testid="toolbar-btn-slot"]');
-		await btn.click();
+		await clickTool(page, 'slot');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'slot',
 			{ timeout: 3000 }
