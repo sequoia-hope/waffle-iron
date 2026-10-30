@@ -245,7 +245,8 @@ async function handleCall(ws, frame) {
 		agentName: get(agentLink).agentName ?? 'agent',
 		isPaused: () => get(agentPause).paused,
 		pause: (/** @type {string} */ reason) => setAgentPaused(true, reason),
-		isCancelled: () => cancelledCalls.has(frame.id)
+		// String(): the cancel frame's id is stored as text (`case 'cancel'`).
+		isCancelled: () => cancelledCalls.has(String(frame.id))
 	};
 	let result;
 	activeCallId = String(frame.id);
@@ -255,7 +256,7 @@ async function handleCall(ws, frame) {
 	} catch (err) {
 		result = { type: 'result', id: frame.id, ...toolError('Internal', String(err?.message ?? err)) };
 	} finally {
-		cancelledCalls.delete(frame.id);
+		cancelledCalls.delete(String(frame.id));
 		if (activeCallId === String(frame.id)) activeCallId = null;
 	}
 	noteAgentDocument();
@@ -465,7 +466,9 @@ function installLifecycle() {
 	window.addEventListener('online', wake);
 	// Test hook (agent-reconnect.spec.js): close the socket as a network drop would.
 	window.__waffleAgentLink = {
-		dropConnection: () => socket?.close(4001, 'test_drop')
+		dropConnection: () => socket?.close(4001, 'test_drop'),
+		// (agent-authoring A18): which calls the relay has cancelled so far.
+		cancelledCalls: () => [...cancelledCalls]
 	};
 }
 

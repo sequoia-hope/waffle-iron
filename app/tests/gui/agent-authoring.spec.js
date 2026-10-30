@@ -397,8 +397,11 @@ test.describe('Agent link authoring (Phase 1)', () => {
 
 	test.describe('during a slow agent call', () => {
 		/**
-		 * A 21-tooth gear sketch whose extrude takes the kernel about two seconds
-		 * here (measured 2026-09-14): long enough to act while the call runs.
+		 * A 21-tooth gear sketch to extrude. Its extrude once took the kernel
+		 * about two seconds (2026-09-14), and these tests relied on that to act
+		 * while the call ran. On a fast runner it took 0.23 s and the call ended
+		 * first (2026-10-30), so each test now holds the agent's engine sends
+		 * (`holdAgentSends`) while it acts, then releases them.
 		 */
 		async function gearSketch() {
 			const sketch = ok(
@@ -431,6 +434,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			const featuresBefore = (await page.evaluate(() => window.__waffle.getFeatureTree().features.length));
 
 			await page.evaluate(() => window.__waffle.recordEngineSends(true));
+			await page.evaluate(() => window.__waffle.holdAgentSends(true));
 			const call = relay.callTool('feature_add', { operation });
 			await waitForAgentActivity(page);
 			await expect(page.getByTestId('agent-bar-activity')).toContainText('feature_add');
@@ -439,6 +443,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			await page.keyboard.press('e');
 			await page.keyboard.press('Control+z');
 			await page.getByTestId('toolbar-btn-undo').click({ force: true });
+			await page.evaluate(() => window.__waffle.holdAgentSends(false));
 			const added = ok(await call);
 			await page.waitForFunction(() => window.__waffle.getAgentActivity() === null);
 			await page.waitForTimeout(500);
@@ -462,9 +467,11 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			await pairAgent(page, relay, AGENT);
 			const operation = await gearSketch();
 
+			await page.evaluate(() => window.__waffle.holdAgentSends(true));
 			const call = relay.callTool('feature_add', { operation });
 			await waitForAgentActivity(page);
 			await page.getByTestId('agent-pause').click();
+			await page.evaluate(() => window.__waffle.holdAgentSends(false));
 			const finished = ok(await call);
 			expect(finished.bodies_added).toHaveLength(1);
 			refused(await relay.callTool('feature_add', { operation }), 'AgentPaused');
@@ -488,10 +495,19 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			const operation = await gearSketch();
 			const before = await documentBytes(page);
 
+			await page.evaluate(() => window.__waffle.holdAgentSends(true));
 			const { id, response } = relay.start('tools/call', { name: 'feature_add', arguments: { operation } }, 60000);
 			response.catch(() => {});
 			await waitForAgentActivity(page);
 			relay.cancel(id);
+			// Release only once the page has the cancel: the executor reads it
+			// when the call completes. (The page's call id is the relay's own,
+			// not this MCP request id; this is the only call in flight.)
+			await page.waitForFunction(() => (window.__waffleAgentLink?.cancelledCalls().length ?? 0) > 0, null, {
+				timeout: 10000
+			});
+			await page.evaluate(() => window.__waffle.holdAgentSends(false));
+
 			await page.waitForFunction(() => window.__waffle.getAgentActivity() === null, null, { timeout: 30000 });
 			await expect.poll(() => documentBytes(page), { timeout: 10000 }).toBe(before);
 			// The session stays usable.

@@ -864,11 +864,35 @@ export function getUserBusyReason() {
  * @param {{ rebuild?: boolean }} [opts] - `rebuild` shows the rebuild spinner
  * @returns {Promise<any>}
  */
+/**
+ * Test hook (`__waffle.holdAgentSends`): while set, an agent's engine send
+ * waits here with the lock held and its activity showing, the way a slow
+ * kernel call does. The relay specs used to rely on a gear extrude taking
+ * ~2 s; on a fast runner it took 0.23 s and ended before their input landed
+ * (2026-10-30).
+ * @type {{ promise: Promise<void>, release: () => void } | null}
+ */
+let agentSendHold = null;
+
+/** @param {boolean} on */
+function holdAgentSends(on) {
+	if (on && !agentSendHold) {
+		/** @type {() => void} */
+		let release = () => {};
+		const promise = new Promise((resolve) => { release = resolve; });
+		agentSendHold = { promise, release };
+	} else if (!on && agentSendHold) {
+		agentSendHold.release();
+		agentSendHold = null;
+	}
+}
+
 export async function sendAgentMessage(message, { rebuild = false } = {}) {
 	if (!bridge) throw new Error('Engine not initialized');
 	if (engineLockHolder !== 'agent') {
 		throw new Error('sendAgentMessage needs the engine lock held by the agent');
 	}
+	if (agentSendHold) await agentSendHold.promise;
 	if (!rebuild) return bridge.sendUngated(message);
 	rebuilding = true;
 	const t0 = performance.now();
@@ -1944,6 +1968,7 @@ export async function initEngine() {
 			// Agent link oracles (spec §5): every bridge send with its origin (O7),
 			// the lock holder, the busy reason (G3) and the running agent call.
 			recordEngineSends: (on, opts) => bridge.recordSends(on, opts),
+			holdAgentSends: (on) => holdAgentSends(on),
 			replayEngineMessages: (entries) => replayEngineMessages(entries),
 			getEngineSendLog: () => bridge.getSendLog(),
 			getEngineLockHolder: () => engineLockHolder,
