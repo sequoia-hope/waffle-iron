@@ -93,6 +93,21 @@
       `findOutOfBounds()`; specs reach toolbar buttons via `clickTool` /
       `clickToolbarAction` (helpers/toolbar.js).
 
+### M13: Toolbar and menu icons (PLANNED 2026-10-30)
+
+Plan of record: `specs/ui_toolbar_icons.md` (inventory, design system,
+collapse-ladder changes, open questions for the user).
+
+- [ ] Step 1: width-independent GUI tests (13 raw-testid specs → helpers)
+- [ ] Step 2: `lib/ui/icons/` module + generic Lucide set + `check-icons.mjs`
+- [ ] Step 3: custom CAD glyphs (sketch, constraints, features, drawing, views)
+- [ ] Step 4: Part + Sketch toolbars wired, labels → icon-only rung, `toolbar-icons.spec.js`
+- [ ] Step 5: Drawing toolbar
+- [ ] Step 6: context menus
+- [ ] Step 7: feature-tree icons from the registry
+- [ ] Step 8: baselines + dossier docs
+- Fillet / chamfer / shell get icons only (deferred indefinitely).
+
 ## Blockers
 
 (None — all dependencies resolved)

@@ -295,6 +295,38 @@ chords; its offset kept a radius at only one corner.
       equal-circles test).
 - TRAP: sketch units are METRES (~0.005 for a 100 px line). Absolute
   tolerances like `1e-3` are ~20% at that scale — assert relative.
+- [ ] **NEXT ITEM — cancelled first click leaves a stray point** (reported
+      by the user 2026-10-30): with the rectangle tool (and other multi-click
+      sketch tools), place the first point, then cancel. The first point
+      stays in the sketch. A cancelled in-progress entity must leave nothing
+      behind: no point, no auto-constraint and no undo entry. Check every
+      tool with a pending first point (line, rectangle, circle, arc, slot,
+      polygon, …) and every way to cancel (Escape, switching tools,
+      right-click). Pins: click-click AND click-drag variants asserting the
+      entity/point count is unchanged after a cancel, and `getToolState()` /
+      `getDrawingState()` back to idle.
+- [ ] **NEXT ITEM — constraint visibility, selection and deletion** (user
+      request 2026-10-30):
+      1. A UI that SHOWS the sketch's constraints, both on the canvas (the
+         `constraintBadges.js` badges) and as a list panel (type, entities,
+         value) while in sketch mode.
+      2. Select a constraint from the badge or the list row. A selected
+         constraint highlights its entities and its row and badge stay
+         highlighted. Delete it with Delete/Backspace or a context-menu item,
+         as one undo step, followed by a re-solve.
+      3. When the solver reports OverConstrained, make the conflicting
+         constraints visible AUTOMATICALLY: badges and list rows in the
+         over-constrained colour, the list opened and scrolled to them,
+         even if badges are hidden. Today only the ENTITIES turn red
+         (`SketchRenderer` `overConstrained`). The conflict indices
+         already exist (`store.svelte.js` `statusObj.conflicts`, indices
+         into our own constraint array — keep the index-shift trap in
+         mind).
+      Pins: GUI tests (real pointer events) that create a conflict by drawing
+      and constraining, assert the conflicting badges and rows appear
+      without user action, select one by clicking it, delete it, and assert
+      the sketch returns to under- or fully-constrained. Use both
+      click-click and click-drag drawing.
 
 ## Implementation Summary
 
