@@ -420,6 +420,12 @@ test.describe('Agent link authoring (Phase 1)', () => {
 
 		test('O7/G8: user commands during the call send nothing between the agent sends', async ({ page }) => {
 			const crashes = collectCrashErrors(page);
+			// The force-clicks below hit the INLINE Extrude and Undo buttons on
+			// purpose (a busy page must ignore real pointer input, not a menu
+			// path). Since toolbar icons (ui-chrome M13), Undo moves into the
+			// ⋮ menu below ~1600 px, so this test runs at a desktop width where
+			// both are inline.
+			await page.setViewportSize({ width: 1920, height: 900 });
 			await pairAgent(page, relay, AGENT);
 			const operation = await gearSketch();
 			const featuresBefore = (await page.evaluate(() => window.__waffle.getFeatureTree().features.length));
