@@ -564,6 +564,10 @@ run_gui_fast() {
   # e.g. PW_CROSS_BROWSER=1 PW_PROJECTS="firefox webkit" (remediation plan G5).
   local project_args=()
   for p in ${PW_PROJECTS:-}; do project_args+=("--project=$p"); done
+  # PW_SHARD (e.g. "1/2") runs one Playwright shard of the tier; CI splits
+  # gui-fast in two because one four-core runner outgrew its 30-min budget
+  # (2026-10-30: ~29 min before the icon specs, cancelled after).
+  [[ -n "${PW_SHARD:-}" ]] && project_args+=("--shard=$PW_SHARD")
   (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${project_args[@]}" "${spec_args[@]}") || rc=$?
 
   local elapsed
