@@ -42,6 +42,8 @@
 	 * the first "More ▾" step (the trigger costs more than one tool), which
 	 * the ladder walks straight through — so it cannot oscillate.
 	 */
+	import Icon from '$lib/ui/icons/Icon.svelte';
+	import { isIconOnly } from '$lib/ui/iconOnly.svelte.js';
 	import {
 		isEngineReady,
 		getMobileLayout,
@@ -89,11 +91,12 @@
 	 * the sheet and changes when the part moves in space (§7's open item). It
 	 * joins when that closes, as one more row.
 	 *
-	 * @type {{ id: string, mode: string, label: string, title: string }[]}
+	 * @type {{ id: string, icon: string, mode: string, label: string, title: string }[]}
 	 */
 	const DRAWING_TOOLS = [
 		{
 			id: 'select',
+			icon: 'mouse-pointer-2',
 			mode: 'select',
 			label: 'Select',
 			title: 'Pick, drag and delete the dimensions already on the sheet'
@@ -101,57 +104,66 @@
 		// D4e: place a view (dialog, then a hover ghost) and project a view
 		// from a parent (hover a side or a corner). Views come before the
 		// dimensions because a sheet needs a view before it can carry one.
-		...VIEW_PLACEMENT_TOOLS.map(({ id, mode, label, title }) => ({ id, mode, label, title })),
+		...VIEW_PLACEMENT_TOOLS.map(({ id, mode, label, title }) => ({ id, icon: id, mode, label, title })),
 		{
 			id: 'dim-distance',
+			icon: 'dim-distance',
 			mode: 'dimension-distance',
 			label: 'Dist',
 			title: 'Aligned distance between two entities, measured along the line joining them (across two parallel edges)'
 		},
 		{
 			id: 'dim-hdistance',
+			icon: 'dim-hdistance',
 			mode: 'dimension-hdistance',
 			label: 'Horiz',
 			title: 'Horizontal distance between two entities, measured along the view u axis'
 		},
 		{
 			id: 'dim-vdistance',
+			icon: 'dim-vdistance',
 			mode: 'dimension-vdistance',
 			label: 'Vert',
 			title: 'Vertical distance between two entities, measured along the view v axis'
 		},
 		{
 			id: 'dim-pointline',
+			icon: 'dim-pointline',
 			mode: 'dimension-pointline',
 			label: 'Pt-Ln',
 			title: 'Perpendicular distance from a point to a line: pick the point, then the line'
 		},
 		{
 			id: 'dim-angle',
+			icon: 'dim-angle',
 			mode: 'dimension-angle',
 			label: 'Angle',
 			title: 'Angle between two straight edges (the acute one — a projection carries no edge direction)'
 		},
 		{
 			id: 'dim-radius',
+			icon: 'dim-radius',
 			mode: 'dimension-radius',
 			label: 'Radius',
 			title: 'Radius of a circular rim'
 		},
 		{
 			id: 'dim-diameter',
+			icon: 'dim-diameter',
 			mode: 'dimension-diameter',
 			label: 'Diam',
 			title: 'Diameter of a circular rim, drawn through the centre'
 		},
 		{
 			id: 'note',
+			icon: 'note',
 			mode: 'note',
 			label: 'Note',
 			title: 'A note with a leader: pick what it points at, then place the text'
 		},
 		{
 			id: 'datum',
+			icon: 'datum',
 			mode: 'datum',
 			label: 'Datum',
 			title: 'A datum label: pick the feature, then place the boxed letter'
@@ -161,6 +173,8 @@
 	let ready = $derived(isEngineReady());
 	let agentBusy = $derived(getAgentActivity() !== null);
 	let isMobile = $derived(getMobileLayout());
+	// Icons only on a phone (ui-chrome M13; see iconOnly.svelte.js).
+	let iconOnly = $derived(isIconOnly());
 	let mode = $derived(getSheetMode());
 	let picks = $derived(getSheetPicks());
 	let selection = $derived(getSheetSelection());
@@ -272,7 +286,7 @@
 		// Everything that changes the in-flow content re-measures. `prompt` is
 		// read because the slot's text changes with it (its width is capped,
 		// but the measure is cheap and a capped slot that is EMPTY is narrower).
-		void [ready, agentBusy, isMobile, name, editingName, saving, prompt];
+		void [ready, agentBusy, isMobile, iconOnly, name, editingName, saving, prompt];
 		scheduleRelayout();
 	});
 
@@ -365,6 +379,12 @@
 	});
 </script>
 
+<!-- A toolbar button's face: icon + label. On a phone (`iconOnly`) the label is
+     visually hidden but stays the button's accessible name and text. -->
+{#snippet tb(icon, label)}
+	<Icon name={icon} size={iconOnly ? 20 : 16} /><span class="tb-label" class:sr-only={iconOnly}>{label}</span>
+{/snippet}
+
 <div
 	class="toolbar"
 	data-testid="toolbar"
@@ -383,7 +403,7 @@
 		class="toolbar-btn home-btn"
 		data-testid="toolbar-btn-home"
 		title="Home"
-		onclick={() => goto(`${base}/home`)}>Home</button
+		onclick={() => goto(`${base}/home`)}>{@render tb('house', 'Home')}</button
 	>
 
 	{#if !hideName}
@@ -432,7 +452,7 @@
 				class="toolbar-btn dropdown-trigger"
 				data-testid="toolbar-btn-drawing-tools-dropdown"
 				onclick={(e) => openDropdown(e.currentTarget, () => (showDrawingTools = !showDrawingTools))}
-				>Dimension ▾</button
+				>{@render tb('dim-hdistance', 'Dimension ▾')}</button
 			>
 		</div>
 		{#if showDrawingTools}
@@ -460,7 +480,7 @@
 							onclick={() => {
 								pickTool(t);
 								showDrawingTools = false;
-							}}>{t.label}</button
+							}}>{@render tb(t.icon, t.label)}</button
 						>
 					{/each}
 				</div>
@@ -475,7 +495,7 @@
 					disabled={!ready}
 					title={t.title}
 					data-testid="toolbar-btn-{t.id}"
-					onclick={() => pickTool(t)}>{t.label}</button
+					onclick={() => pickTool(t)}>{@render tb(t.icon, t.label)}</button
 				>
 			{/each}
 			{#if overflowTools.length > 0}
@@ -485,7 +505,7 @@
 						data-testid="toolbar-btn-more-tools"
 						title="More dimension tools"
 						onclick={(e) => openDropdown(e.currentTarget, () => (showMoreTools = !showMoreTools))}
-						>More ▾</button
+						>{@render tb('chevrons-right', 'More ▾')}</button
 					>
 				</div>
 				{#if showMoreTools}
@@ -513,7 +533,7 @@
 									onclick={() => {
 										showMoreTools = false;
 										pickTool(t);
-									}}>{t.label}</button
+									}}>{@render tb(t.icon, t.label)}</button
 								>
 							{/each}
 						</div>
@@ -538,14 +558,14 @@
 				data-testid="toolbar-btn-undo"
 				disabled={!ready || agentBusy}
 				title="Undo (Ctrl+Z) — {history.undo} drawing edit{history.undo === 1 ? '' : 's'} on this tab"
-				onclick={undo}>Undo</button
+				onclick={undo}>{@render tb('undo-2', 'Undo')}</button
 			>
 			<button
 				class="toolbar-btn"
 				data-testid="toolbar-btn-redo"
 				disabled={!ready || agentBusy}
 				title="Redo (Ctrl+Shift+Z)"
-				onclick={redo}>Redo</button
+				onclick={redo}>{@render tb('redo-2', 'Redo')}</button
 			>
 		</div>
 	{/if}
@@ -556,8 +576,9 @@
 			<button
 				class="toolbar-btn overflow-trigger"
 				title="More actions"
+				aria-label="More actions"
 				data-testid="toolbar-btn-overflow"
-				onclick={(e) => openOverflow(e.currentTarget)}>&#x22EE;</button
+				onclick={(e) => openOverflow(e.currentTarget)}><Icon name="ellipsis-vertical" size={iconOnly ? 20 : 16} /></button
 			>
 		</div>
 		{#if showOverflow}
@@ -577,7 +598,7 @@
 						onclick={() => {
 							closeOverflow();
 							undo();
-						}}>Undo</button
+						}}><Icon name="undo-2" />Undo</button
 					>
 					<button
 						class="overflow-item"
@@ -587,7 +608,7 @@
 						onclick={() => {
 							closeOverflow();
 							redo();
-						}}>Redo</button
+						}}><Icon name="redo-2" />Redo</button
 					>
 					<div class="overflow-separator"></div>
 				{/if}
@@ -603,7 +624,7 @@
 						} finally {
 							saving = false;
 						}
-					}}>{saving ? 'Saving...' : 'Save'}</button
+					}}><Icon name="save" />{saving ? 'Saving...' : 'Save'}</button
 				>
 				<button
 					class="overflow-item"
@@ -612,7 +633,7 @@
 					onclick={async () => {
 						closeOverflow();
 						await saveProject();
-					}}>Export .waffle</button
+					}}><Icon name="export-waffle" />Export .waffle</button
 				>
 				<button
 					class="overflow-item"
@@ -621,7 +642,7 @@
 					onclick={() => {
 						closeOverflow();
 						loadProject();
-					}}>Open</button
+					}}><Icon name="folder-open" />Open</button
 				>
 				<button
 					class="overflow-item"
@@ -630,7 +651,7 @@
 					onclick={() => {
 						closeOverflow();
 						toggleExamplesBrowser();
-					}}>Examples</button
+					}}><Icon name="book-open" />Examples</button
 				>
 				<div class="overflow-separator"></div>
 				<button
@@ -639,7 +660,7 @@
 					onclick={() => {
 						closeOverflow();
 						location.reload();
-					}}>Reload</button
+					}}><Icon name="rotate-cw" />Reload</button
 				>
 			</div>
 		{/if}
@@ -658,14 +679,14 @@
 					} finally {
 						saving = false;
 					}
-				}}>{saving ? 'Saving...' : 'Save'}</button
+				}}>{@render tb('save', saving ? 'Saving...' : 'Save')}</button
 			>
 			<button
 				class="toolbar-btn"
 				disabled={!ready || agentBusy}
 				title="Open (Ctrl+O)"
 				data-testid="toolbar-btn-open"
-				onclick={() => loadProject()}>Open</button
+				onclick={() => loadProject()}>{@render tb('folder-open', 'Open')}</button
 			>
 			<button
 				class="toolbar-btn"
@@ -674,14 +695,14 @@
 				data-testid="toolbar-btn-export-waffle-main"
 				onclick={async () => {
 					await saveProject();
-				}}>Export .waffle</button
+				}}>{@render tb('export-waffle', 'Export .waffle')}</button
 			>
 			<button
 				class="toolbar-btn"
 				disabled={!ready}
 				title="Official example documents"
 				data-testid="toolbar-btn-examples"
-				onclick={() => toggleExamplesBrowser()}>Examples</button
+				onclick={() => toggleExamplesBrowser()}>{@render tb('book-open', 'Examples')}</button
 			>
 		</div>
 	{/if}
@@ -692,7 +713,7 @@
 		title="Settings"
 		aria-label="Settings"
 		data-testid="toolbar-btn-settings"
-		onclick={() => (settingsOpen = true)}>&#x2699;</button
+		onclick={() => (settingsOpen = true)}><Icon name="settings" size={iconOnly ? 20 : 16} /></button
 	>
 	<div class="toolbar-status">
 		{#if ready}
@@ -783,11 +804,14 @@
 		background: transparent;
 		border: 1px solid transparent;
 		color: var(--text-primary);
-		padding: 4px 8px;
+		padding: 4px 6px;
 		border-radius: 3px;
 		cursor: pointer;
 		font-size: 12px;
 		white-space: nowrap;
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
 	}
 
 	.toolbar-btn:hover:not(:disabled) {
@@ -902,7 +926,9 @@
 	}
 
 	.overflow-item {
-		display: block;
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		width: 100%;
 		background: none;
 		border: none;
@@ -966,6 +992,10 @@
 		min-width: 60px;
 		text-align: center;
 		padding: 6px 8px;
+		/* Tiles: icon above its label. */
+		flex-direction: column;
+		justify-content: center;
+		gap: 2px;
 	}
 
 	@media (max-width: 768px) {

@@ -71,6 +71,7 @@
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
 	import Icon from '$lib/ui/icons/Icon.svelte';
+	import { isIconOnly } from '$lib/ui/iconOnly.svelte.js';
 	import { resetTool, projectRef, isProjectableRef, seedOffsetFromSelection } from '$lib/sketch/tools.js';
 	import { onMount, flushSync } from 'svelte';
 
@@ -85,20 +86,8 @@
 	let positions = $derived(getSketchPositions());
 
 	let isMobile = $derived(getMobileLayout());
-	// Icons only, labels visually hidden (ui-chrome M13, user decision
-	// 2026-10-30: "only icons on mobile"). Wider than the mobile LAYOUT
-	// switch (max-width 768px): a phone held landscape is ~950 px wide and
-	// keeps the desktop layout, but it is still a phone. A coarse pointer
-	// tells a phone from a narrow desktop window.
-	const ICON_ONLY_QUERY = '(max-width: 768px), (pointer: coarse) and (max-width: 960px)';
-	let iconOnly = $state(false);
-	$effect(() => {
-		const mql = window.matchMedia(ICON_ONLY_QUERY);
-		iconOnly = mql.matches;
-		const onChange = (/** @type {MediaQueryListEvent} */ e) => { iconOnly = e.matches; scheduleRelayout(); };
-		mql.addEventListener('change', onChange);
-		return () => mql.removeEventListener('change', onChange);
-	});
+	// Icons only on a phone (ui-chrome M13; see iconOnly.svelte.js).
+	let iconOnly = $derived(isIconOnly());
 	let section = $derived(getSectionState());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
@@ -203,7 +192,7 @@
 	$effect(() => {
 		// Everything that changes the toolbar's in-flow content re-measures it.
 		// collapseLevel itself is deliberately NOT read here.
-		void [ready, agentBusy, inSketch, isMobile, section.active, solveStatus?.status,
+		void [ready, agentBusy, inSketch, isMobile, iconOnly, section.active, solveStatus?.status,
 			solveStatus?.dof, name, editingName, saving, exportingStl, exportingStep];
 		scheduleRelayout();
 	});

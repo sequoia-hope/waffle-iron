@@ -86,6 +86,23 @@ test.describe('toolbar icons (desktop)', () => {
 		});
 	}
 
+	test('every drawing-tab button shows an icon and a label', async ({ waffle }) => {
+		const page = waffle.page;
+		await page.setViewportSize({ width: 1920, height: 900 });
+		const drawingTab = await page.evaluate(() => window.__waffle.addTab('Drawing'));
+		expect(drawingTab, 'the engine added a Drawing tab').toBeTruthy();
+		await page.evaluate((id) => window.__waffle.switchTab(id), drawingTab);
+		await expect(page.getByTestId('drawing-panel')).toBeVisible();
+		await expect(page.getByTestId('toolbar-btn-dim-distance').or(page.getByTestId('toolbar-btn-more-tools'))).toBeVisible();
+		expectIconAndLabel(await buttonFaces(page, '[data-testid="toolbar"]'), 'drawing @1920');
+		const more = page.getByTestId('toolbar-btn-more-tools');
+		if (await more.isVisible()) {
+			await more.click();
+			await expect(page.getByTestId('more-tools-dropdown')).toBeVisible();
+			expectIconAndLabel(await buttonFaces(page, '[data-testid="more-tools-dropdown"]'), 'drawing More', 1);
+		}
+	});
+
 	test('the ⋮ menu items carry icons, and view toggles report their state', async ({ waffle }) => {
 		const page = waffle.page;
 		await page.setViewportSize({ width: 1100, height: 900 });
