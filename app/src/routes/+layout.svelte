@@ -16,9 +16,10 @@
 		initSettings();
 		// The viewer (`/view`, specs/waffle_server_mode.md §4.10) never starts
 		// the engine worker and never downloads the wasm: it draws what a host
-		// computes.
+		// computes. The dev pages (`/dev/…`, e.g. the icon gallery) need no
+		// engine either.
 		const pathname = get(page).url.pathname;
-		if (!pathname.startsWith(`${base}/view`)) initEngine();
+		if (!pathname.startsWith(`${base}/view`) && !pathname.startsWith(`${base}/dev/`)) initEngine();
 	});
 </script>
 

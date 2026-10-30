@@ -1,6 +1,21 @@
 # Toolbar and menu icons — plan (2026-10-30, ui-chrome M13)
 
 Status: PLAN, not started. Research-only pass over `app/`; no code changed.
+
+**User decisions (2026-10-30):**
+- **Desktop: icon AND text on every button, at every width** (for now). No
+  icon-only rung on desktop — the label-drop rung of §4 is NOT added; the
+  existing ladder (⋮, brand, name, Undo/Redo, More ▾) absorbs the extra width.
+  **Mobile: icons only** (the tile layouts keep the label as `.sr-only` /
+  `title`; touch targets stay ≥ 36 px).
+- **Fillet / chamfer / shell LOOK disabled** in the toolbar: muted icon and
+  label, tooltip "… — not yet available". Styling only; the dialog flow and
+  `deferred-operations.spec.js` behaviour are unchanged unless that spec
+  asserts the buttons are enabled-looking.
+- **Constraint icons are pictures only** — no H/V/M letter tags.
+- **Lucide approved** for the generic icons (copied in under its ISC
+  licence, notice in the file header); CAD glyphs hand-drawn in its style.
+
 Goal: every toolbar and menu button — Part, Sketch (tools + constraints),
 Drawing, context menus — carries an icon that makes its function clear.
 

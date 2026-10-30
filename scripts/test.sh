@@ -115,6 +115,7 @@ RUST_FULL_CRATES=(
 # ---------------------------------------------------------------------------
 GUI_FAST_SPECS=(
   layout-overflow.spec.js
+  icon-gallery.spec.js
   sketch-draw.spec.js
   sketch-tools.spec.js
   sketch-entry.spec.js
@@ -535,6 +536,13 @@ run_gui_fast() {
   # not only the fast tier's, so a swallow cannot hide in gui-full either.
   if ! node "$ROOT_DIR/scripts/check-gui-swallowed-waits.mjs"; then
     fail "GUI Fast: a spec swallows a failed wait (scripts/check-gui-swallowed-waits.mjs)"
+    return
+  fi
+
+  # Icon registry: colour only through currentColor, and every icon name the
+  # app uses resolves (ui-chrome M13, specs/ui_toolbar_icons.md).
+  if ! node "$ROOT_DIR/scripts/check-icons.mjs"; then
+    fail "GUI Fast: icon registry check failed (scripts/check-icons.mjs)"
     return
   fi
 
