@@ -11,6 +11,7 @@
 import fs from 'fs';
 import { test as rawTest, expect } from '@playwright/test';
 import { getDocumentFromDB } from './helpers/waffle-test.js';
+import { clickTool } from './helpers/toolbar.js';
 
 const CUBE_STEP = fs.readFileSync(new URL('./fixtures/cube.step', import.meta.url), 'utf8');
 
@@ -338,7 +339,7 @@ rawTest.describe('Linked sources', () => {
 		await page.goto('/');
 		await page.waitForFunction(() => window.__waffle?.getState()?.engineReady === true, { timeout: 30000 });
 
-		await page.locator('[data-testid="toolbar-btn-import-link"]').click();
+		await clickTool(page, 'import-link');
 		const dialog = page.locator('[data-testid="import-link-dialog"]');
 		await expect(dialog).toBeVisible();
 		await page.locator('[data-testid="import-link-url"]').fill('https://github.com/acme/parts/blob/main/parts/cube.step');

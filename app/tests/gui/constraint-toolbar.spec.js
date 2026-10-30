@@ -6,7 +6,7 @@
  * since pixel-perfect click-to-select depends on camera/coordinate mapping.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickRectangle, clickLine, clickSelect, pressKey } from './helpers/toolbar.js';
+import { clickSketch, clickRectangle, clickLine, clickSelect, pressKey, clickTool } from './helpers/toolbar.js';
 import { clickAt, drawLine, drawRectangle, drawCircle } from './helpers/canvas.js';
 import {
 	getEntityCount,
@@ -348,7 +348,7 @@ test.describe('constraint toolbar button interaction', () => {
 	test('clicking dimension button activates dimension tool', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		await waffle.page.locator('[data-testid="toolbar-btn-dimension"]').click();
+		await clickTool(waffle.page, 'dimension');
 		await waffle.page.waitForTimeout(200);
 
 		const tool = await getActiveTool(waffle.page);

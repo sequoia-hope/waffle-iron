@@ -11,6 +11,7 @@ import {
 	clickRectangle,
 	clickFinishSketch,
 	clickExtrude,
+	clickTool,
 } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import {
@@ -68,7 +69,7 @@ test.describe('sketch plane selection accepts face clicks', () => {
 		expect(faceRef).toBeTruthy();
 
 		// Click Sketch button — should enter plane selection mode
-		await page.locator('[data-testid="toolbar-btn-sketch"]').click();
+		await clickTool(page, 'sketch');
 		await page.waitForTimeout(300);
 
 		// Check that we're in plane selection mode (not yet in sketch mode)
@@ -99,7 +100,7 @@ test.describe('sketch plane selection accepts face clicks', () => {
 		const page = waffle.page;
 
 		// Click Sketch — enters plane selection mode
-		await page.locator('[data-testid="toolbar-btn-sketch"]').click();
+		await clickTool(page, 'sketch');
 		await page.waitForTimeout(300);
 
 		// Select front datum plane programmatically

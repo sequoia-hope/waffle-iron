@@ -176,8 +176,16 @@ export async function clickRectangle(page) {
  * @param {import('@playwright/test').Page} page
  */
 export async function clickCenterRectangle(page) {
-	await page.locator('[data-testid="toolbar-btn-rectangle-menu"]').click();
-	await page.locator('[data-testid="rect-variant-rectangle-center"]').click();
+	// The Rect split button (main face + variant menu) exists only while Rect
+	// is inline; in "More ▾" or the collapsed dropdown the centre variant is
+	// its own `toolbar-btn-rectangle-center` item.
+	const menu = page.locator('[data-testid="toolbar-btn-rectangle-menu"]');
+	if (await menu.isVisible()) {
+		await menu.click();
+		await page.locator('[data-testid="rect-variant-rectangle-center"]').click();
+	} else {
+		await clickTool(page, 'rectangle-center');
+	}
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.activeTool === 'rectangle-center',
 		{ timeout: 3000 }

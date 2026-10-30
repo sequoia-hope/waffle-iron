@@ -17,6 +17,7 @@ import {
 	clickRectangle,
 	clickFinishSketch,
 	clickExtrude,
+	clickTool,
 } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import {
@@ -79,7 +80,7 @@ test.describe('offset datum plane creation', () => {
 		await waffle.page.evaluate((r) => window.__waffle.selectRef(r), faceRef);
 		await waffle.page.waitForTimeout(150);
 
-		await waffle.page.locator('[data-testid="toolbar-btn-datum-plane"]').click();
+		await clickTool(waffle.page, 'datum-plane');
 		await waffle.page
 			.locator('[data-testid="sketch-plane-dialog"]')
 			.waitFor({ state: 'visible', timeout: 5000 });
@@ -153,7 +154,7 @@ test.describe('offset datum plane creation', () => {
 		const crashes = collectCrashErrors(waffle.page);
 
 		// Open the standalone datum-plane flow with nothing selected → plane base.
-		await waffle.page.locator('[data-testid="toolbar-btn-datum-plane"]').click();
+		await clickTool(waffle.page, 'datum-plane');
 		await waffle.page
 			.locator('[data-testid="sketch-plane-dialog"]')
 			.waitFor({ state: 'visible', timeout: 5000 });
@@ -201,7 +202,7 @@ test.describe('offset datum plane creation', () => {
 		const crashes = collectCrashErrors(waffle.page);
 
 		// Offset Front plane at 30mm (= 0.03m internal).
-		await waffle.page.locator('[data-testid="toolbar-btn-datum-plane"]').click();
+		await clickTool(waffle.page, 'datum-plane');
 		await waffle.page
 			.locator('[data-testid="sketch-plane-dialog"]')
 			.waitFor({ state: 'visible', timeout: 5000 });

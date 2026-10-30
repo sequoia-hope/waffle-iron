@@ -13,6 +13,7 @@
 import { test, expect } from '@playwright/test';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
 import { createExtrudedBox } from './helpers/geometry.js';
+import { clickToolbarAction } from './helpers/toolbar.js';
 
 /**
  * Every record of an IndexedDB object store, with the parsed `.waffle` identity and tab count.
@@ -325,7 +326,7 @@ test.describe('Reload restore', () => {
 		const crashes = collectCrashErrors(page);
 		const seeded = await seedTwoTabDocument(page);
 
-		await page.getByTestId('toolbar-btn-settings').click();
+		await clickToolbarAction(page, 'settings');
 		await page.getByTestId('setting-restore-on-reload').selectOption('never');
 		expect((await page.evaluate(() => window.__waffle.getSettings())).restoreOnReload).toBe('never');
 

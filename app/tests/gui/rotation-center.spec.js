@@ -10,6 +10,7 @@
 import { test, expect } from './helpers/waffle-test.js';
 import { getCanvasBounds } from './helpers/canvas.js';
 import { createExtrudedBox } from './helpers/geometry.js';
+import { clickToolbarAction } from './helpers/toolbar.js';
 
 const marker = (page) => page.evaluate(() => window.__waffle.getRotationCenter());
 
@@ -29,7 +30,7 @@ async function duringRotate(page, fn) {
 test.describe('rotation center marker', () => {
 	test('the Debug section offers it, and the checkbox drives the setting', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.locator('[data-testid="toolbar-btn-settings"]').click();
+		await clickToolbarAction(page, 'settings');
 		await page.locator('[data-testid="settings-section-debug"]').click();
 		const box = page.locator('[data-testid="setting-show-rotation-center"]');
 		await expect(box).toBeVisible();

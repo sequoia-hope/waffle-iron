@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { clickFace, getVisibleFaces } from './helpers/geometry.js';
 import { McpRelay, pairAgent, relayTestPort } from './helpers/mcp-relay.js';
 import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { clickTool } from './helpers/toolbar.js';
 
 const AGENT = 'agent-authoring-test';
 const P = (id, x, y) => ({ type: 'Point', id, x, y });
@@ -312,7 +313,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 		const sketch = ok(await relay.callTool('sketch_create', { plane: XY, entities: RECT }));
 
 		// G3 sketch mode, entered with real clicks: toolbar Sketch, then the Front plane in the tree.
-		await page.getByTestId('toolbar-btn-sketch').click();
+		await clickTool(page, 'sketch');
 		await page.getByTestId('origin-plane-front').click();
 		await page.waitForFunction(() => window.__waffle.getState().sketchMode.active === true, null, { timeout: 5000 });
 		await page.evaluate(() => window.__waffle.recordEngineSends(true));
@@ -327,7 +328,7 @@ test.describe('Agent link authoring (Phase 1)', () => {
 		await page.evaluate(() => window.__waffle.exitSketch());
 
 		// G3 feature dialog, opened with a real click.
-		await page.getByTestId('toolbar-btn-extrude').click();
+		await clickTool(page, 'extrude');
 		await page.waitForFunction(() => window.__waffle.getExtrudeDialogState() != null, null, { timeout: 5000 });
 		await page.evaluate(() => window.__waffle.recordEngineSends(true));
 		const inDialog = refused(await relay.callTool('feature_add', { operation: extrude(sketch.feature_id, 0.005) }), 'UserBusy');

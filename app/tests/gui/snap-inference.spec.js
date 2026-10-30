@@ -20,7 +20,7 @@
  * the align-h/align-v indicator is the visual contract's store-level witness.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickLine } from './helpers/toolbar.js';
+import { clickSketch, clickLine, clickTool } from './helpers/toolbar.js';
 import { clickAt, moveTo, drawLine } from './helpers/canvas.js';
 import { waitForEntityCount } from './helpers/state.js';
 import { getConstraints } from './helpers/constraint.js';
@@ -37,7 +37,7 @@ const pointPos = (page) =>
 
 /** Activate the Point tool via its toolbar button (real click). */
 async function clickPoint(page) {
-	await page.locator('[data-testid="toolbar-btn-point"]').click();
+	await clickTool(page, 'point');
 	await page.waitForFunction(() => window.__waffle?.getState()?.activeTool === 'point', { timeout: 3000 });
 }
 

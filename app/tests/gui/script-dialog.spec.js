@@ -24,6 +24,7 @@ import {
 	collectCrashErrors,
 	expectNoAnyCrash
 } from './helpers/state.js';
+import { clickTool } from './helpers/toolbar.js';
 
 /** A box script: 20 × 10 × 5 mm by default, on a plane parameter. */
 const BOX_SCRIPT = `// @feature name="Box" version=1
@@ -41,7 +42,7 @@ fn feature(ctx, p) {
 `;
 
 async function openScriptDialog(page) {
-	await page.locator('[data-testid="toolbar-btn-script"]').click();
+	await clickTool(page, 'script');
 	await page.locator('[data-testid="script-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 

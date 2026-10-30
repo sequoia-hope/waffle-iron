@@ -9,7 +9,7 @@
  * the centroid.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickRectangle, clickCenterRectangle } from './helpers/toolbar.js';
+import { clickSketch, clickRectangle, clickCenterRectangle, clickTool } from './helpers/toolbar.js';
 import { drawRectangle, dragRectangle } from './helpers/canvas.js';
 import { getEntityCountByType, waitForEntityCount, getEntities } from './helpers/state.js';
 
@@ -36,14 +36,14 @@ test.describe('Rect split button', () => {
 
 		// Switch to another tool, then press R: it must re-activate the persisted
 		// rectangle mode (center), not the corner default.
-		await page.locator('[data-testid="toolbar-btn-line"]').click();
+		await clickTool(page, 'line');
 		await page.keyboard.press('r');
 		state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.activeTool).toBe('rectangle-center');
 
 		// And the main button face now launches center mode directly.
-		await page.locator('[data-testid="toolbar-btn-line"]').click();
-		await page.locator('[data-testid="toolbar-btn-rectangle"]').click();
+		await clickTool(page, 'line');
+		await clickTool(page, 'rectangle');
 		state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.activeTool).toBe('rectangle-center');
 	});

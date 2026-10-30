@@ -12,7 +12,7 @@
  * crash detection via collectCrashErrors + expectNoAnyCrash.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickFinishSketch, clickExtrude } from './helpers/toolbar.js';
+import { clickSketch, clickFinishSketch, clickExtrude, clickTool } from './helpers/toolbar.js';
 import { clickAt } from './helpers/canvas.js';
 import {
 	isSketchActive,
@@ -34,7 +34,7 @@ import {
  * (default a non-origin spot) to seed the center and open the dialog.
  */
 async function openPlanetaryDialog(page, xOffset = 60, yOffset = -40) {
-	await page.locator('[data-testid="toolbar-btn-planetary"]').click();
+	await clickTool(page, 'planetary');
 	await clickAt(page, xOffset, yOffset);
 	await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
@@ -169,7 +169,7 @@ test.describe('planetary gear stage', () => {
 		const crashes = collectCrashErrors(page);
 
 		// Select the placement tool — this no longer opens the dialog directly.
-		await page.locator('[data-testid="toolbar-btn-planetary"]').click();
+		await clickTool(page, 'planetary');
 		expect(await getActiveTool(page)).toBe('planetary');
 		await expect(page.locator('[data-testid="planetary-dialog"]')).toBeHidden();
 

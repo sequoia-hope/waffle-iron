@@ -16,6 +16,7 @@ import {
 	hasMeshWithGeometry,
 	waitForMeshWithGeometry,
 } from './helpers/state.js';
+import { clickTool } from './helpers/toolbar.js';
 
 /**
  * Create a single extruded box via the __waffle API.
@@ -59,7 +60,7 @@ test.describe('boolean dialog basics', () => {
 	test('clicking Boolean toolbar button opens dialog', async ({ waffle }) => {
 		await createOneBody(waffle.page);
 
-		await waffle.page.locator('[data-testid="toolbar-btn-boolean"]').click();
+		await clickTool(waffle.page, 'boolean');
 		await waffle.page.waitForTimeout(200);
 
 		const dialog = waffle.page.locator('[data-testid="boolean-dialog"]');

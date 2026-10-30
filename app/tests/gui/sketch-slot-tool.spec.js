@@ -5,7 +5,7 @@
  * and applies appropriate constraints.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, pressKey } from './helpers/toolbar.js';
+import { clickSketch, pressKey, clickTool } from './helpers/toolbar.js';
 import { clickAt, drawLine } from './helpers/canvas.js';
 import { getEntities, getEntityCountByType, waitForEntityCount, getToolState } from './helpers/state.js';
 import { getConstraints, getConstraintCountByType } from './helpers/constraint.js';
@@ -77,7 +77,7 @@ test.describe('sketch slot tool', () => {
 		const page = waffle.page;
 
 		// Activate slot tool
-		await page.locator('[data-testid="toolbar-btn-slot"]').click();
+		await clickTool(page, 'slot');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'slot',
 			{ timeout: 3000 }
@@ -125,7 +125,7 @@ test.describe('sketch slot tool', () => {
 	test('escape cancels slot tool without creating entities', async ({ waffle }) => {
 		const page = waffle.page;
 
-		await page.locator('[data-testid="toolbar-btn-slot"]').click();
+		await clickTool(page, 'slot');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'slot',
 			{ timeout: 3000 }

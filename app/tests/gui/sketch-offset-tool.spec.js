@@ -7,7 +7,7 @@
  * Display unit is mm, internal is meters: typing "5" commits 0.005 m.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch } from './helpers/toolbar.js';
+import { clickSketch, clickTool } from './helpers/toolbar.js';
 import { clickAt, getCanvasBounds } from './helpers/canvas.js';
 import { getEntities } from './helpers/state.js';
 
@@ -61,7 +61,7 @@ test.describe('offset tool', () => {
 
 	test('activates via toolbar button and O shortcut', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.locator('[data-testid="toolbar-btn-offset"]').click();
+		await clickTool(page, 'offset');
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.activeTool === 'offset',
 			{ timeout: 3000 }

@@ -6,11 +6,12 @@
  * prevent the user from applying changes.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { clickTool } from './helpers/toolbar.js';
 
 test.describe('deferred operations', () => {
 	test.describe('fillet dialog', () => {
 		test('opens with deferred warning', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-fillet"]').click();
+			await clickTool(waffle.page, 'fillet');
 
 			const dialog = waffle.page.locator('[data-testid="fillet-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -21,14 +22,14 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Apply button is disabled', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-fillet"]').click();
+			await clickTool(waffle.page, 'fillet');
 
 			const apply = waffle.page.locator('[data-testid="fillet-apply"]');
 			await expect(apply).toBeDisabled();
 		});
 
 		test('Cancel closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-fillet"]').click();
+			await clickTool(waffle.page, 'fillet');
 
 			const dialog = waffle.page.locator('[data-testid="fillet-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -38,7 +39,7 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Escape key closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-fillet"]').click();
+			await clickTool(waffle.page, 'fillet');
 
 			const dialog = waffle.page.locator('[data-testid="fillet-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -50,7 +51,7 @@ test.describe('deferred operations', () => {
 
 	test.describe('chamfer dialog', () => {
 		test('opens with deferred warning', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-chamfer"]').click();
+			await clickTool(waffle.page, 'chamfer');
 
 			const dialog = waffle.page.locator('[data-testid="chamfer-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -61,14 +62,14 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Apply button is disabled', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-chamfer"]').click();
+			await clickTool(waffle.page, 'chamfer');
 
 			const apply = waffle.page.locator('[data-testid="chamfer-apply"]');
 			await expect(apply).toBeDisabled();
 		});
 
 		test('Cancel closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-chamfer"]').click();
+			await clickTool(waffle.page, 'chamfer');
 
 			const dialog = waffle.page.locator('[data-testid="chamfer-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -78,7 +79,7 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Escape key closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-chamfer"]').click();
+			await clickTool(waffle.page, 'chamfer');
 
 			const dialog = waffle.page.locator('[data-testid="chamfer-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -90,7 +91,7 @@ test.describe('deferred operations', () => {
 
 	test.describe('shell dialog', () => {
 		test('opens with deferred warning', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-shell"]').click();
+			await clickTool(waffle.page, 'shell');
 
 			const dialog = waffle.page.locator('[data-testid="shell-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -101,14 +102,14 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Apply button is disabled', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-shell"]').click();
+			await clickTool(waffle.page, 'shell');
 
 			const apply = waffle.page.locator('[data-testid="shell-apply"]');
 			await expect(apply).toBeDisabled();
 		});
 
 		test('Cancel closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-shell"]').click();
+			await clickTool(waffle.page, 'shell');
 
 			const dialog = waffle.page.locator('[data-testid="shell-dialog"]');
 			await expect(dialog).toBeVisible();
@@ -118,7 +119,7 @@ test.describe('deferred operations', () => {
 		});
 
 		test('Escape key closes dialog', async ({ waffle }) => {
-			await waffle.page.locator('[data-testid="toolbar-btn-shell"]').click();
+			await clickTool(waffle.page, 'shell');
 
 			const dialog = waffle.page.locator('[data-testid="shell-dialog"]');
 			await expect(dialog).toBeVisible();
