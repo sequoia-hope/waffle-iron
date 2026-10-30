@@ -118,13 +118,19 @@ test.describe('sketch drag', () => {
 			}
 			return { id, ...last };
 		});
+		// "Every solve so far is answered" is briefly true between the first
+		// reply and the queued solve it releases (sent from the reply's
+		// .finally): CI caught the poll there once, with 1 solve. So wait for
+		// two answered solves, then give a third time to appear: the count
+		// must still be two.
 		await expect
 			.poll(async () => {
 				const log = await page.evaluate(() => window.__waffle.getEngineSendLog());
 				const solves = log.filter((e) => e.type === 'SolveSketch');
-				return solves.length > 0 && solves.every((e) => e.response) ? solves.length : -1;
-			})
-			.toBeGreaterThan(0);
+				return solves.every((e) => e.response) ? solves.length : -1;
+			}, { message: 'two answered solves for the burst' })
+			.toBe(2);
+		await page.waitForTimeout(300);
 		const log = await page.evaluate(() => window.__waffle.getEngineSendLog());
 		await page.evaluate(() => window.__waffle.recordEngineSends(false));
 
