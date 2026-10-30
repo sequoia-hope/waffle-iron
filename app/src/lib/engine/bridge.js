@@ -255,7 +255,7 @@ export class EngineBridge {
 			// `Tool` that created a feature replays against a stale id — and
 			// the replay swallows the resulting failure, losing the step.
 			const featureId = msg.feature_id ?? msg.structuredContent?.feature_id ?? null;
-			pending.entry.response = { type: msg.type, feature_id: featureId };
+			pending.entry.response = { type: msg.type, feature_id: featureId, t: performance.now() };
 		}
 
 		// Build summary data for the log entry

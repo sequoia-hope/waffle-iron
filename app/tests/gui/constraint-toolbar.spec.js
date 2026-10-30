@@ -209,7 +209,12 @@ test.describe('constraint button enable/disable state', () => {
 
 test.describe('constraint application via toolbar buttons', () => {
 	test('apply horizontal constraint to a line via toolbar button', async ({ waffle }) => {
-		await sketchWithLine(waffle);
+		// A SLANTED line: sketchWithLine draws a horizontal one, which the
+		// snap already constrains Horizontal, so applying H there is an exact
+		// duplicate and is refused (2026-10-30, addLocalConstraint).
+		await clickSketch(waffle.page);
+		await drawLine(waffle.page, -100, -30, 100, 30);
+		await waitForEntityCount(waffle.page, 3, 3000);
 		await pressKey(waffle.page, 'Escape');
 
 		const entities = await getEntities(waffle.page);
@@ -231,6 +236,12 @@ test.describe('constraint application via toolbar buttons', () => {
 		const constraints = await getConstraints(waffle.page);
 		const hConstraint = constraints.find(c => c.type === 'Horizontal');
 		expect(hConstraint, 'should have created a Horizontal constraint').toBeTruthy();
+
+		// Applying it again adds nothing: one Horizontal per line.
+		await setSketchSelection(waffle.page, [line.id]);
+		await waffle.page.waitForTimeout(200);
+		await clickConstraintButton(waffle.page, 'horizontal');
+		expect(await getConstraintCount(waffle.page)).toBe(constraintsAfter);
 	});
 
 	test('apply vertical constraint to a line via toolbar button', async ({ waffle }) => {

@@ -1122,6 +1122,14 @@ export async function initEngine() {
 				const p = pos.x !== undefined ? pos : { x: pos[0], y: pos[1] };
 				newPositions.set(Number(id), p);
 			}
+			// A newer solve is already queued: this answer is for an older
+			// pointer sample, so it must not drag a pinned point back behind
+			// the pointer (it would visibly jump back until the next answer).
+			if (queuedSolve) {
+				for (const [id, t] of dragPinTargets()) {
+					if (newPositions.has(id)) newPositions.set(id, { x: t.x, y: t.y });
+				}
+			}
 			sketchPositions = newPositions;
 
 			// Apply solved RADII to circle entities. The radius is a standalone
@@ -1183,6 +1191,9 @@ export async function initEngine() {
 	try {
 		statusMessage = 'Loading WASM engine...';
 		await bridge.init(`${base}/pkg/wasm_bridge.js`);
+		// A fresh worker answers no request sent to the old one.
+		solveInFlight = false;
+		queuedSolve = null;
 		engineReady = true;
 		lastError = null;
 		statusMessage = 'Engine ready';
@@ -3380,7 +3391,30 @@ function applyRadii(pairs) {
 	sketchEntities = sketchEntities.map((e) => (m.has(e.id) ? { ...e, radius: m.get(e.id) } : e));
 }
 
+/**
+ * A constraint's identity: its type and fields, key order ignored, without
+ * UI-private `_` fields (e.g. a drag pin's `_isDrag`).
+ * @param {object} c
+ */
+function constraintKey(c) {
+	return JSON.stringify(
+		Object.keys(c)
+			.filter((k) => !k.startsWith('_'))
+			.sort()
+			.map((k) => [k, c[k]])
+	);
+}
+
 export function addLocalConstraint(constraint) {
+	// An exact duplicate adds no information and makes the system redundant:
+	// the solver then reports a conflict the user never made (user report
+	// 2026-10-30: a snap applied point-on-line twice to the same point and
+	// line). Refuse it at the one door every constraint comes through.
+	const key = constraintKey(constraint);
+	if (sketchConstraints.some((c) => constraintKey(c) === key)) {
+		log('sketch', `Duplicate constraint ignored: ${constraint.type}`, { type: constraint.type });
+		return;
+	}
 	log('sketch', `Constraint added: ${constraint.type}`, { type: constraint.type });
 	sketchConstraints = [...sketchConstraints, constraint];
 	recomputeOverConstrained();
@@ -9756,12 +9790,47 @@ export async function discardAutoSave() {
 }
 
 /**
+ * Live drag pins: point id → the newest pointer target.
+ * @returns {Map<number, {x: number, y: number}>}
+ */
+function dragPinTargets() {
+	const out = new Map();
+	for (const c of sketchConstraints) {
+		if (c.type === 'WhereDragged' && c._isDrag && c.x != null && c.y != null) {
+			out.set(c.point, { x: c.x, y: c.y });
+		}
+	}
+	return out;
+}
+
+/** A SolveSketch is in flight (sent, its reply not yet in). */
+let solveInFlight = false;
+/**
+ * The newest solve requested while one was in flight: its transient pins
+ * (null = none queued). Only the newest survives (latest-wins).
+ * @type {object[] | null}
+ */
+let queuedSolve = null;
+
+/**
  * Trigger a constraint solve via the Rust solver (Levenberg-Marquardt) in the
  * WASM engine. Sends SolveSketch command through the bridge.
+ *
+ * At most ONE solve is in flight (user report 2026-10-30: dragging into an
+ * over-constrained state played back in slow motion). Every request resends
+ * the whole live sketch, so a request made while one is out need not wait in
+ * line: it is remembered, superseding any earlier one, and sent, rebuilt
+ * from the state at that moment, when the in-flight solve answers (or fails).
+ * A drag therefore solves as often as the solver keeps up, never against a
+ * backlog of stale pointer samples.
  */
 export function triggerSolve(transientConstraints = []) {
 	if (!bridge || !engineReady) return;
 	if (!sketchMode.active) return;
+	if (solveInFlight) {
+		queuedSolve = transientConstraints;
+		return;
+	}
 	if (sketchEntities.length === 0) {
 		// Nothing to solve — and nothing to report. Leaving the previous
 		// verdict in place is how an undo that emptied the sketch kept
@@ -9781,11 +9850,17 @@ export function triggerSolve(transientConstraints = []) {
 	// Deep-clone (JSON) to strip Svelte 5 reactive proxies — they cannot be
 	// structured-cloned across the Worker boundary (DataCloneError), the same
 	// reason AddSketchEntity/AddConstraint clone before sending.
+	// A live drag pin goes to the solver as `Dragged` with NO coordinates —
+	// its target is the point's position in this entity list — so the pin's
+	// own x/y (always the newest pointer sample) is the authority for a
+	// dragged point. sketchPositions alone is not: with one solve in flight,
+	// the previous solve's reply rewrites it with an older sample.
+	const dragTargets = dragPinTargets();
 	const entities = JSON.parse(
 		JSON.stringify(
 			sketchEntities.map((e) => {
 				if (e.type === 'Point' && e.id != null) {
-					const p = sketchPositions.get(e.id);
+					const p = dragTargets.get(e.id) ?? sketchPositions.get(e.id);
 					if (p) return { ...e, x: p.x, y: p.y };
 				}
 				return e;
@@ -9812,8 +9887,15 @@ export function triggerSolve(transientConstraints = []) {
 	// One atomic message: replace the engine's sketch state with the UI's live
 	// geometry + constraints, then solve. Avoids the multi-round-trip
 	// race/latency of separate sync messages.
+	solveInFlight = true;
 	bridge.send({ type: 'SolveSketch', entities, constraints })
-		.catch((err) => log('error', `SolveSketch failed: ${err}`));
+		.catch((err) => log('error', `SolveSketch failed: ${err}`))
+		.finally(() => {
+			solveInFlight = false;
+			const next = queuedSolve;
+			queuedSolve = null;
+			if (next) triggerSolve(next);
+		});
 }
 
 const AUTOSAVE_KEY = 'waffle-autosave';

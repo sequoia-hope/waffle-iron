@@ -308,7 +308,7 @@ chords; its offset kept a radius at only one corner.
 - [x] **Sketch dimension text larger** (user request 2026-10-30):
       `DimensionLabels.svelte` `.dim-label` / `.dim-input` 11 px → 14 px
       (padding 3 px 7 px, input width 96 px).
-- [ ] **NEXT ITEM — drag must never queue solves; no accidental
+- [x] **DONE 2026-10-30 (one solve in flight, latest-wins; drag pin authoritative; exact-duplicate constraints refused; pins `sketch-drag-solve-and-dedupe.spec.js`) — drag must never queue solves; no accidental
       over-constraints** (user report 2026-10-30): dragging into an
       over-constrained state played back in slow motion, as if every mouse
       sample was being solved. Diagnosis (read, not yet measured):
