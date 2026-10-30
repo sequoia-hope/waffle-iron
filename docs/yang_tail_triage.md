@@ -43,6 +43,29 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-10-30 (R0015 / R0026 / R0050 CONVERTED) — **the on-surface WRONG rows are typed at Stage-5 emission (ledger N60 amendment, N104); corpus 360C / 0W / 9E / 5EE / 0T over 374, on-surface oracle in force**
+
+Anchored with a temporary per-edge conformance probe and a decline-reason
+probe in `restore_carried_edge_curves` (both removed). Three mechanisms, one
+fix site:
+- **R0050** (and R0015's torus face): cross-input torus(B) × plane(A)
+  chords of the PERPENDICULAR section, which Stage 3 skips on purpose
+  (`torus_plane_is_perpendicular_section`); the second boolean only carried
+  them. Worst 6.0e-2 m off on a 2.2 m chord.
+- **R0015** (cylinder face): every chord of one rim declined as AMBIGUOUS —
+  the rim's circle on its two input faces, centres one ULP apart.
+- **R0026**: the cylinder and box are extruded from one sketch plane, so
+  their bottoms are coplanar (Stage 0); the torus (A) crossing the box bottom
+  (B) is an A×B curve on a face attributed to A, so Stage 3's same-input skip
+  leaves it untyped. Stage-1 meshes have no vertex there — the chords are
+  Stage-2 arrangement edges. The carried A torus∩cap pair matched, but the
+  pair arm declined three chords 2.0–2.7× the Stage-1 chain bound.
+Fix: every 2-use chord between two different surfaces (one curved) is typed
+from a carried curve, else from `ssi_rs::intersect` of its owner surfaces;
+candidates equal within the band are one; pair chords are certified by
+Stage 1's own bisection. Exactly the three cases moved; worst on-surface
+reading 3.5e-10 of scale (unchanged).
+
 ## 2026-10-25 (LANDED, user-signed) — **the §4.5.2 loop no longer stops on a repeated failure set, and its ceiling is density 16 (ledger N67 amendment); F0067 / P0056 / P0061 ERROR → CORRECT, corpus 360C / 0W / 9E / 5EE / 0T over 374**
 
 - **Sign-off** (user, 2026-10-25): "i am open to a slow and correct kernel. once it is correct we can create optimized deviations". The signature-repeat convergence monitor (`refine_loop`, spec §6.0.1) is deleted and `FACE_REFINE_MAX` is 8 → 16. The loud ceiling (N66 amendment) and `REFINE_LOOP_ITER_CAP = 8` are unchanged.

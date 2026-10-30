@@ -152,11 +152,21 @@ fn off_curve_chord_declined() {
         (&in_faces, &in_edges),
         (&[], &[]),
     );
-    assert_eq!(stats.typed_chords, 0);
-    // Both the rim chord AND the control chord are eligible and off the
-    // r=10.5 candidate — two off-curve declines.
-    assert_eq!(stats.declined_offcurve, 2);
-    assert_eq!(fx.edges, before, "declined pass must be the identity");
+    // Never typed onto the off-curve carried circle. Since 2026-10-30 the
+    // owner surfaces still type the rim chord: both cones contain the r=10
+    // circle, so the chord lies on their intersection (§4.4.2's
+    // "intersection curves") and is typed from it. The control chord is off
+    // every candidate either way.
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_by_surfaces, 1, "{stats:?}");
+    for e in [&fx.edges[0], &fx.edges[2]] {
+        match e.curve {
+            Curve::Circle { radius, .. } => assert!((radius - 10.0).abs() < 1e-9, "{radius}"),
+            ref c => panic!("expected the surfaces' circle, got {c:?}"),
+        }
+    }
+    assert_eq!(stats.declined_offcurve, 1, "{stats:?}");
+    assert_eq!((&fx.edges[1], &fx.edges[3]), (&before[1], &before[3]));
 }
 
 #[test]
@@ -203,9 +213,13 @@ fn wide_sweep_declined() {
 }
 
 #[test]
-fn cross_input_chord_not_eligible() {
-    // The chord's owners descend from different INPUTS: intersection-seam
-    // territory (owned by `intersection_curves`), never this pass.
+fn cross_input_chord_typed_from_its_surfaces() {
+    // The chord's owners descend from different INPUTS, so no input loop
+    // carries it. Until 2026-10-30 that made it ineligible: Stage 3's
+    // `intersection_curves` owned it, and an edge Stage 3 left untyped (the
+    // perpendicular torus × plane section) shipped as a chord — R0015,
+    // R0050. It lies on BOTH owner surfaces, so it is typed from their
+    // intersection: here the two cones meet in the r=10 circle.
     let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::B, 0)]);
     let (in_faces, in_edges) = input_with_curves(&[circle_z(10.0)]);
     let before = fx.edges.clone();
@@ -217,16 +231,53 @@ fn cross_input_chord_not_eligible() {
         (&in_faces, &in_edges),
         (&in_faces, &in_edges),
     );
-    assert_eq!(stats.typed_chords, 0);
-    assert_eq!(stats.eligible, 0);
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_by_surfaces, 1, "{stats:?}");
+    let n_of = |e: &BRepEdge| match e.curve {
+        Curve::Circle { normal, radius, .. } => {
+            assert!((radius - 10.0).abs() < 1e-9, "{radius}");
+            normal
+        }
+        ref c => panic!("expected circle, got {c:?}"),
+    };
+    let (na, nb) = (n_of(&fx.edges[0]), n_of(&fx.edges[2]));
+    assert!((na.z() - 1.0).abs() < 1e-12, "forward copy CCW +z: {na:?}");
+    assert!((nb.z() + 1.0).abs() < 1e-12, "reverse copy negated: {nb:?}");
+    // The far control chord is on no candidate and stays straight.
+    assert_eq!((&fx.edges[1], &fx.edges[3]), (&before[1], &before[3]));
+}
+
+#[test]
+fn cross_input_chord_between_planes_not_eligible() {
+    // Two planes meet in a line: a straight chord is the right type.
+    let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::B, 0)]);
+    fx.faces[0].surface = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: 0.0,
+    };
+    fx.faces[1].surface = Surface::Plane {
+        normal: Vector3::new(0.0, 1.0, 0.0),
+        d: 0.0,
+    };
+    let before = fx.edges.clone();
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&[], &[]),
+        (&[], &[]),
+    );
+    assert_eq!(stats.eligible, 0, "{stats:?}");
     assert_eq!(fx.edges, before);
 }
 
 #[test]
 fn same_input_face_pair_not_eligible() {
-    // Both owners descend from the SAME input face: a mesh-seam inside one
-    // face, not a carried boundary edge.
+    // Both owners descend from the SAME input face, so they carry its one
+    // surface: a mesh seam inside one face, not a boundary edge.
     let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::A, 0)]);
+    fx.faces[1].surface = fx.faces[0].surface;
     let (in_faces, in_edges) = input_with_curves(&[circle_z(10.0)]);
     let before = fx.edges.clone();
     let stats = restore_carried_edge_curves(
@@ -394,9 +445,16 @@ fn off_ellipse_chord_declined() {
         (&in_faces, &in_edges),
         (&[], &[]),
     );
-    assert_eq!(stats.typed_chords, 0);
+    // Never typed onto the wrong carried curve; typed from the owner
+    // surfaces' own section instead (2026-10-30, see `off_curve_chord_declined`).
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_by_surfaces, 1, "{stats:?}");
+    for e in [&fx.edges[0], &fx.edges[2]] {
+        assert_ne!(e.curve, wrong);
+        assert!(!matches!(e.curve, Curve::LineSegment));
+    }
     assert!(stats.declined_offcurve >= 1, "{stats:?}");
-    assert_eq!(fx.edges, before, "declined pass must be the identity");
+    assert_eq!((&fx.edges[1], &fx.edges[3]), (&before[1], &before[3]));
 }
 
 #[test]
@@ -515,16 +573,18 @@ fn off_pair_chord_declined() {
 }
 
 #[test]
-fn wide_pair_chord_past_the_chain_bound_declined() {
-    // Both endpoints ON the curve, but the chord spans a quarter of the
+fn wide_pair_chord_certified_by_bisection_is_typed() {
+    // Both endpoints ON the curve and the chord spans a quarter of the
     // loop: its midpoint projects 0.1 off the chord, past the Stage-1 chain
-    // bound (1e-2 × the smallest local radius) — not a chord the chain
-    // pre-pass would hold, so not one the restoration may mint.
+    // bound (1e-2 × the smallest local radius). Until 2026-10-30 that alone
+    // declined it — a demand on mesh density, not on the curve (R0026's
+    // Stage-0 overlay chords). Bisected the way Stage 1 certifies a carried
+    // pair edge of any length, every piece stays on one branch, so it IS a
+    // piece of the curve and is typed.
     let (cyl, cone) = pair_fixture_surfaces();
     let pair = Curve::SurfacePair { a: cyl, b: cone };
     let mut fx = pair_fixture(1.00, 1.45);
     let (in_faces, in_edges) = input_with_curves(&[pair]);
-    let before = fx.edges.clone();
     let stats = restore_carried_edge_curves(
         &fx.verts,
         &mut fx.edges,
@@ -533,9 +593,111 @@ fn wide_pair_chord_past_the_chain_bound_declined() {
         (&in_faces, &in_edges),
         (&[], &[]),
     );
-    assert_eq!(stats.typed_chords, 0);
-    assert_eq!(stats.declined_sweep, 1, "{stats:?}");
-    assert_eq!(fx.edges, before);
+    assert_eq!(stats.typed_pairs, 1, "{stats:?}");
+    assert_eq!(fx.edges[0].curve, pair);
+    assert_eq!(fx.edges[2].curve, pair);
+}
+
+#[test]
+fn pair_chord_spanning_two_branches_not_certified() {
+    // A torus cut perpendicular to its axis below the tube's crown meets the
+    // plane in TWO circles. A chord from the inner circle to the outer one
+    // has both ends on the pair curve, but its midpoint projects onto an
+    // endpoint (foot 0 or 1), not between them: no single branch joins the
+    // ends, so the certificate refuses it.
+    let torus = Surface::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        major_radius: 10.0,
+        minor_radius: 2.0,
+    };
+    let h: f64 = 1.0;
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -h,
+    };
+    let w = (4.0 - h * h).sqrt();
+    let inner = Point3::new(10.0 - w, 0.0, h);
+    let outer = Point3::new(10.0 + w, 0.0, h);
+    assert!(!crate::stage5_output_refine::pair_chord_certified(
+        torus, plane, inner, outer, 12
+    ));
+    // Control: a short chord along the outer circle certifies.
+    let t: f64 = 0.05;
+    let r = 10.0 + w;
+    let along = Point3::new(r * t.cos(), r * t.sin(), h);
+    assert!(crate::stage5_output_refine::pair_chord_certified(
+        torus, plane, outer, along, 12
+    ));
+}
+
+#[test]
+fn copies_of_one_circle_one_ulp_apart_are_one_candidate() {
+    // R0015 (2026-10-30): the two input faces bounding one rim each carry
+    // its circle, and the copies' centres differ in the last bit. Read as
+    // two candidates, every chord of the rim was declined as ambiguous and
+    // shipped straight (5e-3 of scale off the cylinder).
+    let mut fx = fixture(0.1, [(InputId::A, 0), (InputId::A, 1)]);
+    let twin = Curve::Circle {
+        center: Point3::new(f64::from_bits(1), 0.0, 0.0),
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        radius: 10.0,
+    };
+    let (in_faces, in_edges) = input_with_curves(&[circle_z(10.0), twin]);
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&in_faces, &in_edges),
+        (&[], &[]),
+    );
+    assert_eq!(stats.declined_ambiguous, 0, "{stats:?}");
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert!(matches!(fx.edges[0].curve, Curve::Circle { .. }));
+    assert!(matches!(fx.edges[2].curve, Curve::Circle { .. }));
+}
+
+#[test]
+fn perpendicular_torus_plane_section_typed_as_its_circle() {
+    // R0015 / R0050 (2026-10-30): Stage 3 leaves the perpendicular torus ×
+    // plane section untyped (`torus_plane_is_perpendicular_section`), so a
+    // cross-input chord of it reached the output straight. Typed from the
+    // two surfaces: the outer of the section's two circles.
+    let torus = Surface::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        major_radius: 10.0,
+        minor_radius: 2.0,
+    };
+    let h: f64 = 1.0;
+    let plane = Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, 1.0),
+        d: -h,
+    };
+    let r = 10.0 + (4.0 - h * h).sqrt();
+    let mut fx = fixture(0.1, [(InputId::B, 2), (InputId::A, 3)]);
+    fx.verts[0] = Point3::new(r, 0.0, h);
+    fx.verts[1] = Point3::new(r * 0.1f64.cos(), r * 0.1f64.sin(), h);
+    fx.faces[0].surface = torus;
+    fx.faces[1].surface = plane;
+    let stats = restore_carried_edge_curves(
+        &fx.verts,
+        &mut fx.edges,
+        &fx.faces,
+        &fx.attr,
+        (&[], &[]),
+        (&[], &[]),
+    );
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_by_surfaces, 1, "{stats:?}");
+    match fx.edges[0].curve {
+        Curve::Circle { center, radius, .. } => {
+            assert!((radius - r).abs() < 1e-9, "{radius} vs {r}");
+            assert!((center.z() - h).abs() < 1e-9, "{center:?}");
+        }
+        ref c => panic!("expected the section circle, got {c:?}"),
+    }
 }
 
 #[test]
@@ -674,9 +836,16 @@ fn off_hyperbola_chord_declined() {
         (&in_faces, &in_edges),
         (&[], &[]),
     );
-    assert_eq!(stats.typed_chords, 0);
+    // Never typed onto the wrong carried curve; typed from the owner
+    // surfaces' own section instead (2026-10-30, see `off_curve_chord_declined`).
+    assert_eq!(stats.typed_chords, 1, "{stats:?}");
+    assert_eq!(stats.typed_by_surfaces, 1, "{stats:?}");
+    for e in [&fx.edges[0], &fx.edges[2]] {
+        assert_ne!(e.curve, wrong);
+        assert!(!matches!(e.curve, Curve::LineSegment));
+    }
     assert!(stats.declined_offcurve >= 1, "{stats:?}");
-    assert_eq!(fx.edges, before, "declined pass must be the identity");
+    assert_eq!((&fx.edges[1], &fx.edges[3]), (&before[1], &before[3]));
 }
 
 #[test]

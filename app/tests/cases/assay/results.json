@@ -1,8 +1,8 @@
 {
   "errored": 9,
-  "failed": 3,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 357,
+  "passed": 360,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -89,10 +89,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "on_surface: boundary 5.656e-7 m off its surface (rel 5.045e-3 > band 1e-7); on_surface: max 5.656e-7 m, rel 5.045e-3, solids 1 at (6.581250e-5, 1.619792e-4, -5.486150e-5); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 1 not covered, 0 violation(s)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed; on_surface: max 1.822e-14 m, rel 1.625e-10, solids 1 at (2.062582e-5, 1.263996e-4, -5.312085e-5); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 1 not covered, 0 violation(s)",
       "id": "R0015",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -155,10 +155,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "on_surface: boundary 1.918e-4 m off its surface (rel 1.439e-3 > band 1e-7); on_surface: max 1.918e-4 m, rel 1.439e-3, solids 1 at (-3.717375e-2, 2.706856e-2, -7.740345e-2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed; on_surface: max 3.730e-13 m, rel 2.798e-12, solids 1 at (-2.726600e-2, 4.110501e-2, -6.300308e-2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
       "id": "R0026",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "EXPECTED_ERROR",
@@ -299,10 +299,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "on_surface: boundary 6.048e-2 m off its surface (rel 5.260e-3 > band 1e-7); on_surface: max 6.048e-2 m, rel 5.260e-3, solids 1 at (6.129068e0, -1.236582e1, 4.289222e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed; on_surface: max 9.104e-14 m, rel 7.918e-15, solids 1 at (2.143296e0, -6.679457e0, 3.653403e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
       "id": "R0050",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -984,7 +984,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: \u00a74.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire\u00d72 IllegalIntersection\u00d72 MissedIntersection\u00d72 ReversalUnresolved\u00d74; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485\u00d7100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0064",
       "status": "error"
     },
@@ -1830,7 +1830,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 0cc90059-4c16-4a15-979c-36ed2bdce4c5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-8 \u2014 inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
+      "detail": "1 engine error(s): 0cc90059-4c16-4a15-979c-36ed2bdce4c5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-8 — inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
       "id": "C0111",
       "status": "error"
     },
@@ -1842,7 +1842,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): fac52e59-41b0-4b3f-8598-64ed217685ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-7 \u2014 inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
+      "detail": "1 engine error(s): fac52e59-41b0-4b3f-8598-64ed217685ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: faces A#5 and B#3 are two DISTINCT parallel planes separated by 1.000e-7 — inside the coplanar detection band (1.000e-7) but above rounding noise: a sub-resolution feature the Stage-0 overlay would silently dissolve; input is outside the MIN_FEATURE_SIZE contract (#178)\")",
       "id": "C0113",
       "status": "error"
     },

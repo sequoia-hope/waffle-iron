@@ -156,6 +156,9 @@ Blocks F2's first retirement (see §0 point 2).
   `LineSegment` chords bounding torus or cylinder faces (ledger N100 item 3,
   the `recover.rs` bail). O1 made them visible. Under CLAUDE.md's rule a
   WRONG preempts other kernel work, so they now outrank F2's next step.
+  **Converted 2026-10-30** (corpus 360C / 0W / 9E / 5EE / 0T): the chords
+  are now typed at Stage-5 emission from the two owner surfaces (ledger N60
+  amendment, N104); F2 is next again.
 - **O1 band** came from a record-only census: 357 clean cases ≤ 3.5e-10 of
   scale, the three defects ≥ 1.4e-3; band = Yang's d_p = 1e-7 relative.
   Red first: R0099 at the pre-T8 commit reads 3.39e-2 m off.
@@ -317,4 +320,5 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 | 2026-10-29 | G5 cross-browser; Q12 fixture rename; Q13 + G4 doc corrections; G2/G3 test-harness CI job | git log |
 | 2026-10-29 | Q1–Q6 + G6 (app agent, `29a01b92`…`0537b338`); Q9 + Q10 merged with the WASM rebuild | this commit |
 | 2026-10-29 | Q7 + Q8 + Q11 merged (rewrite tier 3605 passed on the kernel content) with the WASM rebuild. **Phase 1 complete.** | this commit |
-| 2026-10-29 | Phase 2: O1, O4, O6–O9 landed; O2, O5 record-only; corpus 357C/3W/9E/5EE/0T (N100 item 3 now measured) | this commit |
+| 2026-10-29 | Phase 2: O1, O4, O6–O9 landed; O2, O5 record-only; corpus 357C/3W/9E/5EE/0T (N100 item 3 now measured) | 647a4736 |
+| 2026-10-30 | The three on-surface WRONG rows converted (Stage-5 emission typing, N60 amendment, N104); corpus 360C/0W/9E/5EE/0T with O1 in force. K6 (loud recover bail) still open — no measured case now reaches it | this commit |

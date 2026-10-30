@@ -159,7 +159,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N57 | DELEGATED (P5 self-sign) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | N58 | RESOLVED by user directive 2026-07-21 (criterion swapped to the paper's own §4.3.4 h/l/α test, d_p=1e-7=TAU_MODEL) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3); chain-sample drop now uses Yang's published refinement acceptance test |
 | N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
-| N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
+| N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally; amended 2026-10-30 — every chord between two different surfaces, one curved, typed from carried curves or the surfaces' intersection) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
 | N62 | **OPEN — reopened 2026-10-17** (matrix M-1: whole-op recompute, region from the site not C_p, no splice); the loop itself landed 2026-10-14 (Phase 1c), its ceiling LOUD 2026-10-16 | §4.5.2 refines the WHOLE op at d_ε/2, d_ε/4 under the Q3 guard shell instead of the traversed patches + one-ring with a local splice — strictly more refinement, paid only by an already-failed op |
 | N63 | RESOLVED (2026-09-21, B2 pipe checkpoint 1) | Stage-4 torus implicit-pair relocation STOPped on an operand's OWN G1 cylinder↔torus rim (a tangent pair, rank-deficient by construction) although the vertex lies on the shared rim exactly; now skipped at a tangent pair off the intersection curve. NOTE: the projection of an operand's own transversal rim vertices is KEPT — it corrects Stage-1 samples of recovered rims that sit off the torus (R0026), a §4.4.2 restoration gap in its own right. **EXTENDED 2026-10-02 (SI5 C5b)**: the same skip in the TRIPLE arm (torus + two partners) for an operand's own vertex where the torus is tangent to either partner — every fillet CORNER is one (torus G1 to the cylinder it rounds + the third face), and the first boolean on an ingested fillet STOPped there (`LocalRefinementRequired`, `relocate_onto_implicit_triple` None); a tangency ON an intersection curve stays the loud STOP |
@@ -203,10 +203,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N101 | **RESOLVED** (2026-10-27, UL-02, reviewer-reproduced silent-wrong fixed and pinned) | `cherchi-rs` `perturb_ray_and_find_inters_tri` (`labeling/inside_out.rs`) tried only the C++ reference's fixed 8 single-ULP `nextafter` offsets; when a ray hit a foreign vertex whose spokes sat at exact multiples of 45° and `ray.v1`'s two off-axis coordinates had equal ULP, all 8 perturbed rays landed on spoke planes (`Sign::Zero`), returning `None` and silently dropping a true crossing as a graze (an inside patch kept `outside`, missed by `refute_inner_label_by_input_bounds`). Now expands `p∞` through primitive coprime `(da, db)` Chebyshev shells (`s = 1..=8`, preserving the 8 C++ offsets first) plus equiscaled ULP shells for mixed-binade / subnormal off-axis coordinates, and routes any forward (`t > 0`) full-disk vertex/edge crossing that still exhausts `f64` perturbation (certified by exact `orient2d` S¹/half-plane coverage) to `rational_ray_inner_label` |
 | N102 | **RESOLVED** (2026-10-27, UL-06, fixed and pinned) | `cherchi-rs` `find_ray_endpoints`'s generated-ray branch (`labeling/inside_out.rs`) never called `ray_grazes_foreign_input` (N69 covered the explicit-ray ladder only), so an all-border / implicit patch could still emit a generated ray lying in a foreign input's face plane; the generated-ray loop now runs `ray_grazes_foreign_input` under `graze_aware` and falls through via `NoExplicitRayOrigin` to `rational_ray_inner_label` when every generated candidate grazes |
 | N103 | OPEN (2026-10-27, user decision: extension accepted in principle, implementation to be unified with planar Stage 0 — low priority, roadmap F6) | Extension of §4.5.5 to a coincident surface pair the paper does not name: coincident cylinders (`stage0/cylinder.rs`, `boolean.rs` PR-5/PR-6, `stage3_ssi.rs`); paper names coplanar planes only (`:718-732`) |
+| N104 | OPEN (2026-10-30; output typed at emission by the N60 amendment, Stage-3 type still missing) | Stage 3 leaves two A×B edge families untyped — the perpendicular torus × plane section (`torus_plane_is_perpendicular_section`) and an A×B curve on a Stage-0 overlay face attributed to one input; Stage 5 types them from the owner surfaces (R0015, R0026, R0050) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-27, F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-30, N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -3941,6 +3942,50 @@ coalescing) → canonical 268C/0W/39E/1EE/0T.
 
 **Remediation:** anchor + fix the two blockers, then flip
 (`YANG_434_OUT=0|off` becomes the dev off-knob) and rebaseline.
+
+**Amendment (2026-10-30, the three on-surface WRONG rows R0015 / R0026 /
+R0050 — ledger N100 item 3's measured cases).** The pass types every output
+chord between two DIFFERENT surfaces, one of them curved, not only carried
+same-input ones. §4.4.2's output boundaries are "either the original
+boundary curves or the intersection curves" (`:589-592`); a chord between
+faces on S0 and S1 lies on S0 ∩ S1 whatever its provenance. Three changes,
+each certification-driven (P10), each leaving every chord the pass typed
+before byte-identical:
+1. **Surface-pair candidates.** When no carried input curve is in band
+   (or the chord is cross-input), the candidates are `ssi_rs::intersect` of
+   the two owner surfaces — the curves Stage 3 types A×B edges with — under
+   the same endpoint band, sweep and midpoint-on-both-surfaces rules. A
+   `Line` candidate leaves the chord a `LineSegment`. It reaches the two
+   Stage-3 gaps of N104 after Stage 4, so the torus block and the conic
+   maps never see the type.
+2. **Candidate identity within the band.** Copies of one rim's descriptor on
+   its two input faces are one candidate (`same_curve_within`: centre,
+   plane, axis and radii within the band; a surface pair keeps bit
+   identity — no near-twin measured). R0015's cylinder rim carried two
+   circles with centres one ULP apart, so every chord of it was declined
+   as ambiguous.
+3. **Pair chord certificate by bisection.** The surface-pair arm demanded
+   the chord's OWN sag be within the Stage-1 chain bound — a demand on mesh
+   density, not on the curve. It now certifies the chord the way Stage 1
+   certifies a carried pair edge of any length (`pair_chord_certified`:
+   recursive midpoint Newton projection onto both surfaces, foot strictly
+   inside, sag below the chord, down to the chain bound, depth 12 — the
+   same recursion and cap kernel-v2's render sampler applies, so a
+   certified chord is one the import samples along the same arc). R0026's
+   three Stage-0 overlay chords (2.0–2.7× the bound) were declined and
+   shipped straight, 1.9e-4 m off the torus.
+
+Pins: `tests_unit/s434_output_restore.rs` — `cross_input_chord_typed_from_its_surfaces`,
+`cross_input_chord_between_planes_not_eligible`,
+`perpendicular_torus_plane_section_typed_as_its_circle`,
+`copies_of_one_circle_one_ulp_apart_are_one_candidate`,
+`wide_pair_chord_certified_by_bisection_is_typed` (was
+`wide_pair_chord_past_the_chain_bound_declined`, the retired rule),
+`pair_chord_spanning_two_branches_not_certified`; the three off-curve pins
+now assert the chord is never typed onto the wrong carried curve and is
+typed from its surfaces instead; `same_input_face_pair_not_eligible` gives
+its two owners the one surface a single input face has. Verdict:
+**faithful generalization** (§4.4.2). Corpus (release, 12 jobs, 900 s, wall 491 s): **360C / 0W / 9E / 5EE / 0T** over 374 — exactly R0015, R0026, R0050 WRONG → CORRECT, every other verdict held, worst on-surface reading 3.5e-10 of scale (unchanged).
 
 
 ### N6 — §4.5.4 illegal self-intersection detection/removal absent
@@ -7678,7 +7723,13 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    are now SUPPORTED_WRONG (band d_p = 1e-7 relative,
    `test-harness/src/assay/on_surface.rs`); still OPEN — the fix is typing
    the rim at emission (`specs/yang_output_curve_typing_migration.md`),
-   not a band.
+   not a band. **The three measured cases are FIXED at emission
+   (2026-10-30, N60 amendment, N104):** their chords were Stage 3's
+   untyped perpendicular torus × plane sections (R0015, R0050), bit-twin
+   rim circles read as ambiguous (R0015) and Stage-0 overlay A×B chords
+   coarser than the chain bound (R0026); all three now type in yang, and
+   `try_recover` no longer sees them. The bail itself is still silent for
+   any unmeasured path (remediation K6).
 4. `stage5_topology/patches.rs:858` `select_outer_cycle`: sphere, torus and
    other surfaces fall to `by_edges` (most edges wins — a sampling-density
    proxy, the R0070 class), so a holed sphere/torus face can be labelled
@@ -7975,3 +8026,44 @@ replace the 1D axial-containment special case with a 2D (rθ, z) overlay.
 
 **State: OPEN** (2026-10-27; the extension is accepted in principle, the
 band-assisted implementation is the debt).
+
+### N104 — Stage 3 leaves two kinds of A×B intersection edge untyped; their type is restored at emission
+
+**Paper.** §4.3 computes the intersection curves of the two models' surfaces
+and refines the mesh onto them; §4.4.2 restores the output's boundaries as
+"either the original boundary curves or the intersection curves"
+(`refs/text/yang2025_hybrid_boolean.txt:589-592`). Every A×B edge carries
+its intersection curve from Stage 3 on.
+
+**What the code does.** `stage3_ssi::build_intersection_curves` types an
+edge only when its two incidence entries come from different inputs, and
+two A×B families fall outside that:
+1. **The perpendicular torus × plane section** (`torus_plane_is_perpendicular_section`,
+   ssi-rs T1: circles) is skipped on purpose (M5 torus arm increment 3,
+   "recorded, not chased: a typed `Circle` there would enter the conic maps
+   AND the torus block"). Stage 4's torus block still relocates its vertices
+   onto the exact curve through the implicit-pair Newton, so the GEOMETRY
+   is the paper's; only the edge type is missing.
+2. **An A×B curve on a Stage-0 overlay face.** The overlay attributes a
+   shared coplanar face to one input, so a torus (A) crossing the box's
+   bottom face (B, coplanar with A's cap) reads as two A faces, and the
+   same-input skip leaves it untyped (R0026).
+Both reached the output as `LineSegment` chords and, where kernel-v2's
+`try_recover` could not re-fuse them, shipped straight (N100 item 3: R0015,
+R0026, R0050, 1.4e-3 – 5.3e-3 of scale off the torus or cylinder).
+
+**Since 2026-10-30** the Stage-5 output-typing pass (N60 amendment) types
+both from the two owner surfaces after Stage 4. The output is the paper's;
+the debt is that Stage 3 and Stage 4 still carry these edges untyped, so
+nothing between Stage 3 and Stage 5 can consult their curve (the §4.3
+relocation of family 1 runs through the torus block's own pair Newton, not
+the curve map; family 2's vertices are relocated as same-input boundary).
+
+**Remediation.** Type both at Stage 3: the perpendicular section as its
+circle once the torus block reads a typed circle (the reason it was
+skipped), and the overlay face's A×B curve by reading the overlay's
+per-region provenance (N25, roadmap F6) instead of the face attribution.
+Then the Stage-5 surface-pair candidates of the N60 amendment become a
+validation that finds nothing to type.
+
+**State: OPEN** (2026-10-30).

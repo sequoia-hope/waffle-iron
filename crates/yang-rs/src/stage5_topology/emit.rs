@@ -1721,17 +1721,19 @@ pub(crate) fn emit_topology(
             input_b,
         );
         c441_log!(
-            "[s434-restore] eligible={} typed={} (ellipses {} hyperbolas {} pairs {}) no_cand={} off={} ambig={} sweep={} mid={}",
+            "[s434-restore] eligible={} typed={} (ellipses {} hyperbolas {} pairs {}; by surfaces {}) no_cand={} off={} ambig={} sweep={} mid={} ssi_unavailable={}",
             st.eligible,
             st.typed_chords,
             st.typed_ellipses,
             st.typed_hyperbolas,
             st.typed_pairs,
+            st.typed_by_surfaces,
             st.no_candidate,
             st.declined_offcurve,
             st.declined_ambiguous,
             st.declined_sweep,
-            st.declined_midpoint
+            st.declined_midpoint,
+            st.ssi_unavailable
         );
     }
     // I5-1b (ALWAYS-ON since the I5-2 flip; spec §4-I5-1b/§4-I5-2):
