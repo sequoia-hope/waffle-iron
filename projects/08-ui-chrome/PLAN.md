@@ -104,7 +104,7 @@ collapse-ladder changes, open questions for the user).
 - [x] Step 4: Part + Sketch toolbars wired (icon + label on desktop; icons only on phones via `(max-width: 768px), (pointer: coarse) and (max-width: 960px)`); NO icon-only rung on desktop (user decision); `toolbar-icons.spec.js` + `mobile/mobile-toolbar-icons.spec.js`. Measured cost: modeling toolbar collapse level at 1280 px 2 → 6 (Undo/Redo into ⋮, one tool into More), sketch 7 → 12; level 0 now needs ~2.9k px
 - [x] Step 5: Drawing toolbar (DRAWING_TOOLS / VIEW_PLACEMENT_TOOLS icons; the phone check shared via `lib/ui/iconOnly.svelte.js`)
 - [x] Step 6: context menus (viewport, feature tree incl. origin + body, sketch constraint menu); new `view-front/top/right/iso` glyphs (ghost cube, the viewed face solid); `context-menu-icons.spec.js`
-- [ ] Step 7: feature-tree icons from the registry
+- [x] Step 7: feature-tree icons from the registry (features = their toolbar picture; origin planes `datum-plane`, axes a new one-arrow `axis` coloured by the row; sources `link`/`script`, missing `triangle-alert`; bodies `box`); `feature-tree-icons.spec.js`
 - [ ] Step 8: baselines + dossier docs
 - Fillet / chamfer / shell get icons only (deferred indefinitely).
 

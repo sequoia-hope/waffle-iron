@@ -734,27 +734,30 @@
 		closeContextMenu();
 	}
 
+	/** The registry icon for a feature's operation (the toolbar button's picture). */
+	const FEATURE_ICONS = {
+		Sketch: 'sketch',
+		Sketch3d: 'polyline',
+		Extrude: 'extrude',
+		Revolve: 'revolve',
+		Pipe: 'pipe',
+		Sweep: 'sweep',
+		Fillet: 'fillet',
+		Chamfer: 'chamfer',
+		Shell: 'shell',
+		BooleanCombine: 'boolean',
+		UnionAll: 'boolean',
+		DatumPlane: 'datum-plane',
+		ImportedBody: 'import-step',
+		MateConnector: 'mate-connector',
+		PatternCircular: 'pattern-circular',
+		PatternLinear: 'pattern-linear',
+		PatternMirror: 'mirror',
+		Script: 'script'
+	};
+
 	function featureIcon(opType) {
-		switch (opType) {
-			case 'Sketch': return '\u270E';
-			case 'Sketch3d': return '\u2727';
-			case 'Extrude': return '\u25A7';
-			case 'Revolve': return '\u21BB';
-			case 'Pipe': return '\u2312';
-			case 'Sweep': return '\u2933';
-			case 'Fillet': return '\u25CF';
-			case 'Chamfer': return '\u25C6';
-			case 'Shell': return '\u25A1';
-			case 'BooleanCombine': return '\u2229';
-			case 'UnionAll': return '\u222A';
-			case 'ImportedBody': return '\u2913';
-			case 'MateConnector': return '\u2295';
-			case 'PatternCircular': return '\u25CC';
-			case 'PatternLinear': return '\u2237';
-			case 'PatternMirror': return '\u2AEB';
-			case 'Script': return '\u2328';
-			default: return '\u2022';
-		}
+		return FEATURE_ICONS[opType] ?? 'box';
 	}
 
 	// -- Drag and drop --
@@ -971,7 +974,7 @@
 						tabindex="0"
 						data-testid="origin-plane-{plane.name.toLowerCase()}"
 					>
-						<span class="tree-icon origin-icon">{'\u25C7'}</span>
+						<span class="tree-icon origin-icon"><Icon name="datum-plane" size={14} /></span>
 						<span class="tree-label">{plane.name}</span>
 						<button
 							class="visibility-toggle"
@@ -992,7 +995,7 @@
 						tabindex="0"
 						data-testid="origin-axis-{axis.id}"
 					>
-						<span class="tree-icon origin-icon" style="color: {axis.color}">{'\u2502'}</span>
+						<span class="tree-icon origin-icon" style="color: {axis.color}"><Icon name="axis" size={14} /></span>
 						<span class="tree-label">{axis.name}</span>
 						<button
 							class="visibility-toggle"
@@ -1037,7 +1040,7 @@
 					role="treeitem"
 					tabindex="0"
 				>
-					<span class="tree-icon">{featureIcon(feature.operation?.type)}</span>
+					<span class="tree-icon" data-icon={featureIcon(feature.operation?.type)}><Icon name={featureIcon(feature.operation?.type)} size={14} /></span>
 					{#if renaming && renaming.featureId === feature.id}
 						<input
 							class="rename-input"
@@ -1140,7 +1143,7 @@
 					</div>
 					{#each sources as s, i (s.id)}
 						<div class="source-item" data-testid="source-item-{i}" title={describeLocator(s.locator)}>
-							<span class="tree-icon" class:src-missing={!s.available}>{s.available ? '⛁' : '⚠'}</span>
+							<span class="tree-icon" class:src-missing={!s.available}><Icon name={!s.available ? 'triangle-alert' : s.kind === 'Script' ? 'script' : 'link'} size={14} /></span>
 							<span class="tree-label src-name">{s.name}</span>
 							<span class="src-meta" data-testid="source-status-{i}">{sourceStatus(s)}</span>
 							{#if s.kind === 'Script' && s.available}
@@ -1196,7 +1199,7 @@
 							role="treeitem"
 							tabindex="0"
 						>
-							<span class="tree-icon">{'▣'}</span>
+							<span class="tree-icon"><Icon name="box" size={14} /></span>
 							{#if bodyRenaming && bodyRenaming.bodyId === body.bodyId}
 								<input
 									class="rename-input body-rename-input"
@@ -1816,7 +1819,8 @@
 
 	.tree-icon {
 		width: 16px;
-		text-align: center;
+		display: inline-flex;
+		justify-content: center;
 		font-size: 12px;
 		color: var(--text-secondary);
 		flex-shrink: 0;

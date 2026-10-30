@@ -55,6 +55,7 @@ export const ICONS = {
 	'mouse-pointer-2': '<path d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"/>',
 	'eye': '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
 	'eye-off': '<path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/>',
+	'triangle-alert': '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 	'trash-2': '<path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
 	'pencil': '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
 	'maximize': '<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>',
@@ -121,6 +122,8 @@ export const ICONS = {
 	'pattern-circular': '<circle class="axis" cx="12" cy="12" r="7"/><circle cx="12" cy="5" r="2.5"/><circle class="c" cx="18.1" cy="15.5" r="2.5"/><circle class="c" cx="5.9" cy="15.5" r="2.5"/>',
 	'mirror': '<path class="axis" d="M12 3v18"/><path d="M9 6L3 18h6z"/><path class="c" d="M15 6l6 12h-6z"/>',
 	'toggle-planes': '<path d="M3 16l4-4h14l-4 4z"/><path d="M8 3h8v13H8z"/>',
+	// One origin axis (tree row): a single arrow; the row colours it.
+	'axis': '<path d="M5 19L18.5 5.5"/><path class="a" d="M20.5 3.5l-6 1.6 4.4 4.4z"/>',
 	'toggle-axes': '<path d="M6 18V5M6 18h13M6 18l-3.5 3.5"/><path class="a" d="M6 3l-2.2 3.5h4.4zM21 18l-3.5-2.2v4.4z"/>',
 	// Standard views: a ghost cube with the face you will look at solid and shaded
 	// (iso: the whole cube, solid). Same cube as 'section', which shades the cut.

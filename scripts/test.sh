@@ -118,6 +118,7 @@ GUI_FAST_SPECS=(
   icon-gallery.spec.js
   toolbar-icons.spec.js
   context-menu-icons.spec.js
+  feature-tree-icons.spec.js
   sketch-cancel-unfinished.spec.js
   sketch-drag-solve-and-dedupe.spec.js
   sketch-constraint-list.spec.js
