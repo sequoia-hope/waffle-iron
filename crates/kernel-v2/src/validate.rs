@@ -223,6 +223,92 @@ pub fn validate_boolean_output_planarity(
     Ok(())
 }
 
+/// PRODUCTION-tier band for a straight edge bounding a CURVED face of a
+/// boolean output, relative like [`PLANARITY_BOOLEAN_OUTPUT_TOLERANCE`]
+/// (multiplied by `(1 + max|coordinate|)` at the sample).
+pub const CHORD_ON_SURFACE_BOOLEAN_OUTPUT_TOLERANCE: f64 = cad_primitives::TAU_EVAL;
+
+/// Interior samples per straight edge in
+/// [`validate_boolean_output_chords`]. A line meeting a surface of degree
+/// `d` in more than `d` points lies in it; the torus is the highest degree
+/// the arena carries (4), so the two endpoints plus seven interior points
+/// (nine) decide the question for every surface kind.
+const CHORD_INTERIOR_SAMPLES: u32 = 7;
+
+/// Production gate for solids assembled from yang boolean output (remediation
+/// K6, ledger N100 item 3): every `LineSegment` half-edge of a CURVED face
+/// must lie on that face's surface along its whole length.
+///
+/// A straight edge legitimately bounds a curved face only as a ruling (a
+/// cylinder or cone generator). A chord standing in for an arc has both
+/// endpoints on the surface and its interior off it, and the render sampler
+/// then draws the two adjacent faces apart by the chord's sagitta. Yang
+/// types every chord between two surfaces at emission (N60), and
+/// `recover::recover_output_curves` re-fuses what it can; a chord that
+/// survives both used to ship silently. It is now a typed reject
+/// (`ChordOffCurvedSurface`), never a snap or a re-typing here (P9).
+///
+/// Planar faces are not checked: their straight edges are covered by
+/// [`validate_boolean_output_planarity`] at the endpoints, and a segment
+/// between two points of a plane lies in it.
+pub fn validate_boolean_output_chords(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<(), KernelV2Error> {
+    let solid_ref = arena.solid(solid)?;
+    for &sh in &solid_ref.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            let Some(surface) = &face.surface else {
+                continue;
+            };
+            if matches!(surface, Surface::Plane(_)) {
+                continue;
+            }
+            let loops = std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied());
+            for lid in loops {
+                for h in arena.loop_half_edges(lid)? {
+                    let he = arena.half_edge(h)?;
+                    if !matches!(he.curve, Curve::LineSegment) {
+                        continue;
+                    }
+                    let a = arena.vertex(he.origin)?.point;
+                    let b = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                    for i in 1..=CHORD_INTERIOR_SAMPLES {
+                        let t = i as f64 / (CHORD_INTERIOR_SAMPLES + 1) as f64;
+                        let p = Point3::new(
+                            a.x() + t * (b.x() - a.x()),
+                            a.y() + t * (b.y() - a.y()),
+                            a.z() + t * (b.z() - a.z()),
+                        );
+                        let d = crate::conformance::point_surface_distance(surface, p);
+                        let band = CHORD_ON_SURFACE_BOOLEAN_OUTPUT_TOLERANCE
+                            * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()));
+                        // A NaN distance rejects too.
+                        if d.is_nan() || d > band {
+                            if std::env::var_os("KV2_CHORD_GATE_PROBE").is_some() {
+                                eprintln!(
+                                    "[boolean-chord-gate] face={f:?} he={h:?} \
+                                     a=({:.17e},{:.17e},{:.17e}) b=({:.17e},{:.17e},{:.17e}) \
+                                     t={t:.3} d={d:.3e} band={band:.3e} surface={surface:?}",
+                                    a.x(),
+                                    a.y(),
+                                    a.z(),
+                                    b.x(),
+                                    b.y(),
+                                    b.z(),
+                                );
+                            }
+                            return Err(KernelV2Error::ChordOffCurvedSurface { face: f });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Debug-tier curved-surface tripwire (PR-KV5a): maximum |distance defect|
 /// (meters) of curved-face geometry — loop vertices off the cylinder
 /// surface (`|dist(p, axis) − r|`), rim circle centers off the axis, rim

@@ -7729,7 +7729,20 @@ print-only probe) before it is called WRONG; a hit preempts everything.
    rim circles read as ambiguous (R0015) and Stage-0 overlay A×B chords
    coarser than the chain bound (R0026); all three now type in yang, and
    `try_recover` no longer sees them. The bail itself is still silent for
-   any unmeasured path (remediation K6).
+   any unmeasured path (remediation K6). **Item 3 CLOSED (2026-10-30, K6):
+   the path is LOUD.** A production gate after assembly,
+   `kernel-v2/src/validate.rs` `validate_boolean_output_chords` (wired in
+   `boolean_op` beside the planarity gate), refuses any `LineSegment` edge
+   of a curved output face that leaves the face's surface between its
+   endpoints (seven interior samples — a line meeting a surface of degree
+   ≤ 4 in nine points lies in it; band `TAU_EVAL`·(1 + ‖p‖∞)), typed
+   `ChordOffCurvedSurface`. Rulings pass. The gate has the surface context
+   the bail lacks, so it covers the bail and any chord a partial re-fuse
+   leaves. Corpus neutral (see the 2026-10-30 K6 run in
+   `docs/review/remediation_2026-10-28.md`). Pin:
+   `kernel-v2/tests/k6_boolean_output_chords.rs`. The `recover` pass itself
+   stays an unledgered repair layer (audit §5 finding 2), retired by
+   emission typing, not by this gate.
 4. `stage5_topology/patches.rs:858` `select_outer_cycle`: sphere, torus and
    other surfaces fall to `by_edges` (most edges wins — a sampling-density
    proxy, the R0070 class), so a holed sphere/torus face can be labelled

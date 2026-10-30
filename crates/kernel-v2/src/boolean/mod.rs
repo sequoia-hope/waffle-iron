@@ -468,6 +468,10 @@ pub fn boolean_op(
     // vertices that evaded the (averaged) Newell orientation checks. Loud
     // typed reject at the boundary; never a snap or repair (P9).
     crate::validate::validate_boolean_output_planarity(arena, out_solid)?;
+    // K6 (remediation 2026-10-28, ledger N100 item 3): a straight edge of a
+    // curved output face must lie on it — a chord neither yang's emission
+    // typing nor `recover` turned back into its curve is a loud reject.
+    crate::validate::validate_boolean_output_chords(arena, out_solid)?;
     // N6 / §4.5.4 (task #173): PRODUCTION self-intersection gate at render
     // resolution — the layer where sub-sagitta B-Rep-level penetrations
     // (the C0116 cyl×cyl graze class) become observable. Loud typed

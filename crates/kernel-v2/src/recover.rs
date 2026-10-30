@@ -261,11 +261,12 @@ pub(crate) fn recover_output_curves(
             // hyperbola / torus / structural anomaly) ships as chords — a
             // silent A15.5 surface-tier erosion. The principled fix is to
             // type rims at emission inside yang (then this module shrinks to
-            // a validation assertion). Until then the bail is observable via
-            // `KV2_RECOVER_PROBE` above. A robust always-on "recovery was
-            // needed but failed" detector is deferred to the migration —
-            // distinguishing it from the common "nothing to recover" bail
-            // requires the surface context that lives on the yang side.
+            // a validation assertion). Since 2026-10-30 yang types every
+            // chord between two surfaces at emission (N60 amendment), and a
+            // chord that still reaches the arena on a curved face is refused
+            // after assembly by `validate::validate_boolean_output_chords`
+            // (K6), which has the surface context this bail lacks — so the
+            // bail can no longer ship a chord silently.
             orig()
         }
     }

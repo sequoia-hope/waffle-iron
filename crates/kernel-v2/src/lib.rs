@@ -132,4 +132,7 @@ pub use tessellate::{
     RENDER_CHORD_TOLERANCE_REL,
 };
 pub use transform::{check_rigid, mirror_solid, transform_solid};
-pub use validate::{validate_boolean_output_planarity, validate_solid, TopologyReport};
+pub use validate::{
+    validate_boolean_output_chords, validate_boolean_output_planarity, validate_solid,
+    TopologyReport,
+};

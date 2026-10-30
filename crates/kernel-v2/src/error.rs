@@ -498,6 +498,13 @@ pub enum KernelV2Error {
     /// `validate::CURVED_SURFACE_DEBUG_TOLERANCE`.
     VertexOffSurface { face: FaceId },
 
+    /// A straight (`LineSegment`) edge of a CURVED boolean-output face leaves
+    /// that face's surface between its endpoints — a chord standing in for
+    /// an arc (remediation K6, ledger N100 item 3). PRODUCTION gate
+    /// (`validate::validate_boolean_output_chords`); `KV2_CHORD_GATE_PROBE`
+    /// dumps the edge, the residual and the band.
+    ChordOffCurvedSurface { face: FaceId },
+
     /// `introspect::face_plane` was asked for the plane of a face whose
     /// surface is not planar.
     FaceNotPlanar { face: FaceId },

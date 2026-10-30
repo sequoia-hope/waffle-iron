@@ -111,6 +111,12 @@ was signed.
   `sketch-polyline.spec.js:88`, `sketch-snap-click-bug.spec.js:35` (samples a
   point 5 m off-screen), `sketch-snap-click-regression.spec.js:292`, five
   `viewport-advanced.spec.js` zoom/orbit tests.
+- **Open, red on main (found 2026-10-30, outside gui-fast):**
+  `offset-plane.spec.js:198` (the extruded body's bbox centre misses the
+  off-centre rectangle by more than 1e-4) and `planetary-gear.spec.js:79` (the
+  extrude never reaches the feature count, 20 s timeout). Both fail with the
+  spec, the WASM bundle and the app all at HEAD 02bab531+ (bisected while
+  landing icon step 1), so they predate that work.
 - **Open:** drawing specs flake under 2–3 workers with "Execution context was
   destroyed … navigation" (baseline too; Vite re-optimization suspected, per
   the Playwright config comment).
@@ -216,7 +222,7 @@ parallel with F2 (each needs the ledger only if it changes a result):
 |---|---|---|---|---|
 | K4 | Feature-gate the census probes and every `ASSAY_CASE` read out of release and WASM | §1.5, §4.2 | S | `grep ASSAY_CASE` in kernel crates only under `#[cfg(feature = "census")]`; WASM size recorded before/after |
 | K5 | N100 item 8: delete or register the four release-active switches (`CHERCHI_GRAZE_AWARE_RAY`, `CHERCHI_SCE_SHORTCIRCUIT`, `YANG_S1_SELF_CONTACT`, `_CHART`) | §1.4 | S | Probe registry lists every remaining env read |
-| K6 | N100 item 3: `kernel-v2/src/recover.rs:254-270` ships a curved rim as a chord silently; make it loud | §1.4 | S | Typed error; pin |
+| K6 | N100 item 3: `kernel-v2/src/recover.rs:254-270` ships a curved rim as a chord silently; make it loud | §1.4 | S | Typed error; pin — **DONE 2026-10-30**: `validate_boolean_output_chords`, `ChordOffCurvedSurface`, `kernel-v2/tests/k6_boolean_output_chords.rs` |
 | K7 | ~60 production `expect`/`unwrap` in yang-rs become typed `YangError` returns or carry an invariant comment at the site | §1.4 | M | `clippy::expect_used`/`unwrap_used` denied in yang-rs non-test code, with allows only on documented sites |
 | K8 | 141 distinct `1e-N` literals in yang-rs production code become named bands from `units.rs` (`TAU_EVAL` etc.) | §1.4 | M | Byte-identical corpus; a lint script fails on new bare literals |
 | K9 | Each F4 tracer constant (`stage4_small_loop.rs:68-280`, `stage4_tangency.rs:47-186`) gets a paper cite or a measured rationale, or is ledgered | §1.3 | M | Done alongside K1, not before |
@@ -322,3 +328,4 @@ L3 local recompute, and the f32 render-origin change (§1.4).
 | 2026-10-29 | Q7 + Q8 + Q11 merged (rewrite tier 3605 passed on the kernel content) with the WASM rebuild. **Phase 1 complete.** | this commit |
 | 2026-10-29 | Phase 2: O1, O4, O6–O9 landed; O2, O5 record-only; corpus 357C/3W/9E/5EE/0T (N100 item 3 now measured) | 647a4736 |
 | 2026-10-30 | The three on-surface WRONG rows converted (Stage-5 emission typing, N60 amendment, N104); corpus 360C/0W/9E/5EE/0T with O1 in force. K6 (loud recover bail) still open — no measured case now reaches it | this commit |
+| 2026-10-30 | K6: `validate_boolean_output_chords` refuses a `LineSegment` edge leaving its curved face (`ChordOffCurvedSurface`, N100 item 3 CLOSED). Canonical corpus 360C/0W/9E/5EE/0T, zero verdict moves, gate fired on no case (12 jobs, wall 479 s). Also: smoke pins followed the R0015/R0026/R0050 conversions (fa7c836e) | this commit |
