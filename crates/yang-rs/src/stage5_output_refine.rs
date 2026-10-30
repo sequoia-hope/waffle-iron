@@ -860,12 +860,14 @@ pub(crate) fn restore_carried_edge_curves(
 /// per-curve domain/midpoint guards. Returns `(curve, by_surfaces)`. Shared
 /// with §4.4.1 chain decimation so curved chords are never classified as
 /// straight-segment subdivisions.
+pub(crate) type CarriedInputRef<'a> = ((&'a [BRepFace], &'a [BRepEdge]), u32, u32);
+
 pub(crate) fn certified_output_edge_curve(
     p: Point3,
     q: Point3,
     s0: Surface,
     s1: Surface,
-    carried_input: Option<((&[BRepFace], &[BRepEdge]), u32, u32)>,
+    carried_input: Option<CarriedInputRef<'_>>,
     stats: &mut RestoreStats,
 ) -> Option<(Curve, bool)> {
     let carried = carried_input.is_some();

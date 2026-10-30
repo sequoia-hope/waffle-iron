@@ -522,10 +522,14 @@ pub(crate) fn canonical_open_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>
 ///    around `canon_curve`'s canonical normal — zero `u32` vertex-index
 ///    dependence.
 /// 3. When the closed run carries NO surviving operand `BRepVertex` (a freshly
-///    minted unanchored intersection circle, e.g. `R0021` `chain 23`), retain
-///    the historical `min_by_key` vertex fallback until `R0021`'s
-///    `volume_composition` grid-residual razor's edge is adjudicated (STOP rule,
-///    `docs/yang_deviations.md` N81 & `docs/yang_tail_triage.md`).
+///    minted unanchored intersection circle, e.g. `R0021` `chain 23`), this
+///    function keeps the historical `u32` `min_by_key` vertex-index rule as a
+///    **retained index rule, open debt** (`docs/yang_deviations.md` N81 &
+///    `docs/yang_tail_triage.md`): `R0021` currently passes by noise
+///    (`rel = 8.489e-5` vs `band = 8.55e-5`), and rotating `chain 23` shrinks
+///    the output grid residual (`1.50e-9 -> 1.74e-10`), tightening `band` to
+///    `8.005e-5` against `volume_composition`'s chord-sagitta deficit — the
+///    oracle is what needs adjudicating.
 pub(crate) fn canonical_closed_chain(
     chain: &[u32],
     canon_curve: Option<&Curve>,
@@ -1786,11 +1790,12 @@ mod tests {
     }
 
     /// Closed intersection circle (carrying no on-curve operand `BRepVertex`
-    /// of its own) produces identical 3D arc pieces across arbitrary `u32`
-    /// vertex permutations once `R0021`'s `volume_composition` residual band is
-    /// adjudicated (N81 / `docs/yang_tail_triage.md`).
+    /// of its own): retained `u32` `min_by_key` index rule (open debt, N81 /
+    /// `docs/yang_tail_triage.md`) pending adjudication of `R0021`'s
+    /// `volume_composition` chord-sagitta deficit (`rel = 8.489e-5` vs noise
+    /// `band = 8.55e-5`).
     #[test]
-    #[ignore = "STOP on R0021 volume_composition grid-residual razor's edge (N81)"]
+    #[ignore = "retained index rule, open debt: R0021 volume_composition chord-sagitta deficit needs adjudicating (N81)"]
     fn closed_unanchored_ring_is_invariant_under_vertex_permutation() {
         let (verts, mut edges_nat, faces_template) = ring_fixture(16);
         let n = verts.len();

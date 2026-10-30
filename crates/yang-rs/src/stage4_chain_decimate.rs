@@ -1,16 +1,45 @@
 //! §4.4.1 mesh-level curve-chain decimation (F2 / deviation N81, matrix row
 //! `4.4-28`; Yang et al. 2025 §4.3.4 / §4.4.1,
-//! `refs/text/yang2025_hybrid_boolean.txt:546-572, 575-593, 605-607`, spec
+//! `refs/text/yang2025_hybrid_boolean.txt:575-593, 605-609, 546-572`, spec
 //! `specs/yang_434_output_chord_refinement.md` and
 //! `specs/yang_442_classify_after_update.md` §3(d) #3).
 //!
-//! Formerly `stage5_chain_decimate` (which dropped redundant interior vertices
-//! from Stage-5 B-Rep loops while leaving them in `mesh.tris` and ordered
-//! chains by `u32` vertex index). Re-sited into §4.4.1 so the polyline
-//! decimation updates the adjacent mesh patches conformally before topology
-//! emission and canonicalizes every open and closed chain purely by 3D
-//! coordinates (`point_cmp`), independent of vertex numbering and compatible
-//! with both the post-keep submesh and the full welded arrangement.
+//! Formerly `stage5_chain_decimate` (which dropped interior vertices from
+//! Stage-5 B-Rep loops after emission while leaving them in `mesh.tris`,
+//! applied the §4.3.4 test in reverse on consecutive triples without
+//! re-checking the kept chord against all replaced samples, and ordered chains
+//! by `u32` vertex index).
+//!
+//! Design and remaining open debt:
+//! - **Forward §4.3.4 admissibility (`kept_positions`):** starts from the chain
+//!   endpoints and selects a minimum-chord-count path of §4.3.4-admissible
+//!   chords where every kept chord `(p_i, p_j)` (`j - i >= 2`) satisfies the
+//!   symmetric §4.3.4 `h/l/α` predicate (or strict `TAU_WORK` collinearity for
+//!   class-(b) straight operand-edge subdivisions, ledger `N105`) against
+//!   **every** sample `m in (i + 1)..j` it replaces. Equal-chord-count ties
+//!   minimize the descending-sorted multiset of squared chord lengths
+//!   `||p_j - p_i||^2` (strictly monotone under path extension and bit-identical
+//!   on `chain` vs `chain.rev()`), so open-chain decimation is independent of
+//!   walk direction.
+//! - **Closed chains:** closed loops carrying `>= 1` surviving authored operand
+//!   `BRepVertex`es keep all of them as mandatory anchors (and open the loop at
+//!   one), making the kept 3D vertex set independent of vertex numbering and
+//!   world frame. Closed `LineSegment`/`SurfacePair` loops carrying `0`
+//!   surviving operand `BRepVertex`es open at the `point_cmp` minimum 3D sample
+//!   (vertex-index-free, retaining world-frame start-sample dependence on
+//!   unanchored closed loops; ledger `N81` / `N58`).
+//! - **`Surface::Sphere` patches:** `SurfaceChart` has no sphere chart
+//!   (`stage4_project.rs`), so chains owned by a `Surface::Sphere` patch
+//!   decline decimation (`DecimateStats::declined_sphere_unsupported` — a
+//!   documented regression vs the deleted loop-only `stage5_chain_decimate`,
+//!   ledger `N81`).
+//! - **Class-(b) straight operand-edge subdivision elision:** valence-2
+//!   non-intersection split vertices on straight operand edges are elided only
+//!   when collinear to working precision (`h <= TAU_WORK * (1 + scale)`,
+//!   `l < d_p * 10^3`); ledgered as open debt `N105`.
+//! - **Loud invariants & named census:** broken mesh/partition invariants
+//!   return `Err(YangError::Stage4ChainDecimateFailed { .. })`; legitimate
+//!   per-chain declines are counted by reason in [`DecimateStats`].
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -18,6 +47,7 @@ use cad_primitives::Point3;
 use cherchi_rs::Mesh;
 
 use crate::brep::{BRep, InputId, TriangleAttributionMap, TriangleSideLabelMap};
+use crate::errors::{ChainDecimateError, YangError};
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
     apply_rebuild_batch, directed_boundary, rebuild_patch_planar_bounded_ex,
@@ -30,13 +60,13 @@ use crate::stage4_correct::{
 use crate::stage4_project::SurfaceChart;
 use crate::stage4_splice::SplicePatch;
 use crate::stage5_output_refine::{certified_output_edge_curve, RestoreStats};
-use crate::stage5_seam_merge::point_cmp;
+use crate::stage5_seam_merge::{point_cmp, point_key};
 use crate::stage5_topology::{
     flood_fill_patches_with_side_labels, patch_fold_slivers, triangle_adjacency,
 };
 
-/// Pass statistics (logged at the Stage-4 call site when `c441_verbose()`).
-#[derive(Debug, Default, Clone, Copy)]
+/// Pass census statistics (logged at the Stage-4 call site when `c441_verbose()`).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DecimateStats {
     pub edges_before: usize,
     pub edges_after: usize,
@@ -44,9 +74,16 @@ pub(crate) struct DecimateStats {
     pub runs_decimated: usize,
     /// Interior vertices dropped (counted once per canonical chain).
     pub verts_dropped: usize,
-    /// Chains declined because an owner cycle would fall below 3 edges or
-    /// because an owner patch declined its mesh rebuild.
-    pub declined_floor: usize,
+    /// Chains declined because an owner cycle would fall below 3 edges.
+    pub declined_loop_floor: usize,
+    /// Chains declined because an owner patch had a discontinuous boundary cycle.
+    pub declined_discontinuous_patch: usize,
+    /// Chains declined because an owner patch sits on `Surface::Sphere`
+    /// (`SurfaceChart` has no sphere chart).
+    pub declined_sphere_unsupported: usize,
+    /// Chains declined because an owner patch on a chartable surface (`Plane`,
+    /// `Cylinder`, `Cone`, `Torus`) declined both fan-local CDT and whole-patch CDT.
+    pub declined_patch_rebuild: usize,
     /// Cycles skipped because their directed half-edges do not chain.
     pub skipped_discontinuous_loops: usize,
 }
@@ -93,7 +130,10 @@ fn patch_cycle_verts(cyc: &[(u32, u32)]) -> Option<Vec<u32>> {
 }
 
 /// Canonical form of an OPEN chain by 3D point sequence (`point_cmp`, never
-/// `u32` vertex index).
+/// `u32` vertex index). With forward §4.3.4 in [`kept_positions`], the kept 3D
+/// sample set is walk-direction-independent; this canonicalization gives a
+/// shared map key across twin/4-owner patches and breaks exact uniform-grid ties
+/// deterministically.
 fn canonical_open_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, bool) {
     let k = chain.len();
     let mut ord = std::cmp::Ordering::Equal;
@@ -112,8 +152,8 @@ fn canonical_open_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, bool) {
 
 /// Canonical form of a CLOSED chain by 3D point sequence (`point_cmp`, never
 /// `u32` vertex index): rotate and orient to minimize the 3D point tuple
-/// lexicographically.
-fn canonical_closed_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, bool) {
+/// lexicographically. Returns `(rotated, min_pos_in_chain, reversed)`.
+fn canonical_closed_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, usize, bool) {
     let k = chain.len();
     assert!(k > 0, "closed chain is non-empty");
     let idx_at = |pos: usize, rev: bool, step: usize| -> usize {
@@ -150,7 +190,7 @@ fn canonical_closed_chain(chain: &[u32], verts: &[Point3]) -> (Vec<u32>, bool) {
     let rotated: Vec<u32> = (0..k)
         .map(|step| chain[idx_at(min_pos, reversed, step)])
         .collect();
-    (rotated, reversed)
+    (rotated, min_pos, reversed)
 }
 
 struct LoopPartition {
@@ -207,8 +247,8 @@ fn partition_cycle(
     }
 }
 
-/// STRICT redundancy for a subdivision vertex of a straight operand edge:
-/// `m` lies on the segment `a -> b` to working precision
+/// STRICT redundancy for a subdivision vertex of a straight operand edge
+/// (ledger `N105`): `m` lies on the segment `a -> b` to working precision
 /// (`h <= TAU_WORK * (1 + scale)`) and within the paper's chord bound
 /// (`l < d_p * 10^3`, Yang §4.3.4 `refs/text/yang2025_hybrid_boolean.txt:575-593`).
 fn strict_subdivision_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]) -> bool {
@@ -221,6 +261,56 @@ fn strict_subdivision_redundant(a: [f64; 3], m: [f64; 3], b: [f64; 3]) -> bool {
     mt.l < mt.dp * 1e3 && mt.h <= cad_primitives::TAU_WORK * (1.0 + scale)
 }
 
+/// Direction-symmetric §4.3.4 single-sample redundancy predicate on chord `a -- b`:
+/// evaluates both `(a, m, b)` and `(b, m, a)` so 1-ULP projection rounding in
+/// `paper_chain_metrics` cannot make chord admissibility depend on walk direction.
+fn sample_redundant_on_chord(a: [f64; 3], m: [f64; 3], b: [f64; 3], is_strict: bool) -> bool {
+    if is_strict {
+        strict_subdivision_redundant(a, m, b) && strict_subdivision_redundant(b, m, a)
+    } else {
+        paper_chain_sample_redundant(a, m, b) && paper_chain_sample_redundant(b, m, a)
+    }
+}
+
+fn sq_chord_len(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let (dx, dy, dz) = (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    dx * dx + dy * dy + dz * dz
+}
+
+fn insert_desc_f64(sorted_desc: &[f64], val: f64) -> Vec<f64> {
+    let pos = sorted_desc
+        .binary_search_by(|probe| val.total_cmp(probe))
+        .unwrap_or_else(|e| e);
+    let mut out = Vec::with_capacity(sorted_desc.len() + 1);
+    out.extend_from_slice(&sorted_desc[..pos]);
+    out.push(val);
+    out.extend_from_slice(&sorted_desc[pos..]);
+    out
+}
+
+fn cmp_desc_vecs(a: &[f64], b: &[f64]) -> std::cmp::Ordering {
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        let ord = x.total_cmp(&y);
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    a.len().cmp(&b.len())
+}
+
+/// Forward §4.3.4 (`refs/text/yang2025_hybrid_boolean.txt:575-593`) on a
+/// discrete sample chain `chain[0..k]`:
+/// - Starts from the endpoints `(0, k - 1)`; a chord `(i, j)` (`j >= i + 2`) is
+///   admissible iff it skips no mandatory index in `anchors` and **every**
+///   replaced interior sample `m in (i + 1)..j` passes [`sample_redundant_on_chord`]
+///   against `(p_i, p_j)` (atomic mesh edges `j == i + 1` replace zero samples
+///   and are always admissible).
+/// - Selects a minimum-chord-count admissible path `0 = i_0 < i_1 < ... < i_r = k - 1`,
+///   breaking equal-chord-count ties by minimizing the descending-sorted multiset
+///   of squared chord lengths `||p_{i_{s+1}} - p_{i_s}||^2`. Because multiset
+///   insertion strictly preserves lexicographic order and `sq_chord_len(a, b) ==
+///   sq_chord_len(b, a)` bit-for-bit in IEEE-754, the kept sample set does not
+///   depend on walk direction.
 fn kept_positions(
     chain: &[u32],
     verts: &[Point3],
@@ -228,28 +318,102 @@ fn kept_positions(
     strict: &BTreeSet<u32>,
 ) -> Vec<usize> {
     let k = chain.len();
-    let mut kept: Vec<usize> = vec![0];
-    for i in 1..k.saturating_sub(1) {
-        let last = *kept.last().expect("nonempty");
-        let (a, m, b) = (
-            verts[chain[last] as usize].as_array(),
-            verts[chain[i] as usize].as_array(),
-            verts[chain[i + 1] as usize].as_array(),
-        );
-        let redundant = if strict.contains(&chain[i]) {
-            strict_subdivision_redundant(a, m, b)
-        } else {
-            paper_chain_sample_redundant(a, m, b)
-        };
-        let drop = !anchors.contains(&i) && redundant;
-        if !drop {
-            kept.push(i);
+    if k == 0 {
+        return Vec::new();
+    }
+    if k == 1 {
+        return vec![0];
+    }
+    let pts: Vec<[f64; 3]> = chain
+        .iter()
+        .map(|&v| verts[v as usize].as_array())
+        .collect();
+    let is_strict: Vec<bool> = chain.iter().map(|v| strict.contains(v)).collect();
+
+    let mut sorted_anchors: Vec<usize> = anchors
+        .iter()
+        .copied()
+        .filter(|&a| a > 0 && a + 1 < k)
+        .collect();
+    sorted_anchors.sort_unstable();
+    sorted_anchors.dedup();
+
+    let chord_admissible = |i: usize, j: usize| -> bool {
+        if j == i + 1 {
+            return true;
+        }
+        let (pa, pb) = (pts[i], pts[j]);
+        // Fast boundary-neighbour + midpoint rejection (`l` and `h` peak at the
+        // two end-adjacent samples and the middle sample respectively) before
+        // verifying every remaining replaced sample in `(i + 1)..j`.
+        let first_m = i + 1;
+        if !sample_redundant_on_chord(pa, pts[first_m], pb, is_strict[first_m]) {
+            return false;
+        }
+        let last_m = j - 1;
+        if last_m != first_m && !sample_redundant_on_chord(pa, pts[last_m], pb, is_strict[last_m]) {
+            return false;
+        }
+        let mid_m = (i + j) / 2;
+        if mid_m != first_m
+            && mid_m != last_m
+            && !sample_redundant_on_chord(pa, pts[mid_m], pb, is_strict[mid_m])
+        {
+            return false;
+        }
+        for m in (i + 2)..last_m {
+            if m != mid_m && !sample_redundant_on_chord(pa, pts[m], pb, is_strict[m]) {
+                return false;
+            }
+        }
+        true
+    };
+
+    let mut best_steps = vec![usize::MAX; k];
+    let mut best_sq: Vec<Vec<f64>> = vec![Vec::new(); k];
+    let mut prev = vec![0usize; k];
+    best_steps[0] = 0;
+
+    let mut anchor_cursor = 0usize;
+    for i in 0..(k - 1) {
+        if best_steps[i] == usize::MAX {
+            continue;
+        }
+        while anchor_cursor < sorted_anchors.len() && sorted_anchors[anchor_cursor] <= i {
+            anchor_cursor += 1;
+        }
+        let j_limit = sorted_anchors.get(anchor_cursor).copied().unwrap_or(k - 1);
+        let cand_steps = best_steps[i] + 1;
+        for j in (i + 1)..=j_limit {
+            if cand_steps > best_steps[j] {
+                continue;
+            }
+            if !chord_admissible(i, j) {
+                continue;
+            }
+            let cand_sq = insert_desc_f64(&best_sq[i], sq_chord_len(pts[i], pts[j]));
+            let take = if cand_steps < best_steps[j] {
+                true
+            } else {
+                cmp_desc_vecs(&cand_sq, &best_sq[j]) == std::cmp::Ordering::Less
+            };
+            if take {
+                best_steps[j] = cand_steps;
+                best_sq[j] = cand_sq;
+                prev[j] = i;
+            }
         }
     }
-    if k >= 2 {
-        kept.push(k - 1);
+
+    let mut out = Vec::with_capacity(best_steps[k - 1].saturating_add(1));
+    let mut cur = k - 1;
+    out.push(cur);
+    while cur > 0 {
+        cur = prev[cur];
+        out.push(cur);
     }
-    kept
+    out.reverse();
+    out
 }
 
 /// Signed directed-edge delta `edges(new) - edges(old)`.
@@ -588,8 +752,8 @@ fn rebuild_decimated_patch_fans(
 
 /// Decimate redundant interior samples along `LineSegment` and `SurfacePair`
 /// intersection polylines (and sub-resolution collinear subdivisions of
-/// straight operand edges) inside Stage 4 (§4.4.1), updating every adjacent
-/// patch's triangulation conformally before topology emission.
+/// straight operand edges, ledger `N105`) inside Stage 4 (§4.4.1), updating
+/// every adjacent patch's triangulation conformally before topology emission.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn decimate_patch_chains_441(
     mesh: &mut Mesh,
@@ -600,7 +764,7 @@ pub(crate) fn decimate_patch_chains_441(
     a: &BRep,
     b: &BRep,
     full_arrangement: bool,
-) -> DecimateStats {
+) -> Result<DecimateStats, YangError> {
     let edges_before: usize = infos
         .iter()
         .map(|info| info.cycles.iter().map(Vec::len).sum::<usize>())
@@ -621,8 +785,20 @@ pub(crate) fn decimate_patch_chains_441(
         b,
     );
     if raw.len() != infos.len() {
-        return stats;
+        return Err(YangError::Stage4ChainDecimateFailed {
+            reason: ChainDecimateError::PatchPartitionMismatch {
+                raw_patches: raw.len(),
+                info_patches: infos.len(),
+            },
+        });
     }
+
+    let operand_vertex_keys: BTreeSet<[u64; 3]> = a
+        .vertices
+        .iter()
+        .chain(b.vertices.iter())
+        .map(|v| point_key(v.point))
+        .collect();
 
     // Per-vertex set of patches holding any mesh triangle on that vertex, so a
     // vertex referenced by a patch outside its boundary-cycle owners is never
@@ -636,19 +812,24 @@ pub(crate) fn decimate_patch_chains_441(
         }
     }
 
-    // Classify every undirected cycle edge `(u, v)`:
+    // Classify every undirected cycle edge `(u, v)` and track its net signed
+    // cycle balance (`+1` for `u < v`, `-1` for `u > v`):
     // - `inter`: key in `intersection_curves`
-    // - `line`: `LineSegment` (excluding same-input chords that restore onto a
-    //   carried curved edge of `a` or `b`)
+    // - `line`: `LineSegment` (excluding chords certified onto a curved edge by
+    //   `certified_output_edge_curve`)
     // - `run_key`: `Some(Line | Pair)` for coalescible run edges, `None` for conics/carried curves.
     let mut edge_owners: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    let mut edge_signed_balance: BTreeMap<(u32, u32), i64> = BTreeMap::new();
     for (pi, info) in infos.iter().enumerate() {
         for cyc in &info.cycles {
             for &(s, e) in cyc {
-                edge_owners
-                    .entry((s.min(e), s.max(e)))
-                    .or_default()
-                    .push(pi);
+                let key = (s.min(e), s.max(e));
+                edge_owners.entry(key).or_default().push(pi);
+                if s < e {
+                    *edge_signed_balance.entry(key).or_default() += 1;
+                } else if s > e {
+                    *edge_signed_balance.entry(key).or_default() -= 1;
+                }
             }
         }
     }
@@ -661,7 +842,7 @@ pub(crate) fn decimate_patch_chains_441(
             edge_class.insert(key, (true, line, rk));
             continue;
         }
-        // Non-intersection edge: check whether `restore_carried_edge_curves`
+        // Non-intersection edge: check whether `certified_output_edge_curve`
         // certifies it onto a typed curve (`Circle`, `Ellipse`, `Hyperbola`,
         // `SurfacePair`) — either from a carried operand edge or from the
         // owner surfaces' intersection. If so, it is NOT a straight `LineSegment`.
@@ -712,28 +893,32 @@ pub(crate) fn decimate_patch_chains_441(
         patches: BTreeSet<usize>,
         n_intersection: u32,
         all_line: bool,
+        all_balanced: bool,
     }
     let mut uses: BTreeMap<u32, VertUse> = BTreeMap::new();
     for (pi, info) in infos.iter().enumerate() {
         for cyc in &info.cycles {
             for &(s, e) in cyc {
                 let key = (s.min(e), s.max(e));
-                let (inter, line, _) =
-                    edge_class
-                        .get(&key)
-                        .copied()
-                        .unwrap_or((false, true, Some(RunKey::Line)));
+                let &(inter, line, _) = edge_class.get(&key).ok_or({
+                    YangError::Stage4ChainDecimateFailed {
+                        reason: ChainDecimateError::UnclassifiedCycleEdge { edge: key },
+                    }
+                })?;
+                let balanced = edge_signed_balance.get(&key).copied().unwrap_or(1) == 0;
                 for v in [s, e] {
                     let u = uses.entry(v).or_insert_with(|| VertUse {
                         count: 0,
                         patches: BTreeSet::new(),
                         n_intersection: 0,
                         all_line: true,
+                        all_balanced: true,
                     });
                     u.count += 1;
                     u.patches.insert(pi);
                     u.n_intersection += u32::from(inter);
                     u.all_line &= line;
+                    u.all_balanced &= balanced;
                 }
             }
         }
@@ -743,7 +928,7 @@ pub(crate) fn decimate_patch_chains_441(
     let droppable: BTreeSet<u32> = uses
         .iter()
         .filter(|(&v, u)| {
-            if mesh_patches_of.get(&v) != Some(&u.patches) {
+            if !u.all_balanced || mesh_patches_of.get(&v) != Some(&u.patches) {
                 return false;
             }
             let n_p = u.patches.len();
@@ -787,7 +972,7 @@ pub(crate) fn decimate_patch_chains_441(
             let p = mesh.verts[v as usize];
             eprintln!(
                 "[s434-decimate-probe] site=({},{},{}) nearest v{v}=({:.9e},{:.9e},{:.9e}) \
-                 count={} patches={:?} n_intersection={} all_line={} droppable={}",
+                 count={} patches={:?} n_intersection={} all_line={} balanced={} droppable={}",
                 c[0],
                 c[1],
                 c[2],
@@ -798,21 +983,27 @@ pub(crate) fn decimate_patch_chains_441(
                 u.patches,
                 u.n_intersection,
                 u.all_line,
+                u.all_balanced,
                 droppable.contains(&v)
             );
         }
     }
 
     if droppable.is_empty() {
-        return stats;
+        return Ok(stats);
     }
 
     // Decisions per canonical chain (`Some(kept)` or `None` = declined).
     let mut decisions: BTreeMap<Vec<u32>, Option<Vec<usize>>> = BTreeMap::new();
+    struct ChainRef {
+        canon: Vec<u32>,
+        min_pos: usize,
+        reversed: bool,
+    }
     struct CyclePlan {
         orig_cycle: Vec<u32>,
         part: LoopPartition,
-        chains: Vec<Option<(Vec<u32>, bool)>>,
+        chains: Vec<Option<ChainRef>>,
     }
     let mut plans: Vec<Vec<Option<CyclePlan>>> = Vec::with_capacity(infos.len());
     for info in infos {
@@ -837,30 +1028,78 @@ pub(crate) fn decimate_patch_chains_441(
                     chain.push(cycle[orig_pos(r)]);
                 }
                 if part.whole_closed {
-                    let (rotated, reversed) = canonical_closed_chain(&chain, &mesh.verts);
+                    let (rotated, min_pos, reversed) = canonical_closed_chain(&chain, &mesh.verts);
                     let k_c = rotated.len();
-                    decisions.entry(rotated.clone()).or_insert_with(|| {
+                    if let std::collections::btree_map::Entry::Vacant(slot) =
+                        decisions.entry(rotated.clone())
+                    {
                         if k_c < 4 {
-                            return None;
-                        }
-                        let mut closed = rotated.clone();
-                        closed.push(rotated[0]);
-                        let anchors = [k_c / 3, (2 * k_c) / 3];
-                        let kept: Vec<usize> =
-                            kept_positions(&closed, &mesh.verts, &anchors, &strict)
+                            slot.insert(None);
+                        } else {
+                            let op_pos: Vec<usize> = rotated
+                                .iter()
+                                .enumerate()
+                                .filter(|&(_, &v)| {
+                                    operand_vertex_keys.contains(&point_key(mesh.verts[v as usize]))
+                                })
+                                .map(|(idx, _)| idx)
+                                .collect();
+                            let kept: Vec<usize> = if let Some(&p0) = op_pos.first() {
+                                // Authored operand BRepVertex(es) on this closed loop:
+                                // open at `p0` and hold all remaining operand vertices
+                                // as mandatory anchors so the DP splits independently
+                                // across each inter-anchor arc (world-frame-invariant).
+                                let mut closed_anchored: Vec<u32> =
+                                    (0..k_c).map(|step| rotated[(p0 + step) % k_c]).collect();
+                                closed_anchored.push(rotated[p0]);
+                                let anchors: Vec<usize> =
+                                    op_pos[1..].iter().map(|&p| (p + k_c - p0) % k_c).collect();
+                                let mut mapped: Vec<usize> = kept_positions(
+                                    &closed_anchored,
+                                    &mesh.verts,
+                                    &anchors,
+                                    &strict,
+                                )
                                 .into_iter()
                                 .filter(|&i| i < k_c)
+                                .map(|i| (i + p0) % k_c)
                                 .collect();
-                        (kept.len() >= 3).then_some(kept)
-                    });
-                    chains.push(Some((rotated, reversed)));
+                                mapped.sort_unstable();
+                                mapped
+                            } else {
+                                // Unanchored closed loop (`0` surviving operand BRepVertexes):
+                                // open at `rotated[0]` (`point_cmp` minimum 3D sample).
+                                let mut closed = rotated.clone();
+                                closed.push(rotated[0]);
+                                kept_positions(&closed, &mesh.verts, &[], &strict)
+                                    .into_iter()
+                                    .filter(|&i| i < k_c)
+                                    .collect()
+                            };
+                            if kept.len() >= 3 {
+                                slot.insert(Some(kept));
+                            } else {
+                                stats.declined_loop_floor += 1;
+                                slot.insert(None);
+                            }
+                        }
+                    }
+                    chains.push(Some(ChainRef {
+                        canon: rotated,
+                        min_pos,
+                        reversed,
+                    }));
                 } else {
                     chain.push(cycle[orig_pos(start_r + len) % m]);
                     let (canon, reversed) = canonical_open_chain(&chain, &mesh.verts);
                     decisions
                         .entry(canon.clone())
                         .or_insert_with(|| Some(kept_positions(&canon, &mesh.verts, &[], &strict)));
-                    chains.push(Some((canon, reversed)));
+                    chains.push(Some(ChainRef {
+                        canon,
+                        min_pos: 0,
+                        reversed,
+                    }));
                 }
             }
             patch_plans.push(Some(CyclePlan {
@@ -874,16 +1113,19 @@ pub(crate) fn decimate_patch_chains_441(
 
     // Enforce the 3-edge cycle floor and per-patch mesh rebuildability to a
     // joint fixpoint: any chain whose owner cycle would fall below 3 edges OR
-    // whose owner patch declines both fan-local CDT and whole-patch CDT is
-    // declined across ALL its owners, preserving conformal boundaries.
+    // whose owner patch declines its mesh rebuild is declined across ALL its
+    // owners, preserving conformal boundaries.
     let enforce_loop_floor = |decisions: &mut BTreeMap<Vec<u32>, Option<Vec<usize>>>,
-                              declined_floor: &mut usize| loop {
+                              declined_loop_floor: &mut usize| loop {
         let mut changed = false;
         for patch_plans in &plans {
             for plan in patch_plans.iter().flatten() {
                 let mut after = 0usize;
                 for (si, &(_, len, _)) in plan.part.stretches.iter().enumerate() {
-                    match plan.chains[si].as_ref().and_then(|(c, _)| decisions.get(c)) {
+                    match plan.chains[si]
+                        .as_ref()
+                        .and_then(|cr| decisions.get(&cr.canon))
+                    {
                         Some(Some(kept)) => {
                             after += if plan.part.whole_closed {
                                 kept.len()
@@ -895,11 +1137,11 @@ pub(crate) fn decimate_patch_chains_441(
                     }
                 }
                 if after < 3 {
-                    for (c, _) in plan.chains.iter().flatten() {
-                        if let Some(d) = decisions.get_mut(c) {
+                    for cr in plan.chains.iter().flatten() {
+                        if let Some(d) = decisions.get_mut(&cr.canon) {
                             if d.is_some() {
                                 *d = None;
-                                *declined_floor += 1;
+                                *declined_loop_floor += 1;
                                 changed = true;
                             }
                         }
@@ -912,31 +1154,30 @@ pub(crate) fn decimate_patch_chains_441(
         }
     };
 
-    enforce_loop_floor(&mut decisions, &mut stats.declined_floor);
+    enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
 
     let d_eps = stage4_chord_band(a, b);
     let rebuilds: Vec<PatchRebuild> = 'plan_batch: loop {
         // Any discontinuous cycle on a patch forces all chains on that patch to
         // decline so we never rebuild against incomplete cycle data.
         let mut disc_declined = false;
-        for (pi, patch_plans) in plans.iter().enumerate() {
+        for patch_plans in &plans {
             if patch_plans.iter().any(Option::is_none) {
                 for plan in patch_plans.iter().flatten() {
-                    for (c, _) in plan.chains.iter().flatten() {
-                        if let Some(d) = decisions.get_mut(c) {
-                            if d.is_some() && d.as_ref().is_some_and(|k| k.len() < c.len()) {
+                    for cr in plan.chains.iter().flatten() {
+                        if let Some(d) = decisions.get_mut(&cr.canon) {
+                            if d.as_ref().is_some_and(|k| k.len() < cr.canon.len()) {
                                 *d = None;
-                                stats.declined_floor += 1;
+                                stats.declined_discontinuous_patch += 1;
                                 disc_declined = true;
                             }
                         }
                     }
                 }
-                let _ = pi;
             }
         }
         if disc_declined {
-            enforce_loop_floor(&mut decisions, &mut stats.declined_floor);
+            enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
         }
 
         let mut batch: Vec<PatchRebuild> = Vec::new();
@@ -959,15 +1200,15 @@ pub(crate) fn decimate_patch_chains_441(
                 for (si, &(start_r, len, _)) in plan.part.stretches.iter().enumerate() {
                     let dec = plan.chains[si]
                         .as_ref()
-                        .and_then(|(c, rev)| decisions.get(c).map(|d| (c, *rev, d)));
-                    let Some((canon, reversed, Some(kept))) = dec else {
+                        .and_then(|cr| decisions.get(&cr.canon).map(|d| (cr, d)));
+                    let Some((cr, Some(kept))) = dec else {
                         for r in start_r..start_r + len {
                             new_cyc.push(plan.orig_cycle[orig_pos(r)]);
                             covers.push(vec![orig_pos(r)]);
                         }
                         continue;
                     };
-                    if kept.len() == canon.len() {
+                    if kept.len() == cr.canon.len() {
                         for r in start_r..start_r + len {
                             new_cyc.push(plan.orig_cycle[orig_pos(r)]);
                             covers.push(vec![orig_pos(r)]);
@@ -975,8 +1216,8 @@ pub(crate) fn decimate_patch_chains_441(
                         continue;
                     }
                     patch_changed = true;
-                    patch_active_chains.push(canon.clone());
-                    let k_c = canon.len();
+                    patch_active_chains.push(cr.canon.clone());
+                    let k_c = cr.canon.len();
                     let spans: Vec<(usize, usize)> = if plan.part.whole_closed {
                         (0..kept.len())
                             .map(|i| (kept[i], kept[(i + 1) % kept.len()]))
@@ -986,21 +1227,27 @@ pub(crate) fn decimate_patch_chains_441(
                             .map(|i| (kept[i], kept[i + 1]))
                             .collect()
                     };
-                    let ordered: Vec<(usize, usize)> = if reversed {
+                    let ordered: Vec<(usize, usize)> = if cr.reversed {
                         spans.iter().rev().map(|&(sa, sb)| (sb, sa)).collect()
                     } else {
                         spans
                     };
-                    let trav_index = |ci: usize| -> usize {
-                        if reversed {
-                            (k_c - 1 - ci) % k_c
+                    let chain_pos = |ci: usize| -> usize {
+                        if plan.part.whole_closed {
+                            if cr.reversed {
+                                (cr.min_pos + k_c - ci) % k_c
+                            } else {
+                                (cr.min_pos + ci) % k_c
+                            }
+                        } else if cr.reversed {
+                            k_c - 1 - ci
                         } else {
                             ci
                         }
                     };
                     for &(sa, sb) in &ordered {
-                        new_cyc.push(canon[sa]);
-                        let (ta, tb) = (trav_index(sa), trav_index(sb));
+                        new_cyc.push(cr.canon[sa]);
+                        let (ta, tb) = (chain_pos(sa), chain_pos(sb));
                         let mut cov = Vec::new();
                         let mut idx = ta;
                         loop {
@@ -1031,7 +1278,31 @@ pub(crate) fn decimate_patch_chains_441(
                 .filter(|v| !kept_set.contains(v))
                 .collect();
             if victims.is_empty() {
-                continue;
+                return Err(YangError::Stage4ChainDecimateFailed {
+                    reason: ChainDecimateError::FixpointStall { patch: pi },
+                });
+            }
+
+            // `SurfaceChart` has no sphere chart (`stage4_project.rs`): count
+            // and decline explicitly rather than conflating with CDT declines.
+            if matches!(info.inherited, Surface::Sphere { .. }) {
+                let mut any = false;
+                for c in patch_active_chains {
+                    if let Some(d) = decisions.get_mut(&c) {
+                        if d.is_some() {
+                            *d = None;
+                            stats.declined_sphere_unsupported += 1;
+                            any = true;
+                        }
+                    }
+                }
+                if !any {
+                    return Err(YangError::Stage4ChainDecimateFailed {
+                        reason: ChainDecimateError::FixpointStall { patch: pi },
+                    });
+                }
+                enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
+                continue 'plan_batch;
             }
 
             let orig_splice = SplicePatch {
@@ -1039,8 +1310,47 @@ pub(crate) fn decimate_patch_chains_441(
                 tris: raw_patch.tri_indices.clone(),
                 surface: info.inherited,
             };
+            // `patch_from_cycles_shifted` (`stage4_project.rs:512`) reads `cycles[0]`
+            // as the outer boundary and `cycles[1..]` as holes, whereas
+            // `patch_boundary_cycle` orders orbits by lowest `u32` vertex index.
+            // Place the largest-|Newell area| cycle at index 0 so holed-patch CDT
+            // never depends on vertex numbering.
+            let ordered_mod_cycles = if mod_cycles.len() > 1 {
+                let newell_mag = |c: &[u32]| -> f64 {
+                    if c.len() < 3 {
+                        return 0.0;
+                    }
+                    let o = mesh.verts[c[0] as usize].as_array();
+                    let (mut nx, mut ny, mut nz) = (0.0f64, 0.0f64, 0.0f64);
+                    for i in 0..c.len() {
+                        let a = mesh.verts[c[i] as usize].as_array();
+                        let b = mesh.verts[c[(i + 1) % c.len()] as usize].as_array();
+                        let (ax, ay, az) = (a[0] - o[0], a[1] - o[1], a[2] - o[2]);
+                        let (bx, by, bz) = (b[0] - o[0], b[1] - o[1], b[2] - o[2]);
+                        nx += ay * bz - az * by;
+                        ny += az * bx - ax * bz;
+                        nz += ax * by - ay * bx;
+                    }
+                    (nx * nx + ny * ny + nz * nz).sqrt()
+                };
+                let outer_idx = (0..mod_cycles.len())
+                    .max_by(|&ia, &ib| {
+                        newell_mag(&mod_cycles[ia]).total_cmp(&newell_mag(&mod_cycles[ib]))
+                    })
+                    .unwrap_or(0);
+                let mut v = Vec::with_capacity(mod_cycles.len());
+                v.push(mod_cycles[outer_idx].clone());
+                for (ci, cyc) in mod_cycles.iter().enumerate() {
+                    if ci != outer_idx {
+                        v.push(cyc.clone());
+                    }
+                }
+                v
+            } else {
+                mod_cycles.clone()
+            };
             let mod_splice = SplicePatch {
-                cycles: mod_cycles.clone(),
+                cycles: ordered_mod_cycles,
                 tris: raw_patch.tri_indices.clone(),
                 surface: info.inherited,
             };
@@ -1106,15 +1416,17 @@ pub(crate) fn decimate_patch_chains_441(
                         if let Some(d) = decisions.get_mut(&c) {
                             if d.is_some() {
                                 *d = None;
-                                stats.declined_floor += 1;
+                                stats.declined_patch_rebuild += 1;
                                 any = true;
                             }
                         }
                     }
                     if !any {
-                        break 'plan_batch Vec::new();
+                        return Err(YangError::Stage4ChainDecimateFailed {
+                            reason: ChainDecimateError::FixpointStall { patch: pi },
+                        });
                     }
-                    enforce_loop_floor(&mut decisions, &mut stats.declined_floor);
+                    enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
                     continue 'plan_batch;
                 }
             }
@@ -1123,12 +1435,22 @@ pub(crate) fn decimate_patch_chains_441(
     };
 
     if rebuilds.is_empty() {
-        return stats;
+        return Ok(stats);
     }
 
     // Batch conformal boundary postcondition (post-keep overall, or per-operand
     // M_A / M_B on the full arrangement — matching `run_construct_passes`).
+    // Each rebuild `ri`'s appended seed vertices (`r.new_verts`) are assigned
+    // the exact prefix-sum base index `apply_rebuild_batch` will allocate
+    // (`seed_bases[ri] = n_verts + sum_{j < ri} rebuilds[j].new_verts.len()`).
     let n_verts = mesh.verts.len() as u32;
+    let mut seed_bases: Vec<u32> = Vec::with_capacity(rebuilds.len());
+    let mut next_seed_base = n_verts;
+    for r in &rebuilds {
+        seed_bases.push(next_seed_base);
+        next_seed_base += r.new_verts.len() as u32;
+    }
+
     let boundary_leaks = if full_arrangement {
         [InputId::A, InputId::B].into_iter().any(|op_id| {
             let mut old_op: Vec<[u32; 3]> = Vec::new();
@@ -1155,11 +1477,11 @@ pub(crate) fn decimate_patch_chains_441(
                     }
                     old_op.push(tri);
                 }
-                let base = n_verts + (ri as u32) * 1_000_000;
+                let seed_base = seed_bases[ri];
                 for t in &r.new_tris {
                     let mut tri = t.map(|v| {
                         if v >= r.plan_verts {
-                            base + (v - r.plan_verts)
+                            seed_base + (v - r.plan_verts)
                         } else {
                             v
                         }
@@ -1181,11 +1503,11 @@ pub(crate) fn decimate_patch_chains_441(
             .iter()
             .enumerate()
             .flat_map(|(ri, r)| {
-                let base = n_verts + (ri as u32) * 1_000_000;
+                let seed_base = seed_bases[ri];
                 r.new_tris.iter().map(move |t| {
                     t.map(|v| {
                         if v >= r.plan_verts {
-                            base + (v - r.plan_verts)
+                            seed_base + (v - r.plan_verts)
                         } else {
                             v
                         }
@@ -1196,11 +1518,20 @@ pub(crate) fn decimate_patch_chains_441(
         directed_boundary(&old_all) != directed_boundary(&new_all)
     };
     if boundary_leaks {
-        return stats;
+        return Err(YangError::Stage4ChainDecimateFailed {
+            reason: ChainDecimateError::BoundaryLeak {
+                rebuilds: rebuilds.len(),
+                full_arrangement,
+            },
+        });
     }
 
-    if apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds).is_err() {
-        return stats;
+    if let Err(err) = apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
+        return Err(YangError::Stage4ChainDecimateFailed {
+            reason: ChainDecimateError::BatchWritebackFailed {
+                detail: format!("{err:?}"),
+            },
+        });
     }
 
     // Tally canonical chains that actually dropped interior vertices.
@@ -1227,5 +1558,5 @@ pub(crate) fn decimate_patch_chains_441(
         })
         .sum();
     stats.edges_after = stats.edges_before.saturating_sub(owner_mult);
-    stats
+    Ok(stats)
 }

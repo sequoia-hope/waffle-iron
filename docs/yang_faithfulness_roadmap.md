@@ -98,9 +98,11 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
       gives r_A = r_B = r on two trimmed meshes. *(I3a full-arrangement
       primitives + 9 unit pins landed 2026-10-27; I3b `boolean_once` flip
       stopped per P9/P10 on `R0063`, `tangency_pinch_split`, and `b2_pipe::s_bend`
-      — 2026-10-28 F2 Step 1 cleared `b2_pipe::s_bend` (`17/17` under uncommitted
-      I3b trial); still gated on F2 retiring post-hoc `(3d)` unzip (`R0063`) and
-      pre-CDT 2D `collapse_vertex` relabelling (`c0058`); see
+      — 2026-10-28/30 F2 Step 1 cleared `b2_pipe::s_bend` (`17/17` in `0.41s`
+      under reproducible uncommitted I3b trial via
+      `~/.claude/bin/reserve -c 4 -l "b2_pipe" -- cargo test --release -p kernel-v2 --test b2_pipe`);
+      still gated on F2 retiring post-hoc `(3d)` unzip (`R0063`) and pre-CDT 2D
+      `collapse_vertex` relabelling (`c0058`); see
       `specs/yang_442_classify_after_update.md` §3(d) and N80/N81.)*
 - **Resolves:** N80. **Consolidates:** N81's three §4.4.1 sites (finished
   in F2). **Unblocks:** F2 and F3's Case-IV rule-out (I2).
@@ -128,12 +130,17 @@ intersected patches.
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
       validate. The §4.3 removals move into optimization (N81).
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
-      ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28:
+      ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
-      `stage4_chain_decimate::decimate_patch_chains_441` with 3D `point_cmp`;
+      `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4
+      endpoint subdivision, operand-anchored closed loops, `Surface::Sphere`
+      `declined_sphere_unsupported`, and `N105` class-(b) elision;
       `merge_conic_seam_runs` open + operand-anchored closed runs made
-      vertex-index-free, `0`-operand-vertex closed-circle phase STOPped on
-      `R0021` — see `N81`)*. Review `merge_same_plane_patches` (cleanup 2c).
+      vertex-index-free, while `0`-operand-vertex closed circles carry a
+      retained index rule, open debt — `R0021` passes by noise at
+      `rel = 8.489e-5` vs `band = 8.55e-5`, `volume_composition` chord-sagitta
+      deficit needs adjudicating — see `N81` / `N58` / `N105`)*. Review
+      `merge_same_plane_patches` (cleanup 2c).
 - [ ] **Stage-1 junction mints retire** into §4.4.1 junction identification
       (N82: `rim_junction_overrides`, P3a, tangent boost).
 - [ ] **Stage-0 Fig-11 relocation retires** into the same update (N86,
@@ -289,3 +296,5 @@ the first known item.
 | 2026-10-28 | F4: §4.3 tangency by Newton (pair optimization first, then compare normals), Stage-1 `cyl_cyl_tangent_points` retired (kept as a test oracle, 180-config sweep), §4.2.2 Gauss-map admission live for small loops (N92 RESOLVED), Bajaj loop tracing, Fig. 10(c) seeding, :502-505 redundancy; independent review fixes (no snap fallback, no type enumeration, failures recorded, C0118 sub-feature twin sheets declined). N100 item 9 found and ledgered (§4.5 adoption does not test loop vertices on surfaces) | 61 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 636 s) | ..6714be2f |
 | 2026-10-29 | Remediation Phase 2 (not a milestone step): the harness on-surface oracle (O1) — corpus "held" now includes geometry; N100 item 3 measured in R0015 / R0026 / R0050 (chords on torus/cylinder faces), now WRONG and first in line | 61 | 132 | 357C / 3W / 9E / 5EE / 0T | 647a4736 |
 | 2026-10-30 | WRONG tail (not a milestone step): R0015 / R0026 / R0050 CONVERTED — Stage-5 output typing types every chord between two different surfaces (carried curve, else the surfaces' ssi intersection; twin candidates within band are one; pair chords certified by bisection). N60 amended; N104 ledgered OPEN (Stage 3 leaves the perpendicular torus×plane section and Stage-0 overlay A×B curves untyped) | 62 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-10-30 | F2 Step 1 + review fixes (N81; N58 reopened; N105 added): Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4, `DecimateStats` + loud `Stage4ChainDecimateFailed`; `Surface::Sphere` non-decimation stated), operand-anchored conic merge vertex-index-free (`0`-operand-vertex closed circle retains `min_by_key` index rule as open debt on `R0021`), Stage-1/`sphere.rs` unbundled, `developable.rs` hardened with `Result` + red-first pin (`curved_holed_lateral_reentry`), `4.4-23`/`4.4-28` updated (`stage5_topology.rs:1037`), class-(b) elision ledgered as N105 | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 524.8 s, 0 moved) | 3d98d89b, (this commit) |
+| 2026-10-30 | F2 Step 1 (Antigravity; independently re-verified on main): polyline chain decimation re-sited from Stage 5 into §4.4.1 (`stage4_chain_decimate::decimate_patch_chains_441`, forward §4.3.4 subdivision), operand-anchored conic merge index-free; N58 reopened, N105 ledgered | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 587 s, on-surface oracle in force, no case moved) | (this commit) |

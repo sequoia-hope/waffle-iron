@@ -176,7 +176,7 @@ mod stage4_update;
 
 // Print-only census for ledger N100's possible silent paths.
 mod n100_census;
-pub use errors::{SsiRefinementError, Stage4InvalidReason, YangError};
+pub use errors::{ChainDecimateError, SsiRefinementError, Stage4InvalidReason, YangError};
 pub(crate) use geom::{
     ellipse_param, ellipse_point, ellipse_tangent, hyperbola_param, surface_normal_at,
 };

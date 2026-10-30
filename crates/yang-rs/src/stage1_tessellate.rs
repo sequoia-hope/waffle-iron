@@ -199,194 +199,6 @@ pub(crate) fn edge_refine_factors(
     out
 }
 
-/// Group face-referenced open curved `BRepEdge`s (`start != end`) that
-/// denote the SAME geometric arc into `(canon_of, copies_of)` maps (populated
-/// only for groups with `>= 2` copies, so single-shared-edge inputs such as
-/// `kernel-v2` `to_yang_brep` allocate zero entries and run byte-identically).
-fn open_curved_arc_twin_maps(
-    edges: &[BRepEdge],
-    faces: &[BRepFace],
-    sphere_seam_edges: &std::collections::BTreeSet<u32>,
-) -> (
-    std::collections::BTreeMap<u32, u32>,
-    std::collections::BTreeMap<u32, Vec<u32>>,
-) {
-    let norm_bits = |x: f64| -> u64 { (if x == 0.0 { 0.0 } else { x }).to_bits() };
-    let pt_bits = |p: Point3| -> [u64; 3] {
-        let a = p.as_array();
-        [norm_bits(a[0]), norm_bits(a[1]), norm_bits(a[2])]
-    };
-    let vec_bits =
-        |v: [f64; 3]| -> [u64; 3] { [norm_bits(v[0]), norm_bits(v[1]), norm_bits(v[2])] };
-    let surf_bits = |s: Surface| -> Vec<u64> {
-        let mut out = Vec::with_capacity(9);
-        match s {
-            Surface::Plane { normal, d } => {
-                out.push(1);
-                out.extend_from_slice(&vec_bits(normal.as_array()));
-                out.push(norm_bits(d));
-            }
-            Surface::Sphere { center, radius } => {
-                out.push(2);
-                out.extend_from_slice(&pt_bits(center));
-                out.push(norm_bits(radius));
-            }
-            Surface::Cylinder {
-                axis_point,
-                axis_dir,
-                radius,
-            } => {
-                out.push(3);
-                out.extend_from_slice(&pt_bits(axis_point));
-                out.extend_from_slice(&vec_bits(axis_dir.as_array()));
-                out.push(norm_bits(radius));
-            }
-            Surface::Cone {
-                apex,
-                axis_dir,
-                half_angle,
-            } => {
-                out.push(4);
-                out.extend_from_slice(&pt_bits(apex));
-                out.extend_from_slice(&vec_bits(axis_dir.as_array()));
-                out.push(norm_bits(half_angle));
-            }
-            Surface::Torus {
-                center,
-                axis_dir,
-                major_radius,
-                minor_radius,
-            } => {
-                out.push(5);
-                out.extend_from_slice(&pt_bits(center));
-                out.extend_from_slice(&vec_bits(axis_dir.as_array()));
-                out.push(norm_bits(major_radius));
-                out.push(norm_bits(minor_radius));
-            }
-        }
-        out
-    };
-
-    let mut referenced: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-    for f in faces {
-        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
-            referenced.insert(ei);
-        }
-    }
-
-    let mut groups: std::collections::BTreeMap<Vec<u64>, Vec<u32>> =
-        std::collections::BTreeMap::new();
-    for (ei, e) in edges.iter().enumerate() {
-        let ei_u32 = ei as u32;
-        if e.start == e.end || !referenced.contains(&ei_u32) {
-            continue;
-        }
-        let (u, v, fwd) = if e.start < e.end {
-            (e.start, e.end, true)
-        } else {
-            (e.end, e.start, false)
-        };
-        let mut key: Vec<u64> = Vec::with_capacity(20);
-        match e.curve {
-            Curve::Circle {
-                center,
-                normal,
-                radius,
-            } if !sphere_seam_edges.contains(&ei_u32) => {
-                let n = normal.as_array();
-                let dir_n = if fwd { n } else { [-n[0], -n[1], -n[2]] };
-                key.push(1);
-                key.push(u64::from(u));
-                key.push(u64::from(v));
-                key.extend_from_slice(&pt_bits(center));
-                key.extend_from_slice(&vec_bits(dir_n));
-                key.push(norm_bits(radius));
-            }
-            Curve::Ellipse {
-                center,
-                normal,
-                major_axis,
-                major_radius,
-                minor_radius,
-            } => {
-                let n = normal.as_array();
-                let dir_n = if fwd { n } else { [-n[0], -n[1], -n[2]] };
-                key.push(2);
-                key.push(u64::from(u));
-                key.push(u64::from(v));
-                key.extend_from_slice(&pt_bits(center));
-                key.extend_from_slice(&vec_bits(dir_n));
-                key.extend_from_slice(&vec_bits(major_axis.as_array()));
-                key.push(norm_bits(major_radius));
-                key.push(norm_bits(minor_radius));
-            }
-            Curve::Hyperbola {
-                center,
-                normal,
-                major_axis,
-                semi_transverse,
-                semi_conjugate,
-            } => {
-                key.push(3);
-                key.push(u64::from(u));
-                key.push(u64::from(v));
-                key.extend_from_slice(&pt_bits(center));
-                key.extend_from_slice(&vec_bits(normal.as_array()));
-                key.extend_from_slice(&vec_bits(major_axis.as_array()));
-                key.push(norm_bits(semi_transverse));
-                key.push(norm_bits(semi_conjugate));
-            }
-            Curve::SurfacePair { a, b } => {
-                let (ka, kb) = (surf_bits(a), surf_bits(b));
-                let (k0, k1) = if ka <= kb { (ka, kb) } else { (kb, ka) };
-                key.push(4);
-                key.push(u64::from(u));
-                key.push(u64::from(v));
-                key.push(k0.len() as u64);
-                key.extend_from_slice(&k0);
-                key.extend_from_slice(&k1);
-            }
-            _ => continue,
-        }
-        groups.entry(key).or_default().push(ei_u32);
-    }
-
-    let mut canon_of = std::collections::BTreeMap::new();
-    let mut copies_of = std::collections::BTreeMap::new();
-    for copies in groups.into_values() {
-        if copies.len() < 2 {
-            continue;
-        }
-        let canon = copies[0];
-        for &c in &copies {
-            canon_of.insert(c, canon);
-        }
-        copies_of.insert(canon, copies);
-    }
-    (canon_of, copies_of)
-}
-
-fn insert_open_arc_chain(
-    rim_rings: &mut std::collections::BTreeMap<u32, Vec<u32>>,
-    canon: u32,
-    canon_start: u32,
-    chain: Vec<u32>,
-    edges: &[BRepEdge],
-    open_arc_copies_of: &std::collections::BTreeMap<u32, Vec<u32>>,
-) {
-    if let Some(copies) = open_arc_copies_of.get(&canon) {
-        for &ci in &copies[1..] {
-            let sib = if edges[ci as usize].start == canon_start {
-                chain.clone()
-            } else {
-                chain.iter().rev().copied().collect()
-            };
-            rim_rings.insert(ci, sib);
-        }
-    }
-    rim_rings.insert(canon, chain);
-}
-
 /// A face's chord DEMAND under refinement: the self-contact guard's demand
 /// (if any) tightened by the refined bound `budget / k²`. `k = 1` returns
 /// `demand` unchanged (byte-identical).
@@ -720,7 +532,7 @@ pub(crate) fn stage1_tessellate_once(
         // every edge's density factor is the MAX over its incident faces, so
         // a shared rim takes the finer face's ring. All 1 (byte-identical)
         // when no face is refined.
-        let mut edge_refine = edge_refine_factors(edges.len(), faces, face_refine);
+        let edge_refine = edge_refine_factors(edges.len(), faces, face_refine);
         let mut inserted_rims: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let mut out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
         let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
@@ -750,60 +562,6 @@ pub(crate) fn stage1_tessellate_once(
                     .copied()
             })
             .collect();
-
-        // §4.1 shared boundary-chain conformality on direct yang-chained
-        // B-Reps (`refs/text/yang2025_hybrid_boolean.txt:301-303, 397-407`; mirrors
-        // `to_yang_brep`'s `shared_edges` and the `LineSegment` override
-        // grouping below): `emit_topology` / `stage5_seam_merge` emit one
-        // directed `BRepEdge` per loop half-edge, so a direct yang boolean
-        // output carries two opposite-oriented copies (`u -> v, +n` and
-        // `v -> u, -n`) of each open curved arc. Sampling them independently
-        // mints duplicate Steiner vertices and can drift by 1 ULP across
-        // `(1 - k/m)` vs `k/m` (`pocket_operand_reenters_plain_boolean`).
-        // Group face-referenced open curved copies by exact geometric arc so
-        // `canon = copies[0]` mints the Steiner chain once and every sibling
-        // splices the identical vertex IDs. When `copies.len() == 1` (all
-        // `kernel-v2` `to_yang_brep` inputs), both maps are empty (no-op).
-        let (open_arc_canon_of, open_arc_copies_of) =
-            open_curved_arc_twin_maps(edges, faces, &sphere_seam_edges);
-        for copies in open_arc_copies_of.values() {
-            let k_max = copies
-                .iter()
-                .map(|&c| edge_refine[c as usize])
-                .max()
-                .unwrap_or(1);
-            for &c in copies {
-                edge_refine[c as usize] = k_max;
-            }
-        }
-        let merged_rim_overrides: Option<std::collections::BTreeMap<u32, Vec<Point3>>> =
-            if !open_arc_copies_of.is_empty() && !rim_overrides.is_empty() {
-                let mut m = rim_overrides.clone();
-                for (&canon, copies) in &open_arc_copies_of {
-                    if !copies.iter().any(|c| rim_overrides.contains_key(c)) {
-                        continue;
-                    }
-                    let mut merged: Vec<Point3> = Vec::new();
-                    for &c in copies {
-                        if let Some(pts) = rim_overrides.get(&c) {
-                            for &p in pts {
-                                let pk = [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
-                                if !merged.iter().any(|q| {
-                                    [q.x().to_bits(), q.y().to_bits(), q.z().to_bits()] == pk
-                                }) {
-                                    merged.push(p);
-                                }
-                            }
-                        }
-                    }
-                    m.insert(canon, merged);
-                }
-                Some(m)
-            } else {
-                None
-            };
-        let rim_overrides = merged_rim_overrides.as_ref().unwrap_or(rim_overrides);
-
         let circle_edges: Vec<(usize, Point3, Vector3, f64, u32, u32)> = edges
             .iter()
             .enumerate()
@@ -1024,12 +782,6 @@ pub(crate) fn stage1_tessellate_once(
                 };
 
                 if e_start != e_end {
-                    if open_arc_canon_of
-                        .get(&(e_idx as u32))
-                        .is_some_and(|&c| c != e_idx as u32)
-                    {
-                        continue;
-                    }
                     // ---- ARC chain (PR-KV6b-1) ----
                     let phi0 = angle_of(e_start)?;
                     let phi1 = angle_of(e_end)?;
@@ -1187,14 +939,7 @@ pub(crate) fn stage1_tessellate_once(
                         chain.push(vi);
                     }
                     chain.push(e_end);
-                    insert_open_arc_chain(
-                        &mut rim_rings,
-                        e_idx as u32,
-                        e_start,
-                        chain,
-                        edges,
-                        &open_arc_copies_of,
-                    );
+                    rim_rings.insert(e_idx as u32, chain);
                     continue;
                 }
                 // The seam B-Rep vertex is NOT required to lie at angle 0 of
@@ -1539,12 +1284,6 @@ pub(crate) fn stage1_tessellate_once(
                 Ok((t_ov, key))
             };
             if e.start != e.end {
-                if open_arc_canon_of
-                    .get(&(e_idx as u32))
-                    .is_some_and(|&c| c != e_idx as u32)
-                {
-                    continue;
-                }
                 // ---- Minor-arc chain ----
                 let t0 = param_of(e.start)?;
                 let t1 = param_of(e.end)?;
@@ -1669,14 +1408,7 @@ pub(crate) fn stage1_tessellate_once(
                     chain.push(vi);
                 }
                 chain.push(e.end);
-                insert_open_arc_chain(
-                    &mut rim_rings,
-                    e_idx as u32,
-                    e.start,
-                    chain,
-                    edges,
-                    &open_arc_copies_of,
-                );
+                rim_rings.insert(e_idx as u32, chain);
             } else {
                 // ---- Full ellipse: closed seam-anchored ring ----
                 let t0 = param_of(e.start)?;
@@ -1834,12 +1566,6 @@ pub(crate) fn stage1_tessellate_once(
                      (the branch is unbounded)"
                 )));
             }
-            if open_arc_canon_of
-                .get(&(e_idx as u32))
-                .is_some_and(|&c| c != e_idx as u32)
-            {
-                continue;
-            }
             // Same rule (and same A14.3 single source) as the hyperbola arm
             // of `ellipse_rim_chord_bound` — the 1e-2 base lives in
             // `chord_rel()`, so the §4.5.2 census knob covers this path too.
@@ -1965,14 +1691,7 @@ pub(crate) fn stage1_tessellate_once(
                 chain.push(vi);
             }
             chain.push(e.end);
-            insert_open_arc_chain(
-                &mut rim_rings,
-                e_idx as u32,
-                e.start,
-                chain,
-                edges,
-                &open_arc_copies_of,
-            );
+            rim_rings.insert(e_idx as u32, chain);
         }
 
         // ---- Surface-pair chain pre-pass (M5 K11 re-entry, spec
@@ -2005,12 +1724,6 @@ pub(crate) fn stage1_tessellate_once(
                     "surface-pair edge {e_idx}: a closed single-edge surface-pair loop has no \
                      producer (kernel-v2 K2/K6 reject it)"
                 )));
-            }
-            if open_arc_canon_of
-                .get(&(e_idx as u32))
-                .is_some_and(|&c| c != e_idx as u32)
-            {
-                continue;
             }
             let endpoint = |v: u32| -> Result<Point3, YangError> {
                 let p = verts.get(v as usize).map(|vv| vv.point).ok_or_else(|| {
@@ -2268,14 +1981,7 @@ pub(crate) fn stage1_tessellate_once(
                 chain.push(vi);
             }
             chain.push(e.end);
-            insert_open_arc_chain(
-                &mut rim_rings,
-                e_idx as u32,
-                e.start,
-                chain,
-                edges,
-                &open_arc_copies_of,
-            );
+            rim_rings.insert(e_idx as u32, chain);
         }
 
         // ---- LineSegment junction-override chain pre-pass (P3a #146
@@ -2643,25 +2349,7 @@ pub(crate) fn stage1_tessellate_once(
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         // P0008: which B-Rep edges bound a PLANAR face (the holed-lateral
         // CDT's planar-neighbor chord rule, `planar_neighbor_chords`).
-        let mut edge_planar = edge_planar_faces(faces, edges.len());
-        for copies in open_arc_copies_of.values() {
-            let mut merged: [Option<u32>; 2] = [None, None];
-            for &c in copies {
-                for pf in edge_planar[c as usize].into_iter().flatten() {
-                    if merged.contains(&Some(pf)) {
-                        continue;
-                    }
-                    if merged[0].is_none() {
-                        merged[0] = Some(pf);
-                    } else if merged[1].is_none() {
-                        merged[1] = Some(pf);
-                    }
-                }
-            }
-            for &c in copies {
-                edge_planar[c as usize] = merged;
-            }
-        }
+        let edge_planar = edge_planar_faces(faces, edges.len());
         for (f_idx, f) in faces.iter().enumerate() {
             let range_start = out_tris.len();
             // PR-KV7: ALL loops (outer + rings) must be segments for the

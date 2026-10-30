@@ -472,10 +472,16 @@ fn tessellate_developable_patch(
     if !face.inner_loops.is_empty() {
         // On a holed barrel (`wrapping` non-empty), `yang-rs` may store either
         // a rim or a window in `face.outer_loop` (`s6_outer_loop_by_extent`
-        // R0099 strip rule; downstream classifies loops by winding). Put
-        // axis-wrapping loops first in a position-canonical order and anchor
-        // `(e1, e2)` at their lexicographically smallest off-axis vertex so the
-        // unrolled frame and Pass 1.5 host order do not depend on loop labels.
+        // R0099 strip rule; `boolean_chains::curved_holed_lateral_reentry`
+        // customer; Pass 2 classifies loops by winding). Place axis-wrapping
+        // loops first in `(x, y, z)` minimum-vertex order and anchor `(e1, e2)`
+        // at the `(x, y, z)`-lexicographically smallest vertex across those
+        // axis-wrapping loops (all barrel loop vertices are off-axis via
+        // `theta_h`; world-frame `(x, y, z)` tie-break) so the unrolled frame
+        // and Pass 1.5 host order do not depend on `outer_loop` vs `inner_loops`
+        // labelling. Uses `Result` throughout so malformed loops (`len < 2`,
+        // on-axis vertex, or `Curve::Circle`) fail loudly with Pass 1's own
+        // errors rather than silently falling back.
         let ref_ax = if a[0].abs() < 0.9 {
             [1.0, 0.0, 0.0]
         } else {
@@ -500,43 +506,37 @@ fn tessellate_developable_patch(
                     .then_with(|| u[2].total_cmp(&v[2]))
             };
             let loop_wrap_and_min =
-                |lid: crate::arena::LoopId| -> Option<(bool, [f64; 3], Option<Point3>)> {
-                    let hes = arena.loop_half_edges(lid).ok()?;
+                |lid: crate::arena::LoopId| -> Result<(bool, Point3), KernelV2Error> {
+                    let hes = arena.loop_half_edges(lid)?;
                     if hes.len() < 2 {
-                        return None;
+                        return Err(fail("patch loop with fewer than 2 edges"));
                     }
                     let mut total = 0.0f64;
-                    let mut min_xyz: Option<[f64; 3]> = None;
-                    let mut min_off_axis: Option<Point3> = None;
+                    let mut min_pt: Option<Point3> = None;
                     for &h in &hes {
-                        let he = arena.half_edge(h).ok()?;
-                        let p = arena.vertex(he.origin).ok()?.point;
-                        let q = arena
-                            .vertex(arena.half_edge(he.next).ok()?.origin)
-                            .ok()?
-                            .point;
-                        let p_xyz = [p.x(), p.y(), p.z()];
-                        if min_xyz.is_none_or(|m| cmp_xyz(p_xyz, m).is_lt()) {
-                            min_xyz = Some(p_xyz);
-                        }
-                        let (theta_p, _) = theta_h(p, te1, te2).ok()?;
-                        if min_off_axis
-                            .is_none_or(|m| cmp_xyz(p_xyz, [m.x(), m.y(), m.z()]).is_lt())
-                        {
-                            min_off_axis = Some(p);
+                        let he = arena.half_edge(h)?;
+                        let p = arena.vertex(he.origin)?.point;
+                        let q = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                        let (theta_p, _) = theta_h(p, te1, te2)?;
+                        if min_pt.is_none_or(|m| {
+                            cmp_xyz([p.x(), p.y(), p.z()], [m.x(), m.y(), m.z()]).is_lt()
+                        }) {
+                            min_pt = Some(p);
                         }
                         match he.curve {
                             Curve::LineSegment => {
-                                let (theta_q, _) = theta_h(q, te1, te2).ok()?;
+                                let (theta_q, _) = theta_h(q, te1, te2)?;
                                 total += crate::geom::wrap_to_pi(theta_q - theta_p);
                             }
                             Curve::Arc { center, normal, .. } => {
-                                let sw = crate::geom::ccw_sweep(
+                                let Some(sw) = crate::geom::ccw_sweep(
                                     center,
                                     [normal.x, normal.y, normal.z],
                                     p,
                                     q,
-                                )?;
+                                ) else {
+                                    return Err(fail("degenerate patch arc (endpoint not radial)"));
+                                };
                                 let dir =
                                     if normal.x * a[0] + normal.y * a[1] + normal.z * a[2] > 0.0 {
                                         1.0
@@ -546,66 +546,70 @@ fn tessellate_developable_patch(
                                 total += dir * sw;
                             }
                             Curve::EllipseArc { .. } => {
-                                let samples = ellipse_interior_samples(arena, h, n_seg).ok()?;
+                                let samples = ellipse_interior_samples(arena, h, n_seg)?;
                                 let mut prev = theta_p;
                                 for sp in &samples {
-                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    let (ts, _) = theta_h(*sp, te1, te2)?;
                                     total += crate::geom::wrap_to_pi(ts - prev);
                                     prev = ts;
                                 }
-                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                let (tq, _) = theta_h(q, te1, te2)?;
                                 total += crate::geom::wrap_to_pi(tq - prev);
                             }
                             Curve::HyperbolaArc { .. } => {
-                                let samples = hyperbola_interior_samples(arena, h, n_seg).ok()?;
+                                let samples = hyperbola_interior_samples(arena, h, n_seg)?;
                                 let mut prev = theta_p;
                                 for sp in &samples {
-                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    let (ts, _) = theta_h(*sp, te1, te2)?;
                                     total += crate::geom::wrap_to_pi(ts - prev);
                                     prev = ts;
                                 }
-                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                let (tq, _) = theta_h(q, te1, te2)?;
                                 total += crate::geom::wrap_to_pi(tq - prev);
                             }
                             Curve::SurfacePair { .. } => {
-                                let samples = surface_pair_edge_samples(arena, h, n_seg).ok()?;
+                                let samples = surface_pair_edge_samples(arena, h, n_seg)?;
                                 let mut prev = theta_p;
                                 for sp in &samples {
-                                    let (ts, _) = theta_h(*sp, te1, te2).ok()?;
+                                    let (ts, _) = theta_h(*sp, te1, te2)?;
                                     total += crate::geom::wrap_to_pi(ts - prev);
                                     prev = ts;
                                 }
-                                let (tq, _) = theta_h(q, te1, te2).ok()?;
+                                let (tq, _) = theta_h(q, te1, te2)?;
                                 total += crate::geom::wrap_to_pi(tq - prev);
                             }
-                            Curve::Circle { .. } => return None,
+                            Curve::Circle { .. } => {
+                                return Err(fail(
+                                    "full-circle edge inside a partial cylinder patch",
+                                ));
+                            }
                         }
                     }
-                    Some((total.abs() > PI, min_xyz?, min_off_axis))
+                    Ok((
+                        total.abs() > PI,
+                        min_pt.expect("hes.len() >= 2 checked above"),
+                    ))
                 };
-            let mut info: Vec<(crate::arena::LoopId, bool, [f64; 3], Option<Point3>)> =
+            let mut info: Vec<(crate::arena::LoopId, bool, Point3)> =
                 Vec::with_capacity(all_loops.len());
-            let mut all_ok = true;
             for &lid in &all_loops {
-                if let Some((wraps, min_xyz, min_off)) = loop_wrap_and_min(lid) {
-                    info.push((lid, wraps, min_xyz, min_off));
-                } else {
-                    all_ok = false;
-                    break;
-                }
+                let (wraps, min_pt) = loop_wrap_and_min(lid)?;
+                info.push((lid, wraps, min_pt));
             }
-            if all_ok && info.iter().any(|(_, wraps, _, _)| *wraps) {
+            if info.iter().any(|(_, wraps, _)| *wraps) {
                 info.sort_by(|x, y| {
                     (!x.1)
                         .cmp(&(!y.1))
-                        .then_with(|| cmp_xyz(x.2, y.2))
+                        .then_with(|| {
+                            cmp_xyz([x.2.x(), x.2.y(), x.2.z()], [y.2.x(), y.2.y(), y.2.z()])
+                        })
                         .then_with(|| x.0 .0.cmp(&y.0 .0))
                 });
-                all_loops = info.iter().map(|(lid, _, _, _)| *lid).collect();
+                all_loops = info.iter().map(|(lid, _, _)| *lid).collect();
                 if let Some(best_p0) = info
                     .iter()
-                    .filter(|(_, wraps, _, _)| *wraps)
-                    .filter_map(|(_, _, _, p)| *p)
+                    .filter(|(_, wraps, _)| *wraps)
+                    .map(|(_, _, p)| *p)
                     .min_by(|u, v| cmp_xyz([u.x(), u.y(), u.z()], [v.x(), v.y(), v.z()]))
                 {
                     p0 = best_p0;

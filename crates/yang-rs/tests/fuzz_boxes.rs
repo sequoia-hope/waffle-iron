@@ -400,6 +400,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
         YangError::SubSagittaGrazeIntersection { .. } => "SubSagittaGrazeIntersection",
         YangError::RefinementExhausted { .. } => "RefinementExhausted",
+        YangError::Stage4ChainDecimateFailed { .. } => "Stage4ChainDecimateFailed",
     }
 }
 

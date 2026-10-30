@@ -1029,11 +1029,10 @@ pub(crate) fn reconstruct_topology_stage4(
             intersection_curves = cv4;
         }
         // F2 / N81 (§4.4.1 curve-chain decimation, Yang et al. 2025 §4.3.4 / §4.4.1,
-        // `refs/text/yang2025_hybrid_boolean.txt:536-571`): drop redundant interior
-        // samples along LineSegment / SurfacePair intersection polylines (and
-        // sub-resolution collinear straight-edge subdivisions) inside Stage 4 and
-        // update every owner patch's triangulation conformally before topology
-        // emission. Canonicalized by 3D point coordinates, never vertex numbering.
+        // `refs/text/yang2025_hybrid_boolean.txt:575-593, 546-572`): apply forward §4.3.4
+        // along LineSegment / SurfacePair intersection polylines (and sub-resolution
+        // collinear straight-edge subdivisions, ledger N105) inside Stage 4 and update
+        // every owner patch's triangulation conformally before topology emission.
         let dec_st = crate::stage4_chain_decimate::decimate_patch_chains_441(
             mesh,
             attribution,
@@ -1043,14 +1042,17 @@ pub(crate) fn reconstruct_topology_stage4(
             a,
             b,
             false,
-        );
+        )?;
         c441_log!(
-            "[s434-decimate] runs={} dropped={} edges {}->{} declined_floor={} disc_loops={}",
+            "[s434-decimate] runs={} dropped={} edges {}->{} declined_loop_floor={} declined_disc_patch={} declined_sphere={} declined_rebuild={} disc_loops={}",
             dec_st.runs_decimated,
             dec_st.verts_dropped,
             dec_st.edges_before,
             dec_st.edges_after,
-            dec_st.declined_floor,
+            dec_st.declined_loop_floor,
+            dec_st.declined_discontinuous_patch,
+            dec_st.declined_sphere_unsupported,
+            dec_st.declined_patch_rebuild,
             dec_st.skipped_discontinuous_loops
         );
         if dec_st.verts_dropped > 0 {

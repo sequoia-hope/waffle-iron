@@ -236,6 +236,41 @@ pub enum YangError {
     /// ships. `sites` counts the surviving failure sites; `summary` names
     /// their triggers and the first site's faces.
     RefinementExhausted { sites: usize, summary: String },
+
+    /// Stage 4 (§4.4.1 curve-chain decimation, F2 / N81): an internal mesh or
+    /// patch-partition invariant failed while decimating redundant polyline
+    /// chain vertices (`stage4_chain_decimate::decimate_patch_chains_441`). A
+    /// P9/P10 LOUD stop — never a silent drop of the batch or an inconsistent
+    /// mesh handed to topology emission.
+    Stage4ChainDecimateFailed { reason: ChainDecimateError },
+}
+
+/// F2 / N81 (`stage4_chain_decimate::decimate_patch_chains_441`): why §4.4.1
+/// curve-chain decimation refused an inconsistent or unrepresentable mesh
+/// state loudly instead of silently returning partial or stale state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChainDecimateError {
+    /// Flood-fill + same-plane patch count disagreed with the caller's
+    /// `PatchInfo` slice (`compute_phase_a` out of sync with `mesh.tris`).
+    PatchPartitionMismatch {
+        raw_patches: usize,
+        info_patches: usize,
+    },
+    /// A cycle half-edge `(u, v)` was missing from the pre-built `edge_class`
+    /// table.
+    UnclassifiedCycleEdge { edge: (u32, u32) },
+    /// A patch marked `patch_changed` had no active canonical chain in
+    /// `decisions` to decline, stalling the batch fixpoint loop.
+    FixpointStall { patch: usize },
+    /// Accepted per-patch rebuilds changed the batch's outer directed boundary
+    /// (or an operand's `M_A` / `M_B` boundary on the full arrangement).
+    BoundaryLeak {
+        rebuilds: usize,
+        full_arrangement: bool,
+    },
+    /// `apply_rebuild_batch` refused the planned `PatchRebuild` batch (stale
+    /// plan, mixed attribution, or overlapping old-triangle sets).
+    BatchWritebackFailed { detail: String },
 }
 
 /// PR-YR10 (Stage 4): why a relocation region could not be made valid.
@@ -561,6 +596,12 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: §4.5.2 local refinement ended with {sites} unresolved failure \
                      site(s): {summary}"
+                )
+            }
+            Self::Stage4ChainDecimateFailed { reason } => {
+                write!(
+                    f,
+                    "yang-rs: Stage-4 §4.4.1 curve-chain decimation failed invariant: {reason:?}"
                 )
             }
         }

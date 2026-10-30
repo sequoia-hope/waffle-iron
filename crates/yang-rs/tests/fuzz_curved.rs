@@ -1150,6 +1150,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::SubResolutionCoplanarGap { .. } => "SubResolutionCoplanarGap",
         YangError::SubSagittaGrazeIntersection { .. } => "SubSagittaGrazeIntersection",
         YangError::RefinementExhausted { .. } => "RefinementExhausted",
+        YangError::Stage4ChainDecimateFailed { .. } => "Stage4ChainDecimateFailed",
         // Sub-reason-resolved buckets (the specific M5 gaps).
         YangError::SsiRefinementFailed { reason, .. } => match reason {
             yang_rs::SsiRefinementError::IntersectFailed(_) => {

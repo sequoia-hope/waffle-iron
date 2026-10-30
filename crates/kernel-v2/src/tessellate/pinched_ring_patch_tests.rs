@@ -340,3 +340,187 @@ fn pinned_notch_on_bounded_patch_tessellates() {
     assert!(mesh.indices.len() >= 3);
     assert!(max_edge_incidence(&mesh) <= 2);
 }
+
+/// F2 / N81 (`boolean_chains::curved_holed_lateral_reentry` customer):
+/// on a holed cylinder barrel (two 4-arc encircling rims + an interior window
+/// loop), swapping which loop sits in `face.outer_loop` vs `face.inner_loops`
+/// (and permuting `inner_loops`) must produce the exact same 3D triangle
+/// multiset (`p0` anchored at the `(x, y, z)`-lexicographically smallest
+/// vertex across axis-wrapping loops). Also verifies that a `Curve::Circle`
+/// edge inside a multi-loop patch fails loudly rather than silently falling
+/// back.
+#[test]
+fn holed_barrel_unroll_is_invariant_under_loop_swap_and_rejects_circle_loudly() {
+    let build_and_tess = |outer_which: usize, swap_inners: bool| -> Vec<[[u64; 3]; 3]> {
+        let mut arena = BrepArena::new();
+        let fid = FaceId(0);
+        // Bottom rim (z = 0, CCW from +z): 4 quarter-points starting at θ = 0.
+        let bot_ids = [0, 1, 2, 3];
+        for k in 0..4 {
+            let th = (k as f64) * std::f64::consts::FRAC_PI_2;
+            arena.vertices.push(Some(Vertex {
+                point: cyl_point(th, 0.0),
+            }));
+        }
+        // Top rim (z = H, CW from +z): starts at θ = π/2 so its raw `hes[0]`
+        // azimuth differs from `bot_ids[0]` unless `p0` is canonicalized.
+        let top_ids = [4, 5, 6, 7];
+        for k in 0..4 {
+            let th = std::f64::consts::FRAC_PI_2 - (k as f64) * std::f64::consts::FRAC_PI_2;
+            arena.vertices.push(Some(Vertex {
+                point: cyl_point(th, H),
+            }));
+        }
+        // Interior window at θ ∈ [0.35, 0.95], z ∈ [0.3, 0.7] (CW hole in (u, v)):
+        let win_pts = [
+            cyl_point(0.35, 0.3),
+            cyl_point(0.35, 0.7),
+            cyl_point(0.95, 0.7),
+            cyl_point(0.95, 0.3),
+        ];
+        let mut win_ids = Vec::new();
+        for p in win_pts {
+            let id = arena.vertices.len() as u32;
+            arena.vertices.push(Some(Vertex { point: p }));
+            win_ids.push(id);
+        }
+
+        let add_arc_rim = |arena: &mut BrepArena,
+                           he_base: usize,
+                           ids: &[u32],
+                           z: f64,
+                           nz: f64,
+                           kind: LoopKind|
+         -> LoopId {
+            let lid = LoopId(arena.loops.len() as u32);
+            let n = ids.len();
+            for (i, &v) in ids.iter().enumerate() {
+                arena.half_edges.push(Some(HalfEdge {
+                    twin: HalfEdgeId((he_base + i) as u32),
+                    next: HalfEdgeId((he_base + (i + 1) % n) as u32),
+                    prev: HalfEdgeId((he_base + (i + n - 1) % n) as u32),
+                    origin: VertexId(v),
+                    loop_id: lid,
+                    curve: Curve::Arc {
+                        center: Point3::new(0.0, 0.0, z),
+                        normal: UnitVector3 {
+                            x: 0.0,
+                            y: 0.0,
+                            z: nz,
+                        },
+                        radius: R,
+                    },
+                }));
+            }
+            arena.loops.push(Some(Loop {
+                face: fid,
+                boundary: LoopBoundary::Edges(HalfEdgeId(he_base as u32)),
+                kind,
+            }));
+            lid
+        };
+
+        let l_bot = add_arc_rim(&mut arena, 0, &bot_ids, 0.0, 1.0, LoopKind::Outer);
+        let l_top = add_arc_rim(&mut arena, 4, &top_ids, H, -1.0, LoopKind::Inner);
+        let l_win = add_loop(&mut arena, fid, 8, &win_ids, LoopKind::Inner);
+        let (outer, mut inner) = match outer_which {
+            0 => (l_bot, vec![l_top, l_win]),
+            1 => (l_top, vec![l_win, l_bot]),
+            _ => (l_win, vec![l_top, l_bot]),
+        };
+        if swap_inners {
+            inner.reverse();
+        }
+        let fid = finish_face(&mut arena, outer, inner);
+        let mut mesh = RenderMesh::default();
+        tessellate_cylinder_patch(&arena, fid, 24, &mut mesh)
+            .expect("holed arc barrel tessellates");
+
+        let mut tris: Vec<[[u64; 3]; 3]> = mesh
+            .indices
+            .chunks_exact(3)
+            .map(|c| {
+                let pt_bits = |vi: u32| -> [u64; 3] {
+                    let b = (vi as usize) * 3;
+                    [
+                        mesh.positions[b].to_bits(),
+                        mesh.positions[b + 1].to_bits(),
+                        mesh.positions[b + 2].to_bits(),
+                    ]
+                };
+                let mut tri = [pt_bits(c[0]), pt_bits(c[1]), pt_bits(c[2])];
+                // Canonicalize cyclic start while preserving orientation.
+                let min_k = (0..3).min_by_key(|&k| tri[k]).unwrap();
+                tri.rotate_left(min_k);
+                tri
+            })
+            .collect();
+        tris.sort_unstable();
+        tris
+    };
+
+    let ref_tris = build_and_tess(0, false);
+    assert_eq!(
+        build_and_tess(0, true),
+        ref_tris,
+        "reordering inner_loops must keep identical triangles"
+    );
+    assert_eq!(
+        build_and_tess(1, false),
+        ref_tris,
+        "swapping outer_loop to top rim (different hes[0] azimuth) must keep identical triangles"
+    );
+    assert_eq!(
+        build_and_tess(2, true),
+        ref_tris,
+        "storing the window in face.outer_loop (R0099 strip tie) must keep identical triangles"
+    );
+
+    // A full-circle edge inside a multi-loop partial cylinder patch must fail
+    // loudly with the Pass-1 error rather than silently falling back.
+    let mut bad_arena = BrepArena::new();
+    let fid = FaceId(0);
+    for th in [0.0f64, std::f64::consts::PI, 0.3, 0.7, 0.5] {
+        bad_arena.vertices.push(Some(Vertex {
+            point: cyl_point(th, 0.0),
+        }));
+    }
+    bad_arena.half_edges.push(Some(HalfEdge {
+        twin: HalfEdgeId(0),
+        next: HalfEdgeId(1),
+        prev: HalfEdgeId(1),
+        origin: VertexId(0),
+        loop_id: LoopId(0),
+        curve: Curve::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: UnitVector3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            radius: R,
+        },
+    }));
+    bad_arena.half_edges.push(Some(HalfEdge {
+        twin: HalfEdgeId(1),
+        next: HalfEdgeId(0),
+        prev: HalfEdgeId(0),
+        origin: VertexId(1),
+        loop_id: LoopId(0),
+        curve: Curve::LineSegment,
+    }));
+    bad_arena.loops.push(Some(Loop {
+        face: fid,
+        boundary: LoopBoundary::Edges(HalfEdgeId(0)),
+        kind: LoopKind::Outer,
+    }));
+    let l_inner = add_loop(&mut bad_arena, fid, 2, &[2, 3, 4], LoopKind::Inner);
+    let fid = finish_face(&mut bad_arena, LoopId(0), vec![l_inner]);
+    let mut bad_mesh = RenderMesh::default();
+    let err = tessellate_cylinder_patch(&bad_arena, fid, 24, &mut bad_mesh)
+        .expect_err("full Circle inside partial cylinder patch must fail loudly");
+    assert!(
+        format!("{err:?}").contains("full-circle edge inside a partial cylinder patch"),
+        "unexpected error: {err:?}"
+    );
+}
