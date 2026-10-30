@@ -7,6 +7,7 @@
 		getSnapSettings,
 		updateSnapSettings
 	} from '$lib/engine/store.svelte.js';
+	import SketchConstraintList from '$lib/sketch/SketchConstraintList.svelte';
 
 	let feature = $derived(getSelectedFeature());
 	let ready = $derived(isEngineReady());
@@ -169,6 +170,7 @@
 	<div class="panel-header">Properties</div>
 	<div class="editor-content">
 		{#if inSketch}
+			<SketchConstraintList />
 			<div class="section-header">Snap Settings</div>
 			<div class="fields">
 				<div class="field-row">

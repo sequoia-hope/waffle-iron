@@ -330,7 +330,7 @@ chords; its offset kept a radius at only one corner.
       one solve after release, with no backlog; a count of `SolveSketch`
       messages during a drag bounded by replies, not by pointer events;
       dropping a point on the same line twice leaves exactly one OnEntity.
-- [ ] **NEXT ITEM — constraint visibility, selection and deletion** (user
+- [x] **DONE 2026-10-30 (`lib/sketch/SketchConstraintList.svelte` in the Properties panel; pin `sketch-constraint-list.spec.js`) — constraint visibility, selection and deletion** (user
       request 2026-10-30):
       1. A UI that SHOWS the sketch's constraints, both on the canvas (the
          `constraintBadges.js` badges) and as a list panel (type, entities,
