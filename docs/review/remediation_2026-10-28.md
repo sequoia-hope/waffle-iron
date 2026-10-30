@@ -132,17 +132,29 @@ was signed.
   inside that edit's 3 s. The previous note's "every ModelUpdated reschedules,
   so the window is under 1 s" was right but missed the compose already in
   flight.
-- **Fixed 2026-10-30 (drawing family):** drawing specs failing with
-  "Execution context was destroyed … navigation". Not a navigation and not
-  Vite: the trace of d4c45cda's shard 1/2 shows the same page logging on
-  (autosave 3 s later) after the error, and no reload in the dev server log.
-  The failing call awaited `finishSketch()`'s promise across the protocol,
-  the gui-relay failure `createExtrudedBox` already documents (2026-10-01..03).
-  The plate setup in `helpers/drawing.js`, `drawing-view-placement` and
-  `drawing-tab` now starts finishSketch / applyExtrude with `void`; the
-  waitForFunction after each one is the sync. About 20 other specs still
-  await those promises (`grep -n "__waffle.finishSketch()" tests/gui`).
-  Convert each when it flakes, checking that a wait follows.
+- **Open (found 2026-10-30, outside gui-fast):** `viewport-pan.spec.js:132`
+  and `:148` (zoom limits: camera distance does not change) fail at
+  7b937320, with and without that day's helper changes. They sit next to the
+  known `viewport-advanced` zoom/orbit reds and probably share their cause.
+- **Diagnosed 2026-10-30, mitigated test-side:** the "Execution context was
+  destroyed … navigation" family (drawing specs, toast-notifications, the
+  2026-10-01..03 relay flake). No navigation happens. The protocol log
+  (`DEBUG=pw:protocol`) shows `Runtime.callFunctionOn` failing with
+  `Promise was collected`: when a spec awaits a `__waffle` promise over CDP,
+  Chromium's inspector holds the awaited promise weakly and a GC can collect
+  it, though the call itself completes. Playwright's `rewriteError` reports
+  any such protocol error as the navigation message. Stress
+  (`HeapProfiler.collectGarbage` in a loop): 6 of 24 raw-CDP awaits were
+  collected; 4 of 240 `page.evaluate` awaits under 6 workers. Holding every
+  `__waffle` promise in the page fixed the raw-CDP case (0 of 24) but not
+  Playwright's path (11 of 240): the inspector awaits Playwright's own
+  utility-script promise, which the page cannot hold. So it was not kept.
+  Remedy: never await a `__waffle` promise across the protocol. Start it
+  with `void` and sync on state with `waitForFunction`. Done in
+  `helpers/geometry.js`, `helpers/drawing.js`, `drawing-tab` and
+  `drawing-view-placement`. About 20 specs still await finishSketch /
+  applyExtrude / enterSketch (`grep -n "evaluate(() => window.__waffle"`);
+  convert each one as it flakes, checking that a wait follows.
 - **Open, small:** the menu's "Length Ratio" applies 1.0 instead of the
   measured ratio.
 - **Open, optional:** ~20 test-harness readers still match the text

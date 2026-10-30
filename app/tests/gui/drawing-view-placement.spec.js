@@ -50,7 +50,10 @@ async function partTabId(page) {
  * `addSketchEntity`, which CLAUDE.md allows for setup.
  */
 async function plateAndDrawingTab(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol: Chromium can collect an awaited
+	// page promise ("Promise was collected"), which Playwright reports as
+	// "Execution context was destroyed". The wait below is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(() => window.__waffle?.getState()?.sketchMode?.active === true, null, {
 		timeout: 5000
 	});
