@@ -305,6 +305,31 @@ chords; its offset kept a radius at only one corner.
       right-click). Pins: click-click AND click-drag variants asserting the
       entity/point count is unchanged after a cancel, and `getToolState()` /
       `getDrawingState()` back to idle.
+- [x] **Sketch dimension text larger** (user request 2026-10-30):
+      `DimensionLabels.svelte` `.dim-label` / `.dim-input` 11 px → 14 px
+      (padding 3 px 7 px, input width 96 px).
+- [ ] **NEXT ITEM — drag must never queue solves; no accidental
+      over-constraints** (user report 2026-10-30): dragging into an
+      over-constrained state played back in slow motion, as if every mouse
+      sample was being solved. Diagnosis (read, not yet measured):
+      `dragSketchPoint` calls `triggerSolve()` on EVERY pointermove, and
+      `triggerSolve` (`store.svelte.js`) sends a full `SolveSketch` each time
+      with no in-flight limit. When a solve is slow (LM failing to converge
+      on an over-constrained system), the worker's queue backs up and the
+      replies replay the backlog. Fix: latest-wins coalescing, with at most
+      one drag solve in flight. While one is in flight, keep only the newest
+      requested target; send it when the reply arrives and drop stale ones.
+      Free (under-constrained) drags must stay smooth. Also: `addLocalConstraint`
+      has NO duplicate check, so a snap or drop can add `OnEntity` (point on
+      line) again for the same (point, entity) pair. Refuse an identical
+      constraint that is already present (same type and refs) — first for
+      OnEntity, then audit the other point-level snaps (Coincident,
+      Midpoint). A drop that would over-constrain should not add the snap
+      constraint at all. Pins: a GUI drag (real pointer events) on an
+      over-constrained sketch whose final position tracks the pointer within
+      one solve after release, with no backlog; a count of `SolveSketch`
+      messages during a drag bounded by replies, not by pointer events;
+      dropping a point on the same line twice leaves exactly one OnEntity.
 - [ ] **NEXT ITEM — constraint visibility, selection and deletion** (user
       request 2026-10-30):
       1. A UI that SHOWS the sketch's constraints, both on the canvas (the

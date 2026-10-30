@@ -496,8 +496,8 @@
 		color: var(--sketch-default);
 		border: 1px solid var(--sketch-default);
 		border-radius: 3px;
-		padding: 2px 6px;
-		font-size: 11px;
+		padding: 3px 7px;
+		font-size: 14px;
 		font-family: monospace;
 		cursor: pointer;
 		white-space: nowrap;
@@ -529,10 +529,10 @@
 		color: var(--text-primary);
 		border: 1px solid var(--sketch-snap);
 		border-radius: 3px;
-		padding: 2px 6px;
-		font-size: 11px;
+		padding: 3px 7px;
+		font-size: 14px;
 		font-family: monospace;
-		width: 80px;
+		width: 96px;
 		outline: none;
 		pointer-events: auto !important;
 	}
