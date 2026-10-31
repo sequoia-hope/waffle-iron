@@ -465,6 +465,21 @@ pub trait KernelIntrospect {
         })
     }
 
+    /// Geometric conformance of the solid's RENDER mesh (remediation plan
+    /// O3): per face, the largest distance from a vertex and from a triangle
+    /// centroid of the mesh [`Kernel::tessellate`] returns to the face's
+    /// surface, measured in the kernel's own precision. `NotSupported` by
+    /// default and for mesh-backed bodies, as for
+    /// [`Self::surface_conformance`].
+    fn mesh_conformance(
+        &self,
+        _solid: &KernelSolidHandle,
+    ) -> Result<crate::kernel::MeshConformance, crate::kernel::KernelError> {
+        Err(crate::kernel::KernelError::NotSupported {
+            operation: "mesh conformance".to_string(),
+        })
+    }
+
     /// The solid's total surface area in m², exactly from its B-Rep. Same
     /// contract as [`Self::solid_volume`].
     fn solid_surface_area(

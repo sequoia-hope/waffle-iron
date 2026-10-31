@@ -1623,6 +1623,34 @@ impl KernelIntrospect for KernelV2Adapter {
         Ok(waffle_types::kernel::SurfaceConformance { faces })
     }
 
+    fn mesh_conformance(
+        &self,
+        solid: &KernelSolidHandle,
+    ) -> Result<waffle_types::kernel::MeshConformance, KernelError> {
+        if self.imported_slot_of(solid).is_some() {
+            return Err(KernelError::NotSupported {
+                operation: "mesh conformance of an imported (mesh-backed) body".to_string(),
+            });
+        }
+        let sid = self.solid_of(solid)?;
+        let faces = crate::conformance::mesh_conformance(&self.arena, sid)
+            .map_err(|e| KernelError::Other {
+                message: format!("mesh conformance unavailable: {e:?}"),
+            })?
+            .into_iter()
+            .map(|d| waffle_types::kernel::FaceMeshConformance {
+                face: encode_face(d.face),
+                triangles: d.triangles,
+                max_vertex_distance: d.max_vertex_distance,
+                vertex_at: d.vertex_at.as_array(),
+                max_centroid_distance: d.max_centroid_distance,
+                centroid_at: d.centroid_at.as_array(),
+                chord_radius: d.chord_radius,
+            })
+            .collect();
+        Ok(waffle_types::kernel::MeshConformance { faces })
+    }
+
     /// `specs/b4_balanced_union.md` §2.2: the conservative box
     /// (`introspect::conservative_aabb`). An imported (mesh-backed) body IS
     /// its mesh, so its vertex hull is exact.

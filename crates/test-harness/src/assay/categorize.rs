@@ -548,7 +548,22 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     // direction against the exact live volume after each op.
     let monotonic =
         crate::assay::monotonicity::measure(&builder, &meta.oracles.volume_monotonicity).summary();
-    let on_surface = format!("{on_surface}; {exact_vs_mesh}; {monotonic}");
+    // Remediation plan O3: the render mesh's vertices and triangle
+    // centroids against their faces' surfaces — planes against O1's band,
+    // curved faces against their own render sagitta band (census and bands
+    // in `assay::mesh_on_surface`).
+    let mesh_reading = crate::assay::mesh_on_surface::measure(&builder, meta.scale);
+    if mesh_reading.is_defect() {
+        failures.push(format!(
+            "mesh_on_surface: render mesh off its surfaces (plane rel {:.3e} > {:.0e} or chord ratio {:.3e} > {})",
+            mesh_reading.plane_rel,
+            crate::assay::on_surface::ON_SURFACE_BAND_REL,
+            mesh_reading.chord_ratio,
+            crate::assay::mesh_on_surface::CHORD_RATIO_BAND
+        ));
+    }
+    let mesh_on_surface = mesh_reading.summary();
+    let on_surface = format!("{on_surface}; {mesh_on_surface}; {exact_vs_mesh}; {monotonic}");
 
     if failures.is_empty() {
         CaseOutcome {

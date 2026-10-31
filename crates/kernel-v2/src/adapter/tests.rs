@@ -1357,3 +1357,119 @@ fn an_arc_shipped_as_a_chord_is_measured_at_its_middle() {
         "a chord standing in for an arc must read ~{sagitta:.3} off, got {w:e}"
     );
 }
+
+// ---- mesh_conformance (remediation plan O3) ------------------------------
+
+#[test]
+fn constructed_render_meshes_sit_on_their_surfaces() {
+    let rel = crate::tessellate::RENDER_CHORD_TOLERANCE_REL;
+    let mut adapter = KernelV2Adapter::new();
+    let cube_face = stage_unit_square(&mut adapter);
+    let cube = adapter
+        .extrude_face(cube_face, [0.0, 0.0, 1.0], 1.0)
+        .expect("cube");
+    let cyl_face = stage_circle(&mut adapter, [0.0, 0.0, -0.5], (0.5, 0.5), 0.25);
+    let cyl = adapter
+        .extrude_face(cyl_face, [0.0, 0.0, 1.0], 2.0)
+        .expect("cylinder");
+    let d = d_shape(&mut adapter);
+    // Largest radius of curvature on each solid: the centroid bound is the
+    // render sagitta band d_ε = rel · r.
+    for (name, h, r) in [
+        ("cube", &cube, 0.0),
+        ("cylinder", &cyl, 0.25),
+        ("D-shape", &d, 1.0),
+    ] {
+        let c = adapter.mesh_conformance(h).expect("measures");
+        assert!(
+            c.faces.iter().all(|f| f.triangles > 0),
+            "{name}: every face rendered"
+        );
+        for f in &c.faces {
+            assert!(
+                f.max_vertex_distance <= 1e-12,
+                "{name}: render vertex {:e} off its surface",
+                f.max_vertex_distance
+            );
+            assert!(
+                f.max_centroid_distance <= rel * r + 1e-12,
+                "{name}: centroid {:e} off, beyond the sagitta band {:e}",
+                f.max_centroid_distance,
+                rel * r
+            );
+        }
+    }
+
+    // A yang boolean output.
+    let out = adapter.boolean_union(&cyl, &cube).expect("union");
+    let c = adapter.mesh_conformance(&out).expect("measures");
+    for f in &c.faces {
+        assert!(f.max_vertex_distance <= 1e-9, "union vertex {f:?}");
+        assert!(
+            f.max_centroid_distance <= rel * 0.25 + 1e-9,
+            "union centroid {f:?}"
+        );
+    }
+}
+
+#[test]
+fn a_triangle_spanning_its_face_is_measured_at_its_centroid() {
+    // Every vertex stays ON the cylinder; one triangle is re-pointed across
+    // the face so it cuts through the solid. Vertices read zero, the
+    // centroid reads the defect — the case the boundary oracle (O1) cannot
+    // see.
+    let mut adapter = KernelV2Adapter::new();
+    let cyl_face = stage_circle(&mut adapter, [0.0, 0.0, 0.0], (0.0, 0.0), 1.0);
+    let cyl = adapter
+        .extrude_face(cyl_face, [0.0, 0.0, 1.0], 1.0)
+        .expect("cylinder");
+    let sid = adapter.solid_of(&cyl).unwrap();
+    let mut mesh = crate::tessellate(&adapter.arena, sid).unwrap();
+    let lateral = *mesh
+        .face_ranges
+        .iter()
+        .find(|r| {
+            matches!(
+                adapter.arena.face(r.face).unwrap().surface,
+                Some(crate::arena::Surface::Cylinder { .. })
+            )
+        })
+        .expect("a lateral face");
+    let clean = crate::conformance::mesh_conformance_of(&adapter.arena, &mesh).unwrap();
+    // The vertex of the range farthest from the first triangle's first vertex
+    // is (near) diametrically opposite it.
+    let s = lateral.start as usize;
+    let at = |i: u32| {
+        let k = 3 * i as usize;
+        [mesh.positions[k], mesh.positions[k + 1]]
+    };
+    let a = at(mesh.indices[s]);
+    let far = mesh.indices[s..s + lateral.count as usize]
+        .iter()
+        .copied()
+        .max_by(|&i, &j| {
+            let (p, q) = (at(i), at(j));
+            let dp = (p[0] - a[0]).hypot(p[1] - a[1]);
+            let dq = (q[0] - a[0]).hypot(q[1] - a[1]);
+            dp.total_cmp(&dq)
+        })
+        .unwrap();
+    mesh.indices[s + 1] = far;
+    let bad = crate::conformance::mesh_conformance_of(&adapter.arena, &mesh).unwrap();
+    let pick = |v: &[crate::conformance::FaceMeshDeviation]| {
+        *v.iter().find(|d| d.face == lateral.face).unwrap()
+    };
+    let (clean, bad) = (pick(&clean), pick(&bad));
+    assert!(
+        bad.max_vertex_distance <= 1e-12,
+        "vertices stay on the surface"
+    );
+    assert!(
+        bad.max_centroid_distance > 100.0 * clean.max_centroid_distance
+            && bad.max_centroid_distance > 0.1,
+        "a triangle cutting through the unit cylinder reads its centroid off: \
+         clean {:e}, defect {:e}",
+        clean.max_centroid_distance,
+        bad.max_centroid_distance
+    );
+}

@@ -106,6 +106,120 @@ pub fn surface_conformance(
     Ok(out)
 }
 
+/// One face's render-mesh measurement (remediation plan O3).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceMeshDeviation {
+    /// The face.
+    pub face: crate::arena::FaceId,
+    /// Triangles of the face's render range.
+    pub triangles: usize,
+    /// Largest render-vertex-to-surface distance, meters.
+    pub max_vertex_distance: f64,
+    /// Where it was measured.
+    pub vertex_at: Point3,
+    /// Largest triangle-centroid-to-surface distance, meters.
+    pub max_centroid_distance: f64,
+    /// Where it was measured.
+    pub centroid_at: Point3,
+    /// The radius `r` of the largest circle the surface's render chords
+    /// approximate on this face — cylinder and sphere radius, torus
+    /// `R + r`, a cone's largest radial distance among the face's render
+    /// vertices; 0 on a plane. A geometric fact of the surface, so the
+    /// consumer can read the distances against the render sagitta band
+    /// `d_ε = RENDER_CHORD_TOLERANCE_REL · r` ([`crate::tessellate`]).
+    pub chord_radius: f64,
+}
+
+/// Measure the render mesh of `solid` against the exact surfaces
+/// (remediation plan O3): every vertex and every triangle centroid of each
+/// face's range in [`crate::tessellate`]'s output — the very mesh the
+/// adapter renders — against that face's surface.
+///
+/// A vertex belongs on its surface; a centroid sits off it by at most the
+/// chord sagitta of a triangle inscribed in it. A triangle that spans the
+/// wrong region of its face (a fan across a concavity, a parametric
+/// triangulation folded through the seam) keeps its vertices on the surface
+/// while its centroid leaves it — which [`surface_conformance`], reading
+/// only the boundary, cannot see. Raw distances only: the band is the
+/// consumer's.
+pub fn mesh_conformance(
+    arena: &BrepArena,
+    solid: crate::arena::SolidId,
+) -> Result<Vec<FaceMeshDeviation>, KernelV2Error> {
+    mesh_conformance_of(arena, &crate::tessellate(arena, solid)?)
+}
+
+/// [`mesh_conformance`] of a given mesh whose face ranges name faces of
+/// `arena`.
+pub fn mesh_conformance_of(
+    arena: &BrepArena,
+    mesh: &crate::tessellate::RenderMesh,
+) -> Result<Vec<FaceMeshDeviation>, KernelV2Error> {
+    let p = |i: u32| {
+        let k = 3 * i as usize;
+        Point3::new(
+            mesh.positions[k],
+            mesh.positions[k + 1],
+            mesh.positions[k + 2],
+        )
+    };
+    let nan = Point3::new(f64::NAN, f64::NAN, f64::NAN);
+    // NaN never compares greater: a non-finite distance must still surface,
+    // so it wins outright (as in `surface_conformance`).
+    let take = |d: f64, at: Point3, max: &mut f64, max_at: &mut Point3| {
+        if d.is_nan() || d > *max || max_at.x().is_nan() {
+            *max = if d.is_nan() { f64::INFINITY } else { d };
+            *max_at = at;
+        }
+    };
+    let mut out = Vec::with_capacity(mesh.face_ranges.len());
+    for r in &mesh.face_ranges {
+        let surface = arena
+            .face(r.face)?
+            .surface
+            .as_ref()
+            .ok_or(KernelV2Error::FaceWithoutSurface { face: r.face })?;
+        let mut dev = FaceMeshDeviation {
+            face: r.face,
+            triangles: (r.count / 3) as usize,
+            max_vertex_distance: 0.0,
+            vertex_at: nan,
+            max_centroid_distance: 0.0,
+            centroid_at: nan,
+            chord_radius: match surface {
+                Surface::Plane(_) | Surface::Cone { .. } => 0.0,
+                Surface::Cylinder { radius, .. } | Surface::Sphere { radius, .. } => *radius,
+                Surface::Torus {
+                    major_radius,
+                    minor_radius,
+                    ..
+                } => major_radius + minor_radius,
+            },
+        };
+        let tris = &mesh.indices[r.start as usize..(r.start + r.count) as usize];
+        for t in tris.chunks_exact(3) {
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            for v in [a, b, c] {
+                if let Surface::Cone { apex, axis_dir, .. } = surface {
+                    let (_, rho) = axial_radial(v, *apex, axis_dir);
+                    dev.chord_radius = dev.chord_radius.max(rho);
+                }
+                let d = point_surface_distance(surface, v);
+                take(d, v, &mut dev.max_vertex_distance, &mut dev.vertex_at);
+            }
+            let g = Point3::new(
+                (a.x() + b.x() + c.x()) / 3.0,
+                (a.y() + b.y() + c.y()) / 3.0,
+                (a.z() + b.z() + c.z()) / 3.0,
+            );
+            let d = point_surface_distance(surface, g);
+            take(d, g, &mut dev.max_centroid_distance, &mut dev.centroid_at);
+        }
+        out.push(dev);
+    }
+    Ok(out)
+}
+
 fn sub(a: Point3, b: Point3) -> [f64; 3] {
     [a.x() - b.x(), a.y() - b.y(), a.z() - b.z()]
 }

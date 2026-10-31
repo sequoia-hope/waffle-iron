@@ -182,7 +182,7 @@ Blocks F2's first retirement (see §0 point 2).
 |---|---|---|---|
 | O1 | ✅ Harness on-surface oracle in `categorize`: every output loop vertex within the band of its own face's surface and of every adjacent face's surface, read through `KernelIntrospect` plus a surface accessor. Lands **record-only** first: one full corpus run census, then promoted to a verdict | S–M | R0099 at the pre-T8 commit categorizes WRONG; census of the current corpus recorded in `docs/yang_tail_triage.md` before promotion |
 | O2 | ◐ record-only: Exact-versus-mesh volume: `kernel_v2::mass::solid_volume` against `mesh_signed_volume` within the chord band | S | Pin: an inverted patch below 0.5 % of body volume categorizes WRONG |
-| O3 | `oracle::check_mesh_on_surfaces`: render vertices on their surface, centroids within tessellation tolerance | M | Wired into `categorize` after O1 |
+| O3 | ✅ Render mesh on its surfaces (`KernelIntrospect::mesh_conformance`, `assay::mesh_on_surface`): every render vertex and triangle centroid against its face's surface — planes within O1's band, curved faces within 10× their render sagitta band `d_ε = rel · r` | M | Wired into `categorize` after O1 |
 | O4 | ✅ Strict validation tier tests planar loop vertices in release too (`validate/faces.rs:158-175`), and the cylinder lateral's inner loops | S | Or the doc says exactly what the tier checks; decide in the commit |
 | O5 | ◐ record-only: Wire `volume_monotonicity` through `truncate_ops` prefix replays in the full run | M | A meta that violates it categorizes WRONG |
 | O6 | ✅ Annihilated chain: a disjoint Intersect categorizes as a typed verdict, not CORRECT | S | `tests/prospect.rs` pin |
@@ -203,6 +203,19 @@ Blocks F2's first retirement (see §0 point 2).
 - **O1 band** came from a record-only census: 357 clean cases ≤ 3.5e-10 of
   scale, the three defects ≥ 1.4e-3; band = Yang's d_p = 1e-7 relative.
   Red first: R0099 at the pre-T8 commit reads 3.39e-2 m off.
+- **O3** (2026-10-30) is a verdict from its first commit, its bands set by
+  a record-only census (360C held, 359 measured): planar readings ≤ 1.2e-12
+  of scale; curved readings, as a ratio to the face's own sagitta band, 210
+  cases in [0.1, 1) and 14 in [1, 2.92]. Every reading above 1 anchored to
+  a kernel-v2 render-fidelity class, not a geometry defect: doubly-curved
+  interiors whose centroids exceed d_ε (sphere ≤ 2.55, C0067 / C0104; torus
+  1.05, R0028), and boundary vertices placed on a shared chord of a
+  larger-radius edge curve (small cylinders and cones, ≤ 2.92, R0009).
+  Finding, not yet worked: the sphere and torus render density does not
+  meet its own stated d_ε at triangle interiors. A first census on a
+  scale-relative reading showed 69 cases with render vertices up to 1.5e-3
+  of scale off their surfaces — all of them shared-chord rim points within
+  d_ε, which is why the curved band is read per face.
 - **O2 stays record-only.** Its reading now carries the chord bound
   `|mesh − exact| / (tol · area)`. Over the 208 measurable CORRECT cases, two
   exceed 1: **F0054 (7.3)** and R0042 (1.01) — to investigate. **148 of 356

@@ -88,6 +88,41 @@ impl SurfaceConformance {
     }
 }
 
+/// One face's render-mesh conformance (remediation plan O3): the largest
+/// distance from a render vertex, and from a triangle centroid, of the
+/// face's tessellation to the face's own surface. A vertex belongs on the
+/// surface; a centroid sits off it by at most the chord sagitta, so a
+/// triangle spanning the wrong region of its face shows here while every
+/// boundary point (see [`FaceConformance`]) stays on the surface.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FaceMeshConformance {
+    /// The face.
+    pub face: KernelId,
+    /// Triangles in the face's render range.
+    pub triangles: usize,
+    /// Largest render-vertex-to-surface distance, meters.
+    pub max_vertex_distance: f64,
+    /// Where it was measured.
+    pub vertex_at: [f64; 3],
+    /// Largest triangle-centroid-to-surface distance, meters.
+    pub max_centroid_distance: f64,
+    /// Where it was measured.
+    pub centroid_at: [f64; 3],
+    /// Radius of the largest circle the face's render chords approximate
+    /// (0 on a plane), so a consumer can read the distances against the
+    /// kernel's render sagitta band `d_ε = rel · r`.
+    pub chord_radius: f64,
+}
+
+/// Per-face [`FaceMeshConformance`] for a whole solid, from
+/// [`super::KernelIntrospect::mesh_conformance`]. Raw distances; the band is
+/// the consumer's (as for [`SurfaceConformance`]).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MeshConformance {
+    /// One entry per face of the solid.
+    pub faces: Vec<FaceMeshConformance>,
+}
+
 /// The persistent identity of ONE topological entity — a face, an edge or a
 /// vertex (drawings spec D0, `specs/drawings_and_mbd.md` §4 item 4).
 ///
