@@ -5,12 +5,18 @@
  * and returns snapped coordinates + snap indicators for visual feedback.
  */
 
-import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints, armInferenceSource, getInferenceSources, getActiveTool } from '$lib/engine/store.svelte.js';
-import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG, INFERENCE_ALIGN_PX } from '$lib/config.js';
+import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints, getBodyVertexSnapPoints, armInferenceSource, releaseDistantInferenceSources, getInferenceSources, getActiveTool } from '$lib/engine/store.svelte.js';
+import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG, INFERENCE_ALIGN_PX, INFERENCE_RELEASE_PX } from '$lib/config.js';
 
 /** Tools that place points and benefit from alignment inference (and may arm
  *  sources). Select/dimension/etc. do not arm, so inference never appears there. */
 const ARMING_TOOLS = new Set(['line', 'polyline', 'point', 'rectangle', 'rectangle-center', 'circle', 'arc', 'slot']);
+
+/** Reference points: other sketches' points on this plane, plus every body
+ *  vertex projected onto it. */
+function referencePoints() {
+	return [...getReferenceSnapPoints(), ...getBodyVertexSnapPoints()];
+}
 
 /**
  * @typedef {{ type: 'coincident', x: number, y: number, pointId: number }} CoincidentSnap
@@ -47,13 +53,20 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 	const coincidentThreshold = (settings.coincidentPx ?? COINCIDENT_SNAP_PX) * screenPixelSize;
 	const onEntityThreshold = (settings.onEntityPx ?? ON_ENTITY_SNAP_PX) * screenPixelSize;
 	const hvAngleDeg = settings.hvAngleDeg ?? HV_ANGLE_DEG;
+	const alignBand = INFERENCE_ALIGN_PX * screenPixelSize;
+	const arming = armOnHover && ARMING_TOOLS.has(getActiveTool());
+
+	// A hover that has wandered far from an armed source, off both its axes,
+	// releases it — the association is temporary, not every point ever hovered.
+	if (arming) releaseDistantInferenceSources(x, y, INFERENCE_RELEASE_PX * screenPixelSize, alignBand);
 
 	// 1. Coincident snap — highest priority. A coincident hit on a real point
 	//    ALSO arms it as an alignment-inference source (deliberate-hover arming,
-	//    placement tools only). Origin/reference/midpoint/quadrant do NOT arm.
+	//    placement tools only). The origin and reference/body vertices arm as
+	//    FIXED sources; midpoint/quadrant do NOT arm.
 	const nearPoint = findPointNear(x, y, coincidentThreshold);
 	if (nearPoint && nearPoint.id !== fromPointId) {
-		if (armOnHover && ARMING_TOOLS.has(getActiveTool())) {
+		if (arming) {
 			armInferenceSource(nearPoint.id, nearPoint.x, nearPoint.y);
 		}
 		return {
@@ -68,6 +81,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 	// 1b. Origin snap — pin point to (0,0) via WhereDragged
 	const originDist = Math.sqrt(x * x + y * y);
 	if (originDist < coincidentThreshold) {
+		if (arming) armInferenceSource('origin', 0, 0, true);
 		return {
 			x: 0, y: 0,
 			constraints: [
@@ -79,7 +93,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 
 	// 1b2. Reference point snap — snap to points from inactive sketches
 	{
-		const refPoints = getReferenceSnapPoints();
+		const refPoints = referencePoints();
 		let closestRef = null;
 		let closestRefDist = coincidentThreshold;
 		for (const rp of refPoints) {
@@ -92,6 +106,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 			}
 		}
 		if (closestRef) {
+			if (arming) armInferenceSource(`ref:${closestRef.x},${closestRef.y}`, closestRef.x, closestRef.y, true);
 			return {
 				x: closestRef.x, y: closestRef.y,
 				constraints: [{ type: 'WhereDragged', x: closestRef.x, y: closestRef.y }],
@@ -223,22 +238,33 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 	// 3. Alignment inference — snap onto an armed source's horizontal/vertical
 	//    axis (Invariant I3/I4). A source equal to `fromPointId` is skipped —
 	//    segment-H/V already covers that pair (avoids duplicate H + HorizontalPoints).
+	//    Likewise an axis that already runs through the segment's start point:
+	//    a line dragged straight through the origin is a horizontal line, not
+	//    a point aligned to the origin.
 	{
-		const alignBand = INFERENCE_ALIGN_PX * screenPixelSize;
+		const fromPos = fromPointId != null ? getSketchPositions().get(fromPointId) : null;
+		const startOnH = (s) => fromPos != null && Math.abs(fromPos.y - s.y) <= alignBand;
+		const startOnV = (s) => fromPos != null && Math.abs(fromPos.x - s.x) <= alignBand;
 		let hSource = null; // its horizontal axis (shared y) is aligned to
 		let vSource = null; // its vertical axis (shared x) is aligned to
 		for (const s of getInferenceSources()) {
 			if (s.id === fromPointId) continue;
-			if (hSource == null && Math.abs(y - s.y) <= alignBand) hSource = s;
-			if (vSource == null && Math.abs(x - s.x) <= alignBand) vSource = s;
+			if (hSource == null && Math.abs(y - s.y) <= alignBand && !startOnH(s)) hSource = s;
+			if (vSource == null && Math.abs(x - s.x) <= alignBand && !startOnV(s)) vSource = s;
 			if (hSource && vSource) break;
 		}
 		if (hSource || vSource) {
 			const sx = vSource ? vSource.x : x;
 			const sy = hSource ? hSource.y : y;
+			// A fixed source has no sketch point: the constraint carries its
+			// position as an `anchor`, and the emitter pins a construction point
+			// there to align against.
+			const pair = (type, s) => (s.fixed
+				? { type, anchor: { x: s.x, y: s.y } }
+				: { type, point_a: s.id });
 			const constraints = [];
-			if (hSource) constraints.push({ type: 'HorizontalPoints', point_a: hSource.id });
-			if (vSource) constraints.push({ type: 'VerticalPoints', point_a: vSource.id });
+			if (hSource) constraints.push(pair('HorizontalPoints', hSource));
+			if (vSource) constraints.push(pair('VerticalPoints', vSource));
 			return {
 				x: sx, y: sy,
 				constraints,
@@ -530,8 +556,8 @@ export function collectSnapCandidates(x, y, previewRadius) {
 		}
 	}
 
-	// Reference points (from inactive sketches)
-	const refPoints = getReferenceSnapPoints();
+	// Reference points (inactive sketches on this plane, body vertices)
+	const refPoints = referencePoints();
 	for (const rp of refPoints) {
 		const dist = Math.sqrt((x - rp.x) ** 2 + (y - rp.y) ** 2);
 		if (dist < previewRadius) {

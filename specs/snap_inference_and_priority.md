@@ -190,3 +190,42 @@ solver-tested `HorizontalPoints`/`VerticalPoints` (equate-Y/equate-X,
   `align` snapGeo variant anchored at the SOURCE point (segment-H/V's dashed
   line anchors at fromPos — different anchor, same vocabulary).
 - Labels: "Align H" / "Align V" via `snapLabelMap`.
+
+## Addendum 2026-10-31 — fixed sources, body vertices, release
+
+User report: while sketching on a plane through the middle of an extruded
+block, only the corners that some other sketch put on a parallel plane (and
+the origin) offered a snap, none of them armed alignment, and an armed point
+never let go. Wanted: every vertex of the body acts as a reference, hovering
+it arms a temporary horizontal/vertical association that the first point of
+any tool can be placed on with an H/V constraint, and the association drops
+once the cursor is far away.
+
+- **Body vertices are reference points.** `getBodyVertexSnapPoints()`
+  (store) projects every topological vertex of every visible body onto the
+  sketch plane (deduped in 2D). The list comes from the same extractor as the
+  vertex overlay (`viewport/bodyVertices.js`), so what is drawn is what
+  snaps. They join priority 1's reference snap and the preview candidates.
+- **The origin and reference points arm, as FIXED sources** (`fixed: true`,
+  string ids `origin` / `ref:x,y`). This supersedes "Origin … do NOT arm (no
+  point entity to constrain against)" above. Midpoint/quadrant still don't arm.
+- **Aligning to a fixed source pins an anchor.** The snap carries
+  `{ type: 'HorizontalPoints' | 'VerticalPoints', anchor: { x, y } }`; the
+  emitter (`tools.js` `alignSourcePoint`) creates a construction point pinned
+  with `WhereDragged` at the anchor (the pin a direct reference snap makes),
+  reusing an existing pin at that exact spot, and constrains against it.
+  The pin is static: it does not follow the body if the body later changes
+  (same as the existing reference snap).
+- **Release (`INFERENCE_RELEASE_PX` = 400).** On each hover, a source is
+  dropped when the cursor is farther than the release distance from it AND
+  outside the alignment band of both its axes. Running along an axis keeps
+  it at any distance. Distance-based, so I6 (no wall clock) holds.
+- **Segment-H/V covers an axis through the start point.** When drawing from
+  a point, a source axis that already passes (within the band) through the
+  segment's start is not offered: a line dragged through the origin is a
+  horizontal line, not a point aligned to the origin (this was the drawing
+  canary's regression on the first cut).
+- Oracles: `tests/gui/snap-inference-references.spec.js` R1 (origin arms,
+  align-h → anchored HorizontalPoints, y = 0), R2 (release vs. along-axis
+  keep), R3 (cube on Front, sketch on Top through its middle: four
+  off-plane corner projections; align-v to one → anchored VerticalPoints).

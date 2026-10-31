@@ -78,7 +78,7 @@ export const ICONS = {
 	'slot': '<path d="M8 7h8a5 5 0 0 1 0 10H8A5 5 0 0 1 8 7z"/><path class="c" d="M8 12h8"/><circle class="p" cx="8" cy="12" r="1.5"/><circle class="p" cx="16" cy="12" r="1.5"/>',
 	'gear': '<path d="M11 10.27 7 3.34"/><path d="m11 13.73-4 6.93"/><path d="M12 22v-2"/><path d="M12 2v2"/><path d="M14 12h8"/><path d="m17 20.66-1-1.73"/><path d="m17 3.34-1 1.73"/><path d="M2 12h2"/><path d="m20.66 17-1.73-1"/><path d="m20.66 7-1.73 1"/><path d="m3.34 17 1.73-1"/><path d="m3.34 7 1.73 1"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="12" r="8"/>',
 	'sprocket': '<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/><path d="M12 2l1.5 4h-3zM12 22l-1.5-4h3zM2 12l4-1.5v3zM22 12l-4 1.5v-3zM4.9 4.9l3.9 1.8-2.1 2.1zM19.1 19.1l-3.9-1.8 2.1-2.1zM4.9 19.1l1.8-3.9 2.1 2.1zM19.1 4.9l-1.8 3.9-2.1-2.1z"/>',
-	'planetary': '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="6.5" r="2.5"/><circle cx="12" cy="17.5" r="2.5"/>',
+	'planetary': '<circle cx="12" cy="12" r="9.5"/><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="6.5" r="2.5"/><circle cx="16.76" cy="14.75" r="2.5"/><circle cx="7.24" cy="14.75" r="2.5"/>',
 	'trim': '<path d="M3 12h18"/><path d="M12 3v9"/><path class="c" d="M12 12v9"/><path d="M16 16l4 4M20 16l-4 4"/>',
 	'sketch-fillet': '<path class="c" d="M5 19V5h14"/><path d="M5 19v-6a8 8 0 0 1 8-8h6"/>',
 	'construction': '<path class="c" d="M5 19L19 5"/><circle class="p" cx="5" cy="19" r="2"/><circle class="p" cx="19" cy="5" r="2"/>',

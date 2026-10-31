@@ -21,7 +21,7 @@
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getColorVersion } from '$lib/ui/settings.svelte.js';
-	import { placementMatrix } from './placement.js';
+	import { extractBodyVertices } from './bodyVertices.js';
 
 	const { renderer } = useThrelte();
 
@@ -48,61 +48,10 @@
 	/** Pixel threshold for vertex picking */
 	const VERTEX_PICK_THRESHOLD = 8;
 
-	/** Deduplication epsilon for vertex positions */
-	const DEDUP_EPS = 1e-4;
-
-	/**
-	 * Extract unique vertex positions from edge polyline endpoints.
-	 * Each edge range's first and last 3D point are topological vertices.
-	 * @param {Array<any>} meshData
-	 * @returns {Array<{ position: THREE.Vector3, featureId: string }>}
-	 */
-	function extractVertices(meshData) {
-		const vertices = [];
-		const seen = [];
-
-		for (const mesh of meshData) {
-			// Hiding a body hides its vertices too (mirrors the face/edge filters).
-			if (!isBodyVisible(mesh.bodyId)) continue;
-			if (!mesh.edges || !mesh.edges.vertices || !mesh.edges.ranges) continue;
-			const verts = mesh.edges.vertices;
-			// All the points share ONE geometry, so the owning instance's
-			// placement (identity in a Part) is baked into each position here.
-			const placement = placementMatrix(mesh.transform);
-
-			for (const range of mesh.edges.ranges) {
-				const si = range.start_index;
-				const ei = range.end_index;
-				if (ei - si < 2) continue; // Need at least 2 vertices
-
-				// First and last vertex of edge polyline, in world space
-				const endpoints = [
-					new THREE.Vector3(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]).applyMatrix4(placement),
-					new THREE.Vector3(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]).applyMatrix4(placement)
-				];
-
-				for (const pos of endpoints) {
-					// Deduplicate by position
-					const isDup = seen.some(s => s.distanceToSquared(pos) < DEDUP_EPS * DEDUP_EPS);
-					if (!isDup) {
-						seen.push(pos.clone());
-						vertices.push({
-							position: pos,
-							featureId: mesh.featureId,
-							bodyId: mesh.bodyId,
-							instancePath: mesh.instancePath ?? (mesh.instanceId ? [mesh.instanceId] : null)
-						});
-					}
-				}
-			}
-		}
-		return vertices;
-	}
-
 	let vertices = $derived.by(() => {
 		const meshData = getMeshes();
 		if (!meshData || meshData.length === 0) return [];
-		return extractVertices(meshData);
+		return extractBodyVertices(meshData, isBodyVisible);
 	});
 
 	/**

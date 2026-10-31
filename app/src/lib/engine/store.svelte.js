@@ -18,6 +18,7 @@ import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog, getOffsetToolState as _getOffsetToolState } from '$lib/sketch/tools.js';
 import { buildSketchPlane, defaultSketchXAxis, sketchToScreen } from '$lib/sketch/sketchCoords.js';
+import { extractBodyVertices } from '$lib/viewport/bodyVertices.js';
 import { computeConstraintBadges, offsetConstraintRefs } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
@@ -429,7 +430,7 @@ let snapSettings = $state({
 // their horizontal/vertical axes can be inferred while placing a new point.
 // Most-recent first, LRU-capped at INFERENCE_SOURCES_MAX, deduped by point id.
 // Cleared on sketch exit and tool switch. See specs/snap_inference_and_priority.md.
-/** @type {Array<{ id: number, x: number, y: number }>} */
+/** @type {Array<{ id: number | string, x: number, y: number, fixed: boolean }>} */
 let inferenceSources = $state([]);
 
 // -- Camera state refs (set by CameraControls) --
@@ -1642,6 +1643,7 @@ export async function initEngine() {
 			getSnapSettings: () => getSnapSettings(),
 			updateSnapSettings: (updates) => updateSnapSettings(updates),
 			getInferenceSources: () => getInferenceSources().map((s) => ({ ...s })),
+			getBodyVertexSnapPoints: () => getBodyVertexSnapPoints().map((p) => ({ x: p.x, y: p.y, worldPos: [...p.worldPos] })),
 			sketchToScreenOffset: (sx, sy) => {
 				const sm = sketchMode;
 				if (!sm?.active) return null;
@@ -4745,6 +4747,39 @@ export function getReferenceSnapPoints() { return referenceSnapPoints; }
 export function setReferenceSnapPoints(pts) { referenceSnapPoints = pts; }
 export function clearReferenceSnapPoints() { referenceSnapPoints = []; }
 
+/** Memo for `getBodyVertexSnapPoints`: recomputed only when the meshes, the
+ *  sketch plane or body visibility change, not on every pointermove. */
+let bodyVertexSnapMemo = { key: null, meshes: null, points: [] };
+
+/**
+ * Every topological vertex of every visible body, projected onto the active
+ * sketch plane, as snap/inference reference points. A vertex need not lie on
+ * the plane: sketching on a plane through the middle of a block, each of the
+ * block's corners still offers its projection to snap to and to align with
+ * horizontally or vertically. Coincident projections (a corner straight
+ * behind another) collapse to one point.
+ * @returns {Array<{ x: number, y: number, sourceId: string, worldPos: [number, number, number] }>}
+ */
+export function getBodyVertexSnapPoints() {
+	if (!sketchMode.active) return [];
+	const { origin, normal, xAxis } = sketchMode;
+	const key = JSON.stringify([origin, normal, xAxis, meshes.map((m) => (isBodyVisible(m.bodyId) ? 1 : 0))]);
+	if (bodyVertexSnapMemo.meshes === meshes && bodyVertexSnapMemo.key === key) return bodyVertexSnapMemo.points;
+
+	const plane = buildSketchPlane(origin, normal, xAxis);
+	const points = [];
+	for (const v of extractBodyVertices(meshes, isBodyVisible)) {
+		const p = v.position;
+		const rx = p.x - origin[0], ry = p.y - origin[1], rz = p.z - origin[2];
+		const x = rx * plane.xAxis.x + ry * plane.xAxis.y + rz * plane.xAxis.z;
+		const y = rx * plane.yAxis.x + ry * plane.yAxis.y + rz * plane.yAxis.z;
+		if (points.some((q) => Math.abs(q.x - x) < 1e-9 && Math.abs(q.y - y) < 1e-9)) continue;
+		points.push({ x, y, sourceId: `vertex:${points.length}`, worldPos: [p.x, p.y, p.z] });
+	}
+	bodyVertexSnapMemo = { key, meshes, points };
+	return points;
+}
+
 export function getOverConstrainedEntities() { return overConstrainedEntities; }
 
 /**
@@ -7168,25 +7203,47 @@ export function updateSnapSettings(updates) {
 }
 
 /**
- * Arm a sketch point as an alignment-inference source (most-recent first, LRU
- * capped, deduped by id). Called when a coincident snap lands on a real point.
- * @param {number} id
+ * Arm a point as an alignment-inference source (most-recent first, LRU
+ * capped, deduped by id). Called when a hover snap lands on a real sketch
+ * point, or — `fixed` — on the origin or a reference/body vertex.
+ * @param {number | string} id
  * @param {number} x
  * @param {number} y
+ * @param {boolean} [fixed=false]
  */
-export function armInferenceSource(id, x, y) {
+export function armInferenceSource(id, x, y, fixed = false) {
 	if (id == null) return;
 	const rest = inferenceSources.filter((s) => s.id !== id);
-	inferenceSources = [{ id, x, y }, ...rest].slice(0, INFERENCE_SOURCES_MAX);
+	inferenceSources = [{ id, x, y, fixed }, ...rest].slice(0, INFERENCE_SOURCES_MAX);
+}
+
+/**
+ * Drop every armed source the cursor has wandered away from: farther than
+ * `releaseDist` from the source AND outside `band` of both its axes. A cursor
+ * still running along a source's horizontal or vertical keeps it, however
+ * far; one that has left both keeps nothing it hovered long ago.
+ * @param {number} x - cursor sketch X
+ * @param {number} y - cursor sketch Y
+ * @param {number} releaseDist - sketch units
+ * @param {number} band - sketch units (the alignment half-band)
+ */
+export function releaseDistantInferenceSources(x, y, releaseDist, band) {
+	const kept = inferenceSources.filter((s) => {
+		const dx = Math.abs(x - s.x), dy = Math.abs(y - s.y);
+		return Math.hypot(dx, dy) <= releaseDist || dx <= band || dy <= band;
+	});
+	if (kept.length !== inferenceSources.length) inferenceSources = kept;
 }
 
 /**
  * Armed inference sources, most-recent first, with any whose point no longer
  * exists (undo/delete) dropped so no dangling-id constraint can be emitted.
- * @returns {Array<{ id: number, x: number, y: number }>}
+ * A `fixed` source (the origin, a reference or body vertex) has no sketch
+ * point; aligning to it pins a construction anchor at its position instead.
+ * @returns {Array<{ id: number | string, x: number, y: number, fixed: boolean }>}
  */
 export function getInferenceSources() {
-	return inferenceSources.filter((s) => sketchPositions.has(s.id));
+	return inferenceSources.filter((s) => s.fixed || sketchPositions.has(s.id));
 }
 
 /** Clear all armed inference sources (sketch exit / tool switch). */

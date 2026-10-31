@@ -17,6 +17,7 @@ export const HV_ANGLE_DEG = 3;
 // Point-alignment inference (screen-px calibrated; see specs/snap_inference_and_priority.md)
 export const INFERENCE_ALIGN_PX = 6; // half-band around an armed source's axis
 export const INFERENCE_SOURCES_MAX = 3; // LRU size of armed inference sources
+export const INFERENCE_RELEASE_PX = 400; // an armed source drops once the cursor is this far from it and off both its axes
 export const CANDIDATE_DEDUP_PX = 4; // preview-candidate dedup radius (was 0.001 sketch units)
 
 // Viewport geometry

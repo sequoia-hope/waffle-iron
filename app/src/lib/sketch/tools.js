@@ -359,12 +359,33 @@ function applyPointSnapConstraints(pointId, snap) {
 			addLocalConstraint({ type: 'OnEntity', point: pointId, entity: c.entity });
 		} else if (c.type === 'HorizontalPoints') {
 			// Alignment inference: the new point shares its source's Y.
-			addLocalConstraint({ type: 'HorizontalPoints', point_a: c.point_a, point_b: pointId });
+			addLocalConstraint({ type: 'HorizontalPoints', point_a: alignSourcePoint(c), point_b: pointId });
 		} else if (c.type === 'VerticalPoints') {
 			// Alignment inference: the new point shares its source's X.
-			addLocalConstraint({ type: 'VerticalPoints', point_a: c.point_a, point_b: pointId });
+			addLocalConstraint({ type: 'VerticalPoints', point_a: alignSourcePoint(c), point_b: pointId });
 		}
 	}
+}
+
+/**
+ * The sketch point an alignment constraint is made against. A sketch-point
+ * source names it (`point_a`). A fixed source — the origin, a reference or
+ * body vertex — carries only its position (`anchor`): the point is a
+ * construction point pinned there, the same `WhereDragged` pin a direct snap
+ * onto that vertex makes, reused when one is already pinned at that spot.
+ * @param {{ point_a?: number, anchor?: { x: number, y: number } }} c
+ * @returns {number}
+ */
+function alignSourcePoint(c) {
+	if (c.anchor == null) return c.point_a;
+	const { x, y } = c.anchor;
+	const pinned = getSketchConstraints().find((k) =>
+		k.type === 'WhereDragged' && !k._isDrag && k.x === x && k.y === y);
+	if (pinned) return pinned.point;
+	const id = allocEntityId();
+	addLocalEntity({ type: 'Point', id, x, y, construction: true });
+	addLocalConstraint({ type: 'WhereDragged', point: id, x, y });
+	return id;
 }
 
 function findOrCreatePoint(x, y, screenPixelSize, snapPointId) {
