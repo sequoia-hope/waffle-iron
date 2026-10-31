@@ -11,7 +11,7 @@ import { test, expect } from './helpers/waffle-test.js';
  */
 async function drawSquare(page, x0, y0, x1, y1) {
 	const before = await page.evaluate(() => window.__waffle?.getFeatureTree()?.features?.length ?? 0);
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -28,7 +28,7 @@ async function drawSquare(page, x0, y0, x1, y1) {
 		w.addSketchEntity({ type: 'Line', id: 8, start_id: 4, end_id: 1, construction: false });
 	}, [x0, y0, x1, y1]);
 	await page.waitForTimeout(200);
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(
 		(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
 		before,
@@ -42,7 +42,7 @@ async function applyAddExtrude(page, depth, extraOpts = {}) {
 	const before = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(([d, opts]) => window.__waffle.applyExtrude(d, 0, false, { combine: 'Add', ...opts }), [depth, extraOpts]);
+	await page.evaluate(([d, opts]) => void window.__waffle.applyExtrude(d, 0, false, { combine: 'Add', ...opts }), [depth, extraOpts]);
 	await page.waitForFunction(
 		(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
 		before,
@@ -196,7 +196,7 @@ test.describe('toast notifications', () => {
 		expect(toasts.filter(t => t.message.includes('standalone')).length).toBe(0);
 
 		const before = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -205,7 +205,7 @@ test.describe('toast notifications', () => {
 			window.__waffle.addSketchEntity({ type: 'Point', id: 1, x: 5, y: 5, construction: false });
 		});
 		await page.waitForTimeout(200);
-		await page.evaluate(() => window.__waffle.finishSketch());
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await page.waitForFunction(
 			(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
 			before,
@@ -255,7 +255,7 @@ test.describe('toast notifications', () => {
 		// Sketch again on the same document — the rebuild replays the extrude
 		// and its persisted warning. No new toast may appear.
 		const before = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -264,7 +264,7 @@ test.describe('toast notifications', () => {
 			window.__waffle.addSketchEntity({ type: 'Point', id: 1, x: 5, y: 5, construction: false });
 		});
 		await page.waitForTimeout(200);
-		await page.evaluate(() => window.__waffle.finishSketch());
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await page.waitForFunction(
 			(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
 			before,
