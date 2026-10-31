@@ -1118,8 +1118,11 @@ pub(crate) fn execute_feature(
             // adjacent regions with shared / coplanar side walls merge into one
             // clean face — NO 3D boolean, hence no Yang Stage-0 coplanar wall. The
             // union yields one region per connected component; each becomes its own
-            // face and the (now provably DISJOINT) component solids are unioned (a
-            // disjoint union has no coplanar contact, so it always succeeds).
+            // face and its own solid. The components are provably DISJOINT, so they
+            // are NOT unioned: a disjoint union only hands the same lumps back, and
+            // the fold that did so kept `.outputs.first()` and lost every lump
+            // after the first. Each component is one output (Main, Body{1}, …);
+            // `dispatch_combine` sweeps every one of them through the targets.
             let extrude_result = if resolved_regions.len() >= 2 {
                 let merged = waffle_types::union_regions(&resolved_regions);
                 if merged.is_empty() {
@@ -1138,22 +1141,19 @@ pub(crate) fn execute_feature(
                     let res = execute_extrude(kb, fid, extrude_direction, extrude_depth, None)?;
                     acc = Some(match acc {
                         None => res,
-                        Some(prev) => {
-                            let a = prev
-                                .outputs
-                                .first()
-                                .map(|(_, b)| b.handle.clone())
-                                .ok_or_else(|| EngineError::ResolutionFailed {
-                                    reason: "multi-region extrude: empty solid".into(),
-                                })?;
-                            let b = res
-                                .outputs
-                                .first()
-                                .map(|(_, b)| b.handle.clone())
-                                .ok_or_else(|| EngineError::ResolutionFailed {
-                                    reason: "multi-region extrude: empty solid".into(),
-                                })?;
-                            execute_boolean(kb, &a, &b, BooleanKind::Union)?
+                        Some(mut prev) => {
+                            for (_, body) in res.outputs {
+                                let index = prev.outputs.len();
+                                prev.outputs.push((OutputKey::Body { index }, body));
+                            }
+                            prev.provenance.created.extend(res.provenance.created);
+                            prev.provenance.deleted.extend(res.provenance.deleted);
+                            prev.provenance.modified.extend(res.provenance.modified);
+                            prev.provenance
+                                .role_assignments
+                                .extend(res.provenance.role_assignments);
+                            prev.diagnostics.warnings.extend(res.diagnostics.warnings);
+                            prev
                         }
                     });
                 }

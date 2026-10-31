@@ -394,13 +394,21 @@ pub(super) fn dispatch_combine(
     tool_result: OpResult,
     op_name: &str,
 ) -> Result<OpResult, EngineError> {
-    let tool_handle = tool_result
+    // The tool may be SEVERAL disjoint lumps (a multi-region extrude of
+    // regions that do not touch — one solid per connected component). Every
+    // lump is tool material: a combine that read only `.outputs.first()`
+    // silently dropped the rest (error.waffle 2026-10-31: two pads extruded
+    // onto a plate, one vanished).
+    let tool_handles: Vec<waffle_types::kernel::KernelSolidHandle> = tool_result
         .outputs
-        .first()
+        .iter()
         .map(|(_, b)| b.handle.clone())
-        .ok_or_else(|| EngineError::ResolutionFailed {
+        .collect();
+    if tool_handles.is_empty() {
+        return Err(EngineError::ResolutionFailed {
             reason: format!("{op_name} produced no solid output"),
-        })?;
+        });
+    }
 
     match eff.mode {
         // Standalone body — no boolean.
@@ -462,52 +470,130 @@ pub(super) fn dispatch_combine(
                 lumps.push(lump);
             }
 
-            // 2. Sweep the tool through the lumps. Operand order (target,
-            //    tool) matches the pre-existing single-target fold so the
+            // 2. Sweep each tool lump through the target lumps, and through the
+            //    components earlier tool lumps already built (two tool lumps
+            //    bridged by one target end up in one component). Operand order
+            //    (target, tool) matches the pre-existing single-target fold, and
+            //    a one-lump tool makes exactly the calls it always made, so the
             //    legacy path stays byte-identical.
-            let mut acc = tool_handle.clone();
-            let mut merged_result: Option<OpResult> = None;
-            let mut leftovers: Vec<(Vec<Uuid>, waffle_types::kernel::KernelSolidHandle)> =
+            type Lump = (Vec<Uuid>, waffle_types::kernel::KernelSolidHandle);
+            let mut pending: Vec<Lump> = lumps;
+            // (component handle, the union that last grew it)
+            let mut comps: Vec<(waffle_types::kernel::KernelSolidHandle, Option<OpResult>)> =
                 Vec::new();
-            for (ids, handle) in lumps {
-                match execute_boolean(kb, &handle, &acc, BooleanKind::Union) {
-                    Ok(res) => match res.outputs.len() {
-                        0 => {
-                            return Err(EngineError::ResolutionFailed {
-                                reason: "Add: tool union produced no solid".into(),
-                            });
-                        }
-                        1 => {
-                            acc = res.outputs[0].1.handle.clone();
-                            merged_result = Some(res);
-                        }
-                        // Tool-disjoint lump: keep the ORIGINAL operand.
-                        _ => leftovers.push((ids, handle)),
-                    },
-                    // Legacy auto-union degrades to a standalone body on failure
-                    // (byte-identical to pre-N-mb-2); an explicit Add propagates.
-                    Err(e) if legacy => {
-                        let mut result = tool_result;
-                        // The typed signal the consumption bookkeeping reads;
-                        // the warning is for humans (and assay greps) only.
-                        result.diagnostics.auto_union_fell_back = true;
-                        result.diagnostics.warnings.push(format!(
-                            "Auto-union failed: {}. Body created as standalone.",
-                            e
-                        ));
-                        return Ok(result);
+            for piece in &tool_handles {
+                let mut acc = piece.clone();
+                let mut merged_result: Option<OpResult> = None;
+                let mut j = 0;
+                while j < comps.len() {
+                    let res = execute_boolean(kb, &comps[j].0, &acc, BooleanKind::Union)?;
+                    if res.outputs.len() == 1 {
+                        acc = res.outputs[0].1.handle.clone();
+                        merged_result = Some(res);
+                        comps.remove(j);
+                    } else {
+                        j += 1;
                     }
-                    Err(e) => return Err(e.into()),
                 }
+                let mut i = 0;
+                while i < pending.len() {
+                    match execute_boolean(kb, &pending[i].1, &acc, BooleanKind::Union) {
+                        Ok(res) => match res.outputs.len() {
+                            0 => {
+                                return Err(EngineError::ResolutionFailed {
+                                    reason: "Add: tool union produced no solid".into(),
+                                });
+                            }
+                            1 => {
+                                acc = res.outputs[0].1.handle.clone();
+                                merged_result = Some(res);
+                                pending.remove(i);
+                            }
+                            // Tool-disjoint lump: keep the ORIGINAL operand.
+                            _ => i += 1,
+                        },
+                        // Legacy auto-union degrades to a standalone body on
+                        // failure (byte-identical to pre-N-mb-2); an explicit
+                        // Add propagates.
+                        Err(e) if legacy => {
+                            let mut result = tool_result;
+                            // The typed signal the consumption bookkeeping
+                            // reads; the warning is for humans (and assay
+                            // greps) only.
+                            result.diagnostics.auto_union_fell_back = true;
+                            result.diagnostics.warnings.push(format!(
+                                "Auto-union failed: {}. Body created as standalone.",
+                                e
+                            ));
+                            return Ok(result);
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                comps.push((acc, merged_result));
             }
+            let leftovers = pending;
 
-            // 3. Assemble: the tool's connected component is the base result;
-            //    tool-disjoint lumps follow as Body{index} outputs + warning.
-            let mut result = match merged_result {
-                Some(res) => res,
-                // Every lump was disjoint from the tool: the tool itself is a
-                // standalone component.
-                None => tool_result,
+            // 3. Assemble: the tool's connected component(s) are the base
+            //    result; tool-disjoint lumps follow as Body{index} outputs +
+            //    warning.
+            let mut result = if comps.len() == 1 {
+                match comps.pop().expect("one component").1 {
+                    Some(res) => res,
+                    // Every lump was disjoint from the tool: the tool itself
+                    // is a standalone component.
+                    None => tool_result,
+                }
+            } else {
+                let floating = comps.iter().filter(|(_, r)| r.is_none()).count();
+                let mut provenance = tool_result.provenance;
+                let mut diagnostics = tool_result.diagnostics;
+                let mut outputs = Vec::with_capacity(comps.len());
+                for (i, (handle, res)) in comps.into_iter().enumerate() {
+                    if let Some(res) = res {
+                        provenance.created.extend(res.provenance.created);
+                        provenance.deleted.extend(res.provenance.deleted);
+                        provenance.modified.extend(res.provenance.modified);
+                        provenance
+                            .role_assignments
+                            .extend(res.provenance.role_assignments);
+                        diagnostics.warnings.extend(res.diagnostics.warnings);
+                    }
+                    let key = if i == 0 {
+                        OutputKey::Main
+                    } else {
+                        OutputKey::Body { index: i }
+                    };
+                    outputs.push((
+                        key,
+                        modeling_ops::BodyOutput {
+                            handle,
+                            mesh: None,
+                            edges: None,
+                        },
+                    ));
+                }
+                // Roles name faces of the bodies this feature OUTPUTS: drop
+                // those of lumps that were consumed into a later union.
+                let live: std::collections::HashSet<_> = outputs
+                    .iter()
+                    .flat_map(|(_, b)| kb.as_introspect().list_faces(&b.handle))
+                    .collect();
+                provenance
+                    .role_assignments
+                    .retain(|(id, _)| live.contains(id));
+                if floating > 0 {
+                    diagnostics.warnings.push(format!(
+                        "Add: {floating} of the tool's {} disjoint piece(s) touch no \
+                         target body; kept as separate bodies.",
+                        tool_handles.len()
+                    ));
+                }
+                OpResult {
+                    outputs,
+                    provenance,
+                    diagnostics,
+                }
             };
             if !leftovers.is_empty() {
                 let names: Vec<String> = leftovers
@@ -562,14 +648,42 @@ pub(super) fn dispatch_combine(
             // `OpResult.diagnostics.warnings` into `engine_warnings`.
             let mut warnings = Vec::new();
             for (_, target) in combine_targets {
-                let res = execute_boolean(kb, target, &tool_handle, kind)?;
-                created.extend(res.provenance.created);
-                deleted.extend(res.provenance.deleted);
-                role_assignments.extend(res.provenance.role_assignments);
-                warnings.extend(res.diagnostics.warnings);
-                for (_, body) in res.outputs {
-                    bodies.push(body);
+                // A multi-lump tool acts lump by lump. Subtract removes every
+                // lump in turn from whatever is left of the target; Intersect
+                // keeps the target's material inside ANY lump — the lumps are
+                // disjoint, so that is the disjoint union of the per-lump
+                // intersections. A one-lump tool makes exactly one call.
+                let mut current = vec![target.clone()];
+                let mut target_bodies = Vec::new();
+                for (k, piece) in tool_handles.iter().enumerate() {
+                    let last = k + 1 == tool_handles.len();
+                    let operands: Vec<_> = match kind {
+                        BooleanKind::Subtract => std::mem::take(&mut current),
+                        _ => vec![target.clone()],
+                    };
+                    for body in &operands {
+                        let res = execute_boolean(kb, body, piece, kind)?;
+                        created.extend(res.provenance.created);
+                        deleted.extend(res.provenance.deleted);
+                        role_assignments.extend(res.provenance.role_assignments);
+                        warnings.extend(res.diagnostics.warnings);
+                        for (_, out) in res.outputs {
+                            if matches!(kind, BooleanKind::Subtract) && !last {
+                                current.push(out.handle);
+                            } else {
+                                target_bodies.push(out);
+                            }
+                        }
+                    }
                 }
+                bodies.extend(target_bodies);
+            }
+            if tool_handles.len() > 1 {
+                let live: std::collections::HashSet<_> = bodies
+                    .iter()
+                    .flat_map(|b| kb.as_introspect().list_faces(&b.handle))
+                    .collect();
+                role_assignments.retain(|(id, _)| live.contains(id));
             }
             let outputs = bodies
                 .into_iter()

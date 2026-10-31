@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use feature_engine::types::{DepthMode, ExtrudeParams};
+use feature_engine::types::{CombineMode, DepthMode, ExtrudeParams};
 use test_harness::workflow::ModelBuilder;
 use uuid::Uuid;
 use waffle_types::{compute_regions, regions::DEFAULT_CHORD_TOLERANCE, Region, SketchEntity};
@@ -359,5 +359,142 @@ fn union_of_box_and_corner_circle_keeps_true_cylinder_walls() {
     assert!(
         faces <= 16,
         "the bump must be exact cylinder patches, not facets (got {faces} faces)"
+    );
+}
+
+/// A plate sketch with two pad rectangles in opposite corners, plus a third
+/// free-standing pad: outer 20×12, pad A [0,6]×[0,5.5] (shares two plate
+/// walls), pad B [10.5,20]×[5.5,12] (shares two plate walls), pad C
+/// [8,10]×[1,3] (interior). The pads do not touch one another.
+fn plate_with_pads() -> (Vec<SketchEntity>, HashMap<u32, (f64, f64)>) {
+    let mut p: HashMap<u32, (f64, f64)> = HashMap::new();
+    let rect = |base: u32, x0: f64, y0: f64, x1: f64, y1: f64, p: &mut HashMap<u32, (f64, f64)>| {
+        vec![
+            point(base, x0, y0, p),
+            point(base + 1, x1, y0, p),
+            point(base + 2, x1, y1, p),
+            point(base + 3, x0, y1, p),
+            line(base + 4, base, base + 1),
+            line(base + 5, base + 1, base + 2),
+            line(base + 6, base + 2, base + 3),
+            line(base + 7, base + 3, base),
+        ]
+    };
+    let mut e = Vec::new();
+    e.extend(rect(100, 0.0, 0.0, 6.0, 5.5, &mut p));
+    e.extend(rect(200, 10.5, 5.5, 20.0, 12.0, &mut p));
+    e.extend(rect(300, 8.0, 1.0, 10.0, 3.0, &mut p));
+    // The plate outline, closed through the pads' outer corners.
+    e.push(point(1, 20.0, 0.0, &mut p));
+    e.push(point(2, 0.0, 12.0, &mut p));
+    e.push(line(3, 101, 1)); // (6,0) → (20,0)
+    e.push(line(4, 1, 201)); // (20,0) → (20,5.5)
+    e.push(line(5, 202, 2)); // (20,12) → (0,12)
+    e.push(line(6, 2, 103)); // (0,12) → (0,5.5)
+    (e, p)
+}
+
+fn multi_params(regions: Vec<Region>, depth: f64, combine: CombineMode) -> ExtrudeParams {
+    let mut params = region_params(regions[0].clone(), depth);
+    params.region = None;
+    params.regions = regions;
+    params.combine = Some(combine);
+    params
+}
+
+/// Live-body count and summed volume of the whole model.
+fn live_bodies_and_volume(m: &mut ModelBuilder) -> (usize, f64) {
+    let meshes = m.tessellate_live_with_tol(0.01).unwrap();
+    let v = meshes
+        .iter()
+        .map(|mesh| test_harness::helpers::mesh_signed_volume(mesh).abs())
+        .sum();
+    (meshes.len(), v)
+}
+
+fn plate_model(depth: f64) -> (ModelBuilder, Vec<Region>, Vec<Region>) {
+    let (entities, positions) = plate_with_pads();
+    let all = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+    assert_eq!(all.len(), 4, "plate remainder + three pads");
+    let plate_area = all.iter().map(|r| r.area).fold(0.0_f64, f64::max);
+    let pads: Vec<Region> = all
+        .iter()
+        .filter(|r| r.area < plate_area)
+        .cloned()
+        .collect();
+    let pad_area: f64 = pads.iter().map(|r| r.area).sum();
+    assert!(
+        (pad_area - PAD_AREA).abs() < 1e-9,
+        "pads are the three rectangles"
+    );
+    let mut m = ModelBuilder::kernel_v2();
+    m.begin_sketch([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    m.finish_sketch_manual(
+        "sk",
+        positions.clone(),
+        waffle_types::extract_profiles(&entities, &positions),
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    )
+    .unwrap();
+    m.extrude_advanced(
+        "plate",
+        "sk",
+        multi_params(all.clone(), depth, CombineMode::Add),
+    )
+    .unwrap();
+    m.assert_no_errors().unwrap();
+    (m, all, pads)
+}
+
+const PAD_AREA: f64 = 6.0 * 5.5 + 9.5 * 6.5 + 2.0 * 2.0;
+
+/// error.waffle (2026-10-31): extruding several DISJOINT regions onto a body
+/// kept only ONE of them — the multi-region tool is one solid per connected
+/// component, and the combine read only the first. Every pad must land.
+#[test]
+fn disjoint_multi_region_pads_all_join_the_plate() {
+    let (mut m, _, pads) = plate_model(1.0);
+    m.extrude_advanced("pads", "sk", multi_params(pads, 3.0, CombineMode::Add))
+        .unwrap();
+    m.assert_no_errors().unwrap();
+    let (bodies, volume) = live_bodies_and_volume(&mut m);
+    let expected = 20.0 * 12.0 * 1.0 + PAD_AREA * 2.0;
+    assert_eq!(bodies, 1, "the pads fuse with the plate into ONE body");
+    assert!(
+        (volume - expected).abs() / expected < 1e-6,
+        "volume {volume}, expected plate + all three pads {expected}"
+    );
+}
+
+/// The same multi-lump tool as a CUT: every pocket is cut, not just the first.
+#[test]
+fn disjoint_multi_region_cut_cuts_every_pocket() {
+    let (mut m, _, pads) = plate_model(3.0);
+    m.extrude_advanced("pockets", "sk", multi_params(pads, 1.0, CombineMode::Cut))
+        .unwrap();
+    m.assert_no_errors().unwrap();
+    let (bodies, volume) = live_bodies_and_volume(&mut m);
+    let expected = 20.0 * 12.0 * 3.0 - PAD_AREA * 1.0;
+    assert_eq!(bodies, 1);
+    assert!(
+        (volume - expected).abs() / expected < 1e-6,
+        "volume {volume}, expected plate minus all three pockets {expected}"
+    );
+}
+
+/// As a NEW body the disjoint components stay separate bodies — all of them.
+#[test]
+fn disjoint_multi_region_new_body_keeps_every_component() {
+    let (mut m, _, pads) = plate_model(1.0);
+    m.extrude_advanced("pads", "sk", multi_params(pads, 3.0, CombineMode::NewBody))
+        .unwrap();
+    m.assert_no_errors().unwrap();
+    let (bodies, volume) = live_bodies_and_volume(&mut m);
+    let expected = 20.0 * 12.0 * 1.0 + PAD_AREA * 3.0;
+    assert_eq!(bodies, 4, "plate + three separate pads");
+    assert!(
+        (volume - expected).abs() / expected < 1e-6,
+        "volume {volume}, expected {expected}"
     );
 }
