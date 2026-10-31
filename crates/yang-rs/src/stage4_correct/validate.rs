@@ -179,8 +179,13 @@ pub(crate) fn validate_relocated_triangles(
                     tri_degeneracy_ratio(p0, p1, p2)
                 );
             }
+            let bad_v = tri
+                .iter()
+                .copied()
+                .find(|v| moved.contains(v))
+                .unwrap_or(tri[0]);
             return Err(YangError::stage4_region_invalid(
-                tri[0],
+                bad_v,
                 Stage4InvalidReason::DegenerateTriangle,
             ));
         }

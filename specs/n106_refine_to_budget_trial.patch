@@ -1,0 +1,850 @@
+diff --git a/app/tests/cases/assay/results.json b/app/tests/cases/assay/results.json
+index 2d9d72e6..e51d92bd 100644
+--- a/app/tests/cases/assay/results.json
++++ b/app/tests/cases/assay/results.json
+@@ -36,7 +36,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 2.438e-14 m, rel 4.204e-16, solids 2 at (-7.825335e1, -2.176489e1, -5.708287e0); exact_vs_mesh: exact 1.539764604e4 mesh 1.537755598e4 rel -1.305e-3 bound_ratio 5.793e-2 (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 2.836e-14 m, rel 4.889e-16, solids 2 at (-7.826389e1, -2.174036e1, -5.395625e0); exact_vs_mesh: exact 1.539764604e4 mesh 1.537755598e4 rel -1.305e-3 bound_ratio 5.793e-2 (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 0 violation(s)",
+       "id": "R0006",
+       "status": "pass"
+     },
+@@ -354,7 +354,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 7.105e-14 m, rel 1.868e-16, solids 1 at (-2.792848e2, 3.031643e2, -2.274292e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 8.527e-14 m, rel 2.242e-16, solids 1 at (-3.626340e2, 2.615983e2, -7.890183e1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
+       "id": "R0059",
+       "status": "pass"
+     },
+@@ -870,7 +870,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (1.042049e-1, -4.154767e-1, 1.987021e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-2.940862e-1, -2.940862e-1, 2.483777e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0045",
+       "status": "pass"
+     },
+@@ -882,7 +882,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 1.943e-16 m, rel 1.943e-16, solids 1 at (-5.296343e-3, 3.235130e-2, 2.089601e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 1.943e-16 m, rel 1.943e-16, solids 1 at (-2.620802e-2, 5.385735e-2, 2.036556e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0047",
+       "status": "pass"
+     },
+@@ -900,7 +900,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 2.498e-16 m, rel 2.498e-16, solids 1 at (-8.006667e-2, -1.483494e-1, 2.158086e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 2.498e-16 m, rel 2.498e-16, solids 1 at (-4.134413e-2, -1.804980e-1, 2.016282e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0050",
+       "status": "pass"
+     },
+@@ -936,7 +936,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 1.110e-16 m, rel 1.110e-16, solids 1 at (2.993292e-1, 2.005125e-2, -2.993292e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (2.940514e-2, -2.985554e-1, 2.940514e-2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0056",
+       "status": "pass"
+     },
+@@ -948,7 +948,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 8.327e-17 m, rel 8.327e-17, solids 2 at (-3.568270e-2, -1.967911e-1, -3.568270e-2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 8.327e-17 m, rel 8.327e-17, solids 2 at (-3.679782e-2, -1.965857e-1, -3.679782e-2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0058",
+       "status": "pass"
+     },
+@@ -960,7 +960,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 4 at (5.852710e-2, -2.942356e-1, -2.942356e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+4 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 4 at (-2.940514e-2, 2.985554e-1, -2.985554e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+4 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0060",
+       "status": "pass"
+     },
+@@ -984,7 +984,7 @@
+     },
+     {
+       "category": "ERROR",
+-      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
++      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 611), (B, 6)]: tris 2529×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+       "id": "F0064",
+       "status": "error"
+     },
+@@ -1020,19 +1020,19 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (2.781926e-1, -1.406893e-1, 1.010003e0); exact_vs_mesh: exact 5.686380659e-1 mesh 5.685019044e-1 rel -2.395e-4 bound_ratio 1.443e-3; monotonicity: 15 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (1.420418e-1, 1.813030e-1, 7.688387e-1); exact_vs_mesh: exact 5.686380659e-1 mesh 5.685019044e-1 rel -2.395e-4 bound_ratio 1.443e-3; monotonicity: 15 checked, 0 not covered, 0 violation(s)",
+       "id": "F0070",
+       "status": "pass"
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 2.776e-17 m, rel 2.776e-17, solids 1 at (3.629658e-2, 1.574588e-1, 2.609313e0); exact_vs_mesh: exact 1.006317693e0 mesh 1.006298959e0 rel -1.862e-5 bound_ratio 1.264e-4; monotonicity: 20 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-1.611276e-1, 1.219139e-2, 2.609313e0); exact_vs_mesh: exact 1.006317693e0 mesh 1.006298959e0 rel -1.862e-5 bound_ratio 1.264e-4; monotonicity: 20 checked, 0 not covered, 0 violation(s)",
+       "id": "F0071",
+       "status": "pass"
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 3.221e-15 m, rel 3.221e-15, solids 1 at (-1.468674e-1, -7.761123e-2, 2.404465e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 3.177e-15 m, rel 3.177e-15, solids 1 at (1.431227e-1, 7.563237e-2, 2.123711e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
+       "id": "F0072",
+       "status": "pass"
+     },
+@@ -1098,19 +1098,19 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 7.182e-16 m, rel 7.182e-16, solids 1 at (1.503148e-2, 7.774561e-2, 3.252295e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 15 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 6.887e-16 m, rel 6.887e-16, solids 1 at (-6.874624e-2, 1.774497e-2, 3.209145e-1); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 15 checked, 0 not covered, 0 violation(s)",
+       "id": "F0083",
+       "status": "pass"
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 2.883e-15 m, rel 2.883e-15, solids 1 at (1.205082e-1, -9.141375e-2, 2.821382e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 3.003e-15 m, rel 3.003e-15, solids 1 at (1.205082e-1, -9.141375e-2, 2.821382e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
+       "id": "F0084",
+       "status": "pass"
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 1.807e-15 m, rel 1.807e-15, solids 1 at (-2.475296e-2, -1.956890e-1, 2.308052e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 3.455e-15 m, rel 3.455e-15, solids 1 at (8.649902e-2, -9.699508e-2, 2.311157e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
+       "id": "F0085",
+       "status": "pass"
+     },
+@@ -1164,7 +1164,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (3.292172e-1, -5.533395e-1, 0.000000e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-3.387116e-1, -4.646218e-2, 0.000000e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "F0094",
+       "status": "pass"
+     },
+@@ -1530,7 +1530,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (1.851279e-1, 3.545810e-1, 9.000000e-1); exact_vs_mesh: exact 1.514247659e0 mesh 1.512271954e0 rel -1.305e-3 bound_ratio 2.382e-2; monotonicity: 2 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-9.754516e-2, 4.903926e-1, 9.000000e-1); exact_vs_mesh: exact 1.514247659e0 mesh 1.512271957e0 rel -1.305e-3 bound_ratio 2.382e-2; monotonicity: 2 checked, 0 not covered, 0 violation(s)",
+       "id": "C0061",
+       "status": "pass"
+     },
+@@ -1578,7 +1578,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 1.110e-16 m, rel 1.110e-16, solids 1 at (1.518384e-1, -4.763876e-1, 0.000000e0); exact_vs_mesh: exact 1.443561824e0 mesh 1.441678359e0 rel -1.305e-3 bound_ratio 2.032e-2; monotonicity: 4 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-9.754516e-2, 4.903926e-1, 1.500000e0); exact_vs_mesh: exact 1.443561824e0 mesh 1.441678357e0 rel -1.305e-3 bound_ratio 2.032e-2; monotonicity: 4 checked, 0 not covered, 0 violation(s)",
+       "id": "C0069",
+       "status": "pass"
+     },
+@@ -1980,7 +1980,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 8.527e-14 m, rel 2.304e-16, solids 2 at (-2.333785e2, 9.564029e1, 5.900000e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 8.527e-14 m, rel 2.304e-16, solids 2 at (-2.350000e2, 1.643597e2, 5.900000e0); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
+       "id": "P0018",
+       "status": "pass"
+     },
+@@ -2184,7 +2184,7 @@
+     },
+     {
+       "category": "SUPPORTED_CORRECT",
+-      "detail": "all checks passed; on_surface: max 1.069e-11 m, rel 1.276e-14, solids 2 at (-4.057074e1, 3.069745e2, 1.278321e2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
++      "detail": "all checks passed; on_surface: max 1.063e-11 m, rel 1.269e-14, solids 2 at (-4.057074e1, 3.069745e2, 1.278321e2); exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+2 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
+       "id": "P0052",
+       "status": "pass"
+     },
+diff --git a/crates/yang-rs/src/stage4_construct.rs b/crates/yang-rs/src/stage4_construct.rs
+index 418bf143..290ca8d5 100644
+--- a/crates/yang-rs/src/stage4_construct.rs
++++ b/crates/yang-rs/src/stage4_construct.rs
+@@ -692,6 +692,40 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+     // Attempt 0 runs seedless — the pre-I2e path, byte-identical when it
+     // passes the gate.
+     let n_pool = pool.len();
++    // Chart centroids of the triangles the last attempt's I2d gate found over
++    // budget — the insertion set of the d(T) refinement below.
++    let offenders: std::cell::RefCell<Vec<Point2>> = std::cell::RefCell::new(Vec::new());
++    // The budget never asks the rebuild to beat its own fixed boundary. A
++    // triangle on a cycle chord cannot certify below that chord, and the
++    // Fig. 6 covering-rectangle bound carries a long DIAGONAL chord's width
++    // into every triangle near it — no interior point changes either, and
++    // the replaced triangles contained the same chords. So the budget is
++    // max(budget, the largest certified d(T) of a cycle chord, read as the
++    // degenerate triangle [a, b, b] — `d_of_t`'s documented zero-span case).
++    // A chord above d_ε is the boundary sampling's debt (§4.3.4 / Stage 1),
++    // recorded in the census, never the update's.
++    let old_max = match old_max {
++        Some(budget) => {
++            let mut floor = 0.0f64;
++            for c in std::iter::once(&p2.boundary).chain(p2.holes.iter()) {
++                for i in 0..c.len() {
++                    let (a, b) = (pool[c[i] as usize], pool[c[(i + 1) % c.len()] as usize]);
++                    // An uncertifiable chord adds nothing: the budget only
++                    // ever stays stricter.
++                    if let Ok(dc) = crate::stage4_dt::d_of_t(&patch.surface, [a, b, b]) {
++                        floor = floor.max(dc);
++                    }
++                }
++            }
++            if floor > budget {
++                log_update_census(&format!(
++                    "DT_BOUNDARY_FLOOR patch={patch_index} floor={floor:.3e} budget={budget:.3e}"
++                ));
++            }
++            Some(if std::env::var_os("TMP_NO_FLOOR").is_some() { budget } else { budget.max(floor) })
++        }
++        None => None,
++    };
+     let run_attempt = |seeds: &[Point2]| -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
+         let mut pool_ext = pool.clone();
+         let mut interior_ext = interior_idx.clone();
+@@ -699,8 +733,25 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+             interior_ext.push(pool_ext.len() as u32);
+             pool_ext.push(*s);
+         }
++        // Delaunay in arc length, not radians: the chart (θ, y) shrinks the
++        // circumferential direction by the radius, so its Delaunay criterion
++        // builds triangles long around the surface — slivers whose covering
++        // rectangle (the Fig. 6 d(T) bound) is as wide as the triangle.
++        // (r·θ, y) is the cylinder's isometric unroll (a cone's at its
++        // largest station); the map is affine, so every constraint stays a
++        // segment and orientation is preserved. d(T) is still read in the
++        // surface's own (θ, y) below.
++        let cdt_pool: std::borrow::Cow<[Point2]> = if radius > 0.0 && radius.is_finite() && std::env::var_os("TMP_NO_ISO").is_none() {
++            pool_ext
++                .iter()
++                .map(|p| Point2::new(p.x() * radius, p.y()))
++                .collect::<Vec<_>>()
++                .into()
++        } else {
++            (&pool_ext[..]).into()
++        };
+         let tris2 =
+-            cdt_with_interior_constraints(&pool_ext, &p2.boundary, &p2.holes, &interior_ext, &[])
++            cdt_with_interior_constraints(&cdt_pool, &p2.boundary, &p2.holes, &interior_ext, &[])
+                 .map_err(|error| ConstructError::Cdt {
+                 patch: patch_index,
+                 error,
+@@ -790,6 +841,8 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+         // any triangulation of a plane polygon).
+         if let Some(budget) = old_max {
+             let mut new_max = 0.0f64;
++            let mut over = offenders.borrow_mut();
++            over.clear();
+             for t in &tris2 {
+                 let uv = [
+                     pool_ext[t[0] as usize],
+@@ -798,9 +851,16 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+                 ];
+                 let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
+                     .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
++                if dt <= budget {
++                    continue;
++                }
+                 new_max = new_max.max(dt);
++                over.push(Point2::new(
++                    (uv[0].x() + uv[1].x() + uv[2].x()) / 3.0,
++                    (uv[0].y() + uv[1].y() + uv[2].y()) / 3.0,
++                ));
+             }
+-            if new_max > budget {
++            if new_max > 0.0 {
+                 return Err(ConstructError::ChordDegradation {
+                     patch: patch_index,
+                     old_max: budget,
+@@ -842,7 +902,7 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+         Err(ConstructError::ChordDegradation {
+             patch: ep,
+             old_max: eo,
+-            new_max: en,
++            new_max: _,
+         }) if old_arc_span > 0.0 => {
+             let mut rescued = None;
+             let mut spacing = old_arc_span;
+@@ -874,13 +934,8 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+             }
+             match rescued {
+                 Some(out) => out,
+-                None => {
+-                    return Err(ConstructError::ChordDegradation {
+-                        patch: ep,
+-                        old_max: eo,
+-                        new_max: en,
+-                    })
+-                }
++                None if std::env::var_os("TMP_NO_REFINE").is_some() => return Err(ConstructError::ChordDegradation { patch: ep, old_max: eo, new_max: eo }),
++                None => refine_by_d_of_t(&run_attempt, &offenders, ep, eo)?,
+             }
+         }
+         Err(e) => return Err(e),
+@@ -914,6 +969,62 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
+ /// an accepted rebuild wrong, because the d(T) gate re-verifies every
+ /// attempt. Returns empty (→ the caller keeps the loud decline) for
+ /// degenerate spans or when the grid would exceed the runaway backstop.
++/// Rounds of [`refine_by_d_of_t`] before it stops. Each round inserts the
++/// centroid of every over-budget triangle, so a triangle's chart size, and
++/// with it its d(T) (quadratic in size), shrinks every round; 48 rounds is
++/// past f64 resolution for any patch. A resource bound, never reached by a
++/// refinement that converges.
++const D_OF_T_REFINE_MAX_ROUNDS: usize = 48;
++
++/// Yang §4.4.1's closing step, "for the newly generated boundary triangles
++/// around the intersection curve, we recalculate d(T) to maintain
++/// controllable error" (`refs/text/yang2025_hybrid_boolean.txt:566-571`),
++/// as a refinement: re-run the patch CDT with the chart centroid of every
++/// triangle the I2d gate found over budget added as an interior point,
++/// until every triangle certifies. Loud when a round adds no new point
++/// (the excess sits on a constrained boundary chord no interior point can
++/// split) or the round bound is reached: the original `ChordDegradation`.
++fn refine_by_d_of_t<F>(
++    run_attempt: &F,
++    offenders: &std::cell::RefCell<Vec<Point2>>,
++    patch: usize,
++    old_max: f64,
++) -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError>
++where
++    F: Fn(&[Point2]) -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError>,
++{
++    let fail = |new_max| ConstructError::ChordDegradation {
++        patch,
++        old_max,
++        new_max,
++    };
++    // Start from a seedless attempt so the offender set is this patch's own.
++    let mut seeds: Vec<Point2> = Vec::new();
++    let mut last_max = match run_attempt(&seeds) {
++        Ok(out) => return Ok(out),
++        Err(ConstructError::ChordDegradation { new_max, .. }) => new_max,
++        Err(e) => return Err(e),
++    };
++    for _ in 0..D_OF_T_REFINE_MAX_ROUNDS {
++        let fresh: Vec<Point2> = offenders
++            .borrow()
++            .iter()
++            .copied()
++            .filter(|c| c.x().is_finite() && c.y().is_finite() && !seeds.contains(c))
++            .collect();
++        if fresh.is_empty() {
++            return Err(fail(last_max));
++        }
++        seeds.extend(fresh);
++        match run_attempt(&seeds) {
++            Ok(out) => return Ok(out),
++            Err(ConstructError::ChordDegradation { new_max, .. }) => last_max = new_max,
++            Err(e) => return Err(e),
++        }
++    }
++    Err(fail(last_max))
++}
++
+ fn i2e_seed_grid(
+     pool: &[Point2],
+     outer: &[u32],
+@@ -3205,8 +3316,6 @@ pub(crate) fn update_patches(
+ 
+ type Fig11aSeedMap = BTreeMap<(u32, u32), (Vec<(u32, f64)>, [bool; 2])>;
+ type Fig11aSplitMap = BTreeMap<(u32, u32), (Vec<u32>, [bool; 2])>;
+-type Fig11aLocalPlan = (Vec<PatchRebuild>, Vec<[u32; 3]>, BTreeSet<(u32, u32)>);
+-type BoundarySplitJob = (u32, u32, Vec<(u32, u32)>);
+ type PatchPlanEntry = (Vec<PatchRebuild>, Vec<[u32; 3]>);
+ 
+ fn segment_param(verts: &[Point3], u: u32, v: u32, q: u32) -> Option<f64> {
+@@ -3607,258 +3716,6 @@ fn plan_matches_boundary(new_tris: &[[u32; 3]], want_boundary: &[(u32, u32)]) ->
+     directed_boundary(new_tris) == want_boundary
+ }
+ 
+-/// Local Fig. 11(a) patch-level fallback (`refs/text/yang2025_hybrid_boolean.txt:561-562`)
+-/// for patches where whole-patch parametric CDT is unavailable or declined
+-/// (Torus/Sphere, Cone-apex, full-wrap Cylinder, `ChordDegradation`, or merged
+-/// mixed-attribution planar patches). Emits per-slot `PatchRebuild`s (`old_tris: vec![ti]`)
+-/// alongside the complete post-update patch triangle list `final_tris`.
+-fn local_fig11a_patch_plans(
+-    mesh: &Mesh,
+-    patch_index: usize,
+-    tri_indices: &[u32],
+-    patch_ops: [bool; 2],
+-    splits: &Fig11aSplitMap,
+-    moved: &std::collections::HashSet<u32>,
+-) -> Option<Fig11aLocalPlan> {
+-    let is_moved_degen_tri = |t: [u32; 3]| -> bool {
+-        t.iter().any(|v| moved.contains(v))
+-            && crate::stage4_correct::tri_is_degenerate(
+-                mesh.verts[t[0] as usize].as_array(),
+-                mesh.verts[t[1] as usize].as_array(),
+-                mesh.verts[t[2] as usize].as_array(),
+-            )
+-    };
+-    let old_tris: Vec<[u32; 3]> = tri_indices
+-        .iter()
+-        .map(|&ti| mesh.tris[ti as usize])
+-        .collect();
+-    let mut used_splits = BTreeSet::new();
+-    for (u, v) in directed_boundary(&old_tris) {
+-        let _ = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
+-    }
+-    let mut cur: Vec<(usize, [u32; 3])> = old_tris.iter().copied().enumerate().collect();
+-
+-    // 1. Resolve intra-patch moved-degenerate triangles and peel boundary
+-    //    moved-degenerate flaps whose split edge is in `splits`.
+-    loop {
+-        let mut progressed = false;
+-        let mut dir_owner: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+-        for (idx, &(_, t)) in cur.iter().enumerate() {
+-            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+-                dir_owner.entry((u, v)).or_default().push(idx);
+-            }
+-        }
+-        for d_pos in 0..cur.len() {
+-            let (_, dt) = cur[d_pos];
+-            if !is_moved_degen_tri(dt) {
+-                continue;
+-            }
+-            let Some((a, c, b, _)) = collinear_split_edge_and_off(&mesh.verts, dt) else {
+-                continue;
+-            };
+-            let key_ac = (a, c);
+-            let dir_ac = [(dt[0], dt[1]), (dt[1], dt[2]), (dt[2], dt[0])]
+-                .into_iter()
+-                .find(|&(x, y)| (x == a && y == c) || (x == c && y == a))
+-                .unwrap_or((a, c));
+-            let opp_owners = dir_owner
+-                .get(&(dir_ac.1, dir_ac.0))
+-                .cloned()
+-                .unwrap_or_default();
+-            if opp_owners.is_empty() {
+-                let active = splits.get(&key_ac).is_some_and(|(_, s_ops)| {
+-                    (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
+-                });
+-                if active {
+-                    used_splits.insert(key_ac);
+-                    cur.remove(d_pos);
+-                    progressed = true;
+-                    break;
+-                }
+-            } else if opp_owners.len() == 1 {
+-                let n_pos = opp_owners[0];
+-                let (n_src, nt) = cur[n_pos];
+-                if !is_moved_degen_tri(nt) {
+-                    if let Some((c1, c2)) = crate::stage4_correct::split_tri_at_edge(nt, a, c, b) {
+-                        let hi = d_pos.max(n_pos);
+-                        let lo = d_pos.min(n_pos);
+-                        cur.remove(hi);
+-                        cur.remove(lo);
+-                        cur.push((n_src, c1));
+-                        cur.push((n_src, c2));
+-                        progressed = true;
+-                        break;
+-                    }
+-                } else if let Some((na, nc, b2, _)) = collinear_split_edge_and_off(&mesh.verts, nt)
+-                {
+-                    if (na, nc) == key_ac && b2 != b {
+-                        if let (Some(t1), Some(t2)) = (
+-                            segment_param(&mesh.verts, a, c, b),
+-                            segment_param(&mesh.verts, a, c, b2),
+-                        ) {
+-                            if t1 != t2
+-                                && mesh.verts[b as usize].as_array()
+-                                    != mesh.verts[b2 as usize].as_array()
+-                            {
+-                                let (bl, bh) = if t1 < t2 { (b, b2) } else { (b2, b) };
+-                                let split_active = |u: u32, v: u32| -> bool {
+-                                    let k = if u < v { (u, v) } else { (v, u) };
+-                                    splits.get(&k).is_some_and(|(_, s_ops)| {
+-                                        (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
+-                                    })
+-                                };
+-                                enum SideAction {
+-                                    Internal(usize, [u32; 3], [u32; 3]),
+-                                    BoundarySplit((u32, u32)),
+-                                }
+-                                let classify_side =
+-                                    |u: u32, v: u32, ins: u32| -> Option<SideAction> {
+-                                        let mut hits = Vec::new();
+-                                        for (k, &(_, kt)) in cur.iter().enumerate() {
+-                                            if k == d_pos || k == n_pos {
+-                                                continue;
+-                                            }
+-                                            if kt.contains(&u) && kt.contains(&v) {
+-                                                hits.push(k);
+-                                            }
+-                                        }
+-                                        if hits.is_empty() {
+-                                            if split_active(u, v) {
+-                                                let ek = if u < v { (u, v) } else { (v, u) };
+-                                                Some(SideAction::BoundarySplit(ek))
+-                                            } else {
+-                                                None
+-                                            }
+-                                        } else if hits.len() == 1
+-                                            && !is_moved_degen_tri(cur[hits[0]].1)
+-                                        {
+-                                            let pos = hits[0];
+-                                            let (s1, s2) =
+-                                                crate::stage4_correct::split_tri_at_edge(
+-                                                    cur[pos].1, u, v, ins,
+-                                                )?;
+-                                            Some(SideAction::Internal(pos, s1, s2))
+-                                        } else {
+-                                            None
+-                                        }
+-                                    };
+-                                if let (Some(act_h), Some(act_l)) =
+-                                    (classify_side(a, bh, bl), classify_side(bl, c, bh))
+-                                {
+-                                    let same_internal = matches!(
+-                                        (&act_h, &act_l),
+-                                        (SideAction::Internal(ph, _, _), SideAction::Internal(pl, _, _))
+-                                            if ph == pl
+-                                    );
+-                                    if !same_internal {
+-                                        let mut rem = vec![d_pos, n_pos];
+-                                        let mut add: Vec<(usize, [u32; 3])> = Vec::new();
+-                                        used_splits.insert(key_ac);
+-                                        for act in [act_h, act_l] {
+-                                            match act {
+-                                                SideAction::Internal(pos, s1, s2) => {
+-                                                    let src = cur[pos].0;
+-                                                    rem.push(pos);
+-                                                    add.push((src, s1));
+-                                                    add.push((src, s2));
+-                                                }
+-                                                SideAction::BoundarySplit(ek) => {
+-                                                    used_splits.insert(ek);
+-                                                }
+-                                            }
+-                                        }
+-                                        rem.sort_unstable();
+-                                        for &r in rem.iter().rev() {
+-                                            cur.remove(r);
+-                                        }
+-                                        cur.extend(add);
+-                                        progressed = true;
+-                                        break;
+-                                    }
+-                                }
+-                            }
+-                        }
+-                    }
+-                }
+-            }
+-        }
+-        if !progressed {
+-            break;
+-        }
+-    }
+-
+-    // 2. Subdivide any remaining unsplit boundary edge `(u, v)` of `cur` that
+-    //    has an active split chain in `splits` (ordered by 3D endpoint coordinates
+-    //    so multi-edge splits on a single triangle do not depend on `u32` IDs).
+-    loop {
+-        let cur_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
+-        let mut bd = directed_boundary(&cur_tris);
+-        bd.sort_by(|&(u1, v1), &(u2, v2)| {
+-            crate::stage5_seam_merge::point_cmp(mesh.verts[u1 as usize], mesh.verts[u2 as usize])
+-                .then_with(|| {
+-                    crate::stage5_seam_merge::point_cmp(
+-                        mesh.verts[v1 as usize],
+-                        mesh.verts[v2 as usize],
+-                    )
+-                })
+-                .then_with(|| (u1, v1).cmp(&(u2, v2)))
+-        });
+-        let mut split_job: Option<BoundarySplitJob> = None;
+-        for (u, v) in bd {
+-            let exp = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
+-            if exp.len() > 1 {
+-                split_job = Some((u, v, exp));
+-                break;
+-            }
+-        }
+-        let Some((u, v, exp)) = split_job else {
+-            break;
+-        };
+-        let pos = cur.iter().position(|&(_, t)| {
+-            [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]
+-                .into_iter()
+-                .any(|e| e == (u, v))
+-        })?;
+-        let (src_slot, parent) = cur.remove(pos);
+-        let apex = parent.into_iter().find(|&x| x != u && x != v)?;
+-        if exp.iter().any(|&(s, e)| s == apex || e == apex) {
+-            return None;
+-        }
+-        for (s, e) in exp {
+-            cur.push((src_slot, [s, e, apex]));
+-        }
+-    }
+-
+-    let final_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
+-    if final_tris == old_tris || final_tris.iter().copied().any(is_moved_degen_tri) {
+-        return None;
+-    }
+-    let want_bd = expected_boundary_after_splits(&old_tris, patch_ops, splits);
+-    if !plan_matches_boundary(&final_tris, &want_bd) {
+-        return None;
+-    }
+-
+-    let mut by_slot: Vec<Vec<[u32; 3]>> = vec![Vec::new(); tri_indices.len()];
+-    for (slot, t) in cur {
+-        by_slot[slot].push(t);
+-    }
+-    let mut rebuilds = Vec::new();
+-    for (slot, &ti) in tri_indices.iter().enumerate() {
+-        if by_slot[slot].len() == 1 && by_slot[slot][0] == old_tris[slot] {
+-            continue;
+-        }
+-        rebuilds.push(PatchRebuild {
+-            patch: patch_index,
+-            old_tris: vec![ti],
+-            new_tris: by_slot[slot].clone(),
+-            new_verts: Vec::new(),
+-            dropped: BTreeSet::new(),
+-            plan_verts: mesh.verts.len() as u32,
+-            plan_tris: mesh.tris.len() as u32,
+-        });
+-    }
+-    (!rebuilds.is_empty()).then_some((rebuilds, final_tris, used_splits))
+-}
+ 
+ fn log_update_census(msg: &str) {
+     if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
+@@ -3976,8 +3833,7 @@ pub(crate) fn update_patches_ex(
+     let chord_band = crate::stage4_correct::stage4_chord_band(a, b);
+     let mut patch_plans: Vec<Option<PatchPlanEntry>> = vec![None; n_patches];
+     let mut fig11a_cdt_patches = 0usize;
+-    let mut fig11a_local_patches = 0usize;
+-    let mut fig11a_local_declined = 0usize;
++    let mut fig11a_declined_patches = 0usize;
+     let mut fig11a_declined_components = 0usize;
+     let mut cdt_crossing_refused = 0usize;
+     let mut cdt_other_refused = 0usize;
+@@ -4030,6 +3886,18 @@ pub(crate) fn update_patches_ex(
+         };
+ 
+         let mut cdt_crossing_failed = false;
++        // Census: why the §4.4.1 CDT did not take this patch.
++        let mut refusal: String = if !cycles_valid_for_cdt {
++            "split-cycle<3".into()
++        } else if split_cycles.is_empty() {
++            "no-cycles".into()
++        } else if !SurfaceChart::supports(&info.inherited) {
++            format!("chart-unsupported:{}", surface_kind_name(&info.inherited))
++        } else if !uniform_attr {
++            "mixed-attribution".into()
++        } else {
++            String::new()
++        };
+         if cycles_valid_for_cdt
+             && !split_cycles.is_empty()
+             && SurfaceChart::supports(&info.inherited)
+@@ -4070,6 +3938,11 @@ pub(crate) fn update_patches_ex(
+                         let post_tris = plan.new_tris.clone();
+                         patch_plans[pi] = Some((vec![plan], post_tris));
+                     } else {
++                        refusal = if plan_has_moved_degen {
++                            "plan-keeps-moved-degenerate".into()
++                        } else {
++                            "boundary-mismatch".into()
++                        };
+                         cdt_bd_refused += 1;
+                     }
+                 }
+@@ -4077,25 +3950,33 @@ pub(crate) fn update_patches_ex(
+                     error: CdtError::TriangulationFailed,
+                     ..
+                 }) => {
++                    refusal = "cdt-crossing".into();
+                     cdt_crossing_refused += 1;
+                     cdt_crossing_failed = true;
+                 }
+-                Err(_) => {
++                Err(e) => {
++                    let d = format!("{e:?}");
++                    refusal = match &e {
++                        ConstructError::ChordDegradation { old_max, new_max, .. } => format!(
++                            "other:ChordDegradation budget={old_max:.3e} new={new_max:.3e} d_eps={chord_band:?}"
++                        ),
++                        _ => format!("other:{}", d.replace(' ', "")),
++                    };
+                     cdt_other_refused += 1;
+                 }
+             }
+         }
+ 
++        // A Fig. 11(a) patch the update could not rebuild keeps its triangles:
++        // its moved degenerate triangle reaches `validate_relocated_triangles`,
++        // a loud STOP the §4.5.2 loop refines (there is no local repair arm).
+         if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) {
+-            if let Some((rebuilds, final_tris, used)) =
+-                local_fig11a_patch_plans(mesh, pi, &p.tri_indices, p_ops, &splits, moved)
+-            {
+-                fig11a_local_patches += 1;
+-                patch_req_splits[pi].extend(used);
+-                patch_plans[pi] = Some((rebuilds, final_tris));
+-            } else {
+-                fig11a_local_declined += 1;
+-            }
++            fig11a_declined_patches += 1;
++            log_update_census(&format!(
++                "FIG11A_DECLINED patch={pi} surface={} split_bd={has_split_bd} moved_degen={has_moved_degen} tris={} refusal={refusal}",
++                surface_kind_name(&info.inherited),
++                p.tri_indices.len()
++            ));
+         }
+ 
+         if patch_plans[pi].is_none() && cdt_crossing_failed {
+@@ -4280,7 +4161,7 @@ pub(crate) fn update_patches_ex(
+ 
+     if plans.is_empty() {
+         log_update_census(&format!(
+-            "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_local={fig11a_local_patches} fig11a_local_declined={fig11a_local_declined} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
++            "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+             splits.len()
+         ));
+         return 0;
+@@ -4307,7 +4188,7 @@ pub(crate) fn update_patches_ex(
+         }
+     }
+     log_update_census(&format!(
+-        "APPLIED patches={n} of_plans={} batch_err={batch_err} fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_local={fig11a_local_patches} fig11a_local_declined={fig11a_local_declined} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
++        "APPLIED patches={n} of_plans={} batch_err={batch_err} fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+         plans.len(),
+         splits.len()
+     ));
+@@ -6726,3 +6607,13 @@ mod tests {
+         );
+     }
+ }
++
++fn surface_kind_name(s: &Surface) -> &'static str {
++    let d = format!("{s:?}");
++    for k in ["Plane", "Cylinder", "Cone", "Sphere", "Torus"] {
++        if d.starts_with(k) {
++            return k;
++        }
++    }
++    "Other"
++}
+diff --git a/crates/yang-rs/src/stage4_correct/collapse.rs b/crates/yang-rs/src/stage4_correct/collapse.rs
+index 79ea90bb..144acac8 100644
+--- a/crates/yang-rs/src/stage4_correct/collapse.rs
++++ b/crates/yang-rs/src/stage4_correct/collapse.rs
+@@ -35,41 +35,6 @@ pub(crate) fn balance_census(mesh: &Mesh, checkpoint: &str) {
+     );
+ }
+ 
+-/// Yang Fig. 11(a) — "locate the constrained edge containing q, split it at
+-/// q" — as the TOPOLOGICAL operation it is: insert `ins` on the edge `{u, v}`
+-/// of `parent`, returning the two halves WOUND LIKE THE PARENT, i.e. the
+-/// parent's own cyclic vertex order with `ins` spliced between `u` and `v`
+-/// in whichever direction that edge runs in the parent. Every directed edge
+-/// of the parent other than the split one survives verbatim, the split one
+-/// becomes the two-segment chain in the same direction, and the halves pair
+-/// each other across `ins–third`; watertightness is preserved by
+-/// construction, with no geometry consulted.
+-///
+-/// P0005 (2026-09-28, spec `yang_n2_stage4_cdt_mesh_updating.md` §5c.15):
+-/// both §4.4.1(a) arms used to wind the halves GEOMETRICALLY (`orient_tri`
+-/// against the parent's area normal). A half that is itself a needle — the
+-/// inserted point within 2.7e-7 of the parent's edge endpoint, which is what a
+-/// 3e-3-wide × 424-long cone-chart sliver quad (two rim mints 3e-3 apart, each
+-/// with its seeded generator) delivers to the chain — has an area normal that
+-/// is numerical noise against the parent's, so the proxy inverted it and the
+-/// §4.4.3 gate stopped on the fold (`s4-halfedge-pairing` fwd=2 rev=0). The
+-/// winding of a split half is not a geometric question.
+-///
+-/// `None` iff `parent` does not contain the edge `{u, v}` — the callers choose
+-/// the parent from the edge's own incidence list, so this is unreachable by
+-/// construction and they treat it as an invariant violation.
+-pub(crate) fn split_tri_at_edge(
+-    parent: [u32; 3],
+-    u: u32,
+-    v: u32,
+-    ins: u32,
+-) -> Option<([u32; 3], [u32; 3])> {
+-    (0..3).find_map(|i| {
+-        let (p, q, r) = (parent[i], parent[(i + 1) % 3], parent[(i + 2) % 3]);
+-        ((p == u && q == v) || (p == v && q == u)).then_some(([p, ins, r], [ins, q, r]))
+-    })
+-}
+-
+ /// Remap a vertex-index set through a compaction table (`old -> Option<new>`).
+ pub(crate) fn remap_vert_set(set: &mut std::collections::BTreeSet<u32>, remap: &[Option<u32>]) {
+     let next: std::collections::BTreeSet<u32> = set
+diff --git a/crates/yang-rs/src/stage4_project.rs b/crates/yang-rs/src/stage4_project.rs
+index a357f964..41653dea 100644
+--- a/crates/yang-rs/src/stage4_project.rs
++++ b/crates/yang-rs/src/stage4_project.rs
+@@ -508,17 +508,29 @@ pub(crate) fn patch_from_cycles_shifted(
+         }
+         loops.push(idx);
+     }
+-    // Shoelace on the OUTER loop, in chart coordinates.
++    // The OUTER loop is the one enclosing the others — the largest |area| in
++    // chart coordinates — whatever order the patch's cycles arrived in. (A
++    // hole first made the CDT carve the whole region away as "inside the
++    // hole" and return nothing.) Ties keep the earlier loop.
++    let shoelace = |l: &[u32]| -> f64 {
++        l.iter()
++            .enumerate()
++            .map(|(i, &a)| {
++                let b = l[(i + 1) % l.len()];
++                let (pa, pb) = (p2[a as usize], p2[b as usize]);
++                pa.x() * pb.y() - pb.x() * pa.y()
++            })
++            .sum()
++    };
++    let mut outer_at = 0usize;
++    for (k, l) in loops.iter().enumerate().skip(1) {
++        if shoelace(l).abs() > shoelace(&loops[outer_at]).abs() {
++            outer_at = k;
++        }
++    }
++    loops.swap(0, outer_at);
+     let outer = &mut loops[0];
+-    let area2: f64 = outer
+-        .iter()
+-        .enumerate()
+-        .map(|(i, &a)| {
+-            let b = outer[(i + 1) % outer.len()];
+-            let (pa, pb) = (p2[a as usize], p2[b as usize]);
+-            pa.x() * pb.y() - pb.x() * pa.y()
+-        })
+-        .sum();
++    let area2: f64 = shoelace(outer);
+     if area2 == 0.0 || !area2.is_finite() {
+         return None;
+     }
+diff --git a/crates/yang-rs/src/tests_unit/mod.rs b/crates/yang-rs/src/tests_unit/mod.rs
+index 8cdc4976..3f0ace24 100644
+--- a/crates/yang-rs/src/tests_unit/mod.rs
++++ b/crates/yang-rs/src/tests_unit/mod.rs
+@@ -64,7 +64,6 @@ mod s433_tangent_relocation;
+ mod s434_chain_decimate;
+ mod s434_output_restore;
+ mod s43_tangency_newton;
+-mod s441a_split_winding;
+ mod s442_side_labels;
+ mod s451_crease_domain;
+ mod s451_interior_continue;

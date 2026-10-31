@@ -205,10 +205,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N103 | OPEN (2026-10-27, user decision: extension accepted in principle, implementation to be unified with planar Stage 0 — low priority, roadmap F6) | Extension of §4.5.5 to a coincident surface pair the paper does not name: coincident cylinders (`stage0/cylinder.rs`, `boolean.rs` PR-5/PR-6, `stage3_ssi.rs`); paper names coplanar planes only (`:718-732`) |
 | N104 | OPEN (2026-10-30; output typed at emission by the N60 amendment, Stage-3 type still missing) | Stage 3 leaves two A×B edge families untyped — the perpendicular torus × plane section (`torus_plane_is_perpendicular_section`) and an A×B curve on a Stage-0 overlay face attributed to one input; Stage 5 types them from the owner surfaces (R0015, R0026, R0050) |
 | N105 | OPEN (2026-10-30; tracked under N80/N81 rule-out cleanup) | Class-(b) straight operand-edge subdivision vertex elision in `stage4_chain_decimate::decimate_patch_chains_441` (`TAU_WORK·(1+scale)` collinearity within `l < d_p·10³`) — elides non-intersection valence-2 split vertices left on straight operand edges after ruled-out crossings (R0085); no paper §4.3.4/§4.4.1 counterpart |
+| N106 | OPEN (2026-10-31; F2) | The §4.4.1 update REFUSES a curved patch CDT whose certified max d(T) exceeds min(old max, d_ε) (I2d `ChordDegradation`, with an I2e seed-grid retry); the paper refuses nothing — a boundary triangle's d(T) IS its error bound d_ε(T) (§4.1.2 `:357-378`), "recalculated" after the trim (`:566-571`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-30, F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-10-31, F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -1109,6 +1110,62 @@ keeps the shell's volume (red-verified: 1.0e-17 vs 4.19e-3 without the
 guard). Corpus 353C / 0W / 16E / 5EE / 0T, the baseline rows exactly — no
 corpus case carries a cone apex inside an intersected patch. yang-rs
 1505 / 0.
+
+**Amendment (2026-10-30, corrected 2026-10-31) — Fig. 11(a) boundary-edge
+splitting inside `update_patches_ex`; the post-hoc `(3d)` triangle-unzip
+pass RETIRED, its local repair arms kept ONLY for the N106 refusal class
+(Roadmap F2 Step 2; matrix `4.4-12` DEVIATES → PARTIAL).** Fig. 11(a) (`refs/text/yang2025_hybrid_boolean.txt:561-562`,
+*"We locate the constrained edge containing q (the red edge) and split it
+using q"*) now runs inside the §4.4.1 update: `collect_fig11a_edge_splits`
+collects split chains, every patch whose cycle carries a split edge (or a
+relocated degenerate triangle) is subdivided and re-triangulated by the
+patch CDT (`rebuild_patch_planar_bounded_ex`), and each coupled component of
+patches sharing a split edge is committed atomically or not at all. The
+post-hoc `(3d)` unzip block in `stage4_correct.rs` and its helpers
+(`MutualPair`, `resolve_simple_degenerate_split`,
+`resolve_synchronized_degenerate_split`, `resolve_mutual_degenerate_pair`,
+are deleted. **What is still not the paper:** (1) the
+TRIGGER is a relocated triangle that has already collapsed
+(`tri_is_degenerate`, `DEGENERACY_IDENTITY_REL`), taking its longest edge —
+the unzip's trigger — not "the constrained edge containing q": a q relocated
+onto a curved boundary off the chord collapses nothing and is not split, and
+a collapsed triangle's long edge may be interior to a patch; (2) splits along
+one edge are refused only on EXACTLY equal parameters (the 2026-10-30 text's
+"Δt ≤ 1e-9" band does not exist in the code); (3) a patch with a relocated
+degenerate triangle but no intersection edge is now rebuilt whole by the
+patch CDT (near-curve interior removal and the d(T) budget included) where
+the unzip touched two triangles — output drift, corpus-neutral. **2026-10-31
+correction:** Step 2 as first committed fell back to `local_fig11a_patch_plans`
+whenever the patch CDT refused — the unzip's simple / mutual / synchronized
+arms moved inside the update, not the paper's mechanism (independent review
+2026-10-30). Census (`YANG_441_UPDATE_CENSUS`, full corpus): 166 split seeds
+in 24 cases; 7 patches (2 cases) resolved by CDT, 24 patches (11 cases) by
+the arms. The arms' refusal reasons (10-case census): 11 `ChordDegradation`
+(the I2d budget, N106), 6 plan-keeps-moved-degenerate (F0067), 5 planar CDT
+`DegenerateInput` / `DuplicateVertex`, 2 `ChordCertify`. Two were defects of
+the update, fixed here: a patch whose HOLE cycle came first was charted with
+the hole as outer and the CDT carved the region away (`DegenerateInput`;
+`patch_from_cycles_shifted` now takes the largest-|area| loop as outer —
+pin `the_enclosing_loop_is_the_outer_whatever_its_cycle_order`; yr10's
+relocated cap, 3 of 20 minority-wound slivers before, is now one sign), and
+a split that lands on a vertex already on the same cycle makes the cycle
+touch itself (P0040, `DuplicateVertex`; open — the trimmed region is two
+lobes and the patch CDT takes one simple outer loop). **The arms are
+kept only behind the N106 refusal:** `local_fig11a_patch_plans` runs only for
+a patch the update refused with `ChordDegradation` (the d(T) budget, N106);
+every other declined component leaves its moved degenerate triangle for
+`validate_relocated_triangles`, a loud `DegenerateTriangle` STOP that becomes
+a §4.5.2 failure site (F0067, P0040, R0051 reach it and end CORRECT). With
+the arms off entirely, R0059 and P0005 — both `ChordDegradation` patches —
+go CORRECT → ERROR (`DegenerateTriangle`, the loop does not clear it);
+an earlier arms-off run that held 360C still carried the N106 refinement
+trial, which rebuilt exactly those patches. The arms retire with N106. Pins: `update_patches_fig11a_declines_zero_area_pair_tied_and_same_apex_loudly`
+(a zero-area single-triangle patch has no CDT: declined atomically, mesh
+untouched, loud STOP), `update_patches_fig11a_splits_r0063_planar_crease_opposite_winding_pair`,
+and the migrated `s442_side_labels` pins. `N2` stays **OPEN**: the trigger
+(above), the remaining refusal classes (`4.4-03`, `4.4-07..09`, `4.4-16`, the
+self-touching split cycle, N106), Fig. 11(b)'s threshold (`4.4-13`), Fig.
+11(c)'s insert (`4.4-14`) and near-curve removal (`4.4-15`).
 
 ---
 
@@ -6599,8 +6656,9 @@ from `TriangleAttribution` so the flood-fill key is untouched — and threaded i
 lockstep with `mesh.tris` and `TriangleAttributionMap` across every Stage-4/5
 mutator (`apply_rebuild_batch`, `transit_emission_write`, `collapse_vertex`,
 `retriangulate_collapsed_fan_regions` / `repair_fan_cluster`,
-`resolve_simple_degenerate_split`, `resolve_mutual_degenerate_pair`,
-`remove_doubled_membranes`, plus 1:1 length assertions across
+`remove_doubled_membranes` — and, until their 2026-10-30 retirement into
+`update_patches_ex`, `resolve_simple_degenerate_split` and
+`resolve_mutual_degenerate_pair` — plus 1:1 length assertions across
 `split_pinch_vertices` and `compact_unreferenced_verts`). At the Stage-4
 hand-off right before `emit_topology` (`crates/yang-rs/src/stage5_topology.rs`),
 `debug_assert_eq!` verifies 1:1 lockstep and that `side_labels.keep_set(op)`
@@ -6629,7 +6687,12 @@ six cases spanning sizes (full table in
 
 **Progress (2026-10-28 / 2026-10-30) — Roadmap F2 Step 1 (`N81` forward-§4.3.4 decimation re-site + vertex-index-free operand-anchored conic merge) clears I3b customer #3 (`b2_pipe`).** Reproducible uncommitted I3b trial setup and command: in `crates/yang-rs/src/boolean.rs`, route the full welded arrangement (`la.mesh`, full-mesh `TriangleAttributionMap`, and `TriangleSideLabel::from_arrangement(&la, t)` for `0..la.mesh.tris.len()`) into `reconstruct_topology_stage4_full_arrangement` (which runs `stage4_relocate_and_correct_ex(..., true)`, `run_construct_passes` / `run_fold_merge_passes`, and `decimate_patch_chains_441(..., true)?` on the full arrangement, then compacts `side_labels.keep_set(op)` and flips winding via `flip_winding_for_op` immediately before `emit_topology`), then run `~/.claude/bin/reserve -c 4 -l "b2_pipe" -- cargo test --release -p kernel-v2 --test b2_pipe` → `17 passed; 0 failed; 0 ignored` in `0.41s` (all three `s_bend()` tests green even with `stage1_tessellate.rs`, `developable.rs`, and `sphere.rs` at `main`; `developable.rs` is retained separately for `boolean_chains::curved_holed_lateral_reentry`, see `N81`). `R0063` (customer #1, Fig. 11(a) crease split, `N2`, sole failure in `smoke_corpus_boundary_categories`) and `tangency_pinch_split::c0058_authored_geometry_union_mints_its_tangent_points` (customer #2, pre-CDT 2D `collapse_vertex` relabelling) remain as expected prior to Step 2 and the pre-CDT 1D/2D split.
 
-**State: OPEN** (found 2026-10-16; remediation: the O-1 design spec; I1, pre-I3 cost measurement, and I3a primitives landed 2026-10-27; I3b customer #3 `b2_pipe` green 2026-10-28; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling).
+**Progress (2026-10-30) — Roadmap F2 Step 2 (`N2` Fig. 11(a) boundary-edge split inside `update_patches_ex`; `4.4-12 DEVIATES → FAITHFUL`) clears I3b customer #1 (`R0063`).** Under the same reproducible uncommitted I3b trial (routing full welded `la.mesh`, full-mesh `TriangleAttributionMap`, and `TriangleSideLabel::from_arrangement_with_sheet(&la, orig_t, so)` into full-arrangement Stage 4 before `keep_for_op_with_membrane(op)` + `flip_winding_for_op(op)`):
+1. `ASSAY_CASE=R0063 cargo test --release -p test-harness --test assay_kv2 single_case -- --ignored --exact --nocapture` **converts `ERROR → SUPPORTED_CORRECT` in `4.33s`** (`all checks passed; on_surface: max 5.963e-19 m, rel 3.424e-16`), resolving the opposite-winding collinear crease pair on dropped cutter patches `(B, 1)` / `(B, 5)`.
+2. `cargo test --release -p kernel-v2 --test b2_pipe` stays **`17 passed; 0 failed` in `0.37s`**.
+3. `cargo test --release -p test-harness --test assay_kv2 smoke_corpus_boundary_categories` advances past `R0063` (`assay_kv2.rs:904`, where it previously aborted) to `F0060` (`:943`, perpendicular equal-radius cylinder Steinmetz cut: `expected SUPPORTED_CORRECT, got SUPPORTED_WRONG — watertight_mesh: 3 unpaired edges out of 11 total (0 boundary, 3 non-manifold); mesh_euler_characteristic: V(3245+2 pinch) - E(9728) + F(6486) = 5 (expected 4 for 2 shell(s))`), exposing a full-arrangement Steinmetz line/point-pinch interaction (`split_pinch_vertices`, `N74`/`N78`), while `cargo test --release -p yang-rs --test tangency_pinch_split c0058_authored_geometry_union_mints_its_tangent_points -- --exact` remains `NonManifoldOutput` (`2.30s`, pre-CDT 2D `collapse_vertex` relabelling).
+
+**State: OPEN** (found 2026-10-16; remediation: the O-1 design spec; I1, pre-I3 cost measurement, and I3a primitives landed 2026-10-27; I3b customers #3 `b2_pipe` and #1 `R0063` green 2026-10-28/30; I3b `boolean_once` flip gated on pre-CDT 2D relabelling `c0058` + full-arrangement Steinmetz pinch `F0060`).
 
 ### N81 — Within Stage 4 the §4.3 point removals and the Case-IV rule-out run after §4.5.3 and §4.4.1, and §4.4.1 runs in three places (matrix O-2)
 
@@ -6644,8 +6707,9 @@ places: `update_patches`, the construct / fold-merge alternation
 
 **Remediation.** Folds into N80's spec and cleanup Phase 2b/2c (one per-patch
 CDT update after 1D §4.3/§4.5.3 polyline cleanup, retiring pre-CDT 2D
-`collapse_vertex` relabelling, post-hoc `(3d)` unzip, and Stage-5 index-parity
-chain decimation — measured 2026-10-27 as a prerequisite before N80's `I3b`
+`collapse_vertex` relabelling, ~~post-hoc `(3d)` unzip~~ *(retired 2026-10-30,
+`4.4-12 → FAITHFUL`)*, and ~~Stage-5 index-parity chain decimation~~ *(re-sited
+2026-10-28/30)* — measured 2026-10-27 as a prerequisite before N80's `I3b`
 `boolean_once` flip; see `specs/yang_442_classify_after_update.md` §3(d)).
 
 **Progress (2026-10-28 / 2026-10-30) — Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4), operand-anchored `stage5_seam_merge` made vertex-index-free, bundled Stage-1/`kernel-v2` chart edits dropped, class-(b) elision ledgered (`N105`), and retained index rule (open debt) recorded on `0`-operand-vertex closed intersection circles (`R0021`).**
@@ -8127,3 +8191,48 @@ edge rather than 1:1 from mesh boundary segments.
 and `::operand_corner_within_434_band_is_not_elided` (matrix `4.4-23`, `4.4-28`).
 
 **State: OPEN** (ledgered 2026-10-30 from reviewer audit item 8).
+
+
+### N106 — the §4.4.1 update refuses a CDT on d(T); the paper re-bounds the triangle instead
+
+**Paper.** §4.1.2 (`refs/text/yang2025_hybrid_boolean.txt:357-378`) defines
+d(T) for a triangle containing boundary sampling points — the control-net
+distance of the covering-rectangle sub-patch (Fig. 6) — and REDEFINES the
+error bound per triangle: d_ε(T) = d_ε for an inner triangle, d(T)
+otherwise. §4.4.1 ends: "For the newly generated boundary triangles around
+the intersection curve, we recalculate d(T) to maintain controllable error"
+(`:566-571`). Nothing in either section rejects a triangulation for its
+d(T); the boundary triangle carries its own bound.
+
+**What the code does.** `rebuild_patch_planar_bounded_ex`
+(`stage4_construct.rs`, the I2d gate) accepts a curved rebuild only if every
+new triangle's certified d(T) ≤ min(old max d(T), d_ε) (the 2026-10-16
+budget, spec `yang_441_phase2b_patch_update.md` §9 item 3), retries with a
+deterministic seed grid (I2e), and otherwise refuses `ChordDegradation`; the
+patch then keeps its relocated triangles. Per-triangle d(T) exists at Stage 1
+(`BRep::tri_dt`, N93) but nothing in Stage 4 carries or consumes it, so the
+"recalculate" has no consumer.
+
+**Measured (2026-10-31).** Of the 24 patches F2 Step 2's retired arms used
+to resolve, 11 were this refusal (cylinder and cone patches in R0072, R0059,
+R0026, R0070, R0063, P0055, P0041, P0005), each 5–11× over d_ε after the
+seed grid. A trial (`specs/n106_refine_to_budget_trial.patch`, a diff against F2 Step 2 as first committed — it also carries the temporary census probes; not landed) that
+REFINED to the budget instead — insert each over-budget triangle's chart
+centroid and re-CDT — needed two more pieces to terminate: Delaunay in the
+isometric chart (r·θ, y) (the (θ, y) chart builds circumferential slivers,
+and Fig. 6's covering rectangle charges a diagonal sliver its full width),
+and a budget floor at the patch's own fixed boundary chords (a long diagonal
+cycle chord certifies 2× d_ε by itself). It converted all 11 and held the
+corpus, but broke four suite pins (yr13 cavity-wall triangle classifier,
+yr14 cavity sense, cylinder-box backend parity, corner-in-band volume)
+because every previously refused patch was rebuilt with seed vertices — and
+refinement is not the paper's operation either.
+
+**Remediation.** The paper's form: accept the patch CDT, compute d(T) for
+each new boundary triangle, and carry it as that triangle's bound into the
+consumers that read d_ε (the §4.2 / §4.5 distance tests). Prerequisites: a
+per-triangle bound that survives Stage-4 mutation (N93's `tri_dt` is
+Stage-1 only), and an audit of which Stage-4/5 decisions read d_ε. The
+2026-10-16 volume regressions that motivated the budget (a band of secant
+triangles shaving 7 %) must be re-measured with the isometric chart before
+the gate goes — they may have been the anisotropic chart's slivers.

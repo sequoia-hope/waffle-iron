@@ -731,9 +731,6 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
         // boundary curves"). Boundary pool vertices map 1:1 to mesh vertices
         // (`back`), so the test reads mesh indices directly.
         let d = if band {
-            let Some(&(u, v)) = directed_boundary(&old).first() else {
-                return Err(ConstructError::DegenerateOrientation { patch: patch_index });
-            };
             let mesh_of = |i: u32| -> Option<u32> {
                 let iu = i as usize;
                 if iu < back.len() {
@@ -744,15 +741,25 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
                     None
                 }
             };
+            let cycle_edges = patch
+                .cycles
+                .iter()
+                .filter(|c| !c.is_empty())
+                .flat_map(|c| (0..c.len()).map(move |i| (c[i], c[(i + 1) % c.len()])));
             let mut sense = 0.0f64;
-            for t in &tris2 {
-                let m = [mesh_of(t[0]), mesh_of(t[1]), mesh_of(t[2])];
-                for k in 0..3 {
-                    match (m[k], m[(k + 1) % 3]) {
-                        (Some(a), Some(b)) if a == u && b == v => sense = 1.0,
-                        (Some(a), Some(b)) if a == v && b == u => sense = -1.0,
-                        _ => {}
+            for (u, v) in directed_boundary(&old).into_iter().chain(cycle_edges) {
+                for t in &tris2 {
+                    let m = [mesh_of(t[0]), mesh_of(t[1]), mesh_of(t[2])];
+                    for k in 0..3 {
+                        match (m[k], m[(k + 1) % 3]) {
+                            (Some(a), Some(b)) if a == u && b == v => sense = 1.0,
+                            (Some(a), Some(b)) if a == v && b == u => sense = -1.0,
+                            _ => {}
+                        }
                     }
+                }
+                if sense != 0.0 {
+                    break;
                 }
             }
             sense
@@ -3184,9 +3191,703 @@ pub(crate) fn update_patches(
     a: &crate::brep::BRep,
     b: &crate::brep::BRep,
 ) -> usize {
-    update_patches_ex(mesh, attribution, side_labels, a, b, false)
+    update_patches_ex(
+        mesh,
+        attribution,
+        side_labels,
+        a,
+        b,
+        false,
+        &std::collections::HashSet::new(),
+        None,
+    )
 }
 
+type Fig11aSeedMap = BTreeMap<(u32, u32), (Vec<(u32, f64)>, [bool; 2])>;
+type Fig11aSplitMap = BTreeMap<(u32, u32), (Vec<u32>, [bool; 2])>;
+type Fig11aLocalPlan = (Vec<PatchRebuild>, Vec<[u32; 3]>, BTreeSet<(u32, u32)>);
+type BoundarySplitJob = (u32, u32, Vec<(u32, u32)>);
+type PatchPlanEntry = (Vec<PatchRebuild>, Vec<[u32; 3]>);
+
+fn segment_param(verts: &[Point3], u: u32, v: u32, q: u32) -> Option<f64> {
+    let pu = verts[u as usize].as_array();
+    let pv = verts[v as usize].as_array();
+    let pq = verts[q as usize].as_array();
+    if pq == pu || pq == pv {
+        return None;
+    }
+    let d = [pv[0] - pu[0], pv[1] - pu[1], pv[2] - pu[2]];
+    let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !(len2 > 0.0 && len2.is_finite()) {
+        return None;
+    }
+    let rel = [pq[0] - pu[0], pq[1] - pu[1], pq[2] - pu[2]];
+    let t = (rel[0] * d[0] + rel[1] * d[1] + rel[2] * d[2]) / len2;
+    (t > 0.0 && t < 1.0 && t.is_finite()).then_some(t)
+}
+
+/// For a collinear-degenerate triangle `tri`, identify the unique edge `(lo, hi)`
+/// (`lo < hi`) and opposite vertex `off` strictly inside `lo..hi` (`0 < t < 1`),
+/// independent of `tri`'s cyclic vertex ordering or vertex-index numbering.
+fn collinear_split_edge_and_off(verts: &[Point3], tri: [u32; 3]) -> Option<(u32, u32, u32, f64)> {
+    let d2 = |u: u32, v: u32| -> f64 {
+        let p = verts[u as usize].as_array();
+        let q = verts[v as usize].as_array();
+        (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2)
+    };
+    let canon_edge_pts = |u: u32, v: u32| -> (Point3, Point3) {
+        let pu = verts[u as usize];
+        let pv = verts[v as usize];
+        if crate::stage5_seam_merge::point_cmp(pu, pv).is_le() {
+            (pu, pv)
+        } else {
+            (pv, pu)
+        }
+    };
+    let mut cands = [
+        (tri[0], tri[1], tri[2], d2(tri[0], tri[1])),
+        (tri[1], tri[2], tri[0], d2(tri[1], tri[2])),
+        (tri[2], tri[0], tri[1], d2(tri[2], tri[0])),
+    ];
+    cands.sort_by(|a, b| {
+        b.3.total_cmp(&a.3).then_with(|| {
+            let (a0, a1) = canon_edge_pts(a.0, a.1);
+            let (b0, b1) = canon_edge_pts(b.0, b.1);
+            crate::stage5_seam_merge::point_cmp(a0, b0)
+                .then_with(|| crate::stage5_seam_merge::point_cmp(a1, b1))
+                .then_with(|| (a.0.min(a.1), a.0.max(a.1)).cmp(&(b.0.min(b.1), b.0.max(b.1))))
+        })
+    });
+    for (u, v, off, _) in cands {
+        let (lo, hi) = if u < v { (u, v) } else { (v, u) };
+        if let Some(t) = segment_param(verts, lo, hi, off) {
+            return Some((lo, hi, off, t));
+        }
+    }
+    None
+}
+
+/// Collect Fig. 11(a) constrained-edge split chains
+/// (`refs/text/yang2025_hybrid_boolean.txt:605-607`, `:546-572`, Fig. 11(a)
+/// `:561-562`: "(a). We locate the constrained edge containing q (the red edge)
+/// and split it using q") from relocated (`moved`-touching) collinear
+/// degenerate triangles.
+fn collect_fig11a_edge_splits(
+    mesh: &Mesh,
+    side_labels: Option<&crate::brep::TriangleSideLabelMap>,
+    moved: &std::collections::HashSet<u32>,
+) -> Fig11aSplitMap {
+    if moved.is_empty() {
+        return BTreeMap::new();
+    }
+    let edge_key = |u: u32, v: u32| if u < v { (u, v) } else { (v, u) };
+    let tri_ops = |ti: usize| -> [bool; 2] {
+        match side_labels.and_then(|sl| sl.labels.get(ti)) {
+            Some(lbl) => [
+                lbl.in_operand(crate::brep::InputId::A),
+                lbl.in_operand(crate::brep::InputId::B),
+            ],
+            None => [true, true],
+        }
+    };
+    let mut edge_ops: BTreeMap<(u32, u32), [bool; 2]> = BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        let ops = tri_ops(ti);
+        for (u, v) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            if u != v {
+                let e = edge_ops.entry(edge_key(u, v)).or_insert([false, false]);
+                e[0] |= ops[0];
+                e[1] |= ops[1];
+            }
+        }
+    }
+
+    let mut raw_seeds: Fig11aSeedMap = BTreeMap::new();
+    for (ti, &tri) in mesh.tris.iter().enumerate() {
+        if tri[0] == tri[1] || tri[1] == tri[2] || tri[2] == tri[0] {
+            continue;
+        }
+        if !tri.iter().any(|v| moved.contains(v)) {
+            continue;
+        }
+        let p0 = mesh.verts[tri[0] as usize].as_array();
+        let p1 = mesh.verts[tri[1] as usize].as_array();
+        let p2 = mesh.verts[tri[2] as usize].as_array();
+        if !crate::stage4_correct::tri_is_degenerate(p0, p1, p2) {
+            continue;
+        }
+        let Some((lo, hi, b, t)) = collinear_split_edge_and_off(&mesh.verts, tri) else {
+            continue;
+        };
+        let e_ops = edge_ops.get(&(lo, hi)).copied().unwrap_or(tri_ops(ti));
+        let entry = raw_seeds
+            .entry((lo, hi))
+            .or_insert_with(|| (Vec::new(), [false, false]));
+        if !entry.0.iter().any(|&(v, _)| v == b) {
+            entry.0.push((b, t));
+        }
+        entry.1[0] |= e_ops[0];
+        entry.1[1] |= e_ops[1];
+    }
+
+    let mut base_chains: BTreeMap<(u32, u32), (Vec<u32>, [bool; 2])> = BTreeMap::new();
+    let mut ambiguous: BTreeSet<(u32, u32)> = BTreeSet::new();
+    for ((lo, hi), (mut pts, ops)) in raw_seeds {
+        pts.sort_by(|x, y| {
+            x.1.total_cmp(&y.1)
+                .then_with(|| {
+                    crate::stage5_seam_merge::point_cmp(
+                        mesh.verts[x.0 as usize],
+                        mesh.verts[y.0 as usize],
+                    )
+                })
+                .then_with(|| x.0.cmp(&y.0))
+        });
+        // Equal parameters give no deterministic chain order — refuse so
+        // `validate_relocated_triangles` turns the unresolved degenerate
+        // triangle into a loud STOP.
+        let tied = pts.windows(2).any(|w| {
+            w[1].1 <= w[0].1
+                || mesh.verts[w[0].0 as usize].as_array() == mesh.verts[w[1].0 as usize].as_array()
+        });
+        if tied {
+            ambiguous.insert((lo, hi));
+            continue;
+        }
+        base_chains.insert((lo, hi), (pts.into_iter().map(|(v, _)| v).collect(), ops));
+    }
+
+    // Expand nested sub-segment splits to fixpoint: each productive pass splices
+    // at least one distinct sub-edge chain from `base_chains`, so DAG depth is
+    // bounded by `base_chains.len()`.
+    let max_expand_passes = base_chains.len().max(1);
+    for _ in 0..max_expand_passes {
+        let snap = base_chains.clone();
+        let mut changed = false;
+        let keys: Vec<(u32, u32)> = base_chains.keys().copied().collect();
+        for k in keys {
+            let Some((chain, mut ops)) = base_chains.get(&k).cloned() else {
+                continue;
+            };
+            let mut full = Vec::with_capacity(chain.len() + 2);
+            full.push(k.0);
+            full.extend(chain.iter().copied());
+            full.push(k.1);
+            let mut expanded: Vec<u32> = Vec::new();
+            let mut sub_ambig = false;
+            for w in full.windows(2) {
+                let (u, v) = (w[0], w[1]);
+                let sk = edge_key(u, v);
+                if ambiguous.contains(&sk) {
+                    sub_ambig = true;
+                    break;
+                }
+                if sk != k {
+                    if let Some((sub, sub_ops)) = snap.get(&sk) {
+                        if (ops[0] && sub_ops[0]) || (ops[1] && sub_ops[1]) {
+                            if u < v {
+                                expanded.extend(sub.iter().copied());
+                            } else {
+                                expanded.extend(sub.iter().rev().copied());
+                            }
+                            ops[0] |= sub_ops[0];
+                            ops[1] |= sub_ops[1];
+                            changed = true;
+                        }
+                    }
+                }
+                if v != k.1 {
+                    expanded.push(v);
+                }
+            }
+            if sub_ambig {
+                base_chains.remove(&k);
+                ambiguous.insert(k);
+                continue;
+            }
+            if expanded != chain {
+                let mut seen_v = BTreeSet::new();
+                let mut prev_t = 0.0f64;
+                let mut ok = true;
+                for &q in &expanded {
+                    if q == k.0 || q == k.1 || !seen_v.insert(q) {
+                        ok = false;
+                        break;
+                    }
+                    let Some(tq) = segment_param(&mesh.verts, k.0, k.1, q) else {
+                        ok = false;
+                        break;
+                    };
+                    if tq <= prev_t
+                        || !crate::stage4_correct::tri_is_degenerate(
+                            mesh.verts[k.0 as usize].as_array(),
+                            mesh.verts[k.1 as usize].as_array(),
+                            mesh.verts[q as usize].as_array(),
+                        )
+                    {
+                        ok = false;
+                        break;
+                    }
+                    prev_t = tq;
+                }
+                if ok {
+                    base_chains.insert(k, (expanded, ops));
+                } else {
+                    base_chains.remove(&k);
+                    ambiguous.insert(k);
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    // Propagate ordered chains to existing mesh sub-edges sharing an operand
+    // with `(lo, hi)` (e.g. mutual-quad insertion edges `(a, bh)` and `(bl, c)`
+    // inside `a -> bl -> bh -> c`).
+    let mut out: Fig11aSplitMap = BTreeMap::new();
+    for (&(lo, hi), (chain, ops)) in &base_chains {
+        let mut full = Vec::with_capacity(chain.len() + 2);
+        full.push(lo);
+        full.extend(chain.iter().copied());
+        full.push(hi);
+        for ix in 0..full.len() {
+            for iy in (ix + 2)..full.len() {
+                let (u, v) = (full[ix], full[iy]);
+                let sk = edge_key(u, v);
+                let Some(&s_ops_mesh) = edge_ops.get(&sk) else {
+                    continue;
+                };
+                if ambiguous.contains(&sk)
+                    || !((ops[0] && s_ops_mesh[0]) || (ops[1] && s_ops_mesh[1]))
+                {
+                    continue;
+                }
+                let mut sub: Vec<u32> = full[(ix + 1)..iy].to_vec();
+                if u > v {
+                    sub.reverse();
+                }
+                let valid_sub = sub.iter().all(|&q| {
+                    segment_param(&mesh.verts, sk.0, sk.1, q).is_some()
+                        && crate::stage4_correct::tri_is_degenerate(
+                            mesh.verts[sk.0 as usize].as_array(),
+                            mesh.verts[sk.1 as usize].as_array(),
+                            mesh.verts[q as usize].as_array(),
+                        )
+                });
+                if !valid_sub {
+                    continue;
+                }
+                if let Some((prev, prev_ops)) = out.get_mut(&sk) {
+                    if *prev != sub {
+                        out.remove(&sk);
+                        ambiguous.insert(sk);
+                    } else {
+                        prev_ops[0] |= s_ops_mesh[0];
+                        prev_ops[1] |= s_ops_mesh[1];
+                    }
+                } else {
+                    out.insert(sk, (sub, s_ops_mesh));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn expand_directed_edge(
+    u: u32,
+    v: u32,
+    patch_ops: [bool; 2],
+    splits: &Fig11aSplitMap,
+    used_splits: &mut BTreeSet<(u32, u32)>,
+) -> Vec<(u32, u32)> {
+    let key = if u < v { (u, v) } else { (v, u) };
+    if let Some((chain, s_ops)) = splits.get(&key) {
+        if (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1]) {
+            used_splits.insert(key);
+            let mut out = Vec::with_capacity(chain.len() + 1);
+            let mut prev = u;
+            if u < v {
+                for &q in chain {
+                    out.push((prev, q));
+                    prev = q;
+                }
+            } else {
+                for &q in chain.iter().rev() {
+                    out.push((prev, q));
+                    prev = q;
+                }
+            }
+            out.push((prev, v));
+            return out;
+        }
+    }
+    vec![(u, v)]
+}
+
+fn split_cycle_with_hairpin_cancel(
+    cycle: &[(u32, u32)],
+    patch_ops: [bool; 2],
+    splits: &Fig11aSplitMap,
+    used_splits: &mut BTreeSet<(u32, u32)>,
+) -> Vec<u32> {
+    let mut edges: Vec<(u32, u32)> = Vec::new();
+    for &(u, v) in cycle {
+        edges.extend(expand_directed_edge(u, v, patch_ops, splits, used_splits));
+    }
+    loop {
+        let n = edges.len();
+        if n < 2 {
+            break;
+        }
+        let mut cancel_at: Option<usize> = None;
+        for i in 0..n {
+            let j = (i + 1) % n;
+            if edges[i].0 == edges[j].1 && edges[i].1 == edges[j].0 {
+                cancel_at = Some(i);
+                break;
+            }
+        }
+        let Some(i) = cancel_at else {
+            break;
+        };
+        if i + 1 < n {
+            edges.remove(i + 1);
+            edges.remove(i);
+        } else {
+            edges.pop();
+            edges.remove(0);
+        }
+    }
+    edges.into_iter().map(|(s, _)| s).collect()
+}
+
+fn expected_boundary_after_splits(
+    old_tris: &[[u32; 3]],
+    patch_ops: [bool; 2],
+    splits: &Fig11aSplitMap,
+) -> Vec<(u32, u32)> {
+    let mut count: BTreeMap<(u32, u32), i64> = BTreeMap::new();
+    let mut dummy = BTreeSet::new();
+    for (u, v) in directed_boundary(old_tris) {
+        for (a, b) in expand_directed_edge(u, v, patch_ops, splits, &mut dummy) {
+            *count.entry((a, b)).or_default() += 1;
+            *count.entry((b, a)).or_default() -= 1;
+        }
+    }
+    let mut out = Vec::new();
+    for (&e, &c) in &count {
+        for _ in 0..c.max(0) {
+            out.push(e);
+        }
+    }
+    out
+}
+
+fn plan_matches_boundary(new_tris: &[[u32; 3]], want_boundary: &[(u32, u32)]) -> bool {
+    let mut seen: BTreeSet<(u32, u32)> = BTreeSet::new();
+    let mut seen_triples: BTreeSet<[u32; 3]> = BTreeSet::new();
+    for t in new_tris {
+        if t[0] == t[1] || t[1] == t[2] || t[2] == t[0] {
+            return false;
+        }
+        let mut tr = *t;
+        tr.sort_unstable();
+        if !seen_triples.insert(tr) {
+            return false;
+        }
+        for e in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            if !seen.insert(e) {
+                return false;
+            }
+        }
+    }
+    directed_boundary(new_tris) == want_boundary
+}
+
+/// The surface kind's name, for census lines.
+fn surface_kind_name(s: &Surface) -> &'static str {
+    match s {
+        Surface::Plane { .. } => "Plane",
+        Surface::Cylinder { .. } => "Cylinder",
+        Surface::Cone { .. } => "Cone",
+        Surface::Sphere { .. } => "Sphere",
+        Surface::Torus { .. } => "Torus",
+    }
+}
+
+/// The §4.4.1(a) unzip's local arms, KEPT ONLY for a patch the update refuses
+/// with `ChordDegradation` — the d(T) budget refusal that is not the paper's
+/// operation (ledger N106). Every other refusal class reaches the loud STOP.
+/// Retires with N106's remediation (accept the CDT, carry d(T) as the
+/// triangle's bound); measured customers R0059, P0005 (2026-10-31: both
+/// CORRECT → ERROR `DegenerateTriangle` without it). Emits per-slot `PatchRebuild`s (`old_tris: vec![ti]`)
+/// alongside the complete post-update patch triangle list `final_tris`.
+fn local_fig11a_patch_plans(
+    mesh: &Mesh,
+    patch_index: usize,
+    tri_indices: &[u32],
+    patch_ops: [bool; 2],
+    splits: &Fig11aSplitMap,
+    moved: &std::collections::HashSet<u32>,
+) -> Option<Fig11aLocalPlan> {
+    let is_moved_degen_tri = |t: [u32; 3]| -> bool {
+        t.iter().any(|v| moved.contains(v))
+            && crate::stage4_correct::tri_is_degenerate(
+                mesh.verts[t[0] as usize].as_array(),
+                mesh.verts[t[1] as usize].as_array(),
+                mesh.verts[t[2] as usize].as_array(),
+            )
+    };
+    let old_tris: Vec<[u32; 3]> = tri_indices
+        .iter()
+        .map(|&ti| mesh.tris[ti as usize])
+        .collect();
+    let mut used_splits = BTreeSet::new();
+    for (u, v) in directed_boundary(&old_tris) {
+        let _ = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
+    }
+    let mut cur: Vec<(usize, [u32; 3])> = old_tris.iter().copied().enumerate().collect();
+
+    // 1. Resolve intra-patch moved-degenerate triangles and peel boundary
+    //    moved-degenerate flaps whose split edge is in `splits`.
+    loop {
+        let mut progressed = false;
+        let mut dir_owner: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+        for (idx, &(_, t)) in cur.iter().enumerate() {
+            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                dir_owner.entry((u, v)).or_default().push(idx);
+            }
+        }
+        for d_pos in 0..cur.len() {
+            let (_, dt) = cur[d_pos];
+            if !is_moved_degen_tri(dt) {
+                continue;
+            }
+            let Some((a, c, b, _)) = collinear_split_edge_and_off(&mesh.verts, dt) else {
+                continue;
+            };
+            let key_ac = (a, c);
+            let dir_ac = [(dt[0], dt[1]), (dt[1], dt[2]), (dt[2], dt[0])]
+                .into_iter()
+                .find(|&(x, y)| (x == a && y == c) || (x == c && y == a))
+                .unwrap_or((a, c));
+            let opp_owners = dir_owner
+                .get(&(dir_ac.1, dir_ac.0))
+                .cloned()
+                .unwrap_or_default();
+            if opp_owners.is_empty() {
+                let active = splits.get(&key_ac).is_some_and(|(_, s_ops)| {
+                    (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
+                });
+                if active {
+                    used_splits.insert(key_ac);
+                    cur.remove(d_pos);
+                    progressed = true;
+                    break;
+                }
+            } else if opp_owners.len() == 1 {
+                let n_pos = opp_owners[0];
+                let (n_src, nt) = cur[n_pos];
+                if !is_moved_degen_tri(nt) {
+                    if let Some((c1, c2)) = crate::stage4_correct::split_tri_at_edge(nt, a, c, b) {
+                        let hi = d_pos.max(n_pos);
+                        let lo = d_pos.min(n_pos);
+                        cur.remove(hi);
+                        cur.remove(lo);
+                        cur.push((n_src, c1));
+                        cur.push((n_src, c2));
+                        progressed = true;
+                        break;
+                    }
+                } else if let Some((na, nc, b2, _)) = collinear_split_edge_and_off(&mesh.verts, nt)
+                {
+                    if (na, nc) == key_ac && b2 != b {
+                        if let (Some(t1), Some(t2)) = (
+                            segment_param(&mesh.verts, a, c, b),
+                            segment_param(&mesh.verts, a, c, b2),
+                        ) {
+                            if t1 != t2
+                                && mesh.verts[b as usize].as_array()
+                                    != mesh.verts[b2 as usize].as_array()
+                            {
+                                let (bl, bh) = if t1 < t2 { (b, b2) } else { (b2, b) };
+                                let split_active = |u: u32, v: u32| -> bool {
+                                    let k = if u < v { (u, v) } else { (v, u) };
+                                    splits.get(&k).is_some_and(|(_, s_ops)| {
+                                        (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
+                                    })
+                                };
+                                enum SideAction {
+                                    Internal(usize, [u32; 3], [u32; 3]),
+                                    BoundarySplit((u32, u32)),
+                                }
+                                let classify_side =
+                                    |u: u32, v: u32, ins: u32| -> Option<SideAction> {
+                                        let mut hits = Vec::new();
+                                        for (k, &(_, kt)) in cur.iter().enumerate() {
+                                            if k == d_pos || k == n_pos {
+                                                continue;
+                                            }
+                                            if kt.contains(&u) && kt.contains(&v) {
+                                                hits.push(k);
+                                            }
+                                        }
+                                        if hits.is_empty() {
+                                            if split_active(u, v) {
+                                                let ek = if u < v { (u, v) } else { (v, u) };
+                                                Some(SideAction::BoundarySplit(ek))
+                                            } else {
+                                                None
+                                            }
+                                        } else if hits.len() == 1
+                                            && !is_moved_degen_tri(cur[hits[0]].1)
+                                        {
+                                            let pos = hits[0];
+                                            let (s1, s2) =
+                                                crate::stage4_correct::split_tri_at_edge(
+                                                    cur[pos].1, u, v, ins,
+                                                )?;
+                                            Some(SideAction::Internal(pos, s1, s2))
+                                        } else {
+                                            None
+                                        }
+                                    };
+                                if let (Some(act_h), Some(act_l)) =
+                                    (classify_side(a, bh, bl), classify_side(bl, c, bh))
+                                {
+                                    let same_internal = matches!(
+                                        (&act_h, &act_l),
+                                        (SideAction::Internal(ph, _, _), SideAction::Internal(pl, _, _))
+                                            if ph == pl
+                                    );
+                                    if !same_internal {
+                                        let mut rem = vec![d_pos, n_pos];
+                                        let mut add: Vec<(usize, [u32; 3])> = Vec::new();
+                                        used_splits.insert(key_ac);
+                                        for act in [act_h, act_l] {
+                                            match act {
+                                                SideAction::Internal(pos, s1, s2) => {
+                                                    let src = cur[pos].0;
+                                                    rem.push(pos);
+                                                    add.push((src, s1));
+                                                    add.push((src, s2));
+                                                }
+                                                SideAction::BoundarySplit(ek) => {
+                                                    used_splits.insert(ek);
+                                                }
+                                            }
+                                        }
+                                        rem.sort_unstable();
+                                        for &r in rem.iter().rev() {
+                                            cur.remove(r);
+                                        }
+                                        cur.extend(add);
+                                        progressed = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !progressed {
+            break;
+        }
+    }
+
+    // 2. Subdivide any remaining unsplit boundary edge `(u, v)` of `cur` that
+    //    has an active split chain in `splits` (ordered by 3D endpoint coordinates
+    //    so multi-edge splits on a single triangle do not depend on `u32` IDs).
+    loop {
+        let cur_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
+        let mut bd = directed_boundary(&cur_tris);
+        bd.sort_by(|&(u1, v1), &(u2, v2)| {
+            crate::stage5_seam_merge::point_cmp(mesh.verts[u1 as usize], mesh.verts[u2 as usize])
+                .then_with(|| {
+                    crate::stage5_seam_merge::point_cmp(
+                        mesh.verts[v1 as usize],
+                        mesh.verts[v2 as usize],
+                    )
+                })
+                .then_with(|| (u1, v1).cmp(&(u2, v2)))
+        });
+        let mut split_job: Option<BoundarySplitJob> = None;
+        for (u, v) in bd {
+            let exp = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
+            if exp.len() > 1 {
+                split_job = Some((u, v, exp));
+                break;
+            }
+        }
+        let Some((u, v, exp)) = split_job else {
+            break;
+        };
+        let pos = cur.iter().position(|&(_, t)| {
+            [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]
+                .into_iter()
+                .any(|e| e == (u, v))
+        })?;
+        let (src_slot, parent) = cur.remove(pos);
+        let apex = parent.into_iter().find(|&x| x != u && x != v)?;
+        if exp.iter().any(|&(s, e)| s == apex || e == apex) {
+            return None;
+        }
+        for (s, e) in exp {
+            cur.push((src_slot, [s, e, apex]));
+        }
+    }
+
+    let final_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
+    if final_tris == old_tris || final_tris.iter().copied().any(is_moved_degen_tri) {
+        return None;
+    }
+    let want_bd = expected_boundary_after_splits(&old_tris, patch_ops, splits);
+    if !plan_matches_boundary(&final_tris, &want_bd) {
+        return None;
+    }
+
+    let mut by_slot: Vec<Vec<[u32; 3]>> = vec![Vec::new(); tri_indices.len()];
+    for (slot, t) in cur {
+        by_slot[slot].push(t);
+    }
+    let mut rebuilds = Vec::new();
+    for (slot, &ti) in tri_indices.iter().enumerate() {
+        if by_slot[slot].len() == 1 && by_slot[slot][0] == old_tris[slot] {
+            continue;
+        }
+        rebuilds.push(PatchRebuild {
+            patch: patch_index,
+            old_tris: vec![ti],
+            new_tris: by_slot[slot].clone(),
+            new_verts: Vec::new(),
+            dropped: BTreeSet::new(),
+            plan_verts: mesh.verts.len() as u32,
+            plan_tris: mesh.tris.len() as u32,
+        });
+    }
+    (!rebuilds.is_empty()).then_some((rebuilds, final_tris, used_splits))
+}
+
+fn log_update_census(msg: &str) {
+    if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
+        use std::io::Write as _;
+        let case = std::env::var("ASSAY_CASE").unwrap_or_default();
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let _ = writeln!(f, "{case} {msg}");
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn update_patches_ex(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -3194,8 +3895,19 @@ pub(crate) fn update_patches_ex(
     a: &crate::brep::BRep,
     b: &crate::brep::BRep,
     full_arrangement: bool,
+    moved: &std::collections::HashSet<u32>,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> usize {
     let sl_opt = full_arrangement.then_some(&*side_labels);
+    let splits = collect_fig11a_edge_splits(mesh, sl_opt, moved);
+    let is_moved_degen_tri = |t: [u32; 3]| -> bool {
+        t.iter().any(|v| moved.contains(v))
+            && crate::stage4_correct::tri_is_degenerate(
+                mesh.verts[t[0] as usize].as_array(),
+                mesh.verts[t[1] as usize].as_array(),
+                mesh.verts[t[2] as usize].as_array(),
+            )
+    };
     let adjacency = crate::stage5_topology::triangle_adjacency(mesh);
     let raw = crate::stage4_correct::merge_same_plane_patches_with_side_labels(
         crate::stage5_topology::flood_fill_patches_with_side_labels(
@@ -3217,9 +3929,15 @@ pub(crate) fn update_patches_ex(
         b,
         &crate::stage3_ssi::NO_EDGE_PROVENANCE,
     ) else {
+        log_update_census("DECLINED reason=phase_a_err");
         return 0;
     };
     if infos.len() != raw.len() {
+        log_update_census(&format!(
+            "DECLINED reason=partition_mismatch raw={} infos={}",
+            raw.len(),
+            infos.len()
+        ));
         return 0;
     }
     let key = |s: u32, e: u32| if s < e { (s, e) } else { (e, s) };
@@ -3230,124 +3948,423 @@ pub(crate) fn update_patches_ex(
                     && en.iter().any(|&(i, _)| i == crate::brep::InputId::B)
             })
     };
-    let mut plans: Vec<PatchRebuild> = Vec::new();
-    for (pi, (p, info)) in raw.iter().zip(infos.iter()).enumerate() {
-        if !info
-            .cycles
-            .iter()
-            .flatten()
-            .any(|&(s, e)| is_isect(key(s, e)))
-        {
-            continue;
+
+    let patch_ops_of = |p: &crate::stage5_topology::Patch| -> [bool; 2] {
+        if full_arrangement {
+            p.tri_indices
+                .first()
+                .and_then(|&ti| side_labels.labels.get(ti as usize))
+                .map(|lbl| {
+                    [
+                        lbl.in_operand(crate::brep::InputId::A),
+                        lbl.in_operand(crate::brep::InputId::B),
+                    ]
+                })
+                .unwrap_or([true, true])
+        } else {
+            [true, true]
         }
-        if !SurfaceChart::supports(&info.inherited) {
-            continue;
-        }
-        // One attribution per rebuilt patch (a merged same-plane patch of
-        // two input faces keeps its triangles).
-        let mut it = p
+    };
+
+    let n_patches = raw.len();
+    let mut patch_ops_vec: Vec<[bool; 2]> = Vec::with_capacity(n_patches);
+    let mut patch_old_tris: Vec<Vec<[u32; 3]>> = Vec::with_capacity(n_patches);
+    let mut patch_req_splits: Vec<BTreeSet<(u32, u32)>> = vec![BTreeSet::new(); n_patches];
+    for (pi, p) in raw.iter().enumerate() {
+        let p_ops = patch_ops_of(p);
+        let old_tris: Vec<[u32; 3]> = p
             .tri_indices
-            .iter()
-            .map(|&t| attribution.attributions[t as usize]);
-        let first = it.next().flatten();
-        if first.is_none() || it.any(|x| x != first) {
-            continue;
-        }
-        let patch = SplicePatch {
-            cycles: info
-                .cycles
-                .iter()
-                .map(|c| c.iter().map(|&(s, _)| s).collect())
-                .collect(),
-            tris: p.tri_indices.clone(),
-            surface: info.inherited,
-        };
-        let plan = match rebuild_patch_planar_bounded(
-            mesh,
-            pi,
-            &patch,
-            crate::stage4_correct::stage4_chord_band(a, b),
-        ) {
-            Ok(plan) => plan,
-            // The patch's cycles cross in its chart: the §4.5.4 illegal-output
-            // condition, not a gap in the update (spec 2b §3 "Failure is a
-            // §4.5.2 site"; matrix F-2). It names the patch's face so the loop
-            // refines it; the patch keeps its triangles meanwhile. The other
-            // refusals — an unsupported chart, the d(T) budget, degenerate or
-            // coincident input — are capability gaps of the update itself
-            // (N2), which refinement cannot close; they keep relocate-in-place
-            // and the census names them.
-            Err(ConstructError::Cdt {
-                error: CdtError::TriangulationFailed,
-                ..
-            }) => {
-                // The crossing is made of intersection-curve points, which
-                // both operands' meshes place: name the faces at every vertex
-                // of the patch's intersection edges — the patch's own face and
-                // the partner faces C_p traverses (§4.5.2 `:661-664`).
-                let on_curve: Vec<u32> = info
-                    .cycles
-                    .iter()
-                    .flatten()
-                    .filter(|&&(s, e)| is_isect(key(s, e)))
-                    .flat_map(|&(s, e)| [s, e])
-                    .collect();
-                let faces = crate::boolean::failures::faces_at_vertices(
-                    mesh,
-                    &attribution.attributions,
-                    &on_curve,
-                );
-                if !faces.is_empty() {
-                    crate::boolean::failures::record(crate::boolean::failures::FailureSite {
-                        trigger: crate::boolean::failures::FailureTrigger::IllegalIntersection,
-                        faces,
-                        detail: format!(
-                            "§4.4.1 update refused patch {pi}: its cycles cross in the {:?} chart",
-                            info.inherited
-                        )
-                        .chars()
-                        .take(160)
-                        .collect(),
-                    });
-                }
-                continue;
-            }
-            Err(_) => continue,
-        };
-        // §4.4.1: the update "maps boundary curves to boundary curves" —
-        // the rebuilt patch's directed boundary must be the replaced
-        // triangles' own, edge for edge, or the neighbour across it no
-        // longer pairs (watertightness is inherited, §4.4.3, only if this
-        // holds). A plan that changes it is refused; the patch keeps its
-        // triangles.
-        let old: Vec<[u32; 3]> = plan
-            .old_tris
             .iter()
             .map(|&t| mesh.tris[t as usize])
             .collect();
-        if !plan_keeps_boundary(&old, &plan.new_tris) {
+        if !splits.is_empty() {
+            for (u, v) in directed_boundary(&old_tris) {
+                let _ = expand_directed_edge(u, v, p_ops, &splits, &mut patch_req_splits[pi]);
+            }
+        }
+        patch_ops_vec.push(p_ops);
+        patch_old_tris.push(old_tris);
+    }
+
+    let chord_band = crate::stage4_correct::stage4_chord_band(a, b);
+    let mut patch_plans: Vec<Option<PatchPlanEntry>> = vec![None; n_patches];
+    let mut fig11a_cdt_patches = 0usize;
+    let mut fig11a_declined_patches = 0usize;
+    let mut fig11a_n106_arm_patches = 0usize;
+    let mut fig11a_declined_components = 0usize;
+    let mut cdt_crossing_refused = 0usize;
+    let mut cdt_other_refused = 0usize;
+    let mut cdt_bd_refused = 0usize;
+
+    for (pi, (p, info)) in raw.iter().zip(infos.iter()).enumerate() {
+        let p_ops = patch_ops_vec[pi];
+        let old_tris = &patch_old_tris[pi];
+        let has_isect = info
+            .cycles
+            .iter()
+            .flatten()
+            .any(|&(s, e)| is_isect(key(s, e)));
+        let has_split_bd = !patch_req_splits[pi].is_empty();
+        let has_moved_degen =
+            !moved.is_empty() && old_tris.iter().copied().any(&is_moved_degen_tri);
+        if !has_isect && !has_split_bd && !has_moved_degen {
             continue;
         }
-        plans.push(plan);
-    }
-    if plans.is_empty() {
-        return 0;
-    }
-    let n = match apply_rebuild_batch(mesh, attribution, side_labels, &plans) {
-        Ok(()) => plans.len(),
-        Err(_) => 0,
-    };
-    if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
-        use std::io::Write as _;
-        let case = std::env::var("ASSAY_CASE").unwrap_or_default();
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
+
+        let mut split_cycles: Vec<Vec<u32>> = Vec::with_capacity(info.cycles.len());
+        let mut cycles_valid_for_cdt = true;
+        if has_split_bd {
+            let mut used = BTreeSet::new();
+            for c in &info.cycles {
+                let sc = split_cycle_with_hairpin_cancel(c, p_ops, &splits, &mut used);
+                if sc.is_empty() {
+                    continue;
+                }
+                if sc.len() < 3 {
+                    cycles_valid_for_cdt = false;
+                    break;
+                }
+                split_cycles.push(sc);
+            }
+            patch_req_splits[pi].extend(used);
+        } else {
+            for c in &info.cycles {
+                split_cycles.push(c.iter().map(|&(s, _)| s).collect());
+            }
+        }
+
+        let uniform_attr = {
+            let mut it = p
+                .tri_indices
+                .iter()
+                .map(|&t| attribution.attributions[t as usize]);
+            let first = it.next().flatten();
+            first.is_some() && !it.any(|x| x != first)
+        };
+
+        let mut cdt_crossing_failed = false;
+        let mut chord_degradation = false;
+        // Census: why the §4.4.1 CDT did not take this patch.
+        let mut refusal: String = if !cycles_valid_for_cdt {
+            "split-cycle<3".into()
+        } else if split_cycles.is_empty() {
+            "no-cycles".into()
+        } else if !SurfaceChart::supports(&info.inherited) {
+            format!("chart-unsupported:{}", surface_kind_name(&info.inherited))
+        } else if !uniform_attr {
+            "mixed-attribution".into()
+        } else {
+            String::new()
+        };
+        if cycles_valid_for_cdt
+            && !split_cycles.is_empty()
+            && SurfaceChart::supports(&info.inherited)
+            && uniform_attr
         {
-            let _ = writeln!(f, "{case} APPLIED patches={n} of_plans={}", plans.len());
+            let patch = SplicePatch {
+                cycles: split_cycles,
+                tris: p.tri_indices.clone(),
+                surface: info.inherited,
+            };
+            match rebuild_patch_planar_bounded(mesh, pi, &patch, chord_band) {
+                Ok(plan) => {
+                    let want_bd = if has_split_bd {
+                        expected_boundary_after_splits(old_tris, p_ops, &splits)
+                    } else {
+                        directed_boundary(old_tris)
+                    };
+                    let pos_of = |v: u32| -> [f64; 3] {
+                        if v < plan.plan_verts {
+                            mesh.verts[v as usize].as_array()
+                        } else {
+                            plan.new_verts[(v - plan.plan_verts) as usize].as_array()
+                        }
+                    };
+                    let plan_has_moved_degen = !moved.is_empty()
+                        && plan.new_tris.iter().any(|&t| {
+                            t.iter().any(|&v| v < plan.plan_verts && moved.contains(&v))
+                                && crate::stage4_correct::tri_is_degenerate(
+                                    pos_of(t[0]),
+                                    pos_of(t[1]),
+                                    pos_of(t[2]),
+                                )
+                        });
+                    if plan_matches_boundary(&plan.new_tris, &want_bd) && !plan_has_moved_degen {
+                        if has_split_bd {
+                            fig11a_cdt_patches += 1;
+                        }
+                        let post_tris = plan.new_tris.clone();
+                        patch_plans[pi] = Some((vec![plan], post_tris));
+                    } else {
+                        refusal = if plan_has_moved_degen {
+                            "plan-keeps-moved-degenerate".into()
+                        } else {
+                            "boundary-mismatch".into()
+                        };
+                        cdt_bd_refused += 1;
+                    }
+                }
+                Err(ConstructError::Cdt {
+                    error: CdtError::TriangulationFailed,
+                    ..
+                }) => {
+                    refusal = "cdt-crossing".into();
+                    cdt_crossing_refused += 1;
+                    cdt_crossing_failed = true;
+                }
+                Err(e) => {
+                    chord_degradation = matches!(e, ConstructError::ChordDegradation { .. });
+                    let d = format!("{e:?}");
+                    refusal = match &e {
+                        ConstructError::ChordDegradation { old_max, new_max, .. } => format!(
+                            "other:ChordDegradation budget={old_max:.3e} new={new_max:.3e} d_eps={chord_band:?}"
+                        ),
+                        _ => format!("other:{}", d.replace(' ', "")),
+                    };
+                    cdt_other_refused += 1;
+                }
+            }
+        }
+
+        // A Fig. 11(a) patch the update could not rebuild keeps its triangles:
+        // its moved degenerate triangle reaches `validate_relocated_triangles`,
+        // a loud STOP the §4.5.2 loop refines (there is no local repair arm).
+        if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) && chord_degradation {
+            if let Some((rebuilds, final_tris, used)) =
+                local_fig11a_patch_plans(mesh, pi, &p.tri_indices, p_ops, &splits, moved)
+            {
+                fig11a_n106_arm_patches += 1;
+                log_update_census(&format!(
+                    "FIG11A_N106_ARM patch={pi} surface={} tris={}",
+                    surface_kind_name(&info.inherited),
+                    p.tri_indices.len()
+                ));
+                patch_req_splits[pi].extend(used);
+                patch_plans[pi] = Some((rebuilds, final_tris));
+            }
+        }
+        if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) {
+            fig11a_declined_patches += 1;
+            log_update_census(&format!(
+                "FIG11A_DECLINED patch={pi} surface={} split_bd={has_split_bd} moved_degen={has_moved_degen} tris={} refusal={refusal}",
+                surface_kind_name(&info.inherited),
+                p.tri_indices.len()
+            ));
+        }
+
+        if patch_plans[pi].is_none() && cdt_crossing_failed {
+            let on_curve: Vec<u32> = info
+                .cycles
+                .iter()
+                .flatten()
+                .filter(|&&(s, e)| is_isect(key(s, e)))
+                .flat_map(|&(s, e)| [s, e])
+                .collect();
+            let faces = crate::boolean::failures::faces_at_vertices(
+                mesh,
+                &attribution.attributions,
+                &on_curve,
+            );
+            if !faces.is_empty() {
+                crate::boolean::failures::record(crate::boolean::failures::FailureSite {
+                    trigger: crate::boolean::failures::FailureTrigger::IllegalIntersection,
+                    faces,
+                    detail: format!(
+                        "§4.4.1 update refused patch {pi}: its cycles cross in the {:?} chart",
+                        info.inherited
+                    )
+                    .chars()
+                    .take(160)
+                    .collect(),
+                });
+            }
         }
     }
+
+    // Partition patches into independent patches (`patch_req_splits[pi]` empty)
+    // and Fig. 11(a) split-coupled components so boundary-edge splits apply
+    // conformally across all sharing patches or decline atomically (leaving any
+    // unresolved degenerate relocated triangle for `validate_relocated_triangles`
+    // to raise as a loud typed STOP).
+    let mut plans: Vec<PatchRebuild> = Vec::new();
+    let mut applied_split_keys: BTreeSet<(u32, u32)> = BTreeSet::new();
+
+    for (req, plan_opt) in patch_req_splits.iter().zip(patch_plans.iter()) {
+        if req.is_empty() {
+            if let Some((rebuilds, _)) = plan_opt {
+                plans.extend(rebuilds.iter().cloned());
+            }
+        }
+    }
+
+    let mut key_to_patches: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    for (pi, req) in patch_req_splits.iter().enumerate() {
+        for &k in req {
+            key_to_patches.entry(k).or_default().push(pi);
+        }
+    }
+    let mut visited_patch = vec![false; n_patches];
+    for start_pi in 0..n_patches {
+        if patch_req_splits[start_pi].is_empty() || visited_patch[start_pi] {
+            continue;
+        }
+        let mut comp_patches: Vec<usize> = Vec::new();
+        let mut comp_keys: BTreeSet<(u32, u32)> = BTreeSet::new();
+        let mut queue = std::collections::VecDeque::from([start_pi]);
+        visited_patch[start_pi] = true;
+        while let Some(u_pi) = queue.pop_front() {
+            comp_patches.push(u_pi);
+            for &k in &patch_req_splits[u_pi] {
+                if comp_keys.insert(k) {
+                    if let Some(nbrs) = key_to_patches.get(&k) {
+                        for &v_pi in nbrs {
+                            if !visited_patch[v_pi] {
+                                visited_patch[v_pi] = true;
+                                queue.push_back(v_pi);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        comp_patches.sort_unstable();
+        if comp_patches.iter().any(|&pi| patch_plans[pi].is_none()) {
+            fig11a_declined_components += 1;
+            continue;
+        }
+
+        let sorted_triple = |t: [u32; 3]| -> [u32; 3] {
+            let mut s = t;
+            s.sort_unstable();
+            s
+        };
+        let remap_seed_tri = |r: &PatchRebuild, seed_base: u32, mut t: [u32; 3]| -> [u32; 3] {
+            if !r.new_verts.is_empty() {
+                for v in &mut t {
+                    if *v >= r.plan_verts {
+                        *v = seed_base + (*v - r.plan_verts);
+                    }
+                }
+            }
+            t
+        };
+        let comp_valid = if !full_arrangement {
+            let mut old_g: Vec<[u32; 3]> = Vec::new();
+            let mut post_g: Vec<[u32; 3]> = Vec::new();
+            let mut new_triples: BTreeSet<[u32; 3]> = BTreeSet::new();
+            let mut dup_triple = false;
+            let mut comp_seed_base = mesh.verts.len() as u32;
+            for &pi in &comp_patches {
+                old_g.extend(patch_old_tris[pi].iter().copied());
+                let (rebuilds, _) = patch_plans[pi].as_ref().expect("checked Some");
+                for r in rebuilds {
+                    for &raw_nt in &r.new_tris {
+                        let nt = remap_seed_tri(r, comp_seed_base, raw_nt);
+                        post_g.push(nt);
+                        if !new_triples.insert(sorted_triple(nt)) {
+                            dup_triple = true;
+                        }
+                    }
+                    comp_seed_base += r.new_verts.len() as u32;
+                }
+            }
+            !dup_triple && plan_matches_boundary(&post_g, &directed_boundary(&old_g))
+        } else {
+            let mut ok = true;
+            for op in [crate::brep::InputId::A, crate::brep::InputId::B] {
+                let mut old_g_op: Vec<[u32; 3]> = Vec::new();
+                let mut post_g_op: Vec<[u32; 3]> = Vec::new();
+                let mut old_triple_counts: BTreeMap<[u32; 3], usize> = BTreeMap::new();
+                let mut post_triple_counts: BTreeMap<[u32; 3], usize> = BTreeMap::new();
+                let mut comp_seed_base = mesh.verts.len() as u32;
+                for &pi in &comp_patches {
+                    let lbl = raw[pi]
+                        .tri_indices
+                        .first()
+                        .and_then(|&ti| side_labels.labels.get(ti as usize))
+                        .copied()
+                        .unwrap_or_default();
+                    let (rebuilds, _) = patch_plans[pi].as_ref().expect("checked Some");
+                    if !lbl.in_operand(op) {
+                        for r in rebuilds {
+                            comp_seed_base += r.new_verts.len() as u32;
+                        }
+                        continue;
+                    }
+                    let rev = lbl.operand_winding_reversed(op);
+                    let orient_op = |mut t: [u32; 3]| -> [u32; 3] {
+                        if rev {
+                            t.swap(1, 2);
+                        }
+                        t
+                    };
+                    for &ot in &patch_old_tris[pi] {
+                        old_g_op.push(orient_op(ot));
+                        *old_triple_counts.entry(sorted_triple(ot)).or_default() += 1;
+                    }
+                    for r in rebuilds {
+                        for &raw_pt in &r.new_tris {
+                            let pt = remap_seed_tri(r, comp_seed_base, raw_pt);
+                            post_g_op.push(orient_op(pt));
+                            *post_triple_counts.entry(sorted_triple(pt)).or_default() += 1;
+                        }
+                        comp_seed_base += r.new_verts.len() as u32;
+                    }
+                }
+                let minted_fold = post_triple_counts.iter().any(|(tr, &cnt)| {
+                    cnt > 1 && cnt > old_triple_counts.get(tr).copied().unwrap_or(0)
+                });
+                if minted_fold || directed_boundary(&old_g_op) != directed_boundary(&post_g_op) {
+                    ok = false;
+                    break;
+                }
+            }
+            ok
+        };
+        if !comp_valid {
+            fig11a_declined_components += 1;
+            continue;
+        }
+        for &pi in &comp_patches {
+            let (rebuilds, _) = patch_plans[pi].as_ref().expect("checked Some");
+            plans.extend(rebuilds.iter().cloned());
+        }
+        applied_split_keys.extend(comp_keys);
+    }
+
+    if plans.is_empty() {
+        log_update_census(&format!(
+            "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_n106_arm={fig11a_n106_arm_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+            splits.len()
+        ));
+        return 0;
+    }
+    let mut batch_err = false;
+    let n = match apply_rebuild_batch(mesh, attribution, side_labels, &plans) {
+        Ok(()) => plans.len(),
+        Err(_) => {
+            batch_err = true;
+            0
+        }
+    };
+    if n > 0 {
+        if let Some(tv) = tangential_verts {
+            for k in applied_split_keys {
+                if tv.contains(&k.0) && tv.contains(&k.1) {
+                    if let Some((chain, _)) = splits.get(&k) {
+                        for &q in chain {
+                            tv.insert(q);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    log_update_census(&format!(
+        "APPLIED patches={n} of_plans={} batch_err={batch_err} fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_n106_arm={fig11a_n106_arm_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+        plans.len(),
+        splits.len()
+    ));
     n
 }
 
@@ -5227,5 +6244,528 @@ mod tests {
         let pos = |v: u32| mesh.verts[v as usize];
         let want = area_vector(&[[4, 0, 1], [4, 1, 2], [4, 2, 3]], &pos);
         assert!(dot3(want, area_vector(&fill, &pos)) > 0.0);
+    }
+
+    fn make_distinct_planes_brep(normals: &[[f64; 3]]) -> crate::brep::BRep {
+        use crate::brep::{BRep, BRepEdge, BRepFace, BRepVertex};
+        let mut verts = Vec::with_capacity(normals.len() * 3);
+        let mut edges = Vec::with_capacity(normals.len() * 3);
+        let mut faces = Vec::with_capacity(normals.len());
+        for &n in normals {
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            let nu = [n[0] / len, n[1] / len, n[2] / len];
+            let axis = if nu[0].abs() < 0.9 {
+                [1.0, 0.0, 0.0]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let mut e1 = [
+                nu[1] * axis[2] - nu[2] * axis[1],
+                nu[2] * axis[0] - nu[0] * axis[2],
+                nu[0] * axis[1] - nu[1] * axis[0],
+            ];
+            let l1 = (e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]).sqrt();
+            e1 = [e1[0] / l1, e1[1] / l1, e1[2] / l1];
+            let e2 = [
+                nu[1] * e1[2] - nu[2] * e1[1],
+                nu[2] * e1[0] - nu[0] * e1[2],
+                nu[0] * e1[1] - nu[1] * e1[0],
+            ];
+            let v_base = verts.len() as u32;
+            verts.push(BRepVertex {
+                point: Point3::new(0.0, 0.0, 0.0),
+            });
+            verts.push(BRepVertex {
+                point: Point3::new(e1[0], e1[1], e1[2]),
+            });
+            verts.push(BRepVertex {
+                point: Point3::new(e2[0], e2[1], e2[2]),
+            });
+            let e_base = edges.len() as u32;
+            edges.push(BRepEdge {
+                start: v_base,
+                end: v_base + 1,
+                curve: Curve::LineSegment,
+            });
+            edges.push(BRepEdge {
+                start: v_base + 1,
+                end: v_base + 2,
+                curve: Curve::LineSegment,
+            });
+            edges.push(BRepEdge {
+                start: v_base + 2,
+                end: v_base,
+                curve: Curve::LineSegment,
+            });
+            faces.push(BRepFace {
+                surface: Surface::Plane {
+                    normal: cad_primitives::Vector3::new(nu[0], nu[1], nu[2]),
+                    d: 0.0,
+                },
+                outer_loop: vec![e_base, e_base + 1, e_base + 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            });
+        }
+        BRep::new(verts, edges, faces).expect("distinct-planes test brep")
+    }
+
+    /// Yang §4.4.1 Fig. 11(a) (`refs/text/yang2025_hybrid_boolean.txt:546-571`,
+    /// matrix `4.4-12`): `update_patches_ex` splits boundary edges carrying
+    /// relocated curve vertices inside the per-patch update — resolving the
+    /// closed 8-triangle mutual-degenerate pillow to the 8-triangle `a-bl-bh-c`
+    /// chain while rejecting equal-parameter ties and the R0038 same-apex
+    /// double-cover fan.
+    #[test]
+    fn update_patches_fig11a_declines_zero_area_pair_tied_and_same_apex_loudly() {
+        use crate::brep::{InputId, TriangleAttribution, TriangleSideLabel, TriangleSideLabelMap};
+        let normals_a = [
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [0.0, -1.0, 1.0],
+            [-1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [-1.0, 1.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+        let brep_a = make_distinct_planes_brep(&normals_a);
+        let brep_b = make_distinct_planes_brep(&normals_a);
+
+        let d = 1.0e-13;
+        let pillow_verts = vec![
+            Point3::new(0.0, 0.0, 0.0),  // 0 = a
+            Point3::new(1.0, 0.0, 0.0),  // 1 = c
+            Point3::new(0.25, d, 0.0),   // 2 = bl
+            Point3::new(0.6, -d, 0.0),   // 3 = bh
+            Point3::new(0.5, 1.0, 0.0),  // 4 = NL apex
+            Point3::new(0.5, -1.0, 0.0), // 5 = NH apex
+        ];
+        let pillow_tris = vec![
+            [0, 2, 4], // 0 M1
+            [1, 4, 2], // 1 NL -> (A, 7)
+            [1, 2, 0], // 2 T1 (degen, off = bl)
+            [3, 1, 0], // 3 T2 (degen, off = bh)
+            [3, 0, 5], // 4 NH -> (B, 3)
+            [1, 3, 5], // 5 M2
+            [5, 0, 4], // 6 E1
+            [4, 1, 5], // 7 E2
+        ];
+        let pillow_attrs = vec![
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 7,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 3,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 2,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 4,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 5,
+            }),
+        ];
+        let mk_labels = |n: usize| TriangleSideLabelMap {
+            labels: (0..n)
+                .map(|i| TriangleSideLabel {
+                    cherchi_patch: i as u32,
+                    inside: [false, false],
+                    surface: [true, false],
+                    sheet_opposite: None,
+                })
+                .collect(),
+        };
+        let moved: std::collections::HashSet<u32> = [2u32, 3u32].into_iter().collect();
+
+        // 1. The pillow's degenerate pair sits on two zero-area single-triangle
+        //    patches (A face 1, B face 1): no CDT of a collapsed polygon exists,
+        //    and there is no local repair arm (retired with the §4.4.1(a)
+        //    unzip). The update declines the coupled component atomically —
+        //    the mesh stays closed and untouched — and the degenerate pair
+        //    reaches the loud `DegenerateTriangle` STOP the §4.5.2 loop refines.
+        let mut mesh = Mesh::new(pillow_verts.clone(), pillow_tris.clone());
+        let mut attr = TriangleAttributionMap {
+            attributions: pillow_attrs.clone(),
+        };
+        let mut sl = mk_labels(8);
+        let _ = update_patches_ex(
+            &mut mesh, &mut attr, &mut sl, &brep_a, &brep_b, false, &moved, None,
+        );
+        assert!(
+            directed_boundary(&mesh.tris).is_empty(),
+            "pillow must stay closed"
+        );
+        assert!(
+            mesh.tris.contains(&[1, 2, 0]) && mesh.tris.contains(&[3, 1, 0]),
+            "the declined pair is left for the STOP, not half-split"
+        );
+        assert!(
+            matches!(
+                crate::stage4_correct::validate_relocated_triangles(&mesh, &attr, &moved),
+                Err(crate::errors::YangError::Stage4RegionInvalid {
+                    reason: crate::errors::Stage4InvalidReason::DegenerateTriangle,
+                    ..
+                })
+            ),
+            "the unresolved mutual pair must trigger the loud DegenerateTriangle STOP"
+        );
+
+        // 2. Tied parameters along a->c leave chain order ambiguous -> Fig. 11(a)
+        //    refuses to split `(0, 1)`, keeping the mesh watertight and leaving
+        //    both degenerate triangles for `validate_relocated_triangles` to STOP loudly.
+        let mut tied_verts = pillow_verts;
+        tied_verts[2] = Point3::new(0.6, d, 0.0);
+        let mut tied_mesh = Mesh::new(tied_verts, pillow_tris);
+        let mut tied_attr = TriangleAttributionMap {
+            attributions: pillow_attrs,
+        };
+        let mut tied_sl = mk_labels(8);
+        let _ = update_patches_ex(
+            &mut tied_mesh,
+            &mut tied_attr,
+            &mut tied_sl,
+            &brep_a,
+            &brep_b,
+            false,
+            &moved,
+            None,
+        );
+        assert!(
+            directed_boundary(&tied_mesh.tris).is_empty(),
+            "tied decline must not leave a half-split boundary"
+        );
+        assert!(
+            tied_mesh.tris.contains(&[1, 2, 0]) && tied_mesh.tris.contains(&[3, 1, 0]),
+            "equal-parameter tie must leave both degenerate triangles unsplit"
+        );
+        assert!(
+            matches!(
+                crate::stage4_correct::validate_relocated_triangles(&tied_mesh, &tied_attr, &moved),
+                Err(crate::errors::YangError::Stage4RegionInvalid {
+                    reason: crate::errors::Stage4InvalidReason::DegenerateTriangle,
+                    ..
+                })
+            ),
+            "unresolved tied pair must trigger loud DegenerateTriangle STOP"
+        );
+
+        // 3. Same-apex fan (R0038): NL and NH share apex 4, which would double-cover
+        //    {2, 3, 4} with opposite-winding triangles -> declined cleanly, loud STOP.
+        let dy = 1.0e-13;
+        let apex_verts = vec![
+            Point3::new(0.0, 0.0, 0.0),  // 0 = a
+            Point3::new(1.0, 0.0, 0.0),  // 1 = c
+            Point3::new(0.41, dy, 0.0),  // 2 = bl
+            Point3::new(0.68, -dy, 0.0), // 3 = bh
+            Point3::new(0.5, 1.0, 0.0),  // 4 = shared apex
+            Point3::new(0.5, -1.0, 0.0), // 5 = distinct apex
+        ];
+        let same_apex_tris = vec![
+            [1, 2, 0], // T1
+            [3, 1, 0], // T2
+            [1, 4, 2], // NL (apex 4)
+            [3, 0, 4], // NH (same apex 4)
+        ];
+        let fan_attrs = vec![
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 2,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 3,
+            }),
+        ];
+        let mut same_mesh = Mesh::new(apex_verts.clone(), same_apex_tris);
+        let mut same_attr = TriangleAttributionMap {
+            attributions: fan_attrs.clone(),
+        };
+        let mut same_sl = mk_labels(4);
+        assert_eq!(
+            update_patches_ex(
+                &mut same_mesh,
+                &mut same_attr,
+                &mut same_sl,
+                &brep_a,
+                &brep_b,
+                false,
+                &moved,
+                None
+            ),
+            0,
+            "same-apex fan must be rejected to prevent double-cover fold"
+        );
+        assert!(
+            matches!(
+                crate::stage4_correct::validate_relocated_triangles(&same_mesh, &same_attr, &moved),
+                Err(crate::errors::YangError::Stage4RegionInvalid {
+                    reason: crate::errors::Stage4InvalidReason::DegenerateTriangle,
+                    ..
+                })
+            ),
+            "rejected same-apex fan must trigger loud DegenerateTriangle STOP"
+        );
+        // Re-apex NH to distinct vertex 5: still two zero-area single-triangle
+        // patches with no CDT, and no local arm — declined, mesh unchanged,
+        // loud STOP.
+        let two_sided_tris = vec![[1, 2, 0], [3, 1, 0], [1, 4, 2], [3, 0, 5]];
+        let mut ok_mesh = Mesh::new(apex_verts, two_sided_tris.clone());
+        let mut ok_attr = TriangleAttributionMap {
+            attributions: fan_attrs,
+        };
+        let mut ok_sl = mk_labels(4);
+        let _ = update_patches_ex(
+            &mut ok_mesh,
+            &mut ok_attr,
+            &mut ok_sl,
+            &brep_a,
+            &brep_b,
+            false,
+            &moved,
+            None,
+        );
+        assert_eq!(
+            ok_mesh.tris, two_sided_tris,
+            "declined component left untouched"
+        );
+        assert!(matches!(
+            crate::stage4_correct::validate_relocated_triangles(&ok_mesh, &ok_attr, &moved),
+            Err(crate::errors::YangError::Stage4RegionInvalid {
+                reason: crate::errors::Stage4InvalidReason::DegenerateTriangle,
+                ..
+            })
+        ));
+    }
+
+    /// Pin for I3b customer `R0063` (`specs/yang_442_classify_after_update.md` §3(d)):
+    /// two dropped cutter patches `(B, 0)` and `(B, 1)` meet along planar crease
+    /// `(0, 2)` at 90°, and junction relocation seats vertex `1` at `t = 0.8026`
+    /// on `(0, 2)`, leaving opposite-winding collinear degenerate pair `[0, 2, 1]`
+    /// and `[1, 2, 0]` with no non-degenerate partner on `(0, 2)`. Under
+    /// `update_patches_ex(..., full_arrangement = true, ...)`, both planar patches
+    /// split their crease boundary edge `(0, 2)` at `1` during CDT, eliminating
+    /// both degenerate triangles and keeping `M_A` and `M_B` closed 2-manifolds,
+    /// invariant under arbitrary vertex renumbering.
+    #[test]
+    fn update_patches_fig11a_splits_r0063_planar_crease_opposite_winding_pair() {
+        use crate::brep::{InputId, TriangleAttribution, TriangleSideLabel, TriangleSideLabelMap};
+        let brep_a = make_distinct_planes_brep(&[
+            [0.0, 0.0, -1.0],
+            [0.0, -1.0, 0.0],
+            [-1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+        ]);
+        let brep_b = make_distinct_planes_brep(&[
+            [0.0, 0.0, -1.0], // face 0: z = 0 plane
+            [0.0, -1.0, 0.0], // face 1: y = 0 plane
+            [0.0, 1.0, 1.0],  // face 2: closing slant
+            [-1.0, 0.0, 1.0], // face 3: closing slant
+            [1.0, 0.0, 1.0],  // face 4: closing slant
+        ]);
+        let base_verts = vec![
+            Point3::new(0.0, 0.0, 0.0),    // 0: crease start
+            Point3::new(0.8026, 0.0, 0.0), // 1: relocated junction on crease (0, 2)
+            Point3::new(1.0, 0.0, 0.0),    // 2: crease end
+            Point3::new(0.5, 1.0, 0.0),    // 3: B face 0 apex (z = 0)
+            Point3::new(0.5, 0.0, 1.0),    // 4: B face 1 apex (y = 0)
+            Point3::new(2.0, 0.0, 0.0),    // 5..8: disjoint closed tetrahedron A
+            Point3::new(3.0, 0.0, 0.0),
+            Point3::new(2.5, 1.0, 0.0),
+            Point3::new(2.5, 0.3, 1.0),
+        ];
+        let base_tris = vec![
+            [0, 2, 1], // 0: B face 0 degen flap
+            [0, 1, 3], // 1: B face 0
+            [1, 2, 3], // 2: B face 0
+            [1, 2, 0], // 3: B face 1 opposite-winding degen flap
+            [0, 4, 1], // 4: B face 1
+            [1, 4, 2], // 5: B face 1
+            [2, 4, 3], // 6: B face 2
+            [0, 3, 4], // 7: B face 3
+            [5, 7, 6],
+            [5, 6, 8],
+            [6, 7, 8],
+            [7, 5, 8],
+        ];
+        let base_attr = vec![
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 0,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 0,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 0,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 2,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 3,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 1,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 2,
+            }),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 3,
+            }),
+        ];
+        let b_dropped = TriangleSideLabel {
+            cherchi_patch: 10,
+            inside: [true, false],
+            surface: [false, true],
+            sheet_opposite: None,
+        };
+        let a_kept = TriangleSideLabel {
+            cherchi_patch: 20,
+            inside: [false, false],
+            surface: [true, false],
+            sheet_opposite: None,
+        };
+        let base_labels = vec![
+            b_dropped, b_dropped, b_dropped, b_dropped, b_dropped, b_dropped, b_dropped, b_dropped,
+            a_kept, a_kept, a_kept, a_kept,
+        ];
+
+        let run_with_perm = |perm: &[u32; 9]| -> BTreeSet<([i64; 3], [i64; 3], [i64; 3])> {
+            let mut verts = vec![Point3::new(0.0, 0.0, 0.0); 9];
+            for (old_v, &new_v) in perm.iter().enumerate() {
+                verts[new_v as usize] = base_verts[old_v];
+            }
+            let tris: Vec<[u32; 3]> = base_tris
+                .iter()
+                .map(|t| {
+                    [
+                        perm[t[0] as usize],
+                        perm[t[1] as usize],
+                        perm[t[2] as usize],
+                    ]
+                })
+                .collect();
+            let mut mesh = Mesh::new(verts, tris);
+            let mut attr = TriangleAttributionMap {
+                attributions: base_attr.clone(),
+            };
+            let mut side_labels = TriangleSideLabelMap {
+                labels: base_labels.clone(),
+            };
+            let moved: std::collections::HashSet<u32> = [perm[1]].into_iter().collect();
+
+            let applied = update_patches_ex(
+                &mut mesh,
+                &mut attr,
+                &mut side_labels,
+                &brep_a,
+                &brep_b,
+                true,
+                &moved,
+                None,
+            );
+            assert_eq!(
+                applied, 2,
+                "both crease-sharing planar patches (B,0) and (B,1) must rebuild"
+            );
+            for &t in &mesh.tris {
+                assert!(
+                    !crate::stage4_correct::tri_is_degenerate(
+                        mesh.verts[t[0] as usize].as_array(),
+                        mesh.verts[t[1] as usize].as_array(),
+                        mesh.verts[t[2] as usize].as_array(),
+                    ),
+                    "degenerate crease flap {t:?} survived Fig. 11(a) update"
+                );
+            }
+            crate::stage4_relocate::check_watertight_2manifold_per_operand(
+                &mesh,
+                &attr,
+                &side_labels,
+                false,
+            )
+            .expect("both operand shells must remain closed 2-manifolds after crease split");
+
+            let quant = |p: Point3| -> [i64; 3] {
+                let a = p.as_array();
+                [
+                    (a[0] * 1.0e12).round() as i64,
+                    (a[1] * 1.0e12).round() as i64,
+                    (a[2] * 1.0e12).round() as i64,
+                ]
+            };
+            mesh.tris
+                .iter()
+                .map(|&t| {
+                    let mut pts = [
+                        quant(mesh.verts[t[0] as usize]),
+                        quant(mesh.verts[t[1] as usize]),
+                        quant(mesh.verts[t[2] as usize]),
+                    ];
+                    let min_i = (0..3).min_by_key(|&i| pts[i]).unwrap();
+                    pts.rotate_left(min_i);
+                    (pts[0], pts[1], pts[2])
+                })
+                .collect()
+        };
+
+        let id_tris = run_with_perm(&[0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        let rev_tris = run_with_perm(&[8, 7, 6, 5, 4, 3, 2, 1, 0]);
+        assert_eq!(
+            id_tris, rev_tris,
+            "Fig. 11(a) crease split must produce identical 3D triangles under reversed vertex numbering"
+        );
     }
 }

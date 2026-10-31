@@ -114,6 +114,14 @@ structure:
      cannot resolve two degenerate triangles sharing the same off-vertex
      `b = nb = 31`, Stage 4 STOPs with `LocalRefinementRequired` at sentinel
      `v = 4294967295` (`u32::MAX`, `faces = []`, `stage4_correct.rs:6214`).
+     *(Resolved 2026-10-30 in Roadmap F2 Step 2: Fig. 11(a) boundary-edge
+     splitting moved inside `stage4_construct::update_patches_ex` (`4.4-12
+     DEVIATES → FAITHFUL`) and the post-hoc `(3d)` unzip block +
+     `resolve_*_degenerate_*` helpers are deleted; under the uncommitted I3b
+     trial, `ASSAY_CASE=R0063` converts `ERROR → SUPPORTED_CORRECT` in `4.33s`
+     and `smoke_corpus_boundary_categories` advances past `R0063` at `:904` to
+     `F0060` at `:943`, exposing a full-arrangement Steinmetz line/point-pinch
+     `SUPPORTED_WRONG` alongside `c0058`.)*
   3. `kernel-v2` `b2_pipe` (`3` `s_bend()` tests:
      `"torus lateral missing its +axis seam arc"`): numbering vertices across
      the full arrangement shifts compact vertex-index parity between Bend 1's
@@ -154,7 +162,7 @@ two-triangle form:
 | `patch_boundary_cycle` | same | curve edges become patch-interior; cycles lose the curve |
 | `build_intersection_curves` (`len != 2` skip) | `stage3_ssi.rs` | every curve edge has four entries — every curve dropped |
 | `split_pinch_vertices`, `carrier_counts`, `vertex_on_curve` | Stage 4 | counts double |
-| §4.4.1(a) unzip ("the triangle on the other side") | `stage4_correct.rs` | ambiguous |
+| ~~§4.4.1(a) unzip ("the triangle on the other side")~~ | retired 2026-10-30 into `stage4_construct::update_patches_ex` (`4.4-12 → FAITHFUL`) | coupling discovered across all incident patches (`2..=4` owners) |
 | `collapse_vertex` membrane cancellation (exactly-2 pairs) | same | wrong pairs |
 | watertight gate (directed half-edge balance) | Stage 4 | passes VACUOUSLY (2 forward / 2 reverse) |
 | `update_patches` (one attribution per patch) | `stage4_construct.rs` | patches merged by the flood |
@@ -185,8 +193,8 @@ and I3 both need.
   2. `transit_emission_write` (`stage4_boundary_curve.rs`) — called from `stage4_relocate_and_correct_inner` (`stage4_correct.rs`). Snapshots each fill polygon's `(InputId, face)` label from `fill.removed` before slot-stable overwrite + append.
   3. `collapse_vertex` (`stage4_correct/collapse.rs`) — called from §4.5.1 repair (`stage4_correct.rs`), PR-KV9 junction-twin collapse (`stage4_correct.rs`), `weld_coincident_relocated` (`collapse.rs`), `trim_beyond_corner_phantoms` (`collapse.rs`), `sweep_reversed_intersections` (`stage4_correct/reversal.rs`), §4.4.1(b) sub-feature merge (`stage4_correct.rs`), `collapse_subtauwork_mesh_edges`, and `collapse_subresolution_intersection_segments`. Drops degenerate and opposite-winding pleat slots in lockstep.
   4. `retriangulate_collapsed_fan_regions` / `repair_fan_cluster` (`stage4_correct/collapse.rs`) — called from `stage4_correct.rs`. Rebuilt region triangles inherit the region's `TriangleSideLabel`; removed region triangles drop in lockstep.
-  5. `resolve_simple_degenerate_split` (`stage4_correct/collapse.rs`, extracted from inline §4.4.1(a) split in `stage4_correct.rs`) — drops `(d_idx, n_idx)` and appends the two split children carrying `n_idx`'s `TriangleSideLabel`.
-  6. `resolve_mutual_degenerate_pair` (`stage4_correct/collapse.rs`) — drops `(t1, t2, nl, nh)` and appends `nl`'s two children with `nl`'s label and `nh`'s two children with `nh`'s label.
+  5. ~~`resolve_simple_degenerate_split`~~ (`stage4_correct/collapse.rs`, extracted from inline §4.4.1(a) split in `stage4_correct.rs`) — dropped `(d_idx, n_idx)` and appended the two split children carrying `n_idx`'s `TriangleSideLabel` *(deleted 2026-10-30 in Roadmap F2 Step 2; superseded by `update_patches_ex` / `apply_rebuild_batch`)*.
+  6. ~~`resolve_mutual_degenerate_pair`~~ (`stage4_correct/collapse.rs`) — dropped `(t1, t2, nl, nh)` and appended `nl`'s two children with `nl`'s label and `nh`'s two children with `nh`'s label *(deleted 2026-10-30 in Roadmap F2 Step 2; superseded by `update_patches_ex` / `apply_rebuild_batch`)*.
   7. `remove_doubled_membranes` (`stage4_relocate.rs`) — filters `side_labels` alongside `mesh.tris` and `attribution`.
   8. `split_pinch_vertices` (`stage4_relocate.rs`) and `compact_unreferenced_verts` (`stage4_correct/collapse.rs`) — rewrite vertex indices inside `mesh.tris` in place without adding, removing, or reordering triangle slots; take `&[TriangleSideLabel]` and `debug_assert_eq!(side_labels.len(), mesh.tris.len())`. (Vertex-only `&mut Mesh` helpers `apply_boundary_relocations` and `corner_transit_apply`'s rollback closure leave `mesh.tris` untouched.)
 - **Hand-off assertion & pins:** In `reconstruct_topology_stage4` (`stage5_topology.rs`), immediately before `emit_topology`, `debug_assert_eq!` verifies `side_labels.len() == mesh.tris.len() == attribution.attributions.len()` and `side_labels.keep_set(op) == (0..mesh.tris.len()).collect::<Vec<_>>()`. Unit pins in `crates/yang-rs/src/tests_unit/s442_side_labels.rs` (plus `s451_crease_domain.rs` and `stage4_construct.rs` inline tests); debug `yang-rs` (1521 passed, 0 failed) and `kernel-v2` (869 passed, 0 failed) green; canonical release corpus `360C / 0W / 9E / 5EE / 0T` over 374 (0 moved cases, `928.7s` wall vs 2026-10-25 `~930s`).

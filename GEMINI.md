@@ -47,6 +47,19 @@ like this. the fixes must be principled. the principles are the paper."*
   (e.g. "if plane-plane-torus then …"). The paper's rules are by incidence and
   by `surface_normal_at`, uniform over surface types.
 
+- **A fallback is an arm.** When the paper's mechanism refuses a case, do not
+  route the refusal to the old repair code moved into a new function — that
+  is the substitute relocated, not retired (F2 Step 2, 2026-10-30: the
+  §4.4.1(a) unzip's arms moved into `update_patches_ex`). Let the refusal
+  reach the loud STOP (the §4.5.2 loop refines it), measure what breaks, and
+  build the mechanism for that.
+- **Grade a matrix row FAITHFUL only when the code does what the row's quote
+  says,** including its trigger. A Claude session reviews every kernel commit
+  independently before it lands; an overclaimed grade gets reverted.
+- **Run the yang-rs suites before quoting a corpus result** for a Stage-4
+  triangulation change: the suites (yr13/yr14 cavity pins, backend parity,
+  corner-in-band volume) catch d(T)/CDT regressions the corpus misses.
+
 ### Anchor before you fix
 
 - Work ONE tail case at a time, cheapest first (CLAUDE.md lists the open tail).

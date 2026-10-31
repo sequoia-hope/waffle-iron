@@ -270,3 +270,46 @@ Corpus with all three: **358C / 0W / 11E / 5EE / 0T, no move** (wall
 1062.1 s; P0056 / P0061 face-id drift only); rebuilt patches 14,577;
 `ChordDegradation` 1,741 → 2,312 (the d_ε bound refusing what the old-max
 rule had accepted — those patches keep relocate-in-place); `ThetaUnwrap` 7.
+
+## 10. The §4.4.1(a) unzip RETIRED (F2 Step 2, 2026-10-30/31)
+
+Antigravity's Step 2 moved the Fig. 11(a) split into `update_patches_ex`
+(split chains collected from relocated collapsed triangles, split patches
+re-triangulated by the patch CDT, coupled components committed atomically)
+and deleted the post-hoc `(3d)` unzip. An independent review found its
+fallback, `local_fig11a_patch_plans`, was the unzip's arms moved inside the
+update: full-corpus census, 166 split seeds in 24 cases; 7 patches resolved
+by CDT, 24 by the arms. The arms' refusal reasons on those 24: 11
+`ChordDegradation` (this spec's §9 item 3 budget), 6
+plan-keeps-moved-degenerate (F0067), 5 planar CDT errors, 2 `ChordCertify`.
+
+**Arms narrowed to the N106 class.** A first arms-off run held 360C — but it
+still carried the d(T) refinement trial below, which rebuilt the
+`ChordDegradation` patches. With the arms off and no trial, R0059 and P0005
+go CORRECT → ERROR (`DegenerateTriangle`; the §4.5.2 loop does not clear
+them) — §8's two `ChordDegradation`-class cases again. So the arms run only
+for a patch refused with `ChordDegradation`; every other declined component
+reaches the STOP (F0067, P0040, R0051 do, and end CORRECT). The arms retire
+with N106.
+
+**Fixed on the way:** `patch_from_cycles_shifted` took `cycles[0]` as the
+outer loop; a patch whose hole cycle came first was charted inside-out and
+the CDT returned nothing (`DegenerateInput`, F0082). The outer loop is now
+the largest-|area| loop.
+
+**Found, not landed — the d(T) refusal is not the paper's (ledger N106).**
+§4.1.2 (`:357-378`) makes a boundary triangle's d(T) its own error bound; the
+paper never refuses a triangulation for it. Trial (refine to the budget by
+centroid insertion) needed Delaunay in the isometric chart (r·θ, y) — the
+(θ, y) chart's Delaunay builds circumferential slivers that Fig. 6's
+covering rectangle charges at full width — and a floor at the patch's own
+boundary chords (a long diagonal cycle chord certifies 2× d_ε alone). It
+converted the 11 `ChordDegradation` patches and held the corpus but broke
+four suite pins, each because refused patches were rebuilt with seed
+vertices. Next: carry per-triangle d(T) as the bound (N106 remediation), and
+re-measure §9 item 3's volume regressions with the isometric chart.
+
+**Open refusal:** a split that lands on a vertex already on the same cycle
+(P0040: vertex 73 inserted into edge (53, 69) of a cycle that also visits 73)
+makes the trimmed region two lobes touching at a point; the patch CDT takes
+one simple outer loop (`DuplicateVertex`).

@@ -98,11 +98,12 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
       gives r_A = r_B = r on two trimmed meshes. *(I3a full-arrangement
       primitives + 9 unit pins landed 2026-10-27; I3b `boolean_once` flip
       stopped per P9/P10 on `R0063`, `tangency_pinch_split`, and `b2_pipe::s_bend`
-      — 2026-10-28/30 F2 Step 1 cleared `b2_pipe::s_bend` (`17/17` in `0.41s`
-      under reproducible uncommitted I3b trial via
-      `~/.claude/bin/reserve -c 4 -l "b2_pipe" -- cargo test --release -p kernel-v2 --test b2_pipe`);
-      still gated on F2 retiring post-hoc `(3d)` unzip (`R0063`) and pre-CDT 2D
-      `collapse_vertex` relabelling (`c0058`); see
+      — 2026-10-28/30 F2 Steps 1–2 cleared `b2_pipe::s_bend` (`17/17` in
+      `0.37s`) and `R0063` (`SUPPORTED_CORRECT` in `4.33s`, advancing
+      `smoke_corpus_boundary_categories` past `:904` to `F0060` at `:943`) under
+      the reproducible uncommitted I3b trial; still gated on pre-CDT 2D
+      `collapse_vertex` relabelling (`c0058`) and full-arrangement Steinmetz
+      pinch (`F0060`, `N74`/`N78`); see
       `specs/yang_442_classify_after_update.md` §3(d) and N80/N81.)*
 - **Resolves:** N80. **Consolidates:** N81's three §4.4.1 sites (finished
   in F2). **Unblocks:** F2 and F3's Case-IV rule-out (I2).
@@ -118,9 +119,18 @@ Phase 2b/2c. Per-patch re-CDT has been live since 2026-10-16 on 85 % of
 intersected patches.
 
 - [ ] Every refusal class of `update_patch` is either built or named as a
-      §4.5.2 site (F-2 did the crossing class).
+      §4.5.2 site (F-2 did the crossing class). *(2026-10-31: the hole-first
+      chart fixed; open — the self-touching split cycle (P0040) and the d(T)
+      budget refusal, which is not the paper's operation at all — N106.)*
+- [ ] **The d(T) refusal becomes the paper's per-triangle bound (N106):**
+      accept the patch CDT, carry d(T) as each boundary triangle's d_ε(T)
+      (§4.1.2 `:357-378`) into the consumers that read d_ε, retire I2d / I2e.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
-      first: the §4.4.1(a) unzip, `repair_fan_cluster` (N58),
+      first: ~~the §4.4.1(a) unzip~~ *(retired 2026-10-30/31: the split runs
+      inside `update_patches_ex` by patch CDT; the unzip's local arms run
+      ONLY for the d(T)-budget refusal (N106 — R0059, P0005 need them), every
+      other declined component STOPs loudly into §4.5.2; `4.4-12 →
+      PARTIAL` — its trigger is still a collapsed triangle, N2)*, `repair_fan_cluster` (N58),
       fold-merge / absorb / rehome, the construct pass's seam replacement,
       `remove_doubled_membranes` (N41), `collapse_subtauwork_mesh_edges`
       (N89 item 1).
@@ -296,4 +306,5 @@ the first known item.
 | 2026-10-28 | F4: §4.3 tangency by Newton (pair optimization first, then compare normals), Stage-1 `cyl_cyl_tangent_points` retired (kept as a test oracle, 180-config sweep), §4.2.2 Gauss-map admission live for small loops (N92 RESOLVED), Bajaj loop tracing, Fig. 10(c) seeding, :502-505 redundancy; independent review fixes (no snap fallback, no type enumeration, failures recorded, C0118 sub-feature twin sheets declined). N100 item 9 found and ledgered (§4.5 adoption does not test loop vertices on surfaces) | 61 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 636 s) | ..6714be2f |
 | 2026-10-29 | Remediation Phase 2 (not a milestone step): the harness on-surface oracle (O1) — corpus "held" now includes geometry; N100 item 3 measured in R0015 / R0026 / R0050 (chords on torus/cylinder faces), now WRONG and first in line | 61 | 132 | 357C / 3W / 9E / 5EE / 0T | 647a4736 |
 | 2026-10-30 | WRONG tail (not a milestone step): R0015 / R0026 / R0050 CONVERTED — Stage-5 output typing types every chord between two different surfaces (carried curve, else the surfaces' ssi intersection; twin candidates within band are one; pair chords certified by bisection). N60 amended; N104 ledgered OPEN (Stage 3 leaves the perpendicular torus×plane section and Stage-0 overlay A×B curves untyped) | 62 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
-| 2026-10-30 | F2 Step 1 + review fixes (N81; N58 reopened; N105 added): Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4, `DecimateStats` + loud `Stage4ChainDecimateFailed`; `Surface::Sphere` non-decimation stated), operand-anchored conic merge vertex-index-free (`0`-operand-vertex closed circle retains `min_by_key` index rule as open debt on `R0021`), Stage-1/`sphere.rs` unbundled, `developable.rs` hardened with `Result` + red-first pin (`curved_holed_lateral_reentry`), `4.4-23`/`4.4-28` updated (`stage5_topology.rs:1037`), class-(b) elision ledgered as N105 | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 524.8 s, 0 moved) | 3d98d89b, (this commit) |
+| 2026-10-30 | F2 Step 1 + review fixes (N81; N58 reopened; N105 added): Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4, `DecimateStats` + loud `Stage4ChainDecimateFailed`; `Surface::Sphere` non-decimation stated), operand-anchored conic merge vertex-index-free (`0`-operand-vertex closed circle retains `min_by_key` index rule as open debt on `R0021`), Stage-1/`sphere.rs` unbundled, `developable.rs` hardened with `Result` + red-first pin (`curved_holed_lateral_reentry`), `4.4-23`/`4.4-28` updated (`stage5_topology.rs:1037`), class-(b) elision ledgered as N105 | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 524.8 s, 0 moved) | 3d98d89b, 41d3e61a |
+| 2026-10-31 | F2 Step 2 (Antigravity; reworked after independent review): Fig. 11(a) split inside `update_patches_ex` by patch CDT; the `(3d)` unzip deleted and its local arms (first moved into the update for every refusal) narrowed to the N106 d(T)-budget refusal — any other declined component STOPs loudly into §4.5.2; hole-first patch chart fixed; `4.4-12` DEVIATES → PARTIAL (first committed as FAITHFUL; trigger still a collapsed triangle); N106 ledgered (the d(T) refusal is not the paper's) | 65 | 133 | 360C / 0W / 9E / 5EE / 0T (O1+O3 in force, no case moved — see commit) | (this commit) |

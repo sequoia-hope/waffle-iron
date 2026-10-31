@@ -508,17 +508,29 @@ pub(crate) fn patch_from_cycles_shifted(
         }
         loops.push(idx);
     }
-    // Shoelace on the OUTER loop, in chart coordinates.
+    // The OUTER loop is the one enclosing the others — the largest |area| in
+    // chart coordinates — whatever order the patch's cycles arrived in. (A
+    // hole first made the CDT carve the whole region away as "inside the
+    // hole" and return nothing.) Ties keep the earlier loop.
+    let shoelace = |l: &[u32]| -> f64 {
+        l.iter()
+            .enumerate()
+            .map(|(i, &a)| {
+                let b = l[(i + 1) % l.len()];
+                let (pa, pb) = (p2[a as usize], p2[b as usize]);
+                pa.x() * pb.y() - pb.x() * pa.y()
+            })
+            .sum()
+    };
+    let mut outer_at = 0usize;
+    for (k, l) in loops.iter().enumerate().skip(1) {
+        if shoelace(l).abs() > shoelace(&loops[outer_at]).abs() {
+            outer_at = k;
+        }
+    }
+    loops.swap(0, outer_at);
     let outer = &mut loops[0];
-    let area2: f64 = outer
-        .iter()
-        .enumerate()
-        .map(|(i, &a)| {
-            let b = outer[(i + 1) % outer.len()];
-            let (pa, pb) = (p2[a as usize], p2[b as usize]);
-            pa.x() * pb.y() - pb.x() * pa.y()
-        })
-        .sum();
+    let area2: f64 = shoelace(outer);
     if area2 == 0.0 || !area2.is_finite() {
         return None;
     }
@@ -1058,6 +1070,49 @@ mod patch_extraction_tests {
                 assert!((got[k] - want[k]).abs() < 1e-12, "{got:?} vs {want:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_enclosing_loop_is_the_outer_whatever_its_cycle_order() {
+        // A 4×4 square with a unit-square hole; the HOLE arrives first (the
+        // relocated yr10 cap's order). The enclosing loop must become the
+        // boundary, the hole a hole, and the CDT then tiles the annulus.
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(4.0, 4.0, 0.0),
+            Point3::new(0.0, 4.0, 0.0),
+            Point3::new(1.5, 1.5, 0.0),
+            Point3::new(1.5, 2.5, 0.0),
+            Point3::new(2.5, 2.5, 0.0),
+            Point3::new(2.5, 1.5, 0.0),
+        ];
+        let cycles = [vec![4u32, 5, 6, 7], vec![0u32, 1, 2, 3]];
+        let (patch, back) = patch_from_cycles(&xy_plane(), &verts, &cycles).unwrap();
+        let outer: Vec<u32> = patch.boundary.iter().map(|&i| back[i as usize]).collect();
+        let mut sorted = outer.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, vec![0, 1, 2, 3], "the 4×4 square is the outer loop");
+        assert_eq!(patch.holes.len(), 1);
+        let tris = cherchi_rs::cdt_with_interior_constraints(
+            &patch.verts,
+            &patch.boundary,
+            &patch.holes,
+            &[],
+            &[],
+        )
+        .expect("the annulus triangulates");
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                let [a, b, c] = t.map(|i| patch.verts[i as usize]);
+                0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y())).abs()
+            })
+            .sum();
+        assert!(
+            (area - 15.0).abs() < 1e-12,
+            "annulus area 16 − 1, got {area}"
+        );
     }
 
     #[test]

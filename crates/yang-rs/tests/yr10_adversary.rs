@@ -477,23 +477,31 @@ fn adv2_cap_tiling_signed_area_matches_analytic_region() {
         let cap = cap_triangles_2d(mesh, cap_z);
         let pos = cap.iter().filter(|t| signed_2x_area(t) > 0.0).count();
         let neg = cap.iter().filter(|t| signed_2x_area(t) < 0.0).count();
-        assert!(
-            pos > 0 && neg > 0,
-            "adv2: cap z={cap_z} expected BOTH winding signs (bulk + the minority slivers the \
-             removed gate hit); got pos={pos} neg={neg} — nothing to audit otherwise"
-        );
-
         // Net signed area of the tiling (0.5·Σ signed 2×area).
         let signed_area: f64 = cap.iter().map(|t| 0.5 * signed_2x_area(t)).sum();
-        // Absolute area sum — exceeds |signed| exactly by 2× the minority area,
-        // confirming the opposite-wound slivers are real (non-vacuous audit).
+        // Absolute area sum — exceeds |signed| exactly by 2× the minority area.
         let abs_area: f64 = cap.iter().map(|t| 0.5 * signed_2x_area(t).abs()).sum();
-        assert!(
-            abs_area > signed_area.abs() + 1e-6,
-            "adv2: cap z={cap_z} absolute area sum {abs_area} does not exceed |signed| \
-             {} — expected opposite-wound minority slivers to be present",
-            signed_area.abs()
-        );
+        if pos > 0 && neg > 0 {
+            // Minority slivers present: they must be genuinely opposite-wound
+            // (the audit below is then non-vacuous).
+            assert!(
+                abs_area > signed_area.abs() + 1e-6,
+                "adv2: cap z={cap_z} absolute area sum {abs_area} does not exceed |signed| \
+                 {} — expected opposite-wound minority slivers to be present",
+                signed_area.abs()
+            );
+        } else {
+            // Since the §4.4.1 update charts a patch's OUTER loop by area (F2,
+            // 2026-10-31) the relocated cap — hole loop listed first — is
+            // rebuilt by CDT instead of refused, and carries no minority
+            // slivers at all (3 of 20 before): one winding sign, so the tiling
+            // cannot fold — absolute and signed areas agree.
+            assert!(
+                (abs_area - signed_area.abs()).abs() <= 1e-12,
+                "adv2: cap z={cap_z} single-sign tiling must have |signed| = absolute area \
+                 (pos={pos} neg={neg})"
+            );
+        }
 
         // EXACT analytic region = unit square (area 1) minus the relocated ring
         // polygon, computed INDEPENDENTLY from the ring vertices.

@@ -318,7 +318,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 1.180e-12 m, rel 7.910e-15, solids 1 at (9.438910e1, 3.740416e1, -1.017195e2); mesh_on_surface: plane rel 2.366e-16, chord ratio 8.700e-1 at (-4.098751e1, 2.049794e1, -4.337741e1), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 1 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 1.180e-12 m, rel 7.910e-15, solids 1 at (9.438910e1, 3.740416e1, -1.017195e2); mesh_on_surface: plane rel 2.861e-16, chord ratio 8.700e-1 at (-4.098751e1, 2.049794e1, -4.337741e1), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 2 checked, 1 not covered, 0 violation(s)",
       "id": "R0053",
       "status": "pass"
     },
@@ -354,7 +354,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 7.105e-14 m, rel 1.868e-16, solids 1 at (-2.792848e2, 3.031643e2, -2.274292e0); mesh_on_surface: plane rel 1.962e-16, chord ratio 8.700e-1 at (-2.284861e2, 1.356401e2, 1.247514e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 8.527e-14 m, rel 2.242e-16, solids 1 at (-3.626340e2, 2.615983e2, -7.890183e1); mesh_on_surface: plane rel 2.242e-16, chord ratio 8.700e-1 at (-3.025959e2, 2.324037e2, 1.461487e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 2 not covered, 0 violation(s)",
       "id": "R0059",
       "status": "pass"
     },
@@ -594,7 +594,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 2.220e-15 m, rel 2.043e-16, solids 1 at (-1.971248e0, -3.283739e0, 6.467136e0); mesh_on_surface: plane rel 2.043e-16, chord ratio 8.700e-1 at (-9.474628e-1, -8.039478e0, 7.614812e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 1 violation(s) [op 2: expected decrease, 2.903768e1 -> 2.903768e1]",
+      "detail": "all checks passed; on_surface: max 2.220e-15 m, rel 2.043e-16, solids 1 at (-1.971248e0, -3.283739e0, 6.467136e0); mesh_on_surface: plane rel 2.043e-16, chord ratio 8.700e-1 at (1.383037e0, -5.521400e0, 8.525331e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 1 violation(s) [op 2: expected decrease, 2.903768e1 -> 2.903768e1]",
       "id": "R0099",
       "status": "pass"
     },
@@ -1020,7 +1020,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (2.781926e-1, -1.406893e-1, 1.010003e0); mesh_on_surface: plane rel 4.441e-16, chord ratio 8.700e-1 at (1.637748e-1, -1.616545e-1, 9.296152e-1), solids 1; exact_vs_mesh: exact 5.686380659e-1 mesh 5.685019044e-1 rel -2.395e-4 bound_ratio 1.443e-3; monotonicity: 15 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 5.551e-17 m, rel 5.551e-17, solids 1 at (-2.031770e-1, 2.364397e-1, 1.220165e0); mesh_on_surface: plane rel 4.441e-16, chord ratio 8.700e-1 at (2.837769e-1, -1.283987e-1, 1.150111e0), solids 1; exact_vs_mesh: exact 5.686380659e-1 mesh 5.685019044e-1 rel -2.395e-4 bound_ratio 1.443e-3; monotonicity: 15 checked, 0 not covered, 0 violation(s)",
       "id": "F0070",
       "status": "pass"
     },
@@ -1098,13 +1098,13 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 7.182e-16 m, rel 7.182e-16, solids 1 at (1.503148e-2, 7.774561e-2, 3.252295e-1); mesh_on_surface: plane rel 7.182e-16, chord ratio 8.700e-1 at (6.964650e-2, -2.089495e-3, 2.830834e-1), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 15 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 6.887e-16 m, rel 6.887e-16, solids 1 at (-6.874624e-2, 1.774497e-2, 3.209145e-1); mesh_on_surface: plane rel 6.904e-16, chord ratio 8.700e-1 at (6.964650e-2, -2.089495e-3, 2.830834e-1), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 15 checked, 0 not covered, 0 violation(s)",
       "id": "F0083",
       "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 2.883e-15 m, rel 2.883e-15, solids 1 at (1.205082e-1, -9.141375e-2, 2.821382e0); mesh_on_surface: plane rel 2.862e-15, chord ratio 8.700e-1 at (-4.254370e-2, -6.117357e-2, 2.620408e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 3.003e-15 m, rel 3.003e-15, solids 1 at (1.205082e-1, -9.141375e-2, 2.821382e0); mesh_on_surface: plane rel 2.985e-15, chord ratio 8.700e-1 at (-4.254370e-2, -6.117357e-2, 2.620408e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 20 checked, 0 not covered, 0 violation(s)",
       "id": "F0084",
       "status": "pass"
     },
@@ -1908,7 +1908,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 2.956e-12 m, rel 1.478e-16, solids 1 at (-1.535041e3, 4.240298e3, 1.786072e4); mesh_on_surface: plane rel 8.669e-17, chord ratio 8.700e-1 at (4.500000e3, -3.462515e1, 8.479507e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 2.956e-12 m, rel 1.478e-16, solids 1 at (-1.535041e3, 4.240298e3, 1.786072e4); mesh_on_surface: plane rel 8.669e-17, chord ratio 8.700e-1 at (4.500000e3, 2.207344e2, 9.194084e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
       "id": "P0006",
       "status": "pass"
     },
@@ -2112,7 +2112,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 6.253e-13 m, rel 1.157e-15, solids 1 at (-2.714990e2, -3.599939e2, 5.221060e2); mesh_on_surface: plane rel 0.000e0, chord ratio 8.700e-1 at (1.592692e2, -4.214107e2, 3.602524e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 6.253e-13 m, rel 1.157e-15, solids 1 at (-2.714990e2, -3.599939e2, 5.221060e2); mesh_on_surface: plane rel 0.000e0, chord ratio 8.700e-1 at (1.592692e2, -4.214107e2, 1.801262e2), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 0 checked, 0 not covered, 0 violation(s)",
       "id": "P0040",
       "status": "pass"
     },

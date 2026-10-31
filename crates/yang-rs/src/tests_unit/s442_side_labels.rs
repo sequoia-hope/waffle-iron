@@ -20,9 +20,7 @@ use crate::stage4_construct::{apply_rebuild_batch, PatchRebuild};
 use crate::stage4_correct::{
     collapse_subresolution_intersection_segments, collapse_subtauwork_mesh_edges, collapse_vertex,
     collapse_vertex_scoped, compute_phase_a, compute_phase_a_with_side_labels,
-    merge_same_plane_patches_with_side_labels, resolve_mutual_degenerate_pair,
-    resolve_simple_degenerate_split, resolve_synchronized_degenerate_split,
-    retriangulate_collapsed_fan_regions, MutualPair,
+    merge_same_plane_patches_with_side_labels, retriangulate_collapsed_fan_regions,
 };
 use crate::stage4_relocate::{
     check_watertight_2manifold, check_watertight_2manifold_per_operand, remove_doubled_membranes,
@@ -46,6 +44,82 @@ fn side_lbl(patch: u32, inside: [bool; 2], surface: [bool; 2]) -> TriangleSideLa
         surface,
         sheet_opposite: None,
     }
+}
+
+fn test_planes_brep(normals: &[[f64; 3]]) -> BRep {
+    let mut verts = Vec::with_capacity(normals.len() * 3);
+    let mut edges = Vec::with_capacity(normals.len() * 3);
+    let mut faces = Vec::with_capacity(normals.len());
+    for &n in normals {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let nu = [n[0] / len, n[1] / len, n[2] / len];
+        let axis = if nu[0].abs() < 0.9 {
+            [1.0, 0.0, 0.0]
+        } else {
+            [0.0, 1.0, 0.0]
+        };
+        let mut e1 = [
+            nu[1] * axis[2] - nu[2] * axis[1],
+            nu[2] * axis[0] - nu[0] * axis[2],
+            nu[0] * axis[1] - nu[1] * axis[0],
+        ];
+        let l1 = (e1[0] * e1[0] + e1[1] * e1[1] + e1[2] * e1[2]).sqrt();
+        e1 = [e1[0] / l1, e1[1] / l1, e1[2] / l1];
+        let e2 = [
+            nu[1] * e1[2] - nu[2] * e1[1],
+            nu[2] * e1[0] - nu[0] * e1[2],
+            nu[0] * e1[1] - nu[1] * e1[0],
+        ];
+        let v_base = verts.len() as u32;
+        verts.push(BRepVertex {
+            point: pt(0.0, 0.0, 0.0),
+        });
+        verts.push(BRepVertex {
+            point: pt(e1[0], e1[1], e1[2]),
+        });
+        verts.push(BRepVertex {
+            point: pt(e2[0], e2[1], e2[2]),
+        });
+        let e_base = edges.len() as u32;
+        edges.push(BRepEdge {
+            start: v_base,
+            end: v_base + 1,
+            curve: Curve::LineSegment,
+        });
+        edges.push(BRepEdge {
+            start: v_base + 1,
+            end: v_base + 2,
+            curve: Curve::LineSegment,
+        });
+        edges.push(BRepEdge {
+            start: v_base + 2,
+            end: v_base,
+            curve: Curve::LineSegment,
+        });
+        faces.push(BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(nu[0], nu[1], nu[2]),
+                d: 0.0,
+            },
+            outer_loop: vec![e_base, e_base + 1, e_base + 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        });
+    }
+    BRep::new(verts, edges, faces).expect("valid distinct-planes BRep")
+}
+
+fn tri_normal(verts: &[Point3], tri: [u32; 3]) -> [f64; 3] {
+    let a = verts[tri[0] as usize].as_array();
+    let b = verts[tri[1] as usize].as_array();
+    let c = verts[tri[2] as usize].as_array();
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ]
 }
 
 /// Pin 1: `TriangleSideLabel::from_arrangement` + `TriangleSideLabelMap::keep_set`
@@ -163,12 +237,27 @@ fn side_label_does_not_alter_triangle_attribution_flood_key() {
 }
 
 /// Pin 3 (Split mutators): side labels survive
-/// - `resolve_simple_degenerate_split` (§4.4.1(a) simple edge split),
-/// - `resolve_mutual_degenerate_pair` (§4.4.1(a) mutual-pair edge split), and
+/// - `update_patches_ex` declining a Fig. 11(a) component it cannot rebuild
+///   (a zero-area patch — simple and mutual-pair shapes), and
 /// - `split_pinch_vertices` (in-place vertex-index split).
 #[test]
 fn side_labels_survive_splits() {
-    // (a) Simple §4.4.1(a) degenerate-triangle edge split:
+    let plane_normals = [
+        [0.0, 0.0, 1.0],
+        [0.0, 1.0, 1.0],
+        [1.0, 0.0, 1.0],
+        [0.0, -1.0, 1.0],
+        [-1.0, 0.0, 1.0],
+        [1.0, 1.0, 1.0],
+        [-1.0, 1.0, 1.0],
+        [1.0, -1.0, 1.0],
+        [-1.0, -1.0, 1.0],
+        [0.0, 0.0, -1.0],
+    ];
+    let brep_a = test_planes_brep(&plane_normals);
+    let brep_b = test_planes_brep(&plane_normals);
+
+    // (a) Simple §4.4.1 Fig. 11(a) boundary-edge split inside `update_patches_ex`:
     // Degenerate tri `d_idx = 1` ([0, 2, 1], with 1 on segment 0..2) sits BEFORE
     // neighbour `n_idx = 2` ([2, 0, 3]) and between two bystanders `0` and `3`.
     let lbl_bystander_0 = side_lbl(100, [false, false], [true, false]);
@@ -192,25 +281,42 @@ fn side_labels_survive_splits() {
             [1, 2, 5], // 3: bystander after n_idx
         ],
     );
-    let mut attr_vec = vec![
-        attr(InputId::A, 0),
-        attr(InputId::A, 1),
-        attr(InputId::B, 2),
-        attr(InputId::A, 3),
-    ];
-    let mut lbls = vec![lbl_bystander_0, lbl_degen, lbl_parent, lbl_bystander_3];
+    let mut attr_map = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 0),
+            attr(InputId::A, 1),
+            attr(InputId::B, 2),
+            attr(InputId::A, 3),
+        ],
+    };
+    let mut lbl_map = TriangleSideLabelMap {
+        labels: vec![lbl_bystander_0, lbl_degen, lbl_parent, lbl_bystander_3],
+    };
 
-    resolve_simple_degenerate_split(&mut mesh, &mut attr_vec, &mut lbls, 1, 2, (0, 2, 1));
-    assert_eq!(mesh.tris.len(), 4);
-    assert_eq!(attr_vec.len(), 4);
-    assert_eq!(lbls.len(), 4);
+    let applied_a = crate::stage4_construct::update_patches_ex(
+        &mut mesh,
+        &mut attr_map,
+        &mut lbl_map,
+        &brep_a,
+        &brep_b,
+        false,
+        &HashSet::from([1u32]),
+        None,
+    );
+    // The degenerate triangle is a zero-area single-triangle patch (A face 1):
+    // no CDT exists for it and there is no local repair arm, so the coupled
+    // component is declined atomically — every slot keeps its triangle and its
+    // label, and the degenerate triangle is left for the loud STOP.
+    assert_eq!(applied_a, 0);
+    assert_eq!(mesh.tris, vec![[0, 1, 4], [0, 2, 1], [2, 0, 3], [1, 2, 5]]);
+    assert_eq!(attr_map.attributions.len(), 4);
     assert_eq!(
-        lbls,
-        vec![lbl_bystander_0, lbl_bystander_3, lbl_parent, lbl_parent],
-        "bystanders keep their labels; both split halves inherit n_idx's label (never d_idx's)"
+        lbl_map.labels,
+        vec![lbl_bystander_0, lbl_degen, lbl_parent, lbl_bystander_3],
+        "a declined component keeps every label in its slot"
     );
 
-    // (b) Mutual degenerate pair (§4.4.1(a) §5c.11):
+    // (b) Mutual degenerate pair via §4.4.1 Fig. 11(a) inside `update_patches_ex`:
     // Zero-area quad {t1=1, t2=2} over (a=0, c=3) with bl=1, bh=2, outer
     // neighbours nl=3 (across (bl, c) = (1, 3)) and nh=4 (across (a, bh) = (0, 2)),
     // plus bystander 0 at the front.
@@ -227,38 +333,44 @@ fn side_labels_survive_splits() {
             pt(-1.0, 0.0, 1.0), // 6: bystander
         ],
         vec![
-            [0, 1, 6], // 0: bystander
-            [0, 3, 2], // 1: t1 (degen)
-            [3, 0, 1], // 2: t2 (degen)
+            [4, 5, 6], // 0: disjoint bystander (touches no B edge)
+            [3, 1, 0], // 1: t1 (degen, shares (3, 1) opposite nl's (1, 3))
+            [2, 3, 0], // 2: t2 (degen, shares (0, 2) opposite nh's (2, 0))
             [1, 3, 4], // 3: nl (shares (bl=1, c=3))
             [2, 0, 5], // 4: nh (shares (a=0, bh=2))
         ],
     );
-    let mut m_attr = vec![
-        attr(InputId::A, 0),
-        attr(InputId::A, 9),
-        attr(InputId::B, 9),
-        attr(InputId::A, 1),
-        attr(InputId::B, 2),
-    ];
-    let mut m_lbls = vec![lbl_bystander_0, lbl_degen, lbl_degen, lbl_nl, lbl_nh];
-    let pair = MutualPair {
-        t1: 1,
-        t2: 2,
-        nl: 3,
-        nh: 4,
-        a: 0,
-        c: 3,
-        bl: 1,
-        bh: 2,
+    let mut m_attr = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 0),
+            attr(InputId::A, 8),
+            attr(InputId::B, 8),
+            attr(InputId::A, 2),
+            attr(InputId::B, 3),
+        ],
     };
-    resolve_mutual_degenerate_pair(&mut m_mesh, &mut m_attr, &mut m_lbls, &pair);
+    let mut m_lbls = TriangleSideLabelMap {
+        labels: vec![lbl_bystander_0, lbl_degen, lbl_degen, lbl_nl, lbl_nh],
+    };
+    let applied_b = crate::stage4_construct::update_patches_ex(
+        &mut m_mesh,
+        &mut m_attr,
+        &mut m_lbls,
+        &brep_a,
+        &brep_b,
+        false,
+        &HashSet::from([1u32, 2u32]),
+        None,
+    );
+    // Same for the mutual pair: both degenerate triangles are zero-area
+    // patches — declined, every slot and label in place.
+    assert_eq!(applied_b, 0);
     assert_eq!(m_mesh.tris.len(), 5);
-    assert_eq!(m_attr.len(), 5);
+    assert_eq!(m_attr.attributions.len(), 5);
     assert_eq!(
-        m_lbls,
-        vec![lbl_bystander_0, lbl_nl, lbl_nl, lbl_nh, lbl_nh],
-        "nl's two split children inherit lbl_nl; nh's two split children inherit lbl_nh"
+        m_lbls.labels,
+        vec![lbl_bystander_0, lbl_degen, lbl_degen, lbl_nl, lbl_nh],
+        "a declined mutual pair keeps every label in its slot"
     );
 
     // (c) `split_pinch_vertices`: rewrites vertex indices in place while keeping
@@ -1131,41 +1243,13 @@ fn scoped_collapse_and_membrane_removal_preserve_cross_operand_coplanar_sheets()
     );
 }
 
-/// Pin 11 (I3a): `resolve_synchronized_degenerate_split` unzips a 4-triangle
-/// full-arrangement A×B seam edge `(a, c)` across BOTH operands atomically,
-/// keeping both operand shells closed 2-manifolds AND keeping every post-keep
-/// Boolean result (`Union`, `Intersect`, `Subtract`) watertight.
+/// Pin 11 (I3a / F2): `update_patches_ex` (`full_arrangement = true`) splits a
+/// 4-triangle full-arrangement A×B seam edge `(a, c)` across BOTH operands
+/// atomically via §4.4.1 Fig. 11(a), keeping both operand shells closed
+/// 2-manifolds AND keeping every post-keep Boolean result (`Union`, `Intersect`,
+/// `Subtract`) watertight.
 #[test]
 fn synchronized_four_triangle_degenerate_split_keeps_both_operands_conformal() {
-    // Operand A: closed surface over shared edge (0, 2) with collinear midpoint 1:
-    //   d_idx = [0, 2, 1] (lbl_a_out, degenerate),
-    //   a_ab  = [0, 1, 3] (lbl_a_out),
-    //   a_bc  = [1, 2, 3] (lbl_a_out),
-    //   a_top1= [3, 1, 4] ... wait: build exact closed shells!
-    // Closed shell A (5 verts {0,1,2,3,4}):
-    //   top (lbl_a_out): [0, 1, 3], [1, 2, 3], [0, 2, 1] (boundary 0->2, 2->3, 3->0)
-    //   bottom (lbl_a_in): [2, 0, 4], [3, 2, 4], [0, 3, 4] (boundary 2->0, 0->3, 3->2)
-    // Check A half-edges:
-    //   (0,1)/(1,0) paired between [0,1,3] and [0,2,1];
-    //   (1,2)/(2,1) paired between [1,2,3] and [0,2,1];
-    //   (0,2)/(2,0) paired between [0,2,1] and [2,0,4];
-    //   (1,3)/(3,1) paired between [0,1,3] and [1,2,3];
-    //   (2,3)/(3,2) paired between [1,2,3] and [3,2,4];
-    //   (3,0)/(0,3) paired between [0,1,3] and [0,3,4];
-    //   (0,4)/(4,0), (2,4)/(4,2), (3,4)/(4,3) paired in bottom!
-    // Closed shell B (4 verts {0,2,5,6}, tetrahedron sharing edge (0, 2)):
-    //   o1 (lbl_b_in_a):  [0, 2, 5] (inside A -> boundary 0->2)
-    //   o2 (lbl_b_out_a): [2, 0, 6] (outside A -> boundary 2->0)
-    //   b3 (lbl_b_out_a): [2, 5, 6] ... wait: close o1 and o2 cleanly!
-    // Let B be a bipyramid over triangle (0, 2, 7) with apexes 5 (inside A) and 6 (outside A):
-    //   inside A (lbl_b_in):   [0, 2, 5], [2, 7, 5], [7, 0, 5]  (boundary 0->2->7->0)
-    //   outside A (lbl_b_out): [2, 0, 6], [0, 7, 6], [7, 2, 6]  (boundary 0<-2<-7<-0)
-    // Wait: then A's boundary between A_out and A_in should ALSO be 0->2->7->0 so A and B
-    // intersect along the closed triangle loop (0, 2, 7)!
-    // Let's check! Closed bipyramid A over loop (0, 2, 7) with apex 3 (outside B) and 4 (inside B),
-    // with vertex 1 subdivided on edge (0, 2) of A_out:
-    //   A_out (lbl_a_out = [F, F]): [0, 2, 1] (degen!), [0, 1, 3], [1, 2, 3], [2, 7, 3], [7, 0, 3]
-    //   A_in  (lbl_a_in  = [F, T]): [2, 0, 4], [0, 7, 4], [7, 2, 4]
     let verts = vec![
         pt(0.0, 0.0, 0.0),  // 0: a
         pt(0.5, 0.0, 0.0),  // 1: b (collinear midpoint on 0..2)
@@ -1182,58 +1266,83 @@ fn synchronized_four_triangle_degenerate_split_keeps_both_operands_conformal() {
     let lbl_b_out = side_lbl(21, [false, false], [false, true]);
 
     let tris = vec![
-        [0, 2, 1], // 0: d_idx (A_out, degenerate)
-        [0, 1, 3], // 1: A_out
-        [1, 2, 3], // 2: A_out
-        [2, 7, 3], // 3: A_out
-        [7, 0, 3], // 4: A_out
-        [2, 0, 4], // 5: n_same (A_in)
-        [0, 7, 4], // 6: A_in
-        [7, 2, 4], // 7: A_in
-        [0, 2, 5], // 8: o1 (B_in)
-        [2, 7, 5], // 9: B_in
-        [7, 0, 5], // 10: B_in
-        [2, 0, 6], // 11: o2 (B_out)
-        [0, 7, 6], // 12: B_out
-        [7, 2, 6], // 13: B_out
+        [0, 2, 1], // 0: d_idx (A_out, degenerate on facet (0, 2, 3))
+        [0, 1, 3], // 1: A_out facet 0
+        [1, 2, 3], // 2: A_out facet 0
+        [2, 7, 3], // 3: A_out facet 1
+        [7, 0, 3], // 4: A_out facet 2
+        [2, 0, 4], // 5: n_same (A_in facet 3)
+        [0, 7, 4], // 6: A_in facet 4
+        [7, 2, 4], // 7: A_in facet 5
+        [0, 2, 5], // 8: o1 (B_in facet 0)
+        [2, 7, 5], // 9: B_in facet 1
+        [7, 0, 5], // 10: B_in facet 2
+        [2, 0, 6], // 11: o2 (B_out facet 3)
+        [0, 7, 6], // 12: B_out facet 4
+        [7, 2, 6], // 13: B_out facet 5
     ];
-    let mut attr_vec: Vec<Option<TriangleAttribution>> = (0..14)
-        .map(|i| {
-            if i < 8 {
-                attr(InputId::A, 0)
-            } else {
-                attr(InputId::B, 0)
-            }
-        })
-        .collect();
-    let mut lbl_vec = vec![
-        lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_in, lbl_a_in, lbl_a_in,
-        lbl_b_in, lbl_b_in, lbl_b_in, lbl_b_out, lbl_b_out, lbl_b_out,
-    ];
+    let brep_a = test_planes_brep(&[
+        tri_normal(&verts, [0, 2, 3]),
+        tri_normal(&verts, [2, 7, 3]),
+        tri_normal(&verts, [7, 0, 3]),
+        tri_normal(&verts, [2, 0, 4]),
+        tri_normal(&verts, [0, 7, 4]),
+        tri_normal(&verts, [7, 2, 4]),
+    ]);
+    let brep_b = test_planes_brep(&[
+        tri_normal(&verts, [0, 2, 5]),
+        tri_normal(&verts, [2, 7, 5]),
+        tri_normal(&verts, [7, 0, 5]),
+        tri_normal(&verts, [2, 0, 6]),
+        tri_normal(&verts, [0, 7, 6]),
+        tri_normal(&verts, [7, 2, 6]),
+    ]);
+    let mut attr_map = TriangleAttributionMap {
+        attributions: vec![
+            attr(InputId::A, 0),
+            attr(InputId::A, 0),
+            attr(InputId::A, 0),
+            attr(InputId::A, 1),
+            attr(InputId::A, 2),
+            attr(InputId::A, 3),
+            attr(InputId::A, 4),
+            attr(InputId::A, 5),
+            attr(InputId::B, 0),
+            attr(InputId::B, 1),
+            attr(InputId::B, 2),
+            attr(InputId::B, 3),
+            attr(InputId::B, 4),
+            attr(InputId::B, 5),
+        ],
+    };
+    let mut lbl_map = TriangleSideLabelMap {
+        labels: vec![
+            lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_out, lbl_a_in, lbl_a_in, lbl_a_in,
+            lbl_b_in, lbl_b_in, lbl_b_in, lbl_b_out, lbl_b_out, lbl_b_out,
+        ],
+    };
     let mut mesh = Mesh::new(verts, tris);
     let mut tv: BTreeSet<u32> = [0u32, 2u32].into_iter().collect();
 
-    assert!(resolve_synchronized_degenerate_split(
+    let applied = crate::stage4_construct::update_patches_ex(
         &mut mesh,
-        &mut attr_vec,
-        &mut lbl_vec,
-        0,
-        5,
-        [8, 11],
-        (0, 2, 1),
+        &mut attr_map,
+        &mut lbl_map,
+        &brep_a,
+        &brep_b,
+        true,
+        &HashSet::from([1u32]),
         Some(&mut tv),
-    ));
+    );
+    assert!(
+        applied >= 4,
+        "all four seam-sharing facet patches on (0, 2) must rebuild (applied={applied})"
+    );
     assert!(
         tv.contains(&1),
         "midpoint of tangential edge inherits tangential tag"
     );
 
-    let attr_map = TriangleAttributionMap {
-        attributions: attr_vec,
-    };
-    let lbl_map = TriangleSideLabelMap {
-        labels: lbl_vec.clone(),
-    };
     check_watertight_2manifold_per_operand(&mesh, &attr_map, &lbl_map, false)
         .expect("both operand shells must remain closed 2-manifolds after synchronized split");
 
@@ -1241,7 +1350,7 @@ fn synchronized_four_triangle_degenerate_split_keeps_both_operands_conformal() {
         let kept_tris: Vec<[u32; 3]> = mesh
             .tris
             .iter()
-            .zip(lbl_vec.iter())
+            .zip(lbl_map.labels.iter())
             .filter_map(|(&t, lbl)| {
                 if !lbl.keep_for_op_with_membrane(op).unwrap_or(false) {
                     return None;
