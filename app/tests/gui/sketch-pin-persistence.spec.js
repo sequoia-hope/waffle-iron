@@ -39,7 +39,14 @@ test('origin pin survives finish + re-edit and still locks the center', async ({
 	const cornerId = points[3].id;
 
 	// Persist + re-open.
-	await page.evaluate(() => window.__waffle.finishSketch());
+	const nFeatures = await page.evaluate(() => window.__waffle.getFeatureTree().features.length);
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.finishSketch());
+	await page.waitForFunction(
+		(n) => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) > n,
+		nFeatures,
+		{ timeout: 10000 }
+	);
 	await page.waitForTimeout(1000);
 	const featureId = await page.evaluate(() => {
 		const feats = window.__waffle.getFeatureTree()?.features ?? [];
@@ -93,7 +100,11 @@ test('origin pin survives finish + re-edit and still locks the center', async ({
 	expect(Math.hypot(corner.x - c0.x, corner.y - c0.y)).toBeGreaterThan(Math.abs(c0.x) * 0.3);
 
 	// Second round-trip must not duplicate or drop the pin.
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.sketchMode?.active === false,
+		{ timeout: 10000 }
+	);
 	await page.waitForTimeout(1000);
 	const storedPins2 = await page.evaluate((id) => {
 		const feats = window.__waffle.getFeatureTree()?.features ?? [];

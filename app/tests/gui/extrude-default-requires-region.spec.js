@@ -109,7 +109,8 @@ test('X-in-square default extrude is blocked and requires a region pick (no cras
 
 	// Open the dialog (bare default profileIndex 0) and apply WITHOUT picking.
 	await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
-	await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.01, 0, false, {}));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await waffle.page.evaluate(() => void window.__waffle.applyExtrude(0.01, 0, false, {}));
 
 	// The guard must refuse: no Extrude feature is added, no kernel crash.
 	await waffle.page.waitForTimeout(500);
@@ -127,7 +128,7 @@ test('X-in-square with auto-select ON pre-picks a real region that extrudes', as
 	await waffle.page.waitForFunction(() => window.__waffle.getExtrudeRegions().length === 1, undefined, { timeout: 10000 });
 	const region = (await waffle.page.evaluate(() => window.__waffle.getExtrudeRegions()))[0];
 	expect(region.region, 'auto-selected entry carries engine region geometry').toBeTruthy();
-	await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.01, 0, false, {}));
+	await waffle.page.evaluate(() => void window.__waffle.applyExtrude(0.01, 0, false, {}));
 	await waffle.page.waitForFunction(
 		() => (window.__waffle.getFeatureTree()?.features ?? []).some((f) => f.operation?.type === 'Extrude'),
 		undefined,
@@ -141,7 +142,7 @@ test('plain rectangle default extrude still works (single region auto-resolves)'
 	await load(waffle, PLAIN_RECT);
 
 	await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
-	await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.01, 0, false, {}));
+	await waffle.page.evaluate(() => void window.__waffle.applyExtrude(0.01, 0, false, {}));
 
 	await waffle.page.waitForFunction(
 		() => (window.__waffle.getFeatureTree()?.features ?? []).some((f) => f.operation?.type === 'Extrude'),

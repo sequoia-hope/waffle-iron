@@ -23,7 +23,8 @@ import {
  */
 async function createTwoBodies(page) {
 	// Body 1: centered box
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -43,19 +44,19 @@ async function createTwoBodies(page) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 	await page.waitForTimeout(200);
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(30, 0, false));
 	await waitForFeatureCount(page, 2, 10000);
 	await waitForMeshWithGeometry(page);
 	await page.waitForTimeout(300);
 
 	// Body 2: offset box (overlaps body 1 in x=[0,20])
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -75,7 +76,7 @@ async function createTwoBodies(page) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 3, 10000);
 	await page.waitForTimeout(200);
 
@@ -84,7 +85,7 @@ async function createTwoBodies(page) {
 	// A genuine SECOND body: the legacy default would auto-merge this box into
 	// the first and consume it, leaving one live body (which the dialog now
 	// refuses to pair with, `specs/b4_balanced_union.md` §2.4).
-	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false, { combine: 'NewBody' }));
+	await page.evaluate(() => void window.__waffle.applyExtrude(30, 0, false, { combine: 'NewBody' }));
 	await waitForFeatureCount(page, 4, 15000);
 	await waitForMeshWithGeometry(page);
 	await page.waitForTimeout(300);

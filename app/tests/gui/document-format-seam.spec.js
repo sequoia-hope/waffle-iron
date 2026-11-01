@@ -165,12 +165,17 @@ rawTest.describe('Document format seam', () => {
 	test('direct-`/` editor save carries the live tree and the envelope fields', async ({ waffle }) => {
 		const page = waffle.page;
 		// Test SETUP via API (drawing interactions have their own specs).
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
 		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
 			window.__waffle.addSketchEntity({ id: 1, type: 'Point', x: 0, y: 0, construction: false });
 			window.__waffle.addSketchEntity({ id: 2, type: 'Point', x: 0.01, y: 0, construction: false });
 			window.__waffle.addSketchEntity({ id: 10, type: 'Line', start_id: 1, end_id: 2, construction: false });
-			window.__waffle.finishSketch();
+			void window.__waffle.finishSketch();
 		});
 		await page.waitForFunction(
 			() => window.__waffle.getFeatureTree().features.length === 1,

@@ -621,7 +621,8 @@ test.describe('extrude dialog state management', () => {
 		// Use the programmatic API to extrude
 		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await waffle.page.waitForTimeout(100);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(20, 0, false));
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(20, 0, false));
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);
@@ -639,7 +640,7 @@ test.describe('extrude dialog state management', () => {
 
 		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await waffle.page.waitForTimeout(100);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(20, 0, false, { flipDirection: true }));
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(20, 0, false, { flipDirection: true }));
 
 		try {
 			await waitForFeatureCount(waffle.page, 2, 10000);

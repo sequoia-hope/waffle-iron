@@ -82,7 +82,8 @@ test('clicking the inner disk selects the small analytic region → solid cylind
 	expect((picked.region?.holes ?? []).length).toBe(0);
 
 	// Extrude the selection (apply path verified end-to-end by the annulus test).
-	await waffle.page.evaluate((pi) => window.__waffle.applyExtrude(0.02, pi, false, {}), picked.profileIndex);
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await waffle.page.evaluate((pi) => void window.__waffle.applyExtrude(0.02, pi, false, {}), picked.profileIndex);
 	await waitForFeatureCount(waffle.page, 2, 10000);
 
 	const meshes = await waffle.page.evaluate(() => window.__waffle.getMeshes());

@@ -205,7 +205,8 @@ test.describe('context menu with geometry', () => {
 
 		await page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await page.waitForTimeout(100);
-		await page.evaluate(() => window.__waffle.applyExtrude(20, 0, false));
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await page.evaluate(() => void window.__waffle.applyExtrude(20, 0, false));
 		await waitForFeatureCount(page, 2, 10000);
 		await waitForMeshWithGeometry(page);
 		await page.waitForTimeout(300);

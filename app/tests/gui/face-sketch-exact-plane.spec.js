@@ -25,7 +25,8 @@ const DEPTH_MM = 61.3;
 
 /** The `createExtrudedBox` fixture at an f32-inexact depth. */
 async function createBox(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }

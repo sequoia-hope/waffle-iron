@@ -25,7 +25,8 @@ import {
  * Create a sketch with a rectangle via __waffle API (fast, deterministic).
  */
 async function createSketchWithRectangle(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -45,7 +46,7 @@ async function createSketchWithRectangle(page) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 	await page.waitForTimeout(200);
 }
@@ -57,8 +58,15 @@ async function applyExtrude(page, depth, opts = {}) {
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
 	await page.evaluate(
-		({ depth, opts }) => window.__waffle.applyExtrude(depth, 0, false, opts),
+		({ depth, opts }) => void window.__waffle.applyExtrude(depth, 0, false, opts),
 		{ depth, opts }
+	);
+	// Done either way: success closes the dialog, a refusal raises an error toast.
+	await page.waitForFunction(
+		() =>
+			window.__waffle?.getExtrudeDialogState() === null ||
+			(window.__waffle?.getToasts() ?? []).some((t) => t.level === 'error'),
+		{ timeout: 15000 }
 	);
 }
 
@@ -180,7 +188,7 @@ test.describe('WASM panic recovery', () => {
 		expect(meshesAfterBase.some(m => m.triangleCount > 0)).toBe(true);
 
 		// Step 3: Create a second sketch on the top face (z=10 plane)
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 10], [0, 0, 1]));
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 10], [0, 0, 1]));
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -201,7 +209,7 @@ test.describe('WASM panic recovery', () => {
 		});
 		await page.waitForTimeout(200);
 
-		await page.evaluate(() => window.__waffle.finishSketch());
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(page, 3, 10000);
 		await page.waitForTimeout(200);
 

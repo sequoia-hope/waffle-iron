@@ -79,7 +79,8 @@ test.describe('ring profile finish + extrude', () => {
 		);
 		if (profiles) expect(profiles.length).toBe(1);
 
-		await page.evaluate(() => window.__waffle.finishSketch());
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(page, 1, 10000);
 
 		// The persisted densified profile has no consecutive duplicate
@@ -143,7 +144,7 @@ test.describe('ring profile finish + extrude', () => {
 		await page.waitForTimeout(300);
 		expect((await getEntities(page)).filter((e) => e.type === 'Arc').length).toBe(4);
 
-		await page.evaluate(() => window.__waffle.finishSketch());
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(page, 1, 10000);
 
 		// Extruding ANY profile stages them all — this is what failed on the

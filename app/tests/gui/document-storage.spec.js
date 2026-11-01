@@ -11,9 +11,12 @@ test.describe('Document storage', () => {
 		// We need to work within the editor and trigger autosave
 
 		// Enter sketch mode on XY plane
-		await page.evaluate(() => {
-			window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		});
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
 		await page.waitForTimeout(500);
 
 		// Add a line entity to trigger model change
@@ -32,7 +35,7 @@ test.describe('Document storage', () => {
 		});
 
 		// Finish sketch to trigger model rebuild (which triggers autosave)
-		await page.evaluate(() => window.__waffle.finishSketch());
+		await page.evaluate(() => void window.__waffle.finishSketch());
 		await page.waitForTimeout(500);
 
 		// Wait for autosave debounce (3s) + buffer

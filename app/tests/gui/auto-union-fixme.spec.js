@@ -26,7 +26,8 @@ import {
  * Create a base box centered at origin, extruded along Z.
  */
 async function createBaseBox(page, size = 30, depth = 60) {
-	await page.evaluate(({ s }) => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]), { s: size });
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(({ s }) => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]), { s: size });
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -46,7 +47,7 @@ async function createBaseBox(page, size = 30, depth = 60) {
 	}, { s: size });
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1,
 		{ timeout: 10000 }
@@ -55,7 +56,7 @@ async function createBaseBox(page, size = 30, depth = 60) {
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(({ d }) => window.__waffle.applyExtrude(d, 0, false), { d: depth });
+	await page.evaluate(({ d }) => void window.__waffle.applyExtrude(d, 0, false), { d: depth });
 
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 2,
@@ -69,7 +70,7 @@ async function createBaseBox(page, size = 30, depth = 60) {
  * Create a boss sketch + extrude at the given origin/normal.
  */
 async function createBoss(page, origin, normal, size, depth, expectedFeaturesBefore) {
-	await page.evaluate(({ o, n }) => window.__waffle.enterSketch(o, n), { o: origin, n: normal });
+	await page.evaluate(({ o, n }) => void window.__waffle.enterSketch(o, n), { o: origin, n: normal });
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -90,13 +91,13 @@ async function createBoss(page, origin, normal, size, depth, expectedFeaturesBef
 	}, { s: size });
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, expectedFeaturesBefore + 1, 10000);
 	await page.waitForTimeout(200);
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(({ d }) => window.__waffle.applyExtrude(d, 0, false), { d: depth });
+	await page.evaluate(({ d }) => void window.__waffle.applyExtrude(d, 0, false), { d: depth });
 
 	await waitForFeatureCount(page, expectedFeaturesBefore + 2, 10000);
 	await waitForMeshWithGeometry(page);
@@ -139,7 +140,7 @@ test.describe('auto-union edge cases', () => {
 
 		// Boss on top face, shifted so left edge aligns with base left edge
 		// Base goes from -30 to +30. Boss from -30 to 0 (shares left edge).
-		await waffle.page.evaluate(() => window.__waffle.enterSketch([0, 0, 60], [0, 0, 1]));
+		await waffle.page.evaluate(() => void window.__waffle.enterSketch([0, 0, 60], [0, 0, 1]));
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -159,13 +160,13 @@ test.describe('auto-union edge cases', () => {
 		});
 		await waffle.page.waitForTimeout(200);
 
-		await waffle.page.evaluate(() => window.__waffle.finishSketch());
+		await waffle.page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(waffle.page, 3, 10000);
 		await waffle.page.waitForTimeout(200);
 
 		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await waffle.page.waitForTimeout(100);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(20, 0, false));
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(20, 0, false));
 		await waitForFeatureCount(waffle.page, 4, 10000);
 		await waitForMeshWithGeometry(waffle.page);
 		await waffle.page.waitForTimeout(300);
@@ -195,7 +196,7 @@ test.describe('auto-union edge cases', () => {
 		const boss1Triangles = afterBoss1.reduce((s, m) => s + m.triangleCount, 0);
 
 		// Boss 2: another small box on the side
-		await waffle.page.evaluate(() => window.__waffle.enterSketch([30, 0, 30], [1, 0, 0]));
+		await waffle.page.evaluate(() => void window.__waffle.enterSketch([30, 0, 30], [1, 0, 0]));
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -215,19 +216,19 @@ test.describe('auto-union edge cases', () => {
 		});
 		await waffle.page.waitForTimeout(200);
 
-		await waffle.page.evaluate(() => window.__waffle.finishSketch());
+		await waffle.page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(waffle.page, 5, 10000);
 		await waffle.page.waitForTimeout(200);
 
 		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await waffle.page.waitForTimeout(100);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(15, 0, false));
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(15, 0, false));
 		await waitForFeatureCount(waffle.page, 6, 10000);
 		await waitForMeshWithGeometry(waffle.page);
 		await waffle.page.waitForTimeout(300);
 
 		// Boss 3: yet another box on the other side
-		await waffle.page.evaluate(() => window.__waffle.enterSketch([-30, 0, 30], [-1, 0, 0]));
+		await waffle.page.evaluate(() => void window.__waffle.enterSketch([-30, 0, 30], [-1, 0, 0]));
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -247,13 +248,13 @@ test.describe('auto-union edge cases', () => {
 		});
 		await waffle.page.waitForTimeout(200);
 
-		await waffle.page.evaluate(() => window.__waffle.finishSketch());
+		await waffle.page.evaluate(() => void window.__waffle.finishSketch());
 		await waitForFeatureCount(waffle.page, 7, 10000);
 		await waffle.page.waitForTimeout(200);
 
 		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
 		await waffle.page.waitForTimeout(100);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(15, 0, false));
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(15, 0, false));
 		await waitForFeatureCount(waffle.page, 8, 10000);
 		await waitForMeshWithGeometry(waffle.page);
 		await waffle.page.waitForTimeout(300);

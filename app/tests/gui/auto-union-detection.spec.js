@@ -25,7 +25,8 @@ import {
  * Returns after mesh is verified.
  */
 async function createBaseBox(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -45,7 +46,7 @@ async function createBaseBox(page) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1,
 		{ timeout: 10000 }
@@ -54,7 +55,7 @@ async function createBaseBox(page) {
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(60, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(60, 0, false));
 
 	await page.waitForFunction(
 		() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 2,
@@ -71,7 +72,7 @@ async function createBaseBox(page) {
  */
 async function createBossOnTop(page, expectedFeaturesBefore) {
 	// Sketch on top face (z = 60 since base was extruded 60 units)
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 60], [0, 0, 1]));
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 60], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -91,14 +92,14 @@ async function createBossOnTop(page, expectedFeaturesBefore) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, expectedFeaturesBefore + 1, 10000);
 	await page.waitForTimeout(200);
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
 	// Extrude 30 units upward (merge=true, cut=false → auto-union)
-	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(30, 0, false));
 
 	await waitForFeatureCount(page, expectedFeaturesBefore + 2, 10000);
 	await waitForMeshWithGeometry(page);

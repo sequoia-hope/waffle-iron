@@ -59,7 +59,8 @@ test('rounded plate: face projects TRUE arcs; offset keeps a radius at every cor
 	// Rounded-square plate.
 	await clickSketch(page, 'front');
 	await addRoundedSquare(page);
-	await page.evaluate(() => window.__waffle.finishSketch());
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 	await clickExtrude(page);
 	const depth = page.locator('[data-testid="extrude-depth"]');
@@ -99,8 +100,12 @@ test('rounded plate: face projects TRUE arcs; offset keeps a radius at every cor
 	});
 	expect(cap).toBeTruthy();
 	await page.evaluate(
-		({ origin, normal }) => window.__waffle.enterSketch(origin, normal),
+		({ origin, normal }) => void window.__waffle.enterSketch(origin, normal),
 		{ origin: cap.plane.origin, normal: cap.plane.normal }
+	);
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.sketchMode?.active === true,
+		{ timeout: 5000 }
 	);
 	await page.waitForTimeout(300);
 	await page.evaluate((ref) => window.__waffle.projectFace(ref), cap.ref);

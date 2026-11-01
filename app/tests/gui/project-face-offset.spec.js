@@ -73,9 +73,14 @@ test('imported STEP face: curved boundary projects as one loop and offsets outwa
 	// Sketch on the cap and project the face (same projectFace the Proj
 	// button runs). The boundary is a curved rim — the old straight-only
 	// projectFace produced ZERO lines here.
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
 	await page.evaluate(
-		({ origin, normal }) => window.__waffle.enterSketch(origin, normal),
+		({ origin, normal }) => void window.__waffle.enterSketch(origin, normal),
 		{ origin: cap.plane.origin, normal: cap.plane.normal }
+	);
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.sketchMode?.active === true,
+		{ timeout: 5000 }
 	);
 	await page.waitForTimeout(300);
 	const linesMade = await page.evaluate((ref) => window.__waffle.projectFace(ref), cap.ref);

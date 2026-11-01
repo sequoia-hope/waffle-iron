@@ -34,17 +34,18 @@ async function cubePartAndAssembly(page) {
  * no analytic surface parameters, so its faces carry no axis (spec §2.2).
  */
 async function cylinderPartAndInstance(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(() => window.__waffle?.getState()?.sketchMode?.active === true, { timeout: 5000 });
 	await page.evaluate(() => {
 		const w = window.__waffle;
 		w.addSketchEntity({ type: 'Point', id: 1, x: 0, y: 0, construction: true });
 		w.addSketchEntity({ type: 'Circle', id: 2, center_id: 1, radius: 10, construction: false });
 	});
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await page.waitForFunction(() => (window.__waffle?.getFeatureTree()?.features?.length ?? 0) >= 1, { timeout: 10000 });
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
-	await page.evaluate(() => window.__waffle.applyExtrude(20, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(20, 0, false));
 	await page.waitForFunction(() => (window.__waffle?.getMeshes() ?? []).some((m) => m.triangleCount > 0), { timeout: 20000 });
 
 	const partTab = await page.evaluate(() => window.__waffle.getDocumentState().activeTabId);

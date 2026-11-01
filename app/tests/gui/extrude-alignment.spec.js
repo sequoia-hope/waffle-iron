@@ -26,14 +26,13 @@ import {
  */
 async function createPreciseRectangleSketch(page, { x1, y1, x2, y2 }) {
 	// Enter sketch mode on XY plane (normal=[0,0,1])
-	await page.evaluate(async () => {
-		await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		window.__waffle.setTool('select');
-	});
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
 	);
+	await page.evaluate(() => window.__waffle.setTool('select'));
 	await page.waitForTimeout(200);
 
 	// Add rectangle entities at precise sketch coordinates via API
@@ -54,7 +53,7 @@ async function createPreciseRectangleSketch(page, { x1, y1, x2, y2 }) {
 	await waitForEntityCount(page, 8, 3000);
 
 	// Finish sketch
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 }
 
@@ -71,9 +70,7 @@ test.describe('extrude alignment with sketch coordinate frame', () => {
 			() => window.__waffle?.getExtrudeDialogState() !== null,
 			{ timeout: 5000 }
 		);
-		await waffle.page.evaluate(async () => {
-			await window.__waffle.applyExtrude(10, 0, false);
-		});
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(10, 0, false));
 
 		// Wait for mesh generation
 		await waitForMeshWithGeometry(waffle.page, 15000);
@@ -118,9 +115,7 @@ test.describe('extrude alignment with sketch coordinate frame', () => {
 			() => window.__waffle?.getExtrudeDialogState() !== null,
 			{ timeout: 5000 }
 		);
-		await waffle.page.evaluate(async () => {
-			await window.__waffle.applyExtrude(5, 0, false);
-		});
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(5, 0, false));
 
 		await waitForMeshWithGeometry(waffle.page, 15000);
 
@@ -157,7 +152,7 @@ test.describe('extrude alignment with sketch coordinate frame', () => {
 			() => window.__waffle?.getExtrudeDialogState() !== null,
 			{ timeout: 5000 }
 		);
-		await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.002, 0, false));
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(0.002, 0, false));
 		await waitForMeshWithGeometry(waffle.page, 15000);
 
 		const bbox = await waffle.page.evaluate(() => window.__waffle.getMeshBoundingBox());
@@ -201,9 +196,7 @@ test.describe('extrude alignment with sketch coordinate frame', () => {
 			() => window.__waffle?.getExtrudeDialogState() !== null,
 			{ timeout: 5000 }
 		);
-		await waffle.page.evaluate(async () => {
-			await window.__waffle.applyExtrude(10, 0, false);
-		});
+		await waffle.page.evaluate(() => void window.__waffle.applyExtrude(10, 0, false));
 
 		await waitForMeshWithGeometry(waffle.page, 15000);
 

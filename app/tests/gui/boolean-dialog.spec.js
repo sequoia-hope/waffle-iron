@@ -24,7 +24,8 @@ import { clickTool } from './helpers/toolbar.js';
  * without needing a second body.
  */
 async function createOneBody(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -44,13 +45,13 @@ async function createOneBody(page) {
 	});
 	await page.waitForTimeout(200);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 	await page.waitForTimeout(200);
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(30, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(30, 0, false));
 	await waitForFeatureCount(page, 2, 10000);
 	await waitForMeshWithGeometry(page);
 	await page.waitForTimeout(300);

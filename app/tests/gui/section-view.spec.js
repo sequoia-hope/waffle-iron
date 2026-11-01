@@ -22,7 +22,8 @@ const FRONT_PLANE_ID = '00000000-0000-0000-0000-000000000001';
 
 /** Create a simple box solid: sketch a rectangle, extrude it. */
 async function createBox(page) {
-	await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 	await page.waitForFunction(
 		() => window.__waffle?.getState()?.sketchMode?.active === true,
 		{ timeout: 5000 }
@@ -42,13 +43,13 @@ async function createBox(page) {
 	});
 	await page.waitForTimeout(150);
 
-	await page.evaluate(() => window.__waffle.finishSketch());
+	await page.evaluate(() => void window.__waffle.finishSketch());
 	await waitForFeatureCount(page, 1, 10000);
 	await page.waitForTimeout(150);
 
 	await page.evaluate(() => window.__waffle.showExtrudeDialog());
 	await page.waitForTimeout(100);
-	await page.evaluate(() => window.__waffle.applyExtrude(0.04, 0, false));
+	await page.evaluate(() => void window.__waffle.applyExtrude(0.04, 0, false));
 	await waitForFeatureCount(page, 2, 10000);
 	await waitForMeshWithGeometry(page);
 }

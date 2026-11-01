@@ -114,7 +114,8 @@ test.describe('select other cycling', () => {
 		const page = waffle.page;
 
 		// Enter sketch mode via API
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
 		await page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }

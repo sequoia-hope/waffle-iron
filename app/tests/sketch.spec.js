@@ -16,10 +16,13 @@ async function waitForWaffle(page, timeout = 15000) {
  * We verify by checking that the sketch mode state is active and the canvas exists.
  */
 async function enterSketchAndWait(page, tool = 'line') {
-	await page.evaluate(async ({ tool }) => {
-		await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-		window.__waffle.setTool(tool);
-	}, { tool });
+	// Started, not awaited over the protocol (CDP "Promise was collected"); the wait is the sync.
+	await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.sketchMode?.active === true,
+		{ timeout: 5000 }
+	);
+	await page.evaluate((tool) => window.__waffle.setTool(tool), tool);
 
 	// Wait for Svelte reactivity to settle and DOM listeners to attach
 	await page.waitForFunction(
@@ -44,7 +47,11 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available (engine may not have loaded)');
 
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
 
 		const state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.sketchMode.active).toBe(true);
@@ -54,10 +61,12 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(async () => {
-			await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-			window.__waffle.setTool('line');
-		});
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
+		await page.evaluate(() => window.__waffle.setTool('line'));
 
 		const state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.activeTool).toBe('line');
@@ -126,10 +135,12 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(async () => {
-			await window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]);
-			window.__waffle.setTool('line');
-		});
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
+		await page.evaluate(() => window.__waffle.setTool('line'));
 
 		let state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.activeTool).toBe('line');
@@ -145,7 +156,11 @@ test.describe('sketch interaction', () => {
 		const ready = await waitForWaffle(page);
 		test.skip(!ready, '__waffle API not available');
 
-		await page.evaluate(() => window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.evaluate(() => void window.__waffle.enterSketch([0, 0, 0], [0, 0, 1]));
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true,
+			{ timeout: 5000 }
+		);
 
 		let state = await page.evaluate(() => window.__waffle.getState());
 		expect(state.sketchMode.active).toBe(true);
