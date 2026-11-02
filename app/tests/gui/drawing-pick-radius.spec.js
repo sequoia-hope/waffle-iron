@@ -104,23 +104,39 @@ async function probe(page, viewId) {
 	);
 	const ux = dx / len;
 	const uy = dy / len;
-	const at = (mm) => ({
-		x: anchor.x + ux * mm * points.pxPerMm,
-		y: anchor.y + uy * mm * points.pxPerMm
-	});
+	// The probes land on WHOLE pixels: WebKit truncates Playwright's
+	// fractional mouse coordinates (Chromium keeps them), and at the narrow
+	// zoom a pixel is a whole paper millimetre (0.995 px/mm at 900 px wide) —
+	// more than MARGIN_MM, so truncation carried the 1.4 mm probe past the
+	// 2 mm radius on some nights. So every browser gets whole pixels chosen
+	// here: of the four around the exact point, the one nearest `mm` among
+	// those at least MARGIN_MM / 2 clear of the radius on the probe's own side
+	// (`side` −1 inside, +1 outside). At a coarse zoom that pixel is further
+	// from the radius than `mm`, never on the wrong side of it.
+	const paperMm = (p) => Math.hypot(p.x - anchor.x, p.y - anchor.y) / points.pxPerMm;
+	const at = (mm, side) => {
+		const x = anchor.x + ux * mm * points.pxPerMm;
+		const y = anchor.y + uy * mm * points.pxPerMm;
+		const clear = [Math.floor(x), Math.ceil(x)]
+			.flatMap((px) => [Math.floor(y), Math.ceil(y)].map((py) => ({ x: px, y: py })))
+			.filter((p) => side * (paperMm(p) - RADIUS_MM) >= MARGIN_MM / 2)
+			.sort((p, q) => Math.abs(paperMm(p) - mm) - Math.abs(paperMm(q) - mm));
+		expect(clear.length, `a whole pixel near ${mm} mm is clear of the radius`).toBeGreaterThan(0);
+		return clear[0];
+	};
 
 	// Three moves, each a transition from the state before it, so each wait is
 	// an assertion rather than a sample. On the anchor first: it establishes a
 	// known hover AND proves the anchor is reachable at all, which is what
 	// makes the two probes after it mean what they say.
-	await page.mouse.move(anchor.x, anchor.y);
+	await page.mouse.move(Math.round(anchor.x), Math.round(anchor.y));
 	await waitForHover(page, anchor.pid, 'on the anchor');
 
-	const outside = at(RADIUS_MM + MARGIN_MM);
+	const outside = at(RADIUS_MM + MARGIN_MM, +1);
 	await page.mouse.move(outside.x, outside.y);
 	await waitForHover(page, null, `${RADIUS_MM + MARGIN_MM} mm of paper away`);
 
-	const inside = at(RADIUS_MM - MARGIN_MM);
+	const inside = at(RADIUS_MM - MARGIN_MM, -1);
 	await page.mouse.move(inside.x, inside.y);
 	await waitForHover(page, anchor.pid, `${RADIUS_MM - MARGIN_MM} mm of paper away`);
 
