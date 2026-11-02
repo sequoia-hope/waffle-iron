@@ -147,6 +147,13 @@ fix to a red main and for mechanism-free changes, and every use is logged.
   `/@vite/client` through a bare `import(expr)`): Playwright's Firefox
   driver asserts on it and closes the page — see the `importModule` note
   in `app/src/lib/engine/worker.js`.
+- **Never call `getScreenCTM()` on a NESTED `<svg>`.** Firefox answers the
+  parent's matrix, without the element's own `x`/`y`/`viewBox`, so the
+  drawing sheet hit-tested every view as if it sat at the sheet's corner
+  (real Firefox bug, 2026-11-02). Use `viewScreenCTM()`
+  (`app/src/lib/drawings/viewCtm.js`) in the app, or the CTM of a
+  transform-free child (`VIEW_USER_SPACE` in `tests/gui/helpers/drawing.js`)
+  in a spec.
 - **An agent tool that changes the feature tree must be listed in
   `wasm_bridge::tools::mutates`**, or its answer carries no model and the
   page shows stale state until an unrelated update arrives (material tools,
