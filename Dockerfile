@@ -84,9 +84,12 @@ RUN curl -fsSL https://claude.ai/install.sh | bash
 RUN curl -fsSL https://opencode.ai/install | bash
 
 # Install Playwright browsers + system dependencies (for GUI tests including mobile)
-# install-deps needs root for apt-get; install downloads to user cache
-RUN sudo npx playwright install-deps chromium \
-    && npx playwright install chromium
+# install-deps needs root for apt-get; install downloads to user cache.
+# Firefox + WebKit run the cross-browser tier locally
+# (`PW_CROSS_BROWSER=1 npx playwright test --project=webkit`), the same
+# browsers the nightly "GUI cross-browser" workflow uses.
+RUN sudo npx playwright install-deps chromium firefox webkit \
+    && npx playwright install chromium firefox webkit
 
 # Create workspace directory
 RUN mkdir -p /home/$USERNAME/workspace
