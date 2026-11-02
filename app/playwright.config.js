@@ -70,11 +70,24 @@ export default defineConfig({
 		// installed; CI's allow-fail `gui-fast-cross-browser` job sets it. The
 		// top-level launchOptions are Chromium/ANGLE flags, so both projects
 		// clear them.
+		//
+		// Firefox needs its own route to software WebGL, as Chromium gets one
+		// from SwiftShader above: on a GPU-less runner its blocklist refuses
+		// the context ("AllowWebgl2:false restricts context creation on this
+		// system"), Canvas.svelte throws, the engine never reports ready, and
+		// every spec times out in the fixture — 193 of 506 every night from
+		// 2026-10-29. `webgl.force-enabled` overrides the blocklist.
 		...(process.env.PW_CROSS_BROWSER === '1'
 			? [
 					{
 						name: 'firefox',
-						use: { browserName: 'firefox', launchOptions: { args: [] } },
+						use: {
+							browserName: 'firefox',
+							launchOptions: {
+								args: [],
+								firefoxUserPrefs: { 'webgl.force-enabled': true },
+							},
+						},
 						testIgnore: '**/mobile/**',
 					},
 					{

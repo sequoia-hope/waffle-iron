@@ -149,19 +149,53 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 			viewId,
 			{ timeout: 10000 }
 		);
-		const points = await anchorScreenPoints(page, viewId);
-		const centre = points.centrePaper;
-		// The part's centre in client pixels, via the same CTM the anchors used.
-		const at = await page.evaluate(
-			([id, c]) => {
-				const svg = document
-					.querySelector(`g.wi-sheet-view[data-view-id="${id}"]`)
-					.querySelector('svg');
-				const p = new DOMPoint(c[0], c[1]).matrixTransform(svg.getScreenCTM());
-				return { x: p.x, y: p.y };
+		// The part's centre must sit on a WHOLE client pixel: WebKit truncates
+		// Playwright's fractional mouse coordinates (Chromium keeps them), and
+		// the walls' distances drift apart by twice the pointer's offset —
+		// 0.15 px of truncation at this zoom is already past the tie band. So
+		// nudge the view by the sub-pixel remainder (placement is paper mm from
+		// the sheet's bottom-left, y up; the screen's y runs down), and confirm
+		// by measuring again rather than trusting the arithmetic.
+		const centreClient = async () => {
+			const points = await anchorScreenPoints(page, viewId);
+			const at = await page.evaluate(
+				([id, c]) => {
+					const svg = document
+						.querySelector(`g.wi-sheet-view[data-view-id="${id}"]`)
+						.querySelector('svg');
+					const p = new DOMPoint(c[0], c[1]).matrixTransform(svg.getScreenCTM());
+					return { x: p.x, y: p.y };
+				},
+				[viewId, points.centrePaper]
+			);
+			return { at, pxPerMm: points.pxPerMm };
+		};
+		const before = await centreClient();
+		const placement = await page.evaluate((id) => {
+			const sheets = window.__waffle.getDrawingStatus().drawing.sheets;
+			return sheets.flatMap((s) => s.views ?? []).find((v) => v.id === id).placement_mm;
+		}, viewId);
+		const nudged = [
+			placement[0] + (Math.round(before.at.x) - before.at.x) / before.pxPerMm,
+			placement[1] - (Math.round(before.at.y) - before.at.y) / before.pxPerMm
+		];
+		await page.evaluate(([id, p]) => window.__waffle.editDrawingView(id, { placementMm: p }), [
+			viewId,
+			nudged
+		]);
+		await page.waitForFunction(
+			([id, p]) => {
+				const sheets = window.__waffle?.getDrawingStatus()?.drawing?.sheets ?? [];
+				const v = sheets.flatMap((s) => s.views ?? []).find((v) => v.id === id);
+				return v && Math.abs(v.placement_mm[0] - p[0]) < 1e-9 && Math.abs(v.placement_mm[1] - p[1]) < 1e-9;
 			},
-			[viewId, centre]
+			[viewId, nudged],
+			{ timeout: 10000 }
 		);
+		const { at } = await centreClient();
+		for (const c of [at.x, at.y]) {
+			expect(Math.abs(c - Math.round(c)), 'the part centre sits on a whole pixel').toBeLessThan(0.01);
+		}
 
 		await clickTool(page, 'dim-distance');
 		await page.mouse.move(at.x, at.y);

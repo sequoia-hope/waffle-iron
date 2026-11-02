@@ -44,6 +44,23 @@ export async function clickAt(page, xOffset, yOffset) {
 }
 
 /**
+ * Double-click at a pixel offset from the canvas center — one real gesture
+ * (`mouse.dblclick`: both clicks back to back, the second with clickCount 2).
+ * Two `clickAt` calls are NOT a double-click: each re-measures the canvas and
+ * sleeps 150 ms, and on a slow runner the gap passes the app's 400 ms
+ * double-click window (`tools.js`), which WebKit in CI did every night.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} xOffset - pixels from center (positive = right)
+ * @param {number} yOffset - pixels from center (positive = down)
+ */
+export async function doubleClickAt(page, xOffset, yOffset) {
+	const bounds = await getCanvasBounds(page);
+	if (!bounds) throw new Error('Canvas not visible');
+	await page.mouse.dblclick(bounds.centerX + xOffset, bounds.centerY + yOffset);
+	await page.waitForTimeout(150);
+}
+
+/**
  * Draw a line with the line tool — two clicks.
  * @param {import('@playwright/test').Page} page
  * @param {number} x1 - start x offset from center

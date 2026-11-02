@@ -4,7 +4,7 @@
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, clickFinishSketch, clickExtrude, clickSelect } from './helpers/toolbar.js';
 import { getConstraints, getSketchSelection } from './helpers/constraint.js';
-import { clickAt } from './helpers/canvas.js';
+import { clickAt, doubleClickAt } from './helpers/canvas.js';
 import {
 	isSketchActive,
 	getEntityCount,
@@ -318,8 +318,7 @@ test.describe('gear tool', () => {
 
 		// Two rapid clicks inside the gear → double-click → edit dialog.
 		await clickSelect(page);
-		await clickAt(page, 0, 0);
-		await clickAt(page, 0, 0);
+		await doubleClickAt(page, 0, 0);
 
 		const dialog = page.locator('[data-testid="gear-dialog"]');
 		await dialog.waitFor({ state: 'visible', timeout: 5000 });

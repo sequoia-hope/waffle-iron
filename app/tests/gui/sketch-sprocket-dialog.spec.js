@@ -9,7 +9,7 @@
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, pressKey } from './helpers/toolbar.js';
-import { clickAt } from './helpers/canvas.js';
+import { clickAt, doubleClickAt } from './helpers/canvas.js';
 import {
 	collectCrashErrors,
 	expectNoAnyCrash,
@@ -219,8 +219,7 @@ test.describe('sprocket dialog UI', () => {
 			() => window.__waffle?.getState()?.activeTool === 'select',
 			{ timeout: 3000 }
 		);
-		await clickAt(page, 0, 0);
-		await clickAt(page, 0, 0);
+		await doubleClickAt(page, 0, 0);
 		await dialog.waitFor({ state: 'visible', timeout: 5000 });
 		await expect(page.locator('.dialog-title')).toContainText('Edit Sprocket');
 		expect(await page.locator('[data-testid="sprocket-teeth-input"]').inputValue()).toBe('20');
