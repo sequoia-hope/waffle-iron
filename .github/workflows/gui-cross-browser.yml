@@ -44,27 +44,29 @@ jobs:
         run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: app
 
-      # Firefox has no bundled software rasterizer (Chromium has SwiftShader):
-      # on this GPU-less runner its WebGL needs Mesa's llvmpipe through EGL,
-      # or it fails "tryNativeGL () / Exhausted GL driver options" and the
-      # engine never starts (run 41414803840, 2026-11-02).
-      - name: Software GL (Mesa) for Firefox
+      # Firefox has no bundled software rasterizer (Chromium has SwiftShader).
+      # On this GPU-less runner headless Firefox fails "tryNativeGL () /
+      # Exhausted GL driver options" with or without Mesa installed, and the
+      # engine never starts (run 41414803840, 2026-11-02). Given an X display
+      # it finds Mesa's llvmpipe — measured on probe run 41434044751: every
+      # launch under xvfb-run made a WebGL 2 context, every one without it
+      # failed. So Firefox's steps below run under xvfb-run, still headless.
+      - name: Software GL (Mesa + Xvfb) for Firefox
         if: matrix.browser == 'firefox'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libegl1 libegl-mesa0 libgl1-mesa-dri libgles2
-          dpkg -l | grep -E 'mesa|libegl|libgles' || true
+          sudo apt-get install -y --no-install-recommends xvfb libegl1 libegl-mesa0 libgl1-mesa-dri libgles2
 
       # Seconds, not hours: without WebGL every spec dies in the fixture at
       # 60 s, so check it once up front and fail with the browser's reason.
       - name: WebGL preflight on ${{ matrix.browser }}
-        run: npx playwright test tests/gui/webgl-preflight.spec.js --project=${{ matrix.browser }} --reporter=list
+        run: ${{ matrix.browser == 'firefox' && 'xvfb-run -a env MOZ_X11_EGL=1' || '' }} npx playwright test tests/gui/webgl-preflight.spec.js --project=${{ matrix.browser }} --reporter=list
         working-directory: app
         env:
           PW_CROSS_BROWSER: '1'
 
       - name: gui-fast tier on ${{ matrix.browser }}
-        run: ./scripts/test.sh gui-fast
+        run: ${{ matrix.browser == 'firefox' && 'xvfb-run -a env MOZ_X11_EGL=1' || '' }} ./scripts/test.sh gui-fast
         env:
           TEST_THREADS: 4
           PW_CROSS_BROWSER: '1'

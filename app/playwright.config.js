@@ -76,7 +76,10 @@ export default defineConfig({
 		// the context ("AllowWebgl2:false restricts context creation on this
 		// system"), Canvas.svelte throws, the engine never reports ready, and
 		// every spec times out in the fixture — 193 of 506 every night from
-		// 2026-10-29. `webgl.force-enabled` overrides the blocklist.
+		// 2026-10-29. `webgl.force-enabled` overrides the blocklist. Past
+		// the blocklist, headless Firefox still finds no GL driver without an
+		// X display: the nightly workflow runs it under `xvfb-run`, where it
+		// gets Mesa's llvmpipe (probe run 41434044751, 2026-11-02).
 		...(process.env.PW_CROSS_BROWSER === '1'
 			? [
 					{

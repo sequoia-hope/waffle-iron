@@ -136,6 +136,18 @@ fix to a red main and for mechanism-free changes, and every use is logged.
   own shell).
 - Test tiers: `./scripts/test.sh rewrite` after any low-stack (yang-rs,
   cherchi-rs, kernel-v2) change before you call it done.
+- **Cross-browser GUI (Firefox / WebKit) reds are often the environment or
+  the test, not the app.** Firefox on a GPU-less box has no WebGL unless it
+  has an X display (`xvfb-run`) plus `webgl.force-enabled`; without WebGL
+  every spec dies in the fixture at 60 s. WebKit truncates fractional
+  `page.mouse` coordinates to whole pixels, so put sub-pixel targets on a
+  whole pixel. Two `clickAt()` calls are not a double-click (use
+  `doubleClickAt()`). `tests/gui/webgl-preflight.spec.js` checks WebGL in
+  seconds.
+- **An agent tool that changes the feature tree must be listed in
+  `wasm_bridge::tools::mutates`**, or its answer carries no model and the
+  page shows stale state until an unrelated update arrives (material tools,
+  fixed 2026-11-02).
 
 ## 5. Machine rules
 
