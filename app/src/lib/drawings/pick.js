@@ -9,7 +9,7 @@
  * 2:1 must pick alike, and a model distance would make the 2:1 view twenty
  * times fussier than the 1:10 one about the same gesture. The caller converts
  * once, at the DOM boundary (`DrawingSheet.svelte` inverts the nested view
- * `<svg>`'s own `getScreenCTM()`, whose user units ARE paper mm by
+ * `<svg>`'s screen matrix, `viewCtm.js`, whose user units ARE paper mm by
  * construction — `renderViewSvg` writes a `viewBox` the same size as its
  * `width` in mm), and everything here works in the converted units.
  *

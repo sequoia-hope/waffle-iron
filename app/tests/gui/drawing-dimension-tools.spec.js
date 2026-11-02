@@ -18,6 +18,7 @@ import { clickTool } from './helpers/toolbar.js';
 import {
 	PLATE_D_MM,
 	PLATE_W_MM,
+	VIEW_USER_SPACE,
 	addView,
 	anchorPids,
 	anchorScreenPoints,
@@ -159,14 +160,14 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 		const centreClient = async () => {
 			const points = await anchorScreenPoints(page, viewId);
 			const at = await page.evaluate(
-				([id, c]) => {
-					const svg = document
+				([id, c, userSpace]) => {
+					const space = document
 						.querySelector(`g.wi-sheet-view[data-view-id="${id}"]`)
-						.querySelector('svg');
-					const p = new DOMPoint(c[0], c[1]).matrixTransform(svg.getScreenCTM());
+						.querySelector(`svg > ${userSpace}`);
+					const p = new DOMPoint(c[0], c[1]).matrixTransform(space.getScreenCTM());
 					return { x: p.x, y: p.y };
 				},
-				[viewId, points.centrePaper]
+				[viewId, points.centrePaper, VIEW_USER_SPACE]
 			);
 			return { at, pxPerMm: points.pxPerMm };
 		};

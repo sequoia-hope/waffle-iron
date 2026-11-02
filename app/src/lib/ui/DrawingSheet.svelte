@@ -18,8 +18,10 @@
 	 * and a 2:1 detail pick alike (`pick.js`). The conversion is taken from the
 	 * rendered DOM rather than recomputed: each view is a nested
 	 * `<svg class="wi-drawing">` whose user units ARE paper mm (its `viewBox`
-	 * is the same size as its `width` in mm) and whose `getScreenCTM()`
-	 * therefore maps paper mm to screen pixels, placement and zoom included. A
+	 * is the same size as its `width` in mm), so its screen matrix maps paper
+	 * mm to screen pixels, placement and zoom included — composed by
+	 * `viewScreenCTM`, because Firefox's `getScreenCTM()` on a nested `<svg>`
+	 * leaves the view's own placement out. A
 	 * second derivation of that placement — from `placement_mm`, the sheet
 	 * extent and the view's own margin — would be free to disagree with where
 	 * the view actually is, and then a click would bind to the edge next to the
@@ -70,6 +72,7 @@
 		__setProbeForTest
 	} from '$lib/drawings/placementMode.svelte.js';
 	import { drawingStyle } from '$lib/drawings/style.js';
+	import { viewScreenCTM } from '$lib/drawings/viewCtm.js';
 	import {
 		PICK_RADIUS_MM,
 		TOOL_FLOW,
@@ -157,7 +160,7 @@
 	/** A client point in one view's paper mm, or null when the CTM is absent
 	 *  (a detached or display:none element). */
 	function clientToView(viewEl, clientX, clientY) {
-		const m = viewEl.getScreenCTM?.();
+		const m = viewScreenCTM(viewEl);
 		if (!m) return null;
 		const p = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
 		return Number.isFinite(p.x) && Number.isFinite(p.y) ? [p.x, p.y] : null;
@@ -184,9 +187,11 @@
 	/** A view-space paper point in the OVERLAY's units (the sheet's paper mm). */
 	function viewToOverlay(viewEl, paper) {
 		const o = overlayEl?.getScreenCTM?.();
-		const v = viewEl.getScreenCTM?.();
+		const v = viewScreenCTM(viewEl);
 		if (!o || !v) return null;
-		const p = new DOMPoint(paper[0], paper[1]).matrixTransform(o.inverse().multiply(v));
+		const p = new DOMPoint(paper[0], paper[1]).matrixTransform(
+			DOMMatrix.fromMatrix(o).inverse().multiply(v)
+		);
 		return Number.isFinite(p.x) && Number.isFinite(p.y) ? [p.x, p.y] : null;
 	}
 

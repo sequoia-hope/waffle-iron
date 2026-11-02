@@ -8,11 +8,22 @@
  *
  * `paperOf` recomputes the view-space → paper-mm map from the view's own
  * `bbox` and `scale` rather than asking the app for it, and reads the screen
- * placement from the rendered `<svg>`'s `getScreenCTM()`. That makes the spec
+ * placement from the rendered view's `getScreenCTM()`. That makes the spec
  * PREDICT where an anchor is from the layout record instead of recording
  * whatever the app's own picking module says — which is what lets it fail when
  * the app's map and the record disagree.
+ *
+ * The CTM is the view's `g.wi-annotations` child's, NOT the nested `<svg>`'s
+ * own: Firefox's `getScreenCTM()` on a nested `<svg>` answers the PARENT's
+ * matrix, leaving the view's `x`/`y`/`viewBox` out, so every view read as if
+ * it sat at the sheet's corner (2026-11-02). A transform-free child lives in
+ * the view's user space in every browser. The app composes the same matrix a
+ * different way (`viewCtm.js`), so the two routes still check each other.
  */
+
+/** A transform-free child of each view `<svg>`, whose CTM is the view's own
+ *  user space (paper mm → client px) in every browser — see above. */
+export const VIEW_USER_SPACE = 'g.wi-annotations';
 import { expect } from '@playwright/test';
 
 /** The D3/D4a fixture plate, in METERS (the document's own unit). */
@@ -125,13 +136,12 @@ export async function addView(page, partTab, options) {
  * away" multiplies by it.
  */
 export async function anchorScreenPoints(page, viewId) {
-	return page.evaluate((id) => {
+	return page.evaluate(([id, userSpace]) => {
 		const st = window.__waffle.getDrawingStatus();
 		const view = (st?.drawing?.sheets ?? []).flatMap((s) => s.views ?? []).find((v) => v.id === id);
 		const anchors = (st?.anchors ?? {})[id] ?? [];
 		const g = document.querySelector(`g.wi-sheet-view[data-view-id="${id}"]`);
-		const svg = g?.querySelector('svg');
-		const m = svg?.getScreenCTM?.();
+		const m = g?.querySelector(`svg > ${userSpace}`)?.getScreenCTM?.();
 		if (!view?.cache?.bbox || !m) return null;
 		// Derived here rather than imported: the spec predicts where the anchor
 		// is from the LAYOUT RECORD, so it can disagree with the app.
@@ -158,7 +168,7 @@ export async function anchorScreenPoints(page, viewId) {
 			const [[u0, v0], [u1, v1]] = v.cache.bbox;
 			return [((u1 - u0) * mmpm) / 2, ((v1 - v0) * mmpm) / 2];
 		}
-	}, viewId);
+	}, [viewId, VIEW_USER_SPACE]);
 }
 
 /** The two opposite WALL anchors a width dimension measures between. */
