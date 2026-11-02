@@ -87,7 +87,7 @@ function classifyTrap(rawMessage) {
 async function initEngine(wasmUrl) {
 	try {
 		lastWasmUrl = wasmUrl;
-		const wasm = await import(/* @vite-ignore */ wasmUrl);
+		const wasm = await importModule(wasmUrl);
 		// `__wbg_finalize_init` returns the instance exports; hold them for
 		// `memory` (trap classification), not for calling into.
 		wasmExports = await wasm.default();
@@ -104,6 +104,21 @@ async function initEngine(wasmUrl) {
 		});
 	}
 }
+
+/**
+ * `import(url)` out of sight of Vite's dev-server import analysis.
+ *
+ * A bare `import(expr)` makes Vite rewrite it through `__vite__injectQuery`,
+ * which it imports from `/@vite/client` — and that client opens the HMR
+ * WebSocket from inside this worker, where nothing can be hot-updated
+ * anyway. Playwright's Firefox driver cannot account for a socket a Worker
+ * opens (`FFPage._onWebSocketOpened` asserts it saw the handshake; still so
+ * in 1.64), so every Firefox spec died the moment the engine started
+ * (nightly cross-browser run, 2026-11-02). The URLs here are the static
+ * `/pkg/` glue or a blob, which need no query injected.
+ * @type {(url: string) => Promise<any>}
+ */
+const importModule = new Function('url', 'return import(url)');
 
 /** URL used for WASM module init — stored for crash recovery re-init. */
 let lastWasmUrl = '';
@@ -407,7 +422,7 @@ self.onmessage = async function (event) {
 			const jsText = await jsResp.text();
 			const blob = new Blob([jsText], { type: 'text/javascript' });
 			const blobUrl = URL.createObjectURL(blob);
-			const freshWasm = await import(/* @vite-ignore */ blobUrl);
+			const freshWasm = await importModule(blobUrl);
 			URL.revokeObjectURL(blobUrl);
 			// Initialize with the default URL (will fetch .wasm relative to blob)
 			// Pass explicit wasm URL since blob URL can't resolve relative paths
