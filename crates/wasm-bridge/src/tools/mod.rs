@@ -119,7 +119,11 @@ pub const MIGRATED: &[&str] = &[
 
 /// Whether this tool can change the document.
 ///
-/// The mutating tools are C4's twelve plus C5's `sketch_create`, the A-M4
+/// The mutating tools are C4's twelve plus C5's `sketch_create`, M1's two
+/// material edits (the table and the body → material map live on the feature
+/// tree the host mirrors; left out until 2026-11-02, a page that had just
+/// run `material_set` kept an empty table until some unrelated update
+/// arrived), the A-M4
 /// script tools that change the document (a source add changes the `sources`
 /// table the host mirrors, so it carries the update too), and since
 /// 2026-09-23 the tab tools and the assembly edits (a tab switch changes what
@@ -137,6 +141,8 @@ pub fn mutates(name: &str) -> bool {
             | "feature_reorder"
             | "feature_rename"
             | "body_rename"
+            | "material_set"
+            | "body_material_set"
             | "entity_name"
             | "entity_unname"
             | "rollback_set"

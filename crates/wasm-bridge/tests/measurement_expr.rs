@@ -677,6 +677,55 @@ fn mass_measures_the_material_and_refuses_without_one() {
 
 /// M1: a density is a measurement a FIELD can read, which is the whole
 /// reason `mass` needed a dimension rather than a number.
+/// Both material edits answer with the model, carrying the table and the
+/// assignment they just made. The host mirrors its material picker off the
+/// tree that rides with a mutating tool's answer; without it the page kept
+/// an empty table after `material_set` until some unrelated update arrived
+/// (the CI-only `body-list` GUI failure of 2026-11-02).
+#[test]
+fn a_material_edit_carries_the_model_with_the_material_in_it() {
+    let mut state = EngineState::new();
+    let mut kernel = KernelV2Adapter::new();
+    let (_, body) = block(&mut state, &mut kernel, 0.0, 0.01, 0.01, None, 1);
+
+    let mut carried = |name: &str, arguments: Value| -> FeatureTree {
+        let response = dispatch(
+            &mut state,
+            UiToEngine::Tool {
+                name: name.into(),
+                arguments,
+                context: None,
+            },
+            &mut kernel,
+        );
+        let EngineToUi::ToolResult { result, model } = response else {
+            panic!("{response:?}")
+        };
+        assert!(!result.is_error, "{name}: {result:?}");
+        let model = model.unwrap_or_else(|| panic!("{name}'s answer carries the model"));
+        let EngineToUi::ModelUpdated { feature_tree, .. } = *model else {
+            panic!("{model:?}")
+        };
+        feature_tree
+    };
+
+    let tree = carried(
+        "material_set",
+        json!({ "name": "Aluminium", "density_kg_m3": 2700.0 }),
+    );
+    let names: Vec<&str> = tree.materials.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(names, ["Aluminium"]);
+
+    let tree = carried(
+        "body_material_set",
+        json!({ "body_id": body, "material": "Aluminium" }),
+    );
+    assert_eq!(
+        tree.body_materials.get(&body).map(String::as_str),
+        Some("Aluminium")
+    );
+}
+
 #[test]
 fn a_depth_can_be_driven_by_a_mass_and_an_area_still_cannot() {
     let mut state = EngineState::new();
