@@ -104,7 +104,7 @@ async function probe(page, viewId) {
 	);
 	const ux = dx / len;
 	const uy = dy / len;
-	// The probes land on WHOLE pixels: WebKit truncates Playwright's
+	// The probes land on WHOLE pixels: WebKit and Firefox truncate Playwright's
 	// fractional mouse coordinates (Chromium keeps them), and at the narrow
 	// zoom a pixel is a whole paper millimetre (0.995 px/mm at 900 px wide) —
 	// more than MARGIN_MM, so truncation carried the 1.4 mm probe past the

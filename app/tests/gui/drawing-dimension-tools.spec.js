@@ -150,13 +150,14 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 			viewId,
 			{ timeout: 10000 }
 		);
-		// The part's centre must sit on a WHOLE client pixel: WebKit truncates
-		// Playwright's fractional mouse coordinates (Chromium keeps them), and
-		// the walls' distances drift apart by twice the pointer's offset —
-		// 0.15 px of truncation at this zoom is already past the tie band. So
-		// nudge the view by the sub-pixel remainder (placement is paper mm from
-		// the sheet's bottom-left, y up; the screen's y runs down), and confirm
-		// by measuring again rather than trusting the arithmetic.
+		// The part's centre must sit on a WHOLE client pixel: WebKit and Firefox
+		// truncate Playwright's fractional mouse coordinates (Chromium keeps
+		// them), and the walls' distances drift apart by twice the pointer's
+		// offset — 0.15 px of truncation at this zoom is already past the tie
+		// band. So nudge the view by the sub-pixel remainder (placement is
+		// paper mm from the sheet's bottom-left, y up; the screen's y runs
+		// down), and confirm by measuring again rather than trusting the
+		// arithmetic.
 		const centreClient = async () => {
 			const points = await anchorScreenPoints(page, viewId);
 			const at = await page.evaluate(
@@ -198,12 +199,17 @@ test.describe('Dimensioning on the sheet (D4d)', () => {
 			expect(Math.abs(c - Math.round(c)), 'the part centre sits on a whole pixel').toBeLessThan(0.01);
 		}
 
+		// Aim at the whole pixel itself, not at the measured 614.99999…: Firefox
+		// truncates too, and delivered that as clientX 614 — a full pixel off
+		// (probe run 41531339980).
+		const target = { x: Math.round(at.x), y: Math.round(at.y) };
+
 		await clickTool(page, 'dim-distance');
-		await page.mouse.move(at.x, at.y);
+		await page.mouse.move(target.x, target.y);
 		// The hint NAMES the candidates, so the refusal is actionable rather
 		// than a dead click.
 		await expect(page.getByTestId('sheet-hint')).toContainText('equally near');
-		await clickAt(page, at.x, at.y);
+		await clickAt(page, target.x, target.y);
 		// Nothing was picked and nothing was authored: a dimension bound to the
 		// wrong edge prints a plausible number for the wrong feature, which is
 		// the silent wrong the whole spec exists to prevent.
