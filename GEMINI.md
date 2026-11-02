@@ -143,7 +143,10 @@ fix to a red main and for mechanism-free changes, and every use is logged.
   `page.mouse` coordinates to whole pixels, so put sub-pixel targets on a
   whole pixel. Two `clickAt()` calls are not a double-click (use
   `doubleClickAt()`). `tests/gui/webgl-preflight.spec.js` checks WebGL in
-  seconds.
+  seconds. Never let a Worker open a WebSocket (e.g. by pulling in
+  `/@vite/client` through a bare `import(expr)`): Playwright's Firefox
+  driver asserts on it and closes the page — see the `importModule` note
+  in `app/src/lib/engine/worker.js`.
 - **An agent tool that changes the feature tree must be listed in
   `wasm_bridge::tools::mutates`**, or its answer carries no model and the
   page shows stale state until an unrelated update arrives (material tools,
