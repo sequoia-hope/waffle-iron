@@ -88,8 +88,16 @@ RUN curl -fsSL https://opencode.ai/install | bash
 # Firefox + WebKit run the cross-browser tier locally
 # (`PW_CROSS_BROWSER=1 npx playwright test --project=webkit`), the same
 # browsers the nightly "GUI cross-browser" workflow uses.
-RUN sudo npx playwright install-deps chromium firefox webkit \
-    && npx playwright install chromium firefox webkit
+#
+# Pinned to the Playwright the app's lockfile resolves, read from the lockfile
+# itself rather than repeated here: each Playwright release expects its own
+# browser builds, and an unpinned `npx playwright` fetches whatever is latest.
+# Bumping Playwright in app/ rebuilds this layer on the next image build.
+COPY app/package-lock.json /tmp/app-package-lock.json
+RUN PW_VERSION=$(node -p "require('/tmp/app-package-lock.json').packages['node_modules/playwright'].version") \
+    && test -n "$PW_VERSION" && echo "Playwright $PW_VERSION (from app/package-lock.json)" \
+    && sudo npx -y "playwright@$PW_VERSION" install-deps chromium firefox webkit \
+    && npx -y "playwright@$PW_VERSION" install chromium firefox webkit
 
 # Create workspace directory
 RUN mkdir -p /home/$USERNAME/workspace
