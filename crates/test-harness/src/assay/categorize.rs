@@ -173,6 +173,30 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
         .collect();
     let warnings: Vec<String> = builder.engine_warnings().to_vec();
 
+    // With `WAFFLE_GEOMETRY_HASH_OUT` set, record this case's canonical
+    // geometry (every live body, bit-exact) and its engine-error text, so two
+    // kernels' corpus runs can be diffed case by case — the check a claimed
+    // result-neutral change ("byte-identical output") is held to. A passing
+    // test tier cannot show it: a verdict can survive a moved vertex.
+    if std::env::var_os("WAFFLE_GEOMETRY_HASH_OUT").is_some() {
+        use crate::assay::geometry_hash::{
+            fnv1a_words, live_geometry_hash, record_hash_for_parity,
+        };
+        let error_words: Vec<u64> = engine_errors
+            .iter()
+            .chain(warnings.iter())
+            .flat_map(|m| m.bytes().map(u64::from))
+            .collect();
+        record_hash_for_parity(
+            &format!("assay/{id}"),
+            &format!(
+                "geom={:016x} errors={:016x}",
+                live_geometry_hash(&builder),
+                fnv1a_words(&error_words)
+            ),
+        );
+    }
+
     // 1. NotSupported boundary? Check engine errors first (rebuild failures),
     //    then warnings (the merge=true auto-union path downgrades a boolean
     //    error to an "Auto-union failed: …" warning).
