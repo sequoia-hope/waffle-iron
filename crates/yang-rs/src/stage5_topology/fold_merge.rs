@@ -52,6 +52,7 @@ pub(super) fn run_fold_merge_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
@@ -389,7 +390,7 @@ pub(super) fn run_fold_merge_passes(
         // upstream stages.
         let chi_pre =
             (chi_audit_enabled() && pre_uses.is_none()).then(|| tris_complex_stats(&mesh.tris));
-        match apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
+        match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
                 // in `rebuilds` were planned against it, so it lands only
@@ -531,7 +532,12 @@ pub(super) fn run_fold_merge_passes(
                 break;
             }
         }
-        let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
+        let remap = compact_unreferenced_verts_with_bounds(
+            mesh,
+            relocations,
+            &side_labels.labels,
+            &tri_bounds.bounds,
+        );
         if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
             crate::stage4_correct::remap_vert_set(tv, map);
         }
@@ -2138,14 +2144,17 @@ pub(super) fn rehome_attempt(
             // minus the dropped corner (the phantom leaves the band patch —
             // its true carriers are {S_j, W, K}).
             let mut si_fill = si_del;
-            match crate::stage4_construct::refill_fan_hole(
+            match crate::stage4_construct::refill_fan_hole_with_bounds(
                 mesh,
                 si_pi,
                 &patches[si_pi],
                 &link[1..],
                 &si_fill.old_tris,
             ) {
-                Ok(tris) => si_fill.new_tris = tris,
+                Ok((tris, bounds)) => {
+                    si_fill.new_tris = tris;
+                    si_fill.new_tri_bounds = bounds;
+                }
                 Err(e) => {
                     eprintln!("[i13f-rehome]   f2c site j_cut=v{jc}: hole re-fill — {e:?}");
                     decline_site(RehomeDecline::HoleFillUnresolved, rehome_blocked);
@@ -2209,6 +2218,12 @@ pub(super) fn rehome_attempt(
                 bite.swap(1, 2);
             }
             chord_split.new_tris.push(bite);
+            chord_split
+                .new_tri_bounds
+                .push(crate::brep::recompute_tri_bound_from_world(
+                    patches[frag_d_pi].surface,
+                    [bite_pos(bite[0]), bite_pos(bite[1]), bite_pos(bite[2])],
+                ));
             let mut rebuilds = vec![si_fill, chord_split];
             let mut insert_report: Vec<String> = Vec::new();
             // The two seam-inserts (fragment side).

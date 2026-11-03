@@ -111,10 +111,35 @@ pub(crate) fn collapse_vertex(
 
 /// [`collapse_vertex`] with optional per-operand membrane scoping
 /// (`scope_by_side_label`) and `tangential_verts` victim→survivor propagation.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn collapse_vertex_scoped(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
+    victim: u32,
+    survivor: u32,
+    scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> usize {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    collapse_vertex_scoped_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        victim,
+        survivor,
+        scope_by_side_label,
+        tangential_verts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn collapse_vertex_scoped_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
     victim: u32,
     survivor: u32,
     scope_by_side_label: bool,
@@ -127,6 +152,13 @@ pub(crate) fn collapse_vertex_scoped(
         side_labels.len(),
         mesh.tris.len(),
     );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "collapse_vertex: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     if let Some(tv) = tangential_verts {
         if tv.remove(&victim) {
             tv.insert(survivor);
@@ -135,6 +167,7 @@ pub(crate) fn collapse_vertex_scoped(
     let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
     let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attribution.len());
     let mut new_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
+    let mut new_bounds: Vec<f64> = Vec::with_capacity(tri_bounds.len());
     let mut dropped = 0usize;
     for (t, tri) in mesh.tris.iter().enumerate() {
         let mapped = [
@@ -149,6 +182,7 @@ pub(crate) fn collapse_vertex_scoped(
         new_tris.push(mapped);
         new_attr.push(attribution.get(t).copied().flatten());
         new_lbls.push(side_labels.get(t).copied().unwrap_or_default());
+        new_bounds.push(tri_bounds[t]);
     }
     // Membrane cancellation (spec `yang_collapse_membrane_cancellation`):
     // identifying `victim` with `survivor` can turn the two-triangle pleat
@@ -203,12 +237,15 @@ pub(crate) fn collapse_vertex_scoped(
             new_tris = keep.iter().map(|&t| new_tris[t]).collect();
             new_attr = keep.iter().map(|&t| new_attr[t]).collect();
             new_lbls = keep.iter().map(|&t| new_lbls[t]).collect();
+            new_bounds = keep.iter().map(|&t| new_bounds[t]).collect();
             dropped += cancel.len();
         }
     }
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
     *attribution = new_attr;
     *side_labels = new_lbls;
+    *tri_bounds = new_bounds;
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     // EXPERIMENTAL probe (task #121, read-only, env-gated): did THIS collapse
     // mint a duplicate (double-cover) triangle pair?
     if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
@@ -344,6 +381,7 @@ pub(crate) fn weld_coincident_relocated(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn weld_coincident_relocated_ex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -353,8 +391,43 @@ pub(crate) fn weld_coincident_relocated_ex(
     moved: &std::collections::HashSet<u32>,
     minted: &std::collections::HashSet<u32>,
     scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> bool {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    weld_coincident_relocated_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        a,
+        b,
+        moved,
+        minted,
+        scope_by_side_label,
+        tangential_verts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn weld_coincident_relocated_ex_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    a: &BRep,
+    b: &BRep,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::HashSet<u32>,
+    scope_by_side_label: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> bool {
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "weld_coincident_relocated: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     let mut welded = false;
     loop {
         // Live moved/minted verts (still referenced by some triangle), ascending.
@@ -455,10 +528,11 @@ pub(crate) fn weld_coincident_relocated_ex(
                         mesh.verts[survivor as usize]
                     );
                 }
-                collapse_vertex_scoped(
+                collapse_vertex_scoped_with_bounds(
                     mesh,
                     attribution,
                     side_labels,
+                    tri_bounds,
                     victim,
                     survivor,
                     scope_by_side_label,
@@ -469,6 +543,7 @@ pub(crate) fn weld_coincident_relocated_ex(
             None => break,
         }
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     welded
 }
 
@@ -494,6 +569,7 @@ pub(crate) fn trim_beyond_corner_phantoms(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn trim_beyond_corner_phantoms_ex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -502,8 +578,41 @@ pub(crate) fn trim_beyond_corner_phantoms_ex(
     minted: &std::collections::BTreeMap<u32, crate::boolean::MintProvenance>,
     d_eps: f64,
     scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> bool {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    trim_beyond_corner_phantoms_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        moved,
+        minted,
+        d_eps,
+        scope_by_side_label,
+        tangential_verts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn trim_beyond_corner_phantoms_ex_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::BTreeMap<u32, crate::boolean::MintProvenance>,
+    d_eps: f64,
+    scope_by_side_label: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> bool {
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "trim_beyond_corner_phantoms: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     let probe = std::env::var_os("YANG_P3B_TRIM_PROBE").is_some();
     let mut trimmed = false;
     'fixed_point: loop {
@@ -589,10 +698,11 @@ pub(crate) fn trim_beyond_corner_phantoms_ex(
                                 d_j.abs()
                             );
                         }
-                        collapse_vertex_scoped(
+                        collapse_vertex_scoped_with_bounds(
                             mesh,
                             attribution,
                             side_labels,
+                            tri_bounds,
                             v,
                             m,
                             scope_by_side_label,
@@ -606,6 +716,7 @@ pub(crate) fn trim_beyond_corner_phantoms_ex(
         }
         break;
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     trimmed
 }
 
@@ -657,10 +768,37 @@ pub(crate) fn retriangulate_collapsed_fan_regions(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn retriangulate_collapsed_fan_regions_ex(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
+    brep_a: &BRep,
+    brep_b: &BRep,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::HashSet<u32>,
+    full_arrangement: bool,
+) -> bool {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    retriangulate_collapsed_fan_regions_ex_with_bounds(
+        mesh,
+        attr_vec,
+        side_labels,
+        &mut dummy_bounds,
+        brep_a,
+        brep_b,
+        moved,
+        minted,
+        full_arrangement,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn retriangulate_collapsed_fan_regions_ex_with_bounds(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
     brep_a: &BRep,
     brep_b: &BRep,
     moved: &std::collections::HashSet<u32>,
@@ -672,6 +810,13 @@ pub(crate) fn retriangulate_collapsed_fan_regions_ex(
         mesh.tris.len(),
         "retriangulate_collapsed_fan_regions: side_labels ({}) must be 1:1 with mesh.tris ({})",
         side_labels.len(),
+        mesh.tris.len(),
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "retriangulate_collapsed_fan_regions: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
         mesh.tris.len(),
     );
     use std::collections::{BTreeMap, BTreeSet};
@@ -737,10 +882,11 @@ pub(crate) fn retriangulate_collapsed_fan_regions_ex(
                 continue;
             }
             attempted.insert(sig.clone());
-            match repair_fan_cluster_ex(
+            match repair_fan_cluster_ex_with_bounds(
                 mesh,
                 attr_vec,
                 side_labels,
+                tri_bounds,
                 brep_a,
                 brep_b,
                 cluster,
@@ -766,6 +912,7 @@ pub(crate) fn retriangulate_collapsed_fan_regions_ex(
         }
         break; // all remaining clusters attempted (bailed) — done
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     changed
 }
 
@@ -998,10 +1145,43 @@ pub(crate) fn repair_fan_cluster(
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn repair_fan_cluster_ex(
     mesh: &mut Mesh,
     attr_vec: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
+    brep_a: &BRep,
+    brep_b: &BRep,
+    cluster: &std::collections::BTreeSet<u32>,
+    edge_use: &std::collections::BTreeMap<(u32, u32), Vec<usize>>,
+    moved: &std::collections::HashSet<u32>,
+    minted: &std::collections::HashSet<u32>,
+    probe: bool,
+    full_arrangement: bool,
+) -> Option<()> {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    repair_fan_cluster_ex_with_bounds(
+        mesh,
+        attr_vec,
+        side_labels,
+        &mut dummy_bounds,
+        brep_a,
+        brep_b,
+        cluster,
+        edge_use,
+        moved,
+        minted,
+        probe,
+        full_arrangement,
+    )
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+pub(crate) fn repair_fan_cluster_ex_with_bounds(
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
     brep_a: &BRep,
     brep_b: &BRep,
     cluster: &std::collections::BTreeSet<u32>,
@@ -1016,6 +1196,13 @@ pub(crate) fn repair_fan_cluster_ex(
         mesh.tris.len(),
         "repair_fan_cluster: side_labels ({}) must be 1:1 with mesh.tris ({})",
         side_labels.len(),
+        mesh.tris.len(),
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "repair_fan_cluster: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
         mesh.tris.len(),
     );
     use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -1059,6 +1246,7 @@ pub(crate) fn repair_fan_cluster_ex(
         side_label: TriangleSideLabel,
         boundary: std::collections::BTreeSet<(u32, u32)>,
         new_tris: Vec<[u32; 3]>,
+        new_tri_bounds: Vec<f64>,
     }
     let mut anchors: BTreeSet<u32> = cluster.clone();
     let mut grow_rounds = 0usize;
@@ -1846,6 +2034,7 @@ pub(crate) fn repair_fan_cluster_ex(
             }
             let ref_sign = if ref_sign > 0.0 { 1.0 } else { -1.0 };
             let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(tris_local.len());
+            let mut new_tri_bounds: Vec<f64> = Vec::with_capacity(tris_local.len());
             let mut flipped = 0usize;
             for tl in &tris_local {
                 let mut g = [
@@ -1863,7 +2052,16 @@ pub(crate) fn repair_fan_cluster_ex(
                     g.swap(1, 2);
                     flipped += 1;
                 }
+                let tb = crate::brep::recompute_tri_bound_from_world(
+                    surf,
+                    [
+                        mesh.verts[g[0] as usize],
+                        mesh.verts[g[1] as usize],
+                        mesh.verts[g[2] as usize],
+                    ],
+                );
                 new_tris.push(g);
+                new_tri_bounds.push(tb);
             }
             if probe {
                 let kind = match surf {
@@ -1892,6 +2090,7 @@ pub(crate) fn repair_fan_cluster_ex(
                 side_label,
                 boundary,
                 new_tris,
+                new_tri_bounds,
             });
         }
 
@@ -1900,20 +2099,33 @@ pub(crate) fn repair_fan_cluster_ex(
     let mut next_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
     let mut next_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attr_vec.len());
     let mut next_lbls: Vec<TriangleSideLabel> = Vec::with_capacity(side_labels.len());
+    let mut next_bounds: Vec<f64> = Vec::with_capacity(tri_bounds.len());
+    #[allow(clippy::needless_range_loop)]
     for ti in 0..mesh.tris.len() {
         if !in_regions.contains(&ti) {
             next_tris.push(mesh.tris[ti]);
             next_attr.push(attr_vec.get(ti).copied().flatten());
             next_lbls.push(side_labels.get(ti).copied().unwrap_or_default());
+            next_bounds.push(tri_bounds[ti]);
         }
     }
     let mut new_edge_set: BTreeSet<(u32, u32)> = BTreeSet::new();
     for plan in &plans {
+        assert_eq!(
+            plan.new_tri_bounds.len(),
+            plan.new_tris.len(),
+            "repair_fan_cluster: plan {:?} new_tri_bounds ({}) != new_tris ({})",
+            plan.key,
+            plan.new_tri_bounds.len(),
+            plan.new_tris.len(),
+        );
         let at = TriangleAttribution {
             input: plan.key.0,
             face: plan.key.1,
         };
-        for &g in &plan.new_tris {
+        for ti in 0..plan.new_tris.len() {
+            let g = plan.new_tris[ti];
+            let tb = plan.new_tri_bounds[ti];
             for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
                 let (u, w) = (g[i], g[j]);
                 new_edge_set.insert(if u < w { (u, w) } else { (w, u) });
@@ -1921,6 +2133,7 @@ pub(crate) fn repair_fan_cluster_ex(
             next_tris.push(g);
             next_attr.push(Some(at));
             next_lbls.push(plan.side_label);
+            next_bounds.push(tb);
         }
     }
     let mut post_use: BTreeMap<(u32, u32), usize> = BTreeMap::new();
@@ -2063,6 +2276,8 @@ pub(crate) fn repair_fan_cluster_ex(
     *mesh = Mesh::new(std::mem::take(&mut mesh.verts), next_tris);
     *attr_vec = next_attr;
     *side_labels = next_lbls;
+    *tri_bounds = next_bounds;
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     Some(())
 }
 
@@ -2158,6 +2373,7 @@ pub(crate) fn carried_surfaces(
 /// never an average), and a segment whose RESOLVED length is ≥ `TAU_MODEL`
 /// stays (I2/B5 — no chain drift). Exact-zero pairs are the M-B
 /// emission-identification class and stay untouched here (B3).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn collapse_subresolution_intersection_segments(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2166,10 +2382,32 @@ pub(crate) fn collapse_subresolution_intersection_segments(
     a: &BRep,
     b: &BRep,
 ) -> bool {
-    collapse_subresolution_intersection_segments_ex(
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    collapse_subresolution_intersection_segments_with_bounds(
         mesh,
         attribution,
         side_labels,
+        &mut dummy_bounds,
+        intersection_curves,
+        a,
+        b,
+    )
+}
+
+pub(crate) fn collapse_subresolution_intersection_segments_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    a: &BRep,
+    b: &BRep,
+) -> bool {
+    collapse_subresolution_intersection_segments_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        tri_bounds,
         intersection_curves,
         a,
         b,
@@ -2178,7 +2416,7 @@ pub(crate) fn collapse_subresolution_intersection_segments(
     )
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn collapse_subresolution_intersection_segments_ex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2187,8 +2425,41 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex(
     a: &BRep,
     b: &BRep,
     scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> bool {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    collapse_subresolution_intersection_segments_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        intersection_curves,
+        a,
+        b,
+        scope_by_side_label,
+        tangential_verts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn collapse_subresolution_intersection_segments_ex_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    a: &BRep,
+    b: &BRep,
+    scope_by_side_label: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> bool {
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "collapse_subresolution_intersection_segments: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     let mut redirect: std::collections::BTreeMap<u32, u32> = std::collections::BTreeMap::new();
     fn resolve(redirect: &std::collections::BTreeMap<u32, u32>, mut v: u32) -> u32 {
         while let Some(&n) = redirect.get(&v) {
@@ -2273,10 +2544,11 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex(
                 d2.sqrt(),
             );
         }
-        collapse_vertex_scoped(
+        collapse_vertex_scoped_with_bounds(
             mesh,
             attribution,
             side_labels,
+            tri_bounds,
             victim,
             survivor,
             scope_by_side_label,
@@ -2285,24 +2557,70 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex(
         redirect.insert(victim, survivor);
         any = true;
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     any
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn collapse_subtauwork_mesh_edges(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
 ) -> bool {
-    collapse_subtauwork_mesh_edges_ex(mesh, attribution, side_labels, false, None)
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    collapse_subtauwork_mesh_edges_with_bounds(mesh, attribution, side_labels, &mut dummy_bounds)
 }
 
+pub(crate) fn collapse_subtauwork_mesh_edges_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+) -> bool {
+    collapse_subtauwork_mesh_edges_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        tri_bounds,
+        false,
+        None,
+    )
+}
+
+#[allow(dead_code)]
 pub(crate) fn collapse_subtauwork_mesh_edges_ex(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
     scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> bool {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    collapse_subtauwork_mesh_edges_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        scope_by_side_label,
+        tangential_verts,
+    )
+}
+
+pub(crate) fn collapse_subtauwork_mesh_edges_ex_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    scope_by_side_label: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> bool {
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "collapse_subtauwork_mesh_edges: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     let mut edges: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
     for tri in &mesh.tris {
         for k in 0..3 {
@@ -2342,10 +2660,11 @@ pub(crate) fn collapse_subtauwork_mesh_edges_ex(
                 d2.sqrt(),
             );
         }
-        collapse_vertex_scoped(
+        collapse_vertex_scoped_with_bounds(
             mesh,
             attribution,
             side_labels,
+            tri_bounds,
             victim,
             survivor,
             scope_by_side_label,
@@ -2354,6 +2673,7 @@ pub(crate) fn collapse_subtauwork_mesh_edges_ex(
         redirect.insert(victim, survivor);
         any = true;
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     any
 }
 
@@ -2373,16 +2693,34 @@ pub(crate) fn collapse_subtauwork_mesh_edges_ex(
 /// Returns the old→new index remap when it compacted (`None` on the no-op path),
 /// so callers holding vertex-keyed side tables can re-key them. `None` in a slot
 /// means that vertex did not survive.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn compact_unreferenced_verts(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
     side_labels: &[TriangleSideLabel],
+) -> Option<Vec<Option<u32>>> {
+    let dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    compact_unreferenced_verts_with_bounds(mesh, relocations, side_labels, &dummy_bounds)
+}
+
+pub(crate) fn compact_unreferenced_verts_with_bounds(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    side_labels: &[TriangleSideLabel],
+    tri_bounds: &[f64],
 ) -> Option<Vec<Option<u32>>> {
     debug_assert_eq!(
         side_labels.len(),
         mesh.tris.len(),
         "compact_unreferenced_verts: side_labels ({}) must be 1:1 with mesh.tris ({})",
         side_labels.len(),
+        mesh.tris.len(),
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "compact_unreferenced_verts: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
         mesh.tris.len(),
     );
     let n = mesh.verts.len();
@@ -2422,6 +2760,13 @@ pub(crate) fn compact_unreferenced_verts(
         mesh.tris.len(),
         "compact_unreferenced_verts: side_labels ({}) must remain 1:1 with mesh.tris ({})",
         side_labels.len(),
+        mesh.tris.len(),
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "compact_unreferenced_verts: tri_bounds ({}) must remain 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
         mesh.tris.len(),
     );
     // Remap (and drop) relocation keys: a relocation referencing a collapsed-away

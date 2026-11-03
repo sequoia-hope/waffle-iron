@@ -410,6 +410,9 @@ pub(crate) struct PatchRebuild {
     /// Replacement triangles in mesh vertex indices, orientation matched to
     /// the old patch's outward sense.
     pub new_tris: Vec<[u32; 3]>,
+    /// Per-replacement-triangle error bound `d_ε(T)` (1:1 with `new_tris`;
+    /// Yang 2025 §4.1.2 / §4.4.1, `refs/text/yang2025_hybrid_boolean.txt:375-382, 566-571`).
+    pub new_tri_bounds: Vec<f64>,
     /// I2e interior seed vertices (chart-lifted, exactly on-surface) to
     /// append to the mesh; `new_tris` references the k-th one as
     /// `plan_verts + k`. Empty for every seedless rebuild.
@@ -505,6 +508,126 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
     patch: &SplicePatch,
     d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
+) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_planar_bounded_with_metric(
+        mesh,
+        patch_index,
+        patch,
+        d_eps,
+        excluded_interiors,
+        ChartMetric::Parametric,
+    )
+}
+
+type BoundedCdtOutput = (Vec<[u32; 3]>, Vec<Point3>, Vec<f64>);
+
+/// Chart metric used for the Delaunay criterion in
+/// [`rebuild_patch_planar_bounded_with_metric`].
+///
+/// * [`ChartMetric::Parametric`]: current production behaviour — Delaunay in the
+///   raw unwrapped `(θ, y)` chart (`SurfaceChart::project`).
+/// * [`ChartMetric::Isometric`]: N106 D3 gated-off primitive — Delaunay in the
+///   intrinsic isometric chart: `(r·θ, y)` on a cylinder of radius `r`, and the
+///   developed (unrolled) circular-sector chart `(s·sin φ, s·cos φ − s_0)` with
+///   `s = z·sec α`, `φ = (θ − θ_0)·sin α` on a cone of half-angle `α`
+///   (`refs/text/yang2025_hybrid_boolean.txt:357-378, 546-571`). Boundary
+///   cycles, interior constraints, 3D vertex lifting, and `stage4_dt::d_of_t`
+///   certification remain identical; only the metric passed to the CDT's
+///   Delaunay criterion changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum ChartMetric {
+    Parametric,
+    Isometric,
+}
+
+/// Map unwrapped parametric coordinates `pool` into the intrinsic isometric 2D
+/// chart of `chart` for [`ChartMetric::Isometric`]:
+///
+/// * `Cylinder { radius, .. }`: `(θ, y) ↦ (radius · θ, y)` (`ds² = r² dθ² + dy²`).
+/// * `Cone { tan_half, .. }`: developed circular sector around the pool's
+///   midpoint `(θ_0, z_0)` with slant distance `s = z · √(1 + tan²α)` and
+///   sector angle `φ = (θ − θ_0) · sin α` (`sin α = tan α / √(1 + tan²α)`):
+///   `X = s · sin φ`, `Y = (s − s_0) · cos φ − 2 · s_0 · sin²(φ / 2)`
+///   (`dX² + dY² = sec²α dz² + z² tan²α dθ²`, Jacobian `+s · tan α > 0` for
+///   `z > 0`, orientation-preserving, cancellation-free near `φ = 0`).
+/// * `Plane` / `Torus`: unchanged (`Plane` is already Euclidean orthonormal).
+#[allow(dead_code)]
+pub(crate) fn isometric_cdt_pool(chart: &SurfaceChart, pool: &[Point2]) -> Vec<Point2> {
+    match *chart {
+        SurfaceChart::Cylinder { radius, .. } => pool
+            .iter()
+            .map(|p| Point2::new(radius * p.x(), p.y()))
+            .collect(),
+        SurfaceChart::Cone { tan_half, .. } => {
+            let sec_a = (1.0 + tan_half * tan_half).sqrt();
+            let sin_a = tan_half / sec_a;
+            let (mut th_lo, mut th_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            let (mut z_lo, mut z_hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for p in pool {
+                th_lo = th_lo.min(p.x());
+                th_hi = th_hi.max(p.x());
+                z_lo = z_lo.min(p.y());
+                z_hi = z_hi.max(p.y());
+            }
+            let theta_0 = if th_lo.is_finite() && th_hi.is_finite() {
+                0.5 * (th_lo + th_hi)
+            } else {
+                0.0
+            };
+            let s_0 = if z_lo.is_finite() && z_hi.is_finite() {
+                0.5 * (z_lo + z_hi) * sec_a
+            } else {
+                0.0
+            };
+            pool.iter()
+                .map(|p| {
+                    let s = p.y() * sec_a;
+                    let phi = (p.x() - theta_0) * sin_a;
+                    let half_sin = (0.5 * phi).sin();
+                    let x = s * phi.sin();
+                    let y = (s - s_0) * phi.cos() - 2.0 * s_0 * half_sin * half_sin;
+                    Point2::new(x, y)
+                })
+                .collect()
+        }
+        SurfaceChart::Plane { .. } | SurfaceChart::Torus { .. } => pool.to_vec(),
+    }
+}
+
+/// [`rebuild_patch_planar`] with an explicit [`ChartMetric`] for the CDT's
+/// Delaunay criterion (N106 D3 gated-off primitive; not wired into production).
+#[allow(dead_code)]
+pub(crate) fn rebuild_patch_planar_with_metric(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    metric: ChartMetric,
+) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_planar_bounded_with_metric(
+        mesh,
+        patch_index,
+        patch,
+        None,
+        &BTreeSet::new(),
+        metric,
+    )
+}
+
+/// [`rebuild_patch_planar_bounded_ex`] parameterized by [`ChartMetric`].
+/// Production callers pass [`ChartMetric::Parametric`] via
+/// [`rebuild_patch_planar_bounded_ex`]; [`ChartMetric::Isometric`] runs the
+/// CDT's Delaunay criterion in `(r·θ, y)` on cylinders and in the developed
+/// circular-sector chart on cones without changing patch boundaries,
+/// constraints, 3D lifting, or `stage4_dt::d_of_t` certification.
+#[allow(dead_code)]
+pub(crate) fn rebuild_patch_planar_bounded_with_metric(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+    metric: ChartMetric,
 ) -> Result<PatchRebuild, ConstructError> {
     if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
@@ -692,15 +815,26 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
     // Attempt 0 runs seedless — the pre-I2e path, byte-identical when it
     // passes the gate.
     let n_pool = pool.len();
-    let run_attempt = |seeds: &[Point2]| -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
+    let run_attempt = |seeds: &[Point2]| -> Result<BoundedCdtOutput, ConstructError> {
         let mut pool_ext = pool.clone();
         let mut interior_ext = interior_idx.clone();
         for s in seeds {
             interior_ext.push(pool_ext.len() as u32);
             pool_ext.push(*s);
         }
+        let cdt_pool: std::borrow::Cow<'_, [Point2]> = match metric {
+            ChartMetric::Parametric => std::borrow::Cow::Borrowed(&pool_ext),
+            ChartMetric::Isometric => match chart {
+                SurfaceChart::Cylinder { .. } | SurfaceChart::Cone { .. } => {
+                    std::borrow::Cow::Owned(isometric_cdt_pool(&chart, &pool_ext))
+                }
+                SurfaceChart::Plane { .. } | SurfaceChart::Torus { .. } => {
+                    std::borrow::Cow::Borrowed(&pool_ext)
+                }
+            },
+        };
         let tris2 =
-            cdt_with_interior_constraints(&pool_ext, &p2.boundary, &p2.holes, &interior_ext, &[])
+            cdt_with_interior_constraints(&cdt_pool, &p2.boundary, &p2.holes, &interior_ext, &[])
                 .map_err(|error| ConstructError::Cdt {
                 patch: patch_index,
                 error,
@@ -788,6 +922,13 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
         // patch's own pre-rebuild bound as the budget, no external
         // constant. Planar patches are exempt by identity (d(T) ≡ 0 for
         // any triangulation of a plane polygon).
+        //
+        // Per-triangle bound (Yang 2025 §4.1.2 / §4.4.1, N106 D2.3): every
+        // curved triangle created in Stage 4/5 — boundary, carried-interior,
+        // or I2e-seeded — carries its own recomputed `d(T)` via `d_of_t`
+        // (`0.0` on exact planar patches; `d_ε` is reserved strictly for
+        // surviving unsplit Stage-1 inner triangles).
+        let mut new_tri_bounds: Vec<f64> = Vec::with_capacity(tris2.len());
         if let Some(budget) = old_max {
             let mut new_max = 0.0f64;
             for t in &tris2 {
@@ -799,6 +940,7 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
                 let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
                     .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
                 new_max = new_max.max(dt);
+                new_tri_bounds.push(dt);
             }
             if new_max > budget {
                 return Err(ConstructError::ChordDegradation {
@@ -807,6 +949,8 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
                     new_max,
                 });
             }
+        } else {
+            new_tri_bounds.resize(tris2.len(), 0.0);
         }
 
         // Back into mesh index space; a seed index lands at plan_verts + k
@@ -827,10 +971,10 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
             .map(|t| [at(t[0]), at(t[1]), at(t[2])])
             .collect();
         let new_verts: Vec<Point3> = seeds.iter().map(|&s| chart.lift(s)).collect();
-        Ok((new_tris, new_verts))
+        Ok((new_tris, new_verts, new_tri_bounds))
     };
 
-    let (new_tris, new_verts) = match run_attempt(&[]) {
+    let (new_tris, new_verts, new_tri_bounds) = match run_attempt(&[]) {
         Ok(out) => out,
         // I2e — a seedless curved rebuild that certifies coarser than what
         // it replaces is retried with a deterministic interior seed grid at
@@ -898,6 +1042,7 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
         patch: patch_index,
         old_tris: patch.tris.clone(),
         new_tris,
+        new_tri_bounds,
         new_verts,
         dropped,
         plan_verts: mesh.verts.len() as u32,
@@ -1214,6 +1359,7 @@ pub(crate) fn rebuild_merge_fan(
             patch: patch_index,
             old_tris,
             new_tris: Vec::new(),
+            new_tri_bounds: Vec::new(),
             new_verts: Vec::new(),
             dropped: [victim].into_iter().collect(),
             plan_verts: mesh.verts.len() as u32,
@@ -1300,6 +1446,24 @@ pub(crate) fn rebuild_merge_fan(
             t.swap(1, 2);
         }
     }
+    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+        vec![0.0; tris2.len()]
+    } else {
+        tris2
+            .iter()
+            .map(|t| {
+                let uv = [
+                    pool[t[0] as usize],
+                    pool[t[1] as usize],
+                    pool[t[2] as usize],
+                ];
+                crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .ok()
+                    .filter(|v| v.is_finite() && *v >= 0.0)
+                    .unwrap_or(f64::NAN)
+            })
+            .collect()
+    };
     let new_tris: Vec<[u32; 3]> = tris2
         .iter()
         .map(|t| {
@@ -1315,6 +1479,7 @@ pub(crate) fn rebuild_merge_fan(
         patch: patch_index,
         old_tris,
         new_tris,
+        new_tri_bounds,
         new_verts: Vec::new(),
         dropped: [victim].into_iter().collect(),
         plan_verts: mesh.verts.len() as u32,
@@ -1529,6 +1694,7 @@ pub(crate) fn delete_boundary_fan_runs(
             patch: patch_index,
             old_tris,
             new_tris: Vec::new(),
+            new_tri_bounds: Vec::new(),
             new_verts: Vec::new(),
             dropped: BTreeSet::new(),
             plan_verts: mesh.verts.len() as u32,
@@ -1611,10 +1777,20 @@ pub(crate) fn split_boundary_edge(
             return Err(ConstructError::SplitFlip { patch: patch_index });
         }
     }
+    let new_tri_bounds: Vec<f64> = children
+        .iter()
+        .map(|c| {
+            crate::brep::recompute_tri_bound_from_world(
+                patch.surface,
+                [at(c[0]), at(c[1]), at(c[2])],
+            )
+        })
+        .collect();
     Ok(PatchRebuild {
         patch: patch_index,
         old_tris: vec![t],
         new_tris: children.to_vec(),
+        new_tri_bounds,
         new_verts: Vec::new(),
         dropped: BTreeSet::new(),
         plan_verts: mesh.verts.len() as u32,
@@ -1712,10 +1888,20 @@ pub(crate) fn drop_needle_corner(
     let Some(children) = diagonals.iter().find(|c| keeps_sense(c)) else {
         return Err(ConstructError::SplitFlip { patch: patch_index });
     };
+    let new_tri_bounds: Vec<f64> = children
+        .iter()
+        .map(|c| {
+            crate::brep::recompute_tri_bound_from_world(
+                patch.surface,
+                [at(c[0]), at(c[1]), at(c[2])],
+            )
+        })
+        .collect();
     Ok(PatchRebuild {
         patch: patch_index,
         old_tris: vec![t],
         new_tris: children.to_vec(),
+        new_tri_bounds,
         new_verts: Vec::new(),
         dropped: BTreeSet::from([corner]),
         plan_verts: mesh.verts.len() as u32,
@@ -1738,6 +1924,7 @@ pub(crate) fn drop_needle_corner(
 /// and — on curved charts — the like-for-like d(T) budget, Yang §4.4.1's
 /// closing sentence). Returns oriented replacement triangles in mesh ids.
 /// Every failure is a typed refusal; nothing is legalized.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn refill_fan_hole(
     mesh: &Mesh,
     patch_index: usize,
@@ -1745,7 +1932,19 @@ pub(crate) fn refill_fan_hole(
     polygon: &[u32],
     reference: &[u32],
 ) -> Result<Vec<[u32; 3]>, ConstructError> {
-    let (tris, seeds) = refill_fan_hole_seeded(
+    let (tris, _bounds) =
+        refill_fan_hole_with_bounds(mesh, patch_index, patch, polygon, reference)?;
+    Ok(tris)
+}
+
+pub(crate) fn refill_fan_hole_with_bounds(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    polygon: &[u32],
+    reference: &[u32],
+) -> Result<(Vec<[u32; 3]>, Vec<f64>), ConstructError> {
+    let (tris, seeds, bounds) = refill_fan_hole_seeded_with_bounds(
         mesh,
         patch_index,
         patch,
@@ -1756,7 +1955,7 @@ pub(crate) fn refill_fan_hole(
         &BTreeSet::new(),
     )?;
     debug_assert!(seeds.is_empty(), "seed budget 0 mints nothing");
-    Ok(tris)
+    Ok((tris, bounds))
 }
 
 /// inc-2c-3b-6 — the SEEDED refill: when the boundary-only fill certifies
@@ -1769,7 +1968,7 @@ pub(crate) fn refill_fan_hole(
 /// ids in the returned triangles start at `polygon.len()` and map to the
 /// returned positions in order; exhausting the budget refuses
 /// `ChordDegradation` with the last certified value (loud, as before).
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn refill_fan_hole_seeded(
     mesh: &Mesh,
     patch_index: usize,
@@ -1780,6 +1979,30 @@ pub(crate) fn refill_fan_hole_seeded(
     seed_id_base: u32,
     condemned: &BTreeSet<u32>,
 ) -> Result<(Vec<[u32; 3]>, Vec<Point3>), ConstructError> {
+    let (tris, seeds, _bounds) = refill_fan_hole_seeded_with_bounds(
+        mesh,
+        patch_index,
+        patch,
+        polygon,
+        reference,
+        seed_budget,
+        seed_id_base,
+        condemned,
+    )?;
+    Ok((tris, seeds))
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn refill_fan_hole_seeded_with_bounds(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    polygon: &[u32],
+    reference: &[u32],
+    seed_budget: usize,
+    seed_id_base: u32,
+    condemned: &BTreeSet<u32>,
+) -> Result<BoundedCdtOutput, ConstructError> {
     let chart = SurfaceChart::new_local(patch.surface)
         .ok_or(ConstructError::NonPlanarPatch { patch: patch_index })?;
     if polygon.len() < 3 || reference.is_empty() {
@@ -1989,6 +2212,7 @@ pub(crate) fn refill_fan_hole_seeded(
                 }
             }
         }
+        let mut tri_bounds: Vec<f64> = Vec::with_capacity(tris2.len());
         if let Some(budget) = budget {
             let mut new_max = 0.0f64;
             let mut worst: Option<[u32; 3]> = None;
@@ -2000,6 +2224,7 @@ pub(crate) fn refill_fan_hole_seeded(
                     new_max = dt;
                     worst = Some(*t);
                 }
+                tri_bounds.push(dt);
             }
             if new_max > budget {
                 let n_seeds = all.len() - polygon.len();
@@ -2020,6 +2245,8 @@ pub(crate) fn refill_fan_hole_seeded(
                 all.push(Point2::new(c[0], c[1]));
                 continue;
             }
+        } else {
+            tri_bounds.resize(tris2.len(), 0.0);
         }
         let seeds: Vec<Point3> = all[polygon.len()..]
             .iter()
@@ -2040,6 +2267,7 @@ pub(crate) fn refill_fan_hole_seeded(
                 })
                 .collect(),
             seeds,
+            tri_bounds,
         ));
     }
 }
@@ -2200,6 +2428,7 @@ fn fan_rebuild_core(
                 patch: patch_index,
                 old_tris,
                 new_tris: Vec::new(),
+                new_tri_bounds: Vec::new(),
                 new_verts: Vec::new(),
                 dropped: victims.iter().copied().collect(),
                 plan_verts: mesh.verts.len() as u32,
@@ -2268,6 +2497,24 @@ fn fan_rebuild_core(
             t.swap(1, 2);
         }
     }
+    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+        vec![0.0; tris2.len()]
+    } else {
+        tris2
+            .iter()
+            .map(|t| {
+                let uv = [
+                    pool[t[0] as usize],
+                    pool[t[1] as usize],
+                    pool[t[2] as usize],
+                ];
+                crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .ok()
+                    .filter(|d| d.is_finite() && *d >= 0.0)
+                    .unwrap_or(f64::NAN)
+            })
+            .collect()
+    };
     let new_tris: Vec<[u32; 3]> = tris2
         .iter()
         .map(|t| {
@@ -2282,6 +2529,7 @@ fn fan_rebuild_core(
         patch: patch_index,
         old_tris,
         new_tris,
+        new_tri_bounds,
         new_verts: Vec::new(),
         dropped: victims.iter().copied().collect(),
         plan_verts: mesh.verts.len() as u32,
@@ -2577,6 +2825,24 @@ pub(crate) fn rebuild_group_fan(
             t.swap(1, 2);
         }
     }
+    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+        vec![0.0; tris2.len()]
+    } else {
+        tris2
+            .iter()
+            .map(|t| {
+                let uv = [
+                    pool[t[0] as usize],
+                    pool[t[1] as usize],
+                    pool[t[2] as usize],
+                ];
+                crate::stage4_dt::d_of_t(&patch.surface, uv)
+                    .ok()
+                    .filter(|d| d.is_finite() && *d >= 0.0)
+                    .unwrap_or(f64::NAN)
+            })
+            .collect()
+    };
     let new_tris: Vec<[u32; 3]> = tris2
         .iter()
         .map(|t| {
@@ -2599,6 +2865,7 @@ pub(crate) fn rebuild_group_fan(
         patch: patch_index,
         old_tris,
         new_tris,
+        new_tri_bounds,
         new_verts: Vec::new(),
         dropped,
         plan_verts: mesh.verts.len() as u32,
@@ -2618,6 +2885,7 @@ pub(crate) fn apply_rebuild_batch(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     rebuilds: &[PatchRebuild],
 ) -> Result<(), ConstructError> {
     debug_assert_eq!(
@@ -2627,11 +2895,20 @@ pub(crate) fn apply_rebuild_batch(
         side_labels.len(),
         mesh.tris.len(),
     );
+    tri_bounds.assert_lockstep(mesh.tris.len(), "apply_rebuild_batch");
     let (n_verts, n_tris) = (mesh.verts.len() as u32, mesh.tris.len() as u32);
     let mut removed: BTreeSet<u32> = BTreeSet::new();
     let mut attrs_of: Vec<Option<TriangleAttribution>> = Vec::with_capacity(rebuilds.len());
     let mut labels_of: Vec<crate::brep::TriangleSideLabel> = Vec::with_capacity(rebuilds.len());
     for r in rebuilds {
+        assert_eq!(
+            r.new_tri_bounds.len(),
+            r.new_tris.len(),
+            "apply_rebuild_batch: patch {} new_tri_bounds ({}) != new_tris ({})",
+            r.patch,
+            r.new_tri_bounds.len(),
+            r.new_tris.len(),
+        );
         if r.plan_verts != n_verts || r.plan_tris != n_tris {
             return Err(ConstructError::StalePlan {
                 expected_tris: r.plan_tris,
@@ -2664,6 +2941,7 @@ pub(crate) fn apply_rebuild_batch(
     let mut tris = Vec::with_capacity(mesh.tris.len() - removed.len() + added);
     let mut attrs = Vec::with_capacity(tris.capacity());
     let mut labels = Vec::with_capacity(tris.capacity());
+    let mut bounds = Vec::with_capacity(tris.capacity());
     for (t, tri) in mesh.tris.iter().enumerate() {
         if removed.contains(&(t as u32)) {
             continue;
@@ -2671,6 +2949,7 @@ pub(crate) fn apply_rebuild_batch(
         tris.push(*tri);
         attrs.push(attribution.attributions[t]);
         labels.push(side_labels.labels[t]);
+        bounds.push(tri_bounds.bounds[t]);
     }
     for ((r, attr), side_lbl) in rebuilds.iter().zip(attrs_of).zip(labels_of) {
         // I2e: append this rebuild's seed vertices and point its
@@ -2680,8 +2959,9 @@ pub(crate) fn apply_rebuild_batch(
         // the seed references.
         let seed_base = mesh.verts.len() as u32;
         mesh.verts.extend_from_slice(&r.new_verts);
-        for tri in &r.new_tris {
-            let mut out = *tri;
+        for ti in 0..r.new_tris.len() {
+            let mut out = r.new_tris[ti];
+            let tb = r.new_tri_bounds[ti];
             if !r.new_verts.is_empty() {
                 for v in &mut out {
                     if *v >= r.plan_verts {
@@ -2692,11 +2972,14 @@ pub(crate) fn apply_rebuild_batch(
             tris.push(out);
             attrs.push(attr);
             labels.push(side_lbl);
+            bounds.push(tb);
         }
     }
     mesh.tris = tris;
     attribution.attributions = attrs;
     side_labels.labels = labels;
+    tri_bounds.bounds = bounds;
+    tri_bounds.assert_lockstep(mesh.tris.len(), "apply_rebuild_batch exit");
     Ok(())
 }
 
@@ -3628,6 +3911,7 @@ fn surface_kind_name(s: &Surface) -> &'static str {
 fn local_fig11a_patch_plans(
     mesh: &Mesh,
     patch_index: usize,
+    surface: Surface,
     tri_indices: &[u32],
     patch_ops: [bool; 2],
     splits: &Fig11aSplitMap,
@@ -3860,10 +4144,24 @@ fn local_fig11a_patch_plans(
         if by_slot[slot].len() == 1 && by_slot[slot][0] == old_tris[slot] {
             continue;
         }
+        let new_tri_bounds: Vec<f64> = by_slot[slot]
+            .iter()
+            .map(|t| {
+                crate::brep::recompute_tri_bound_from_world(
+                    surface,
+                    [
+                        mesh.verts[t[0] as usize],
+                        mesh.verts[t[1] as usize],
+                        mesh.verts[t[2] as usize],
+                    ],
+                )
+            })
+            .collect();
         rebuilds.push(PatchRebuild {
             patch: patch_index,
             old_tris: vec![ti],
             new_tris: by_slot[slot].clone(),
+            new_tri_bounds,
             new_verts: Vec::new(),
             dropped: BTreeSet::new(),
             plan_verts: mesh.verts.len() as u32,
@@ -3888,6 +4186,7 @@ fn log_update_census(msg: &str) {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn update_patches_ex(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -3898,6 +4197,34 @@ pub(crate) fn update_patches_ex(
     moved: &std::collections::HashSet<u32>,
     tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> usize {
+    let mut dummy_bounds =
+        crate::brep::TriangleErrorBoundMap::from_bounds(vec![f64::NAN; mesh.tris.len()]);
+    update_patches_ex_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        a,
+        b,
+        full_arrangement,
+        moved,
+        tangential_verts,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn update_patches_ex_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
+    a: &crate::brep::BRep,
+    b: &crate::brep::BRep,
+    full_arrangement: bool,
+    moved: &std::collections::HashSet<u32>,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> usize {
+    tri_bounds.assert_lockstep(mesh.tris.len(), "update_patches_ex_with_bounds");
     let sl_opt = full_arrangement.then_some(&*side_labels);
     let splits = collect_fig11a_edge_splits(mesh, sl_opt, moved);
     let is_moved_degen_tri = |t: [u32; 3]| -> bool {
@@ -4066,7 +4393,7 @@ pub(crate) fn update_patches_ex(
                 tris: p.tri_indices.clone(),
                 surface: info.inherited,
             };
-            match rebuild_patch_planar_bounded(mesh, pi, &patch, chord_band) {
+            match rebuild_patch_planar_bounded_ex(mesh, pi, &patch, chord_band, &BTreeSet::new()) {
                 Ok(plan) => {
                     let want_bd = if has_split_bd {
                         expected_boundary_after_splits(old_tris, p_ops, &splits)
@@ -4130,9 +4457,15 @@ pub(crate) fn update_patches_ex(
         // its moved degenerate triangle reaches `validate_relocated_triangles`,
         // a loud STOP the §4.5.2 loop refines (there is no local repair arm).
         if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) && chord_degradation {
-            if let Some((rebuilds, final_tris, used)) =
-                local_fig11a_patch_plans(mesh, pi, &p.tri_indices, p_ops, &splits, moved)
-            {
+            if let Some((rebuilds, final_tris, used)) = local_fig11a_patch_plans(
+                mesh,
+                pi,
+                info.inherited,
+                &p.tri_indices,
+                p_ops,
+                &splits,
+                moved,
+            ) {
                 fig11a_n106_arm_patches += 1;
                 log_update_census(&format!(
                     "FIG11A_N106_ARM patch={pi} surface={} tris={}",
@@ -4340,7 +4673,7 @@ pub(crate) fn update_patches_ex(
         return 0;
     }
     let mut batch_err = false;
-    let n = match apply_rebuild_batch(mesh, attribution, side_labels, &plans) {
+    let n = match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &plans) {
         Ok(()) => plans.len(),
         Err(_) => {
             batch_err = true;
@@ -4365,6 +4698,7 @@ pub(crate) fn update_patches_ex(
         plans.len(),
         splits.len()
     ));
+    tri_bounds.assert_lockstep(mesh.tris.len(), "update_patches_ex_with_bounds exit");
     n
 }
 
@@ -5676,16 +6010,20 @@ mod tests {
         let mut side_labels = crate::brep::TriangleSideLabelMap {
             labels: vec![crate::brep::TriangleSideLabel::default(); mesh.tris.len()],
         };
+        let mut tri_bounds =
+            crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; mesh.tris.len()]);
         apply_rebuild_batch(
             &mut mesh,
             &mut attribution,
             &mut side_labels,
+            &mut tri_bounds,
             std::slice::from_ref(&r),
         )
         .expect("write-back");
         assert_eq!(mesh.verts.len(), n_verts_before + n_seeds);
         assert_eq!(mesh.tris.len(), attribution.attributions.len());
         assert_eq!(mesh.tris.len(), side_labels.len());
+        assert_eq!(mesh.tris.len(), tri_bounds.len());
         for (k, p) in r.new_verts.iter().enumerate() {
             assert_eq!(
                 mesh.verts[n_verts_before + k],
@@ -5777,15 +6115,24 @@ mod tests {
         let mut side_labels = crate::brep::TriangleSideLabelMap {
             labels: vec![fan_lbl, fan_lbl, fan_lbl, fan_lbl, foreign_lbl, foreign_lbl],
         };
+        let mut tri_bounds =
+            crate::brep::TriangleErrorBoundMap::from_bounds(vec![1.0, 2.0, 3.0, 4.0, 9.5, 9.75]);
 
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
-        apply_rebuild_batch(&mut mesh, &mut attribution, &mut side_labels, &[r])
-            .expect("write-back");
+        apply_rebuild_batch(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &[r],
+        )
+        .expect("write-back");
 
         assert_eq!(mesh.tris.len(), 4, "2 foreign survivors + 2 replacements");
         assert_eq!(attribution.attributions.len(), 4, "lockstep");
         assert_eq!(side_labels.len(), 4, "side_labels lockstep");
+        assert_eq!(tri_bounds.len(), 4, "tri_bounds lockstep");
         assert_eq!(
             &attribution.attributions[..2],
             &[foreign_attr, foreign_attr]
@@ -5793,6 +6140,7 @@ mod tests {
         assert_eq!(&attribution.attributions[2..], &[fan_attr, fan_attr]);
         assert_eq!(&side_labels.labels[..2], &[foreign_lbl, foreign_lbl]);
         assert_eq!(&side_labels.labels[2..], &[fan_lbl, fan_lbl]);
+        assert_eq!(&tri_bounds.bounds, &[9.5, 9.75, 0.0, 0.0]);
         assert!(
             !mesh.tris.iter().flatten().any(|&v| v == 4),
             "interior dropped"
@@ -5807,6 +6155,7 @@ mod tests {
         let mut side_labels = crate::brep::TriangleSideLabelMap {
             labels: vec![crate::brep::TriangleSideLabel::default(); 4],
         };
+        let mut tri_bounds = crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; 4]);
         let patch = plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]);
         let r = rebuild_patch_planar(&mesh, 0, &patch).expect("planar rebuild");
 
@@ -5818,11 +6167,13 @@ mod tests {
         let mut grown_labels = crate::brep::TriangleSideLabelMap {
             labels: vec![crate::brep::TriangleSideLabel::default(); 5],
         };
+        let mut grown_bounds = crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; 5]);
         assert!(matches!(
             apply_rebuild_batch(
                 &mut grown,
                 &mut grown_attr,
                 &mut grown_labels,
+                &mut grown_bounds,
                 std::slice::from_ref(&r),
             ),
             Err(ConstructError::StalePlan { .. })
@@ -5834,6 +6185,7 @@ mod tests {
                 &mut mesh,
                 &mut attribution,
                 &mut side_labels,
+                &mut tri_bounds,
                 &[r.clone(), r],
             ),
             Err(ConstructError::OverlappingBatch { .. })

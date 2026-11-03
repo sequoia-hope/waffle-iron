@@ -3088,6 +3088,19 @@ fn boolean_once_timed(
             .map(|&orig_t| crate::brep::TriangleSideLabel::from_arrangement(&la, orig_t))
             .collect(),
     };
+    // N106-D2 (Yang 2025 §4.1.2 / §4.4.1, `refs/text/yang2025_hybrid_boolean.txt:357-382, 566-571`):
+    // carry per-triangle `d_ε(T)` in lockstep with `kept_submesh.tris`,
+    // `triangle_attribution`, and `side_labels` through Stage 4/5. Gated off
+    // (nothing reads `tri_bounds` for production decisions yet).
+    let mut tri_bounds = crate::brep::TriangleErrorBoundMap::from_stage2_kept(
+        &kept_submesh,
+        &orig_tri,
+        &la,
+        &triangle_attribution,
+        stage0.is_some(),
+        a,
+        b,
+    );
 
     // (6) Topology reconstruction + Stage-4 relocation (PR-YR10). Stage 4 may
     // relocate intersection vertices in-place (onto the exact curves) and, on a
@@ -3100,6 +3113,7 @@ fn boolean_once_timed(
         &mut kept_submesh,
         &mut triangle_attribution,
         &mut side_labels,
+        &mut tri_bounds,
         a,
         b,
         op,

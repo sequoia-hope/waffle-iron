@@ -1,10 +1,12 @@
 #[allow(clippy::wildcard_imports)]
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn corner_transit_apply(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     entry: &[[f64; 3]],
@@ -12,6 +14,7 @@ pub(crate) fn corner_transit_apply(
 ) -> Result<bool, YangError> {
     use crate::stage4_corridor as s4c;
     use crate::stage4_transit as s4t;
+    tri_bounds.assert_lockstep(mesh.tris.len(), "corner_transit_apply");
     let fires = corner_crossing_fires(mesh, attribution, a, b, entry);
     if fires.is_empty() {
         return Ok(false);
@@ -1386,23 +1389,24 @@ pub(crate) fn corner_transit_apply(
                 // Seed budget = the fossil's own vertex spend (its victims):
                 // like-for-like in density as well as d(T) (§3m).
                 let seed_base = mesh.verts.len() as u32;
-                let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
-                    mesh,
-                    pi,
-                    &sp,
-                    &polygon,
-                    &del.old_tris,
-                    victims.len(),
-                    seed_base,
-                    &removed_union,
-                ) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        refuse(&format!("far fan refill v{p}: {e:?}"));
-                        rollback(mesh);
-                        return Ok(false);
-                    }
-                };
+                let (new_tris, seed_pts, new_tri_bounds) =
+                    match crate::stage4_construct::refill_fan_hole_seeded_with_bounds(
+                        mesh,
+                        pi,
+                        &sp,
+                        &polygon,
+                        &del.old_tris,
+                        victims.len(),
+                        seed_base,
+                        &removed_union,
+                    ) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            refuse(&format!("far fan refill v{p}: {e:?}"));
+                            rollback(mesh);
+                            return Ok(false);
+                        }
+                    };
                 if census && !seed_pts.is_empty() {
                     eprintln!(
                         "[451-joint] p=v{p} refill seeded {} interior verts",
@@ -1419,6 +1423,7 @@ pub(crate) fn corner_transit_apply(
                     patch: pi,
                     old_tris: del.old_tris,
                     new_tris,
+                    new_tri_bounds,
                     new_verts: seed_pts,
                     dropped: victims.clone(),
                     plan_verts: seed_base,
@@ -1522,28 +1527,30 @@ pub(crate) fn corner_transit_apply(
                         }
                     };
                     let seed_base = mesh.verts.len() as u32;
-                    let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
-                        mesh,
-                        pl.comp as usize,
-                        &sp,
-                        &polygon,
-                        &del.old_tris,
-                        victims.len(),
-                        seed_base,
-                        &removed_union,
-                    ) {
-                        Ok(t) => t,
-                        Err(e2) => {
-                            refuse(&format!("wrap-band refill comp={}: {e2:?}", pl.comp));
-                            rollback(mesh);
-                            return Ok(false);
-                        }
-                    };
+                    let (new_tris, seed_pts, new_tri_bounds) =
+                        match crate::stage4_construct::refill_fan_hole_seeded_with_bounds(
+                            mesh,
+                            pl.comp as usize,
+                            &sp,
+                            &polygon,
+                            &del.old_tris,
+                            victims.len(),
+                            seed_base,
+                            &removed_union,
+                        ) {
+                            Ok(t) => t,
+                            Err(e2) => {
+                                refuse(&format!("wrap-band refill comp={}: {e2:?}", pl.comp));
+                                rollback(mesh);
+                                return Ok(false);
+                            }
+                        };
                     replaced.extend(del.old_tris.iter().copied());
                     rebuilds.push(crate::stage4_construct::PatchRebuild {
                         patch: pl.comp as usize,
                         old_tris: del.old_tris,
                         new_tris,
+                        new_tri_bounds,
                         new_verts: seed_pts,
                         dropped: victims.clone(),
                         plan_verts: seed_base,
@@ -1630,6 +1637,7 @@ pub(crate) fn corner_transit_apply(
                 patch: pi,
                 old_tris: patch.tri_indices.clone(),
                 new_tris: Vec::new(),
+                new_tri_bounds: Vec::new(),
                 new_verts: Vec::new(),
                 dropped: all_verts,
                 plan_verts: mesh.verts.len() as u32,
@@ -1772,6 +1780,7 @@ pub(crate) fn corner_transit_apply(
                     patch: pi,
                     old_tris: del.old_tris,
                     new_tris: Vec::new(),
+                    new_tri_bounds: Vec::new(),
                     new_verts: Vec::new(),
                     dropped: victims.clone(),
                     plan_verts: mesh.verts.len() as u32,
@@ -1780,28 +1789,30 @@ pub(crate) fn corner_transit_apply(
                 continue;
             }
             let seed_base = mesh.verts.len() as u32;
-            let (new_tris, seed_pts) = match crate::stage4_construct::refill_fan_hole_seeded(
-                mesh,
-                pi,
-                &spd,
-                &polygon,
-                &del.old_tris,
-                victims.len(),
-                seed_base,
-                &removed_union,
-            ) {
-                Ok(t) => t,
-                Err(e2) => {
-                    refuse(&format!("closure-sweep refill comp={pi}: {e2:?}"));
-                    rollback(mesh);
-                    return Ok(false);
-                }
-            };
+            let (new_tris, seed_pts, new_tri_bounds) =
+                match crate::stage4_construct::refill_fan_hole_seeded_with_bounds(
+                    mesh,
+                    pi,
+                    &spd,
+                    &polygon,
+                    &del.old_tris,
+                    victims.len(),
+                    seed_base,
+                    &removed_union,
+                ) {
+                    Ok(t) => t,
+                    Err(e2) => {
+                        refuse(&format!("closure-sweep refill comp={pi}: {e2:?}"));
+                        rollback(mesh);
+                        return Ok(false);
+                    }
+                };
             replaced.extend(del.old_tris.iter().copied());
             rebuilds.push(crate::stage4_construct::PatchRebuild {
                 patch: pi,
                 old_tris: del.old_tris,
                 new_tris,
+                new_tri_bounds,
                 new_verts: seed_pts,
                 dropped: victims.clone(),
                 plan_verts: seed_base,
@@ -1852,9 +1863,13 @@ pub(crate) fn corner_transit_apply(
             return Ok(false);
         }
     }
-    if let Err(e) =
-        crate::stage4_construct::apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds)
-    {
+    if let Err(e) = crate::stage4_construct::apply_rebuild_batch(
+        mesh,
+        attribution,
+        side_labels,
+        tri_bounds,
+        &rebuilds,
+    ) {
         refuse(&format!("batch: {e:?}"));
         rollback(mesh);
         return Ok(false);
@@ -1930,5 +1945,6 @@ pub(crate) fn corner_transit_apply(
             v as i64 - e as i64 + f as i64
         );
     }
+    tri_bounds.assert_lockstep(mesh.tris.len(), "corner_transit_apply exit");
     Ok(true)
 }

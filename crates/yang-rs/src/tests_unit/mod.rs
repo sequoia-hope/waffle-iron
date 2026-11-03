@@ -24,6 +24,8 @@ mod m8_rim_override_provenance;
 mod m8_rim_refine;
 mod matching;
 mod membrane;
+mod n106_dt_bound;
+mod n106_isometric_cdt;
 mod n137_torus_plane_corner;
 mod n178_subres_coplanar;
 pub(crate) mod n2_junction;

@@ -2573,9 +2573,19 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
             .collect(),
     };
     let before_side_labels = side_labels.clone();
+    let mut tri_bounds = crate::brep::TriangleErrorBoundMap::from_bounds(
+        (0..nt).map(|i| 100.0 + i as f64).collect(),
+    );
+    let before_tri_bounds = tri_bounds.clone();
 
-    let report = transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &fill)
-        .expect("written");
+    let report = transit_emission_write(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &mut tri_bounds,
+        &fill,
+    )
+    .expect("written");
 
     // Counts: two mints, |added| − |removed| more triangles, attribution
     // parallel, the removed slots overwritten and the rest appended.
@@ -2588,6 +2598,7 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
     assert_eq!(mesh.tris.len(), nt + added - fill.removed.len());
     assert_eq!(attribution.attributions.len(), mesh.tris.len());
     assert_eq!(side_labels.len(), mesh.tris.len());
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     assert_eq!(report.overwritten, fill.removed.len());
     assert_eq!(report.appended, added - fill.removed.len());
     assert_eq!((report.removed, report.added), (fill.removed.len(), added));
@@ -2607,6 +2618,11 @@ fn the_write_lands_the_fill_slot_stably_and_the_mesh_is_manifold() {
             side_labels.lookup(t),
             before_side_labels.lookup(t),
             "survivor slot {t} keeps its side label"
+        );
+        assert_eq!(
+            tri_bounds.lookup(t),
+            before_tri_bounds.lookup(t),
+            "survivor slot {t} keeps its d(T) bound"
         );
     }
     // Every fill triangle is in the mesh with its face and its face's side label,
@@ -2693,8 +2709,15 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     let mut side_labels = crate::brep::TriangleSideLabelMap {
         labels: vec![crate::brep::TriangleSideLabel::default(); mesh.tris.len()],
     };
+    let mut tri_bounds =
+        crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; mesh.tris.len()]);
     let fill = fill_of(&mesh, &attribution, &fill_fixture_surfaces).expect("fill");
-    let before = (mesh.clone(), attribution.clone(), side_labels.clone());
+    let before = (
+        mesh.clone(),
+        attribution.clone(),
+        side_labels.clone(),
+        tri_bounds.clone(),
+    );
 
     let mut bad = fill.clone();
     bad.edge_defects.push(EdgeIncidence {
@@ -2704,7 +2727,13 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
         expected: 2,
     });
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::CertificateFailed {
             what: "edge_defects"
         })
@@ -2712,13 +2741,25 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     let mut bad = fill.clone();
     bad.folded = 1;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::CertificateFailed { what: "folded" })
     );
     let mut bad = fill.clone();
     bad.notch_surface_agrees = Some(false);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::CertificateFailed {
             what: "notch_surface_agrees"
         })
@@ -2726,26 +2767,49 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     let mut bad = fill.clone();
     bad.chord[0].new_max = Some(f64::INFINITY);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::CertificateFailed { what: "chord" })
     );
     let mut bad = fill.clone();
     bad.lift_flips = 1;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::CertificateFailed { what: "lift_flips" })
     );
     let mut bad = fill.clone();
     bad.polygons.truncate(1);
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &bad),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &bad,
+        ),
         Err(EmissionWriteFailure::FewerAddedThanRemoved {
             added: bad.polygons[0].tris.len(),
             removed: fill.removed.len(),
         })
     );
     assert_eq!(
-        (mesh.clone(), attribution.clone(), side_labels.clone()),
+        (
+            mesh.clone(),
+            attribution.clone(),
+            side_labels.clone(),
+            tri_bounds.clone(),
+        ),
         before,
         "untouched"
     );
@@ -2754,7 +2818,13 @@ fn the_write_refuses_an_uncertified_fill_and_leaves_the_mesh_untouched() {
     mesh.verts.push(Point3::new(0.0, 0.0, 0.0));
     let next = mesh.verts.len() as u32;
     assert_eq!(
-        transit_emission_write(&mut mesh, &mut attribution, &mut side_labels, &fill),
+        transit_emission_write(
+            &mut mesh,
+            &mut attribution,
+            &mut side_labels,
+            &mut tri_bounds,
+            &fill,
+        ),
         Err(EmissionWriteFailure::MintIdsStale {
             planned: [fill.mints[0].0, fill.mints[1].0],
             next,

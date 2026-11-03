@@ -3866,6 +3866,10 @@ pub(crate) struct FillPolygon {
     /// gradient at the centroid (`None` = not evaluable). Filled in by the
     /// lift certificate; the per-face [`LiftSense`] counts are its sums.
     pub(crate) lift: Vec<Option<bool>>,
+    /// Per triangle, certified surface-to-triangle bound `d(T)` (`0.0` on
+    /// planes, `f64::NAN` when unknown / uncertifiable) computed in the face's
+    /// local chart alongside `chord`.
+    pub(crate) tri_bounds: Vec<f64>,
 }
 
 /// One edge whose incidence after the edit is not what a manifold requires.
@@ -4336,6 +4340,7 @@ pub(crate) fn transit_emission_fill(
                 tris: vec![[l[0], l[1], l[2]]],
                 bite,
                 lift: Vec::new(),
+                tri_bounds: Vec::new(),
             });
         }
         let surface = face_surface(face.0, face.1).ok_or(F::NoChart { face: Some(face) })?;
@@ -4437,6 +4442,7 @@ pub(crate) fn transit_emission_fill(
             tris,
             bite,
             lift: Vec::new(),
+            tri_bounds: Vec::new(),
         })
     };
 
@@ -4584,78 +4590,111 @@ pub(crate) fn transit_emission_fill(
     faces.extend(removed.iter().filter_map(|&tr| face_of(tr)));
     faces.sort_unstable();
     faces.dedup();
+    let certify_tri = |chart: &SurfaceChart,
+                       surface: &Surface,
+                       tri: [u32; 3],
+                       at: &dyn Fn(u32) -> Point3|
+     -> Option<f64> {
+        let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
+        let planar = matches!(chart, SurfaceChart::Plane { .. });
+        let raw = [
+            chart.project(at(tri[0])),
+            chart.project(at(tri[1])),
+            chart.project(at(tri[2])),
+        ];
+        let near = |prev: f64, val: f64| -> f64 {
+            let mut d = val - prev;
+            while d > std::f64::consts::PI {
+                d -= std::f64::consts::TAU;
+            }
+            while d <= -std::f64::consts::PI {
+                d += std::f64::consts::TAU;
+            }
+            prev + d
+        };
+        let mut uv = raw;
+        for c in uv.iter_mut().skip(1) {
+            let x = if planar {
+                c.x()
+            } else {
+                near(raw[0].x(), c.x())
+            };
+            let y = if biperiodic {
+                near(raw[0].y(), c.y())
+            } else {
+                c.y()
+            };
+            *c = Point2::new(x, y);
+        }
+        crate::stage4_dt::d_of_t(surface, uv).ok()
+    };
     let certify = |chart: &SurfaceChart,
                    surface: &Surface,
                    tris: &[[u32; 3]],
                    at: &dyn Fn(u32) -> Point3|
      -> Option<f64> {
-        let biperiodic = matches!(chart, SurfaceChart::Torus { .. });
-        let planar = matches!(chart, SurfaceChart::Plane { .. });
         let mut worst = 0.0f64;
-        for tri in tris {
-            let raw = [
-                chart.project(at(tri[0])),
-                chart.project(at(tri[1])),
-                chart.project(at(tri[2])),
-            ];
-            let near = |prev: f64, val: f64| -> f64 {
-                let mut d = val - prev;
-                while d > std::f64::consts::PI {
-                    d -= std::f64::consts::TAU;
-                }
-                while d <= -std::f64::consts::PI {
-                    d += std::f64::consts::TAU;
-                }
-                prev + d
-            };
-            let mut uv = raw;
-            for c in uv.iter_mut().skip(1) {
-                let x = if planar {
-                    c.x()
-                } else {
-                    near(raw[0].x(), c.x())
-                };
-                let y = if biperiodic {
-                    near(raw[0].y(), c.y())
-                } else {
-                    c.y()
-                };
-                *c = Point2::new(x, y);
-            }
-            worst = worst.max(crate::stage4_dt::d_of_t(surface, uv).ok()?);
+        for &tri in tris {
+            worst = worst.max(certify_tri(chart, surface, tri, at)?);
         }
         Some(worst)
     };
-    let chord: Vec<ChordBudget> = faces
-        .iter()
-        .map(|&face| {
-            let chart = face_surface(face.0, face.1)
-                .map(|s| (s, SurfaceChart::new_local(s)))
-                .and_then(|(s, c)| c.map(|c| (s, c)));
-            let Some((surface, chart)) = chart else {
-                return ChordBudget {
-                    face,
-                    old_max: None,
-                    new_max: None,
+    let mut chord: Vec<ChordBudget> = Vec::with_capacity(faces.len());
+    for &face in &faces {
+        let chart = face_surface(face.0, face.1)
+            .map(|s| (s, SurfaceChart::new_local(s)))
+            .and_then(|(s, c)| c.map(|c| (s, c)));
+        let Some((surface, chart)) = chart else {
+            let surf_opt = face_surface(face.0, face.1);
+            for poly in polygons.iter_mut().filter(|p| p.face == face) {
+                poly.tri_bounds = match surf_opt {
+                    Some(s) => poly
+                        .tris
+                        .iter()
+                        .map(|&tri| {
+                            crate::brep::recompute_tri_bound_from_world(
+                                s,
+                                [pos(tri[0]), pos(tri[1]), pos(tri[2])],
+                            )
+                        })
+                        .collect(),
+                    None => vec![f64::NAN; poly.tris.len()],
                 };
-            };
-            let old: Vec<[u32; 3]> = removed
-                .iter()
-                .filter(|&&tr| face_of(tr) == Some(face))
-                .map(|&tr| mesh.tris[tr as usize])
-                .collect();
-            let new: Vec<[u32; 3]> = added
-                .iter()
-                .filter(|(_, f)| *f == face)
-                .map(|(tri, _)| *tri)
-                .collect();
-            ChordBudget {
-                face,
-                old_max: certify(&chart, &surface, &old, &|v| mesh.verts[v as usize]),
-                new_max: certify(&chart, &surface, &new, &pos),
             }
-        })
-        .collect();
+            chord.push(ChordBudget {
+                face,
+                old_max: None,
+                new_max: None,
+            });
+            continue;
+        };
+        for poly in polygons.iter_mut().filter(|p| p.face == face) {
+            poly.tri_bounds = poly
+                .tris
+                .iter()
+                .map(|&tri| {
+                    certify_tri(&chart, &surface, tri, &pos)
+                        .filter(|d| d.is_finite() && *d >= 0.0)
+                        .unwrap_or(f64::NAN)
+                })
+                .collect();
+        }
+        let old: Vec<[u32; 3]> = removed
+            .iter()
+            .filter(|&&tr| face_of(tr) == Some(face))
+            .map(|&tr| mesh.tris[tr as usize])
+            .collect();
+        let new: Vec<[u32; 3]> = added
+            .iter()
+            .filter(|(_, f)| *f == face)
+            .map(|(tri, _)| *tri)
+            .collect();
+        chord.push(ChordBudget {
+            face,
+            old_max: certify(&chart, &surface, &old, &|v| mesh.verts[v as usize]),
+            new_max: certify(&chart, &surface, &new, &pos),
+        });
+    }
 
     // The lift sense per face: the 3D normal of each triangle against the
     // face surface's gradient at its centroid — removed triangles at their
@@ -5166,6 +5205,7 @@ pub(crate) fn transit_emission_write(
     mesh: &mut Mesh,
     attribution: &mut crate::brep::TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     fill: &TransitEmissionFill,
 ) -> Result<EmissionWriteReport, EmissionWriteFailure> {
     use EmissionWriteFailure as F;
@@ -5214,6 +5254,7 @@ pub(crate) fn transit_emission_write(
         side_labels.len(),
         mesh.tris.len(),
     );
+    tri_bounds.assert_lockstep(mesh.tris.len(), "transit_emission_write");
     let next = mesh.verts.len() as u32;
     let planned = [fill.mints[0].0, fill.mints[1].0];
     if fill
@@ -5224,10 +5265,20 @@ pub(crate) fn transit_emission_write(
     {
         return Err(F::MintIdsStale { planned, next });
     }
-    let added: Vec<([u32; 3], (InputId, u32))> = fill
+    let added: Vec<([u32; 3], (InputId, u32), f64)> = fill
         .polygons
         .iter()
-        .flat_map(|p| p.tris.iter().map(move |tri| (*tri, p.face)))
+        .flat_map(|p| {
+            assert_eq!(
+                p.tri_bounds.len(),
+                p.tris.len(),
+                "transit_emission_write: polygon {:?} tri_bounds ({}) != tris ({})",
+                p.face,
+                p.tri_bounds.len(),
+                p.tris.len(),
+            );
+            (0..p.tris.len()).map(move |i| (p.tris[i], p.face, p.tri_bounds[i]))
+        })
         .collect();
     if added.len() < fill.removed.len() {
         return Err(F::FewerAddedThanRemoved {
@@ -5242,7 +5293,7 @@ pub(crate) fn transit_emission_write(
     // attribution and side label).
     let added_labels: Vec<crate::brep::TriangleSideLabel> = added
         .iter()
-        .map(|(_, face)| {
+        .map(|(_, face, _)| {
             let want = Some(crate::brep::TriangleAttribution {
                 input: face.0,
                 face: face.1,
@@ -5267,26 +5318,38 @@ pub(crate) fn transit_emission_write(
         mesh.verts.push(*at);
     }
     mesh.verts[fill.site as usize] = fill.site_at;
+    assert_eq!(
+        added_labels.len(),
+        added.len(),
+        "transit_emission_write: added_labels ({}) != added ({})",
+        added_labels.len(),
+        added.len(),
+    );
     let mut overwritten = 0usize;
     let mut appended = 0usize;
-    for (i, ((tri, face), side_lbl)) in added.iter().zip(added_labels).enumerate() {
+    for i in 0..added.len() {
+        let (tri, face, tb) = added[i];
+        let side_lbl = added_labels[i];
         let att = Some(crate::brep::TriangleAttribution {
             input: face.0,
             face: face.1,
         });
         if i < fill.removed.len() {
             let slot = fill.removed[i] as usize;
-            mesh.tris[slot] = *tri;
+            mesh.tris[slot] = tri;
             attribution.attributions[slot] = att;
             side_labels.labels[slot] = side_lbl;
+            tri_bounds.bounds[slot] = tb;
             overwritten += 1;
         } else {
-            mesh.tris.push(*tri);
+            mesh.tris.push(tri);
             attribution.attributions.push(att);
             side_labels.labels.push(side_lbl);
+            tri_bounds.bounds.push(tb);
             appended += 1;
         }
     }
+    tri_bounds.assert_lockstep(mesh.tris.len(), "transit_emission_write exit");
     Ok(EmissionWriteReport {
         site: fill.site,
         mints: planned,

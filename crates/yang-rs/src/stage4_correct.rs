@@ -974,10 +974,12 @@ pub(crate) fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
 /// at each of thirteen relocation sites — one vantage point that covers every
 /// exit, present and future, instead of an edit per site that the next site will
 /// forget.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn stage4_relocate_and_correct(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -988,6 +990,7 @@ pub(crate) fn stage4_relocate_and_correct(
         mesh,
         attribution,
         side_labels,
+        tri_bounds,
         a,
         b,
         minted_junction_keys,
@@ -1002,6 +1005,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -1009,6 +1013,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
     full_arrangement: bool,
     tangential_verts: &mut std::collections::BTreeSet<u32>,
 ) -> Result<(Vec<(u32, f64)>, bool), YangError> {
+    tri_bounds.assert_lockstep(mesh.tris.len(), "stage4_relocate_and_correct_ex entry");
     star_probe("s4-entry", mesh, attribution);
     nonmanifold_edge_census("s4-entry", mesh, attribution);
     coincident_vertex_census("s4-entry", mesh);
@@ -1068,11 +1073,12 @@ pub(crate) fn stage4_relocate_and_correct_ex(
         }
     } else {
         let mut no_relocs: Vec<(u32, f64)> = Vec::new();
-        let splits = split_pinch_vertices(
+        let splits = split_pinch_vertices_with_bounds(
             mesh,
             &mut no_relocs,
             &attribution.attributions,
             &side_labels.labels,
+            &tri_bounds.bounds,
             true,
         );
         if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
@@ -1089,6 +1095,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
         mesh,
         attribution,
         side_labels,
+        tri_bounds,
         a,
         b,
         minted_junction_keys,
@@ -1096,6 +1103,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
         full_arrangement,
         tangential_verts,
     );
+    tri_bounds.assert_lockstep(mesh.tris.len(), "stage4_relocate_and_correct_ex exit");
     // §4.5 trigger T1 (`boolean::failures`, spec `yang_452_refinement_loop.md`
     // §3): a relocation that did not converge in its domain names the faces
     // at its vertex, on the mesh as the inner pass left it. Record-only.
@@ -1218,6 +1226,7 @@ fn stage4_relocate_and_correct_inner(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -3233,6 +3242,7 @@ fn stage4_relocate_and_correct_inner(
                                                                                 mesh,
                                                                                 attribution,
                                                                                 side_labels,
+                                                                                tri_bounds,
                                                                                 fl,
                                                                             ) {
                                                                             Ok(rep) => {
@@ -5005,10 +5015,11 @@ fn stage4_relocate_and_correct_inner(
                 Ok(plans) => {
                     for plan in &plans {
                         for &victim in &plan.victims {
-                            collapse_vertex_scoped(
+                            collapse_vertex_scoped_with_bounds(
                                 mesh,
                                 &mut attribution.attributions,
                                 &mut side_labels.labels,
+                                &mut tri_bounds.bounds,
                                 victim,
                                 plan.survivor,
                                 full_arrangement,
@@ -5149,10 +5160,11 @@ fn stage4_relocate_and_correct_inner(
                         "[collapse-site] PR-KV9 junction-twin victim={victim} survivor={survivor}"
                     );
                 }
-                collapse_vertex_scoped(
+                collapse_vertex_scoped_with_bounds(
                     mesh,
                     &mut attr_vec,
                     &mut side_labels.labels,
+                    &mut tri_bounds.bounds,
                     victim,
                     survivor,
                     full_arrangement,
@@ -5281,10 +5293,11 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
             if !near_mint_moved.is_empty()
-                && weld_coincident_relocated_ex(
+                && weld_coincident_relocated_ex_with_bounds(
                     mesh,
                     &mut attr_vec,
                     &mut side_labels.labels,
+                    &mut tri_bounds.bounds,
                     a,
                     b,
                     &near_mint_moved,
@@ -5344,10 +5357,11 @@ fn stage4_relocate_and_correct_inner(
             }
         }
         if !minted_prov.is_empty()
-            && trim_beyond_corner_phantoms_ex(
+            && trim_beyond_corner_phantoms_ex_with_bounds(
                 mesh,
                 &mut attr_vec,
                 &mut side_labels.labels,
+                &mut tri_bounds.bounds,
                 &moved,
                 &minted_prov,
                 d_eps,
@@ -5364,10 +5378,11 @@ fn stage4_relocate_and_correct_inner(
         // only; per-cluster fail-closed; must run before ANY boundary-walking
         // pass (the sweep below recomputes Phase A — the inc-4a placement
         // lesson).
-        if retriangulate_collapsed_fan_regions_ex(
+        if retriangulate_collapsed_fan_regions_ex_with_bounds(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
+            &mut tri_bounds.bounds,
             brep_a,
             brep_b,
             &moved,
@@ -5384,6 +5399,7 @@ fn stage4_relocate_and_correct_inner(
         mesh,
         &mut attr_vec,
         &mut side_labels.labels,
+        &mut tri_bounds.bounds,
         a,
         b,
         d_eps,
@@ -5570,10 +5586,11 @@ fn stage4_relocate_and_correct_inner(
                             "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
                         );
                     }
-                    let dropped = collapse_vertex_scoped(
+                    let dropped = collapse_vertex_scoped_with_bounds(
                         mesh,
                         &mut attr_vec,
                         &mut side_labels.labels,
+                        &mut tri_bounds.bounds,
                         victim,
                         survivor,
                         full_arrangement,
@@ -5657,10 +5674,11 @@ fn stage4_relocate_and_correct_inner(
             );
         }
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        if weld_coincident_relocated_ex(
+        if weld_coincident_relocated_ex_with_bounds(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
+            &mut tri_bounds.bounds,
             a,
             b,
             &moved,
@@ -5688,10 +5706,11 @@ fn stage4_relocate_and_correct_inner(
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
     s4_lap("before-441-update", mesh);
-    if crate::stage4_construct::update_patches_ex(
+    if crate::stage4_construct::update_patches_ex_with_bounds(
         mesh,
         attribution,
         side_labels,
+        tri_bounds,
         a,
         b,
         full_arrangement,
@@ -5827,10 +5846,11 @@ fn stage4_relocate_and_correct_inner(
     // from the mesh alone).
     let membranes_removed = {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let n = remove_doubled_membranes_scoped(
+        let n = remove_doubled_membranes_scoped_with_bounds(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
+            &mut tri_bounds.bounds,
             full_arrangement,
         );
         attribution.attributions = attr_vec;
@@ -5856,11 +5876,12 @@ fn stage4_relocate_and_correct_inner(
     let pinch_splits = if full_arrangement {
         0
     } else {
-        split_pinch_vertices(
+        split_pinch_vertices_with_bounds(
             mesh,
             &mut relocations,
             &attribution.attributions,
             &side_labels.labels,
+            &tri_bounds.bounds,
             false,
         )
     };
@@ -5926,10 +5947,11 @@ fn stage4_relocate_and_correct_inner(
     // the standard compact + Phase-A recompute.
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let c = collapse_subtauwork_mesh_edges_ex(
+        let c = collapse_subtauwork_mesh_edges_ex_with_bounds(
             mesh,
             &mut attr_vec,
             &mut side_labels.labels,
+            &mut tri_bounds.bounds,
             full_arrangement,
             Some(tangential_verts),
         );
@@ -6278,6 +6300,7 @@ fn stage4_relocate_and_correct_inner(
         mesh,
         attribution,
         side_labels,
+        tri_bounds,
         brep_a,
         brep_b,
         &s4_entry_pos,

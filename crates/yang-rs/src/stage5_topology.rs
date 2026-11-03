@@ -537,6 +537,7 @@ pub(crate) fn reconstruct_topology_stage4(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     op: BoolOp,
@@ -550,6 +551,7 @@ pub(crate) fn reconstruct_topology_stage4(
         side_labels.len(),
         mesh.tris.len(),
     );
+    tri_bounds.assert_lockstep(mesh.tris.len(), "reconstruct_topology_stage4 entry");
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
     crate::stage4_correct::mesh_dump_probe("s4-reconstruct entry", mesh, attribution);
     // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
@@ -771,6 +773,7 @@ pub(crate) fn reconstruct_topology_stage4(
             mesh,
             attribution,
             side_labels,
+            tri_bounds,
             a,
             b,
             minted_junction_keys,
@@ -813,7 +816,12 @@ pub(crate) fn reconstruct_topology_stage4(
             // so the emitted output mesh carries no dangling vertices (a global
             // V−E+F = 2 for a single closed shell). Strict no-op when there were
             // no danglers.
-            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
+            let remap = compact_unreferenced_verts_with_bounds(
+                mesh,
+                &mut relocations,
+                &side_labels.labels,
+                &tri_bounds.bounds,
+            );
             let (i2, inc2, cv2) = compute_phase_a(
                 mesh,
                 attribution,
@@ -853,6 +861,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 mesh,
                 attribution,
                 side_labels,
+                tri_bounds,
                 a,
                 b,
                 &mut infos,
@@ -872,6 +881,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 mesh,
                 attribution,
                 side_labels,
+                tri_bounds,
                 a,
                 b,
                 &mut infos,
@@ -970,10 +980,11 @@ pub(crate) fn reconstruct_topology_stage4(
         // such segment exists (B6).
         let kv15b_collapsed = {
             let mut attr_vec = std::mem::take(&mut attribution.attributions);
-            let c = collapse_subresolution_intersection_segments(
+            let c = collapse_subresolution_intersection_segments_with_bounds(
                 mesh,
                 &mut attr_vec,
                 &mut side_labels.labels,
+                &mut tri_bounds.bounds,
                 &intersection_curves,
                 a,
                 b,
@@ -982,7 +993,12 @@ pub(crate) fn reconstruct_topology_stage4(
             c
         };
         if kv15b_collapsed {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
+            let remap = compact_unreferenced_verts_with_bounds(
+                mesh,
+                &mut relocations,
+                &side_labels.labels,
+                &tri_bounds.bounds,
+            );
             let (i3, inc3, cv3) = compute_phase_a(
                 mesh,
                 attribution,
@@ -1009,12 +1025,22 @@ pub(crate) fn reconstruct_topology_stage4(
         // touched. Byte-identical no-op when no such edge exists.
         let s194_collapsed = {
             let mut attr_vec = std::mem::take(&mut attribution.attributions);
-            let c = collapse_subtauwork_mesh_edges(mesh, &mut attr_vec, &mut side_labels.labels);
+            let c = collapse_subtauwork_mesh_edges_with_bounds(
+                mesh,
+                &mut attr_vec,
+                &mut side_labels.labels,
+                &mut tri_bounds.bounds,
+            );
             attribution.attributions = attr_vec;
             c
         };
         if s194_collapsed {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
+            let remap = compact_unreferenced_verts_with_bounds(
+                mesh,
+                &mut relocations,
+                &side_labels.labels,
+                &tri_bounds.bounds,
+            );
             let (i4, inc4, cv4) = compute_phase_a(
                 mesh,
                 attribution,
@@ -1033,10 +1059,11 @@ pub(crate) fn reconstruct_topology_stage4(
         // along LineSegment / SurfacePair intersection polylines (and sub-resolution
         // collinear straight-edge subdivisions, ledger N105) inside Stage 4 and update
         // every owner patch's triangulation conformally before topology emission.
-        let dec_st = crate::stage4_chain_decimate::decimate_patch_chains_441(
+        let dec_st = crate::stage4_chain_decimate::decimate_patch_chains_441_with_bounds(
             mesh,
             attribution,
             side_labels,
+            tri_bounds,
             &infos,
             &intersection_curves,
             a,
@@ -1056,7 +1083,12 @@ pub(crate) fn reconstruct_topology_stage4(
             dec_st.skipped_discontinuous_loops
         );
         if dec_st.verts_dropped > 0 {
-            let remap = compact_unreferenced_verts(mesh, &mut relocations, &side_labels.labels);
+            let remap = compact_unreferenced_verts_with_bounds(
+                mesh,
+                &mut relocations,
+                &side_labels.labels,
+                &tri_bounds.bounds,
+            );
             let (i5, inc5, cv5) = compute_phase_a(
                 mesh,
                 attribution,
@@ -1166,6 +1198,7 @@ pub(crate) fn reconstruct_topology_stage4(
         attribution.attributions.len(),
         mesh.tris.len(),
     );
+    tri_bounds.assert_lockstep(mesh.tris.len(), "N106-D2 hand-off");
     debug_assert_eq!(
         side_labels.keep_set(op),
         (0..mesh.tris.len()).collect::<Vec<_>>(),

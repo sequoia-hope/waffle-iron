@@ -580,6 +580,196 @@ impl TriangleSideLabelMap {
     }
 }
 
+/// Per-triangle surface-approximation error bound `d_ε(T)` kept 1:1 with
+/// `mesh.tris`, [`TriangleAttributionMap`], and [`TriangleSideLabelMap`] across
+/// Stage 4/5 (Yang 2025 §4.1.2, `refs/text/yang2025_hybrid_boolean.txt:375-382`,
+/// and §4.4.1, `:566-571`; ledger N106 D2).
+///
+/// Surviving unsplit Stage-1 inner triangles carry the face's `d_ε` (from
+/// Stage 1's structured sampling, §4.1); surviving Stage-1 boundary triangles,
+/// Stage-2 subdivided triangles, and **every** triangle created in Stage 4/5 —
+/// boundary or inner, by any mutator — carry their own recomputed `d(T)` via
+/// [`crate::stage4_dt::d_of_t`] (`0.0` on exact planes, `f64::NAN` if
+/// unattributed or `d_of_t` fails). Gated-off primitive: carried and asserted
+/// in lockstep across all Stage-4/5 mesh mutators, with zero production consumers.
+#[derive(Clone, Debug, PartialEq, Default)]
+pub(crate) struct TriangleErrorBoundMap {
+    pub(crate) bounds: Vec<f64>,
+}
+
+impl TriangleErrorBoundMap {
+    #[allow(dead_code)]
+    pub(crate) fn empty() -> Self {
+        Self { bounds: Vec::new() }
+    }
+
+    pub(crate) fn from_bounds(bounds: Vec<f64>) -> Self {
+        Self { bounds }
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn len(&self) -> usize {
+        self.bounds.len()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.bounds.is_empty()
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn lookup(&self, mesh_tri: u32) -> f64 {
+        assert!(
+            (mesh_tri as usize) < self.bounds.len(),
+            "TriangleErrorBoundMap::lookup: tri {mesh_tri} out of range (len {})",
+            self.bounds.len()
+        );
+        self.bounds[mesh_tri as usize]
+    }
+
+    pub(crate) fn assert_lockstep(&self, n_tris: usize, context: &str) {
+        assert_eq!(
+            self.bounds.len(),
+            n_tris,
+            "{context}: tri_bounds ({}) must be 1:1 with mesh.tris ({n_tris})",
+            self.bounds.len(),
+        );
+    }
+
+    /// Initialize per-triangle `d_ε(T)` at Stage-4 entry from the Stage-2 kept
+    /// submesh, arrangement lineage, and input B-Reps (Yang 2025 §4.1.2,
+    /// `refs/text/yang2025_hybrid_boolean.txt:375-382`).
+    ///
+    /// - Planar faces carry `0.0`.
+    /// - Unsplit Stage-1 curved triangles (matching vertex coordinates up to
+    ///   winding flip when Stage 0 did not re-tessellate) carry face `d_ε` on
+    ///   inner triangles (`BRep::is_stage1_inner_tri`) and Stage-1 `tri_dt` on
+    ///   boundary triangles.
+    /// - Stage-2 subdivided curved triangles (and lineage-less / Stage-0 curved
+    ///   triangles) recompute `d(T)` via [`recompute_tri_bound_from_world`].
+    pub(crate) fn from_stage2_kept(
+        kept_submesh: &Mesh,
+        orig_tri: &[usize],
+        la: &cherchi_rs::labeled_arrangement::LabeledArrangement,
+        attribution: &TriangleAttributionMap,
+        stage0_active: bool,
+        a: &BRep,
+        b: &BRep,
+    ) -> Self {
+        assert_eq!(
+            kept_submesh.tris.len(),
+            orig_tri.len(),
+            "from_stage2_kept: kept_submesh.tris ({}) != orig_tri ({})",
+            kept_submesh.tris.len(),
+            orig_tri.len(),
+        );
+        let pt_bits =
+            |p: Point3| -> [u64; 3] { [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] };
+        let sorted_tri_bits = |pts: [Point3; 3]| -> [[u64; 3]; 3] {
+            let mut b = [pt_bits(pts[0]), pt_bits(pts[1]), pt_bits(pts[2])];
+            b.sort_unstable();
+            b
+        };
+        let mut bounds = Vec::with_capacity(orig_tri.len());
+        for (compact_t, &orig_t) in orig_tri.iter().enumerate() {
+            let Some(TriangleAttribution { input, face }) =
+                attribution.attributions.get(compact_t).copied().flatten()
+            else {
+                bounds.push(f64::NAN);
+                continue;
+            };
+            let (operand, want_k) = match input {
+                InputId::A => (a, 0u32),
+                InputId::B => (b, 1u32),
+            };
+            let Some(brep_face) = operand.faces.get(face as usize) else {
+                bounds.push(f64::NAN);
+                continue;
+            };
+            if matches!(brep_face.surface, Surface::Plane { .. }) {
+                bounds.push(0.0);
+                continue;
+            }
+            let tri = kept_submesh.tris[compact_t];
+            let pts = [
+                kept_submesh.verts[tri[0] as usize],
+                kept_submesh.verts[tri[1] as usize],
+                kept_submesh.verts[tri[2] as usize],
+            ];
+            let unsplit_raw = if !stage0_active && !la.source.is_empty() {
+                la.source
+                    .get(orig_t)
+                    .and_then(|src| {
+                        src.iter()
+                            .find(|&&(cherchi_rs::labeled_arrangement::InputId(k), _)| k == want_k)
+                            .map(|&(_, local)| local as usize)
+                    })
+                    .filter(|&raw_t| {
+                        raw_t < operand.tri_dt.len() && raw_t < operand.mesh.tris.len() && {
+                            let rt = operand.mesh.tris[raw_t];
+                            let rpts = [
+                                operand.mesh.verts[rt[0] as usize],
+                                operand.mesh.verts[rt[1] as usize],
+                                operand.mesh.verts[rt[2] as usize],
+                            ];
+                            sorted_tri_bits(pts) == sorted_tri_bits(rpts)
+                        }
+                    })
+            } else {
+                None
+            };
+            let d = if let Some(raw_t) = unsplit_raw {
+                if operand.is_stage1_inner_tri(raw_t) {
+                    face_error_budget(operand, face as usize).unwrap_or(operand.tri_dt[raw_t])
+                } else {
+                    operand.tri_dt[raw_t]
+                }
+            } else {
+                recompute_tri_bound_from_world(brep_face.surface, pts)
+            };
+            bounds.push(d);
+        }
+        let out = Self { bounds };
+        out.assert_lockstep(kept_submesh.tris.len(), "from_stage2_kept exit");
+        out
+    }
+}
+
+/// Per-face Stage-1 chord budget `d_ε` of `face_idx` on `brep`, scaled by
+/// `1 / k²` when §4.5.2 per-face refinement (`face_refine`) discretized the
+/// face at density multiplier `k > 1`.
+pub(crate) fn face_error_budget(brep: &BRep, face_idx: usize) -> Option<f64> {
+    let f = brep.faces.get(face_idx)?;
+    if matches!(f.surface, Surface::Plane { .. }) {
+        return Some(0.0);
+    }
+    let base = crate::stage4_correct::face_chord_bound(f, &brep.edges)
+        .or_else(|| crate::stage4_correct::input_curved_chord_bound(brep))?;
+    let k = crate::stage1_tessellate::face_refine_factor(&brep.face_refine, face_idx);
+    if k > 1 {
+        let kf = k as f64;
+        Some(base / (kf * kf))
+    } else {
+        Some(base)
+    }
+}
+
+/// Recompute the certified surface-to-triangle bound `d(T)` (`0.0` on planes,
+/// `f64::NAN` if `d_of_t` fails so an uncertified bound can never masquerade as
+/// a tight `0.0` bound) from 3D triangle vertex coordinates via Stage-1 UV
+/// projection + [`crate::stage4_dt::d_of_t`] (Yang 2025 §4.1.2 / §4.4.1,
+/// `refs/text/yang2025_hybrid_boolean.txt:357-378, 566-571`).
+pub(crate) fn recompute_tri_bound_from_world(surface: Surface, pts: [Point3; 3]) -> f64 {
+    if matches!(surface, Surface::Plane { .. }) {
+        return 0.0;
+    }
+    let (eff_surf, uv) = crate::stage1_tessellate::stage1_tri_surface_and_uv(surface, pts);
+    crate::stage4_dt::d_of_t(&eff_surf, uv)
+        .ok()
+        .filter(|d| d.is_finite() && *d >= 0.0)
+        .unwrap_or(f64::NAN)
+}
+
 // =========================================================================
 // BRep
 // =========================================================================

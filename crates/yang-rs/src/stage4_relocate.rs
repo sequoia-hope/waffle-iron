@@ -2172,10 +2172,28 @@ pub(crate) fn remove_doubled_membranes(
 /// are distinct operand boundaries and must stay intact until post-keep
 /// classification. Post-keep (`scope_by_side_label = false`), opposite-winding
 /// membranes cancel across operands as well.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn remove_doubled_membranes_scoped(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<crate::brep::TriangleSideLabel>,
+    scope_by_side_label: bool,
+) -> usize {
+    let mut dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    remove_doubled_membranes_scoped_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        scope_by_side_label,
+    )
+}
+
+pub(crate) fn remove_doubled_membranes_scoped_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<crate::brep::TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
     scope_by_side_label: bool,
 ) -> usize {
     debug_assert_eq!(
@@ -2187,6 +2205,11 @@ pub(crate) fn remove_doubled_membranes_scoped(
         side_labels.len(),
         mesh.tris.len(),
         "side_labels must be 1:1 with mesh.tris on entry"
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "tri_bounds must be 1:1 with mesh.tris on entry"
     );
     use std::collections::BTreeMap;
     type ScopeKey = Option<crate::brep::TriangleSideLabel>;
@@ -2258,9 +2281,15 @@ pub(crate) fn remove_doubled_membranes_scoped(
             .filter(|&i| !remove[i])
             .map(|i| side_labels.get(i).copied().unwrap_or_default())
             .collect();
+        let kept_bounds: Vec<f64> = (0..mesh.tris.len())
+            .filter(|&i| !remove[i])
+            .map(|i| tri_bounds[i])
+            .collect();
         *mesh = Mesh::new(std::mem::take(&mut mesh.verts), kept);
         *attribution = kept_attr;
         *side_labels = kept_labels;
+        *tri_bounds = kept_bounds;
+        assert_eq!(tri_bounds.len(), mesh.tris.len());
     }
     removed
 }
@@ -2446,6 +2475,7 @@ pub(crate) fn detect_arrangement_tangential_contact_verts(
     out
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn split_pinch_vertices(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
@@ -2453,11 +2483,44 @@ pub(crate) fn split_pinch_vertices(
     side_labels: &[crate::brep::TriangleSideLabel],
     edge_pinch: bool,
 ) -> usize {
+    let dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    split_pinch_vertices_with_bounds(
+        mesh,
+        relocations,
+        attribution,
+        side_labels,
+        &dummy_bounds,
+        edge_pinch,
+    )
+}
+
+pub(crate) fn split_pinch_vertices_with_bounds(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    attribution: &[Option<TriangleAttribution>],
+    side_labels: &[crate::brep::TriangleSideLabel],
+    tri_bounds: &[f64],
+    edge_pinch: bool,
+) -> usize {
     if edge_pinch {
-        split_pinch_vertices_scoped(mesh, relocations, attribution, side_labels, None)
+        split_pinch_vertices_scoped_with_bounds(
+            mesh,
+            relocations,
+            attribution,
+            side_labels,
+            tri_bounds,
+            None,
+        )
     } else {
         let empty = std::collections::BTreeSet::new();
-        split_pinch_vertices_scoped(mesh, relocations, attribution, side_labels, Some(&empty))
+        split_pinch_vertices_scoped_with_bounds(
+            mesh,
+            relocations,
+            attribution,
+            side_labels,
+            tri_bounds,
+            Some(&empty),
+        )
     }
 }
 
@@ -2465,6 +2528,7 @@ pub(crate) fn split_pinch_vertices(
 /// edge-pinch arm (`None` = allow any certified 4-valent edge; `Some(set)` =
 /// allow only edges `(v, u)` whose endpoints both belong to `set`, i.e.
 /// pre-Stage-4 arrangement tangential contacts).
+#[allow(dead_code)]
 pub(crate) fn split_pinch_vertices_scoped(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
@@ -2472,11 +2536,37 @@ pub(crate) fn split_pinch_vertices_scoped(
     side_labels: &[crate::brep::TriangleSideLabel],
     allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
 ) -> usize {
+    let dummy_bounds = vec![f64::NAN; mesh.tris.len()];
+    split_pinch_vertices_scoped_with_bounds(
+        mesh,
+        relocations,
+        attribution,
+        side_labels,
+        &dummy_bounds,
+        allowed_edge_pinch_verts,
+    )
+}
+
+pub(crate) fn split_pinch_vertices_scoped_with_bounds(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    attribution: &[Option<TriangleAttribution>],
+    side_labels: &[crate::brep::TriangleSideLabel],
+    tri_bounds: &[f64],
+    allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
+) -> usize {
     debug_assert_eq!(
         side_labels.len(),
         mesh.tris.len(),
         "split_pinch_vertices: side_labels ({}) must be 1:1 with mesh.tris ({})",
         side_labels.len(),
+        mesh.tris.len(),
+    );
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "split_pinch_vertices: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
         mesh.tris.len(),
     );
     use std::collections::BTreeMap;
@@ -2601,6 +2691,7 @@ pub(crate) fn split_pinch_vertices_scoped(
             splits += 1;
         }
     }
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
     splits
 }
 

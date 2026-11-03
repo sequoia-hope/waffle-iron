@@ -19,6 +19,7 @@ pub(crate) fn sweep_reversed_intersections(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
     side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
     a: &BRep,
     b: &BRep,
     d_eps: f64,
@@ -29,6 +30,13 @@ pub(crate) fn sweep_reversed_intersections(
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
 ) -> Result<bool, YangError> {
     use std::collections::HashSet;
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "sweep_reversed_intersections: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+        tri_bounds.len(),
+        mesh.tris.len(),
+    );
     const ANG_TOL: f64 = 1e-6; // radians (Yang §5).
     let lo = std::f64::consts::FRAC_PI_4 - ANG_TOL; // 45° − tol
     let hi = 3.0 * std::f64::consts::FRAC_PI_4 + ANG_TOL; // 135° + tol
@@ -363,10 +371,11 @@ pub(crate) fn sweep_reversed_intersections(
                         "[collapse-site] s4.5.3-reversal victim={victim} survivor={survivor}"
                     );
                 }
-                let dropped = collapse_vertex_scoped(
+                let dropped = collapse_vertex_scoped_with_bounds(
                     mesh,
                     attribution,
                     side_labels,
+                    tri_bounds,
                     victim,
                     survivor,
                     full_arrangement,
@@ -410,6 +419,13 @@ pub(crate) fn sweep_reversed_intersections(
                     ),
                 );
             }
+            assert_eq!(
+                tri_bounds.len(),
+                mesh.tris.len(),
+                "sweep_reversed_intersections exit: tri_bounds ({}) must be 1:1 with mesh.tris ({})",
+                tri_bounds.len(),
+                mesh.tris.len(),
+            );
             return Ok(collapsed_any);
         }
     }

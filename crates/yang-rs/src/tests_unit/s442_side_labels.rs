@@ -638,10 +638,13 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
 
     let plan_verts = mesh.verts.len() as u32; // 8
     let plan_tris = mesh.tris.len() as u32; // 6
+    let mut tri_bounds =
+        crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; mesh.tris.len()]);
     let rebuild_a = PatchRebuild {
         patch: 0,
         old_tris: vec![1, 2],
         new_tris: vec![[0, 1, 3], [1, 2, 3]],
+        new_tri_bounds: vec![0.0; 2],
         new_verts: Vec::new(),
         dropped: BTreeSet::new(),
         plan_verts,
@@ -652,6 +655,7 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
         patch: 1,
         old_tris: vec![4, 5],
         new_tris: vec![[1, 4, 8], [4, 5, 8], [5, 2, 8], [2, 1, 8]],
+        new_tri_bounds: vec![0.0; 4],
         new_verts: vec![pt(1.5, 0.5, 0.0)],
         dropped: BTreeSet::new(),
         plan_verts,
@@ -662,6 +666,7 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
         &mut mesh,
         &mut attribution,
         &mut side_labels,
+        &mut tri_bounds,
         &[rebuild_a, rebuild_b],
     )
     .expect("multi-patch batch write-back must succeed");

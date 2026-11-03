@@ -46,12 +46,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use cad_primitives::Point3;
 use cherchi_rs::Mesh;
 
-use crate::brep::{BRep, InputId, TriangleAttributionMap, TriangleSideLabelMap};
+use crate::brep::{
+    BRep, InputId, TriangleAttributionMap, TriangleErrorBoundMap, TriangleSideLabelMap,
+};
 use crate::errors::{ChainDecimateError, YangError};
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
     apply_rebuild_batch, directed_boundary, rebuild_patch_planar_bounded_ex,
-    refill_fan_hole_seeded, PatchRebuild,
+    refill_fan_hole_seeded_with_bounds, PatchRebuild,
 };
 use crate::stage4_correct::{
     merge_same_plane_patches_with_side_labels, paper_chain_metrics, paper_chain_sample_redundant,
@@ -620,6 +622,7 @@ fn rebuild_decimated_patch_fans(
     let plan_tris = mesh.tris.len() as u32;
     let mut all_old_tris: Vec<u32> = Vec::with_capacity(target_tris.len());
     let mut all_new_tris: Vec<[u32; 3]> = Vec::new();
+    let mut all_new_tri_bounds: Vec<f64> = Vec::new();
     let mut all_new_verts: Vec<Point3> = Vec::new();
 
     let probe = std::env::var_os("YANG_434_DECIMATE_DECLINE_PROBE").is_some();
@@ -713,7 +716,7 @@ fn rebuild_decimated_patch_fans(
             continue;
         }
         let seed_id_base = plan_verts + all_new_verts.len() as u32;
-        let (comp_new_tris, comp_seeds) = match refill_fan_hole_seeded(
+        let (comp_new_tris, comp_seeds, comp_bounds) = match refill_fan_hole_seeded_with_bounds(
             mesh,
             patch_index,
             patch,
@@ -736,6 +739,7 @@ fn rebuild_decimated_patch_fans(
             }
         };
         all_new_tris.extend(comp_new_tris);
+        all_new_tri_bounds.extend(comp_bounds);
         all_new_verts.extend(comp_seeds);
     }
 
@@ -743,6 +747,7 @@ fn rebuild_decimated_patch_fans(
         patch: patch_index,
         old_tris: all_old_tris,
         new_tris: all_new_tris,
+        new_tri_bounds: all_new_tri_bounds,
         new_verts: all_new_verts,
         dropped: victims.clone(),
         plan_verts,
@@ -755,6 +760,7 @@ fn rebuild_decimated_patch_fans(
 /// straight operand edges, ledger `N105`) inside Stage 4 (§4.4.1), updating
 /// every adjacent patch's triangulation conformally before topology emission.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn decimate_patch_chains_441(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -765,6 +771,33 @@ pub(crate) fn decimate_patch_chains_441(
     b: &BRep,
     full_arrangement: bool,
 ) -> Result<DecimateStats, YangError> {
+    let mut dummy_bounds = TriangleErrorBoundMap::from_bounds(vec![f64::NAN; mesh.tris.len()]);
+    decimate_patch_chains_441_with_bounds(
+        mesh,
+        attribution,
+        side_labels,
+        &mut dummy_bounds,
+        infos,
+        intersection_curves,
+        a,
+        b,
+        full_arrangement,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn decimate_patch_chains_441_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    side_labels: &mut TriangleSideLabelMap,
+    tri_bounds: &mut TriangleErrorBoundMap,
+    infos: &[PatchInfo],
+    intersection_curves: &BTreeMap<(u32, u32), Curve>,
+    a: &BRep,
+    b: &BRep,
+    full_arrangement: bool,
+) -> Result<DecimateStats, YangError> {
+    tri_bounds.assert_lockstep(mesh.tris.len(), "decimate_patch_chains_441_with_bounds");
     let edges_before: usize = infos
         .iter()
         .map(|info| info.cycles.iter().map(Vec::len).sum::<usize>())
@@ -1526,7 +1559,7 @@ pub(crate) fn decimate_patch_chains_441(
         });
     }
 
-    if let Err(err) = apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
+    if let Err(err) = apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
         return Err(YangError::Stage4ChainDecimateFailed {
             reason: ChainDecimateError::BatchWritebackFailed {
                 detail: format!("{err:?}"),
@@ -1558,5 +1591,9 @@ pub(crate) fn decimate_patch_chains_441(
         })
         .sum();
     stats.edges_after = stats.edges_before.saturating_sub(owner_mult);
+    tri_bounds.assert_lockstep(
+        mesh.tris.len(),
+        "decimate_patch_chains_441_with_bounds exit",
+    );
     Ok(stats)
 }

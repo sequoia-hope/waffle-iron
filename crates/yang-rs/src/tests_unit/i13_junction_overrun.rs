@@ -525,10 +525,12 @@ fn n89_item3_sweep_visits_and_corrects_all_hyperbola_prism_cone_loop() {
     assert_eq!(infos_pre[0].cycles.len(), 1);
     assert_eq!(infos_pre[0].cycles[0].len(), 11);
 
+    let mut tri_bounds = vec![0.1f64; mesh.tris.len()];
     let swept = sweep_reversed_intersections(
         &mut mesh,
         &mut attr,
         &mut side_labels,
+        &mut tri_bounds,
         &a,
         &b,
         0.1,
@@ -539,6 +541,7 @@ fn n89_item3_sweep_visits_and_corrects_all_hyperbola_prism_cone_loop() {
         None,
     )
     .expect("sweep_reversed_intersections on 4-Hyperbola prism×cone loop");
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
 
     assert!(
         swept,
@@ -654,10 +657,12 @@ fn n89_item3_sweep_visits_and_corrects_all_parabola_lens_loop() {
         "every intersection curve in the lens loop must be Curve::Parabola, got {curves_pre:?}"
     );
 
+    let mut tri_bounds = vec![0.2f64; mesh.tris.len()];
     let swept = sweep_reversed_intersections(
         &mut mesh,
         &mut attr,
         &mut side_labels,
+        &mut tri_bounds,
         &a,
         &b,
         0.2,
@@ -668,6 +673,7 @@ fn n89_item3_sweep_visits_and_corrects_all_parabola_lens_loop() {
         None,
     )
     .expect("sweep_reversed_intersections on 2-Parabola lens loop");
+    assert_eq!(tri_bounds.len(), mesh.tris.len());
 
     assert!(
         swept,

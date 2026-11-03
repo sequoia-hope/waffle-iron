@@ -8236,3 +8236,26 @@ Stage-1 only), and an audit of which Stage-4/5 decisions read d_ε. The
 2026-10-16 volume regressions that motivated the budget (a band of secant
 triangles shaving 7 %) must be re-measured with the isometric chart before
 the gate goes — they may have been the anisotropic chart's slivers.
+
+**Progress (2026-11-03, groundwork landed GATED OFF — still OPEN).** Built by
+Antigravity (branch `agy/n106-dt-bound`), independently reviewed, sent back
+once, landed by the F2 owner:
+- **Consumer inventory** `docs/agy/n106_dt_consumers.md`: every Stage-4/5
+  site that reads d_ε or refuses on d(T) — including the two live refusals
+  the first draft missed (`refill_fan_hole` in the Stage-5 rehome,
+  `transit_emission_write`'s `CertificateFailed{"chord"}`).
+- **Per-triangle bound** carried in lockstep through every Stage-4/5 mesh
+  mutator (`brep.rs`), hard-asserted in release. Owner rule (§4.1.2's d_ε
+  for an inner triangle rests on Stage 1's structured sampling): d_ε ONLY on
+  a surviving unsplit Stage-1 inner triangle; every Stage-2 split and every
+  triangle created in Stage 4/5 carries its own `d_of_t`; NaN when unknown,
+  never 0.0. Nothing reads it yet.
+- **Isometric-chart patch CDT** (`ChartMetric::Isometric`, cylinder (r·θ, y),
+  cone developed sector), behind the production `Parametric` default: on its
+  pins 46 → 0 circumferential slivers.
+- **Result-neutral, measured:** all 374 corpus cases' canonical geometry and
+  error hashes identical to the branch base (`WAFFLE_GEOMETRY_HASH_OUT`, 371
+  distinct hashes); F0067 204.0 s → 203.3 s.
+Next (F2 owner): wire the bound into the inventoried consumers, switch the
+patch CDT to the isometric chart, then retire the I2d refusal and the arms
+kept behind it (re-measuring the 2026-10-16 volume regressions first).

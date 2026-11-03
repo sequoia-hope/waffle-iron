@@ -6,6 +6,7 @@ pub(super) fn run_construct_passes(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
+    tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     a: &BRep,
     b: &BRep,
     infos: &mut Vec<crate::stage4_correct::PatchInfo>,
@@ -808,6 +809,7 @@ pub(super) fn run_construct_passes(
             // Single-sided rebuilds. A patch that declines takes all its seams
             // out of the batch (its partners must not collapse one-sidedly).
             let mut out = Vec::with_capacity(mod_cycles.len());
+            let chord_band = crate::stage4_correct::stage4_chord_band(a, b);
             for (&pi, cycles) in &mod_cycles {
                 let modp = SplicePatch {
                     cycles: cycles.clone(),
@@ -815,10 +817,7 @@ pub(super) fn run_construct_passes(
                     surface: patches[pi].surface,
                 };
                 match crate::stage4_construct::rebuild_patch_planar_bounded(
-                    mesh,
-                    pi,
-                    &modp,
-                    crate::stage4_correct::stage4_chord_band(a, b),
+                    mesh, pi, &modp, chord_band,
                 ) {
                     Ok(r) => out.push(r),
                     Err(e) => {
@@ -991,7 +990,7 @@ pub(super) fn run_construct_passes(
                 break;
             }
         }
-        match apply_rebuild_batch(mesh, attribution, side_labels, &rebuilds) {
+        match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
             Ok(()) => {
                 for &ei in &active {
                     let e = &eligible[ei];
@@ -1033,7 +1032,12 @@ pub(super) fn run_construct_passes(
             }
         }
 
-        let remap = compact_unreferenced_verts(mesh, relocations, &side_labels.labels);
+        let remap = compact_unreferenced_verts_with_bounds(
+            mesh,
+            relocations,
+            &side_labels.labels,
+            &tri_bounds.bounds,
+        );
         if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
             crate::stage4_correct::remap_vert_set(tv, map);
         }
