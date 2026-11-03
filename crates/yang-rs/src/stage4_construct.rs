@@ -995,6 +995,19 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
             .iter()
             .map(|t| [at(t[0]), at(t[1]), at(t[2])])
             .collect();
+        if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() {
+            for t in &new_tris {
+                let has = |v: u32| t.contains(&v);
+                if has(37) && has(58) {
+                    eprintln!(
+                        "[trial-edge] patch={patch_index} band={band} new tri {t:?} carries edge (37,58); \
+                         37 on cycle={} 58 on cycle={}",
+                        cycle_verts.contains(&37),
+                        cycle_verts.contains(&58)
+                    );
+                }
+            }
+        }
         let new_verts: Vec<Point3> = seeds.iter().map(|&s| chart.lift(s)).collect();
         Ok((new_tris, new_verts, new_tri_bounds))
     };
