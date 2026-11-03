@@ -479,6 +479,12 @@ test.describe('Agent link authoring (Phase 1)', () => {
 				.poll(async () => (await relay.callTool('waffle_status')).structuredContent.state, { timeout: 5000 })
 				.toBe('paused');
 
+			// I12 / O9 time the Disconnect action to the relay, not the page
+			// settling: after the gear lands, CI's software GL drops frames for
+			// ~1.4 s, and `click()`'s stability wait (which needs frames) spent
+			// 1.3–1.5 s of the two failing runs' totals before the click fired.
+			// Start the clock once the page renders again.
+			await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 			const clickedAt = Date.now();
 			await page.getByTestId('agent-disconnect').click();
 			await expect
