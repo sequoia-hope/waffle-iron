@@ -8304,4 +8304,7 @@ curve edge spanning the two branches. **Mechanism:** the post-update curve
 build re-derives curve incidence from triangle adjacency instead of carrying
 it; §4.4.1 maps "boundary curves to boundary curves" (`:546-571`), so the
 update already knows the curve chains — carry them. (On main I2d refuses both
-CDTs, which is the only reason this does not fire.) R0046 / R0063 next.
+CDTs, which is the only reason this does not fire.) **R0063: same mechanism**
+(its failing edge (69,77) is an interior chord of patch 3 AND patch 5, one per
+operand). **R0046: different** — no patch adds its failing edge (26,53) as a
+chord between cycle vertices; not yet anchored.
