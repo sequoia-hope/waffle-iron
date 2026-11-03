@@ -107,6 +107,19 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 - **Step 0 — measure (2026-11-03).** Corpus on HEAD; prospector seed 6 with
   every oracle on; adjudicate the O2 and O5 outliers and promote both to
   verdicts. Output: the baseline column above, filled from computed numbers.
+  - **O5 adjudicated (2026-11-03): all 41 corpus violations are AUTHORED-
+    EXPECTATION defects, none kernel.** 39 are no-change steps (exact B-Rep
+    volume identical, rel 0.0 — a tool that misses the body returns the
+    operand; C0038/C0040 are 10 µm / 1 mm holes below the meta's resolution;
+    C0043 is a union equal to A by design); 2 are wrong-sign (C0074, C0081:
+    Intersect-combine bosses, which legitimately shrink). The generator writes
+    "decrease" per cut and "increase" per boss without knowing reach, so O5
+    cannot be promoted by reading `volume_monotonicity`. **Promotion path:**
+    the expected direction per step (decrease / none / increase) comes from
+    the exact chain's per-step volume where it covers the prefix, and a step
+    is a violation only when the kernel's exact change disagrees with it —
+    which still catches a silently dropped cut. Waits on the
+    `agy/oracle-extent` review (same file).
 - **Step 1 — the roadmap, in order.** F2 (one owner, D-2) → F3 → F4's open
   items → F5 (the generic interface, one CDT per face, the B-spline instance)
   → F6 → F7. Gate 3's pair matrix and gate 4's K7 / K10 are non-kernel-lane
