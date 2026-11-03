@@ -944,7 +944,9 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
                 new_max = new_max.max(dt);
                 new_tri_bounds.push(dt);
             }
-            if new_max > budget {
+            // TRIAL (N106 increment-3 measurement, not for landing): the I2d
+            // refusal is off; every curved patch CDT is accepted.
+            if std::env::var_os("TRIAL_KEEP_I2D").is_some() && new_max > budget {
                 return Err(ConstructError::ChordDegradation {
                     patch: patch_index,
                     old_max: budget,
