@@ -8270,3 +8270,14 @@ other case bit-identical) and none changed category: P0014 P0017 P0029 P0039
 P0049 R0003 R0004 R0019 R0032 R0044 R0053 R0081. The I2d refusal is still in
 force — increment 2 wires the per-triangle bound into the post-update readers
 (the inventory's B4/B5, A-rows), increment 3 retires I2d / I2e.
+
+**Measured (2026-11-03): what the I2d refusal still holds up.** Trial branch
+with the A1 refusal off (every curved patch CDT accepted, I2e never fires),
+corpus on sequoia: still **0 WRONG**; 135 cases change geometry; **8 CORRECT →
+ERROR**, in three classes — the work list for increment 2, by measurement
+rather than by the inventory:
+1. Stage-3 SSI edge matching `AmbiguousCurve { candidates: 2, matched: 0 }`:
+   F0058, R0046, R0063.
+2. §4.5.2 exhausted on `IllegalIntersection`: C0052, C0054, P0057.
+3. `reassembled output would be non-2-manifold`: C0103, F0060.
+None is attributed yet; each is anchored before a fix.
