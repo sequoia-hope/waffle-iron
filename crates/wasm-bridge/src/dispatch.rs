@@ -4098,6 +4098,10 @@ fn operation_name(op: &Operation) -> String {
         Operation::PatternLinear { .. } => "Linear pattern".to_string(),
         Operation::PatternMirror { .. } => "Mirror".to_string(),
         Operation::Script { .. } => "Script".to_string(),
+        Operation::BoardShape { params } if !params.board.trim().is_empty() => {
+            format!("Board shape ({})", params.board.trim())
+        }
+        Operation::BoardShape { .. } => "Board shape".to_string(),
         Operation::Unknown(_) => op.type_tag().to_string(),
     }
 }

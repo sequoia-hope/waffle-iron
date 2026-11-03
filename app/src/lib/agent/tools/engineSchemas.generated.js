@@ -364,6 +364,132 @@ export const ENGINE_DEFS = {
       }
     ]
   },
+  "BoardEntityRole": {
+    "description": "Role assigned to a sketch entity in [`BoardShapeParams::roles`].",
+    "oneOf": [
+      {
+        "description": "Segment of the single closed outer board perimeter (`Line`, `Arc`, or lone `Circle`).",
+        "properties": {
+          "type": {
+            "const": "outline",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Segment of an interior closed board cutout (`Line`, `Arc`, or `Circle`).",
+        "properties": {
+          "type": {
+            "const": "cutout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Circular drilled hole (`Circle` entity only).",
+        "properties": {
+          "clearance": {
+            "default": 0,
+            "description": "Copper-to-hole-edge clearance in metres (finite, `>= 0.0`).",
+            "format": "double",
+            "type": "number"
+          },
+          "plated": {
+            "default": false,
+            "type": "boolean"
+          },
+          "type": {
+            "const": "hole",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "Segment of a closed component placement keepout (`Line`, `Arc`, or `Circle`).",
+        "properties": {
+          "max_height": {
+            "description": "Maximum component height allowed inside the keepout in metres\n(finite, `>= 0.0`; `0.0` forbids components of any height).",
+            "format": "double",
+            "type": "number"
+          },
+          "side": {
+            "$ref": "#/$defs/BoardSide"
+          },
+          "type": {
+            "const": "keepout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "side",
+          "max_height"
+        ],
+        "type": "object"
+      }
+    ]
+  },
+  "BoardShapeParams": {
+    "description": "Parameters for [`crate::types::Operation::BoardShape`].\n\nAll length fields are stored in **metres**; `thickness_expr` evaluates in\nworking space (**mm**) via `Dimension::Length` and writes metres into\n`thickness`.",
+    "properties": {
+      "board": {
+        "description": "Board identifier (trimmed text must be non-empty).",
+        "type": "string"
+      },
+      "roles": {
+        "additionalProperties": {
+          "$ref": "#/$defs/BoardEntityRole"
+        },
+        "description": "Per-entity board role assignments keyed by `SketchEntity::id()`.",
+        "type": "object"
+      },
+      "sketch_id": {
+        "description": "`Feature.id` of the upstream planar `Operation::Sketch` in the tree.",
+        "format": "uuid",
+        "type": "string"
+      },
+      "thickness": {
+        "description": "Substrate thickness in metres (finite, `>= MIN_FEATURE_SIZE`).",
+        "format": "double",
+        "type": "number"
+      },
+      "thickness_expr": {
+        "description": "Optional expression driving `thickness` (`Dimension::Length`, mm → m).",
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "sketch_id",
+      "board",
+      "thickness",
+      "roles"
+    ],
+    "type": "object"
+  },
+  "BoardSide": {
+    "description": "Which side(s) of the board a component height keepout applies to.",
+    "enum": [
+      "front",
+      "back",
+      "both"
+    ],
+    "type": "string"
+  },
   "BooleanOp": {
     "description": "Boolean operation type.",
     "oneOf": [
@@ -1738,6 +1864,22 @@ export const ENGINE_DEFS = {
         "type": "object"
       },
       {
+        "properties": {
+          "params": {
+            "$ref": "#/$defs/BoardShapeParams"
+          },
+          "type": {
+            "const": "BoardShape",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "params"
+        ],
+        "type": "object"
+      },
+      {
         "description": "Unknown operation kind (opaque, preserved; rebuild fails loudly).",
         "properties": {
           "type": {
@@ -1760,7 +1902,8 @@ export const ENGINE_DEFS = {
                 "Pipe",
                 "Sweep",
                 "Script",
-                "UnionAll"
+                "UnionAll",
+                "BoardShape"
               ]
             },
             "type": "string"

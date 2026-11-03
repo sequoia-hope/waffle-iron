@@ -694,6 +694,7 @@ pub(crate) fn execute(
         connectors.push(PartConnector {
             feature_id: feature.id,
             name: child.feature.name.clone(),
+            key: None,
             frame,
             geometry,
         });

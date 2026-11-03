@@ -1061,6 +1061,36 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "AddFeature(Pipe)", response)
     }
 
+    /// Add an `Operation::BoardShape` feature referencing a named upstream sketch.
+    pub fn board_shape(
+        &mut self,
+        name: &str,
+        sketch_name: &str,
+        board: &str,
+        thickness: f64,
+        roles: std::collections::BTreeMap<u32, feature_engine::types::BoardEntityRole>,
+    ) -> Result<Uuid, HarnessError> {
+        self.check_name_available(name)?;
+        let sketch_id = self.feature_id(sketch_name)?;
+        let response = wasm_bridge::dispatch(
+            &mut self.state,
+            UiToEngine::AddFeature {
+                provenance: None,
+                operation: Operation::BoardShape {
+                    params: feature_engine::types::BoardShapeParams {
+                        sketch_id,
+                        board: board.to_string(),
+                        thickness,
+                        thickness_expr: None,
+                        roles,
+                    },
+                },
+            },
+            self.kernel.as_mut(),
+        );
+        self.extract_last_feature_id(name, "AddFeature(BoardShape)", response)
+    }
+
     /// Add a fillet feature targeting edges of another feature.
     pub fn fillet(&mut self, name: &str, target: &str, radius: f64) -> Result<Uuid, HarnessError> {
         self.check_name_available(name)?;
@@ -1485,6 +1515,16 @@ impl ModelBuilder {
     /// Get a mutable reference to the kernel bundle.
     pub fn kernel_mut(&mut self) -> &mut dyn KernelBundle {
         self.kernel.as_mut()
+    }
+
+    /// Dispatch a `UiToEngine` message against this builder's state and kernel.
+    pub fn dispatch(&mut self, msg: UiToEngine) -> EngineToUi {
+        wasm_bridge::dispatch(&mut self.state, msg, self.kernel.as_mut())
+    }
+
+    /// Force a full engine rebuild from scratch against this builder's kernel.
+    pub fn rebuild_from_scratch(&mut self) {
+        self.state.engine.rebuild_from_scratch(self.kernel.as_mut());
     }
 
     /// Call an AGENT TOOL against this model — the same `execute_tool` entry

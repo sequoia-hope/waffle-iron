@@ -127,6 +127,7 @@ pub fn assert_tree_structure(
                 feature_engine::types::Operation::PatternMirror { .. } => "PatternMirror",
                 feature_engine::types::Operation::Script { .. } => "Script",
                 feature_engine::types::Operation::UnionAll { .. } => "UnionAll",
+                feature_engine::types::Operation::BoardShape { .. } => "BoardShape",
                 feature_engine::types::Operation::Unknown(_) => "Unknown",
             };
             (f.name.clone(), op_type.to_string())

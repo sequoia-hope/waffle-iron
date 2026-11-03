@@ -2726,6 +2726,10 @@ pub struct PartConnectorInfo {
     pub feature_id: Uuid,
     /// The feature's name.
     pub name: String,
+    /// Optional stable external/element key (e.g. `waffle:<sketch_id>/<entity_id>`
+    /// for a `BoardShape` hole connector).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     /// The part instance it is on, in an assembly; empty for the open part.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub instance_path: Vec<Uuid>,
@@ -2751,6 +2755,7 @@ impl PartConnectorInfo {
         Some(PartConnectorInfo {
             feature_id: connector.feature_id,
             name: connector.name.clone(),
+            key: connector.key.clone(),
             instance_path,
             kind: connector.geometry.map(|k| k.label().to_string()),
             origin: world.origin,

@@ -164,6 +164,7 @@ impl ModelBuilder {
                 Operation::Sweep { .. } => "Sweep",
                 Operation::Script { .. } => "Script",
                 Operation::UnionAll { .. } => "UnionAll",
+                Operation::BoardShape { .. } => "BoardShape",
                 Operation::Unknown(_) => "Unknown",
             };
 
@@ -446,5 +447,12 @@ fn describe_operation(op: &Operation) -> String {
                 params.scale,
             )
         }
+        Operation::BoardShape { params } => format!(
+            "BoardShape: board={} sketch={} thickness={:.4}m roles={}",
+            params.board,
+            params.sketch_id,
+            params.thickness,
+            params.roles.len()
+        ),
     }
 }
