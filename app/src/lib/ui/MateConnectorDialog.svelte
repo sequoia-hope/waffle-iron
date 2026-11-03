@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	/**
 	 * Part mate connector dialog (`specs/part_mate_connectors.md`): a named
 	 * frame on a face or an edge of the part — or at the part origin — with
@@ -99,7 +100,7 @@
 </script>
 
 {#if dialogState}
-	<div class="mc-panel" data-testid="mate-connector-dialog">
+	<div use:viewportSheet class="mc-panel" data-testid="mate-connector-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Mate Connector' : 'Mate Connector'}</span>
 			<button class="close-btn" onclick={() => hideMateConnectorDialog()}>&times;</button>

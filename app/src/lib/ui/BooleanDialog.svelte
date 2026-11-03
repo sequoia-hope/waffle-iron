@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getBooleanDialogState,
 		hideBooleanDialog,
@@ -71,7 +72,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="boolean-panel" onkeydown={handleKeydown} data-testid="boolean-dialog">
+	<div use:viewportSheet class="boolean-panel" onkeydown={handleKeydown} data-testid="boolean-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">Boolean Combine</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

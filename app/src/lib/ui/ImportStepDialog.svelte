@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getImportDialogState,
 		applyImportPlacement,
@@ -104,7 +105,7 @@
 </script>
 
 {#if dialogState}
-	<div class="import-panel" data-testid="import-step-dialog">
+	<div use:viewportSheet class="import-panel" data-testid="import-step-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.isNew ? 'Import' : 'Position'} {fileName}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

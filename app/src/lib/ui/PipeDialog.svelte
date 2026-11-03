@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getPipeDialogState,
 		hidePipeDialog,
@@ -215,7 +216,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="pipe-panel" data-testid="pipe-dialog">
+	<div use:viewportSheet class="pipe-panel" data-testid="pipe-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Pipe' : 'Pipe'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

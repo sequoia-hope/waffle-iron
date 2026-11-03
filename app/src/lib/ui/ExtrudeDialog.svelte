@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getExtrudeDialogState,
 		hideExtrudeDialog,
@@ -355,7 +356,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="extrude-panel" onkeydown={handleKeydown} data-testid="extrude-dialog">
+	<div use:viewportSheet class="extrude-panel" onkeydown={handleKeydown} data-testid="extrude-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Extrude' : 'Extrude'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

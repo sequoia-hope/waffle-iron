@@ -23,6 +23,7 @@
 	import PlanetaryGearDialog from '$lib/ui/PlanetaryGearDialog.svelte';
 	import { isRebuilding, getSketchMode } from '$lib/engine/store.svelte.js';
 	import { longPressContextMenu } from '$lib/ui/longPressContextMenu.js';
+	import { getViewportSheetInsets } from '$lib/ui/viewportSheet.svelte.js';
 
 	const createRenderer = (canvas) => new WebGLRenderer({
 		canvas,
@@ -52,6 +53,28 @@
 	let rightDownPos = null;
 
 	let viewportEl = $state(null);
+
+	// On a phone/tablet a feature dialog covers part of the view (a bottom
+	// sheet, or a side panel held sideways): end the canvas box at the
+	// dialog's edge so the framed model stays centered in what is still
+	// visible (see viewportSheet.svelte.js).
+	let viewportRect = $state(null);
+	$effect(() => {
+		if (!viewportEl) return;
+		const read = () => {
+			const r = viewportEl.getBoundingClientRect();
+			viewportRect = { top: r.top, left: r.left, right: r.right, bottom: r.bottom };
+		};
+		read();
+		const ro = new ResizeObserver(read);
+		ro.observe(viewportEl);
+		window.addEventListener('resize', read);
+		return () => {
+			ro.disconnect();
+			window.removeEventListener('resize', read);
+		};
+	});
+	let canvasInset = $derived(viewportRect ? getViewportSheetInsets(viewportRect) : { bottom: 0, right: 0 });
 
 	$effect(() => {
 		if (!viewportEl) return;
@@ -101,9 +124,11 @@
 </script>
 
 <div class="viewport" data-testid="viewport" bind:this={viewportEl} oncontextmenu={handleContextMenu} use:longPressContextMenu>
-	<Canvas {createRenderer}>
-		<Scene />
-	</Canvas>
+	<div class="canvas-box" data-testid="viewport-canvas-box" style="bottom: {canvasInset.bottom}px; right: {canvasInset.right}px;">
+		<Canvas {createRenderer}>
+			<Scene />
+		</Canvas>
+	</div>
 	<ViewCube />
 	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
 	<ConstraintModal />
@@ -138,6 +163,12 @@
 		background: var(--viewport-bg);
 		position: relative;
 		touch-action: none;
+	}
+
+	.canvas-box {
+		position: absolute;
+		top: 0;
+		left: 0;
 	}
 
 	.rebuild-overlay {

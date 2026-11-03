@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getPlanetaryDialogOpen,
 		getPlanetaryDialogState,
@@ -159,7 +160,7 @@
 </script>
 
 {#if isOpen}
-	<div class="planetary-dialog" class:mobile={isMobile} data-testid="planetary-dialog">
+	<div use:viewportSheet class="planetary-dialog" class:mobile={isMobile} data-testid="planetary-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">Planetary Gear Stage</span>
 			<button class="close-btn" onclick={handleCancel} data-testid="planetary-dialog-close">&times;</button>

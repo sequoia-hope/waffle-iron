@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	/**
 	 * Custom feature script dialog (specs/custom_features_and_modeling_roadmap.md
 	 * §A8, A-M4): pick a Script source of the document (or add one — a new
@@ -316,7 +317,7 @@
 </script>
 
 {#if dialogState}
-	<div class="script-panel" data-testid="script-dialog">
+	<div use:viewportSheet class="script-panel" data-testid="script-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit script feature' : 'Script feature'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

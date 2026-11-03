@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getSprocketDialogState,
 		hideSprocketDialog,
@@ -193,7 +194,7 @@
 </script>
 
 {#if dialogState}
-	<div class="sprocket-dialog" class:mobile={isMobile} data-testid="sprocket-dialog">
+	<div use:viewportSheet class="sprocket-dialog" class:mobile={isMobile} data-testid="sprocket-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{editingGearId != null ? 'Edit' : 'Create'} Sprocket</span>
 			<button class="close-btn" onclick={handleCancel} data-testid="sprocket-dialog-close">&times;</button>

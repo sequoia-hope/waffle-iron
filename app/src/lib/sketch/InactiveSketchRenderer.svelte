@@ -670,6 +670,15 @@
 		if (!camera || !renderer) return;
 
 		const canvas = renderer.domElement;
+		// Only a press ON the canvas picks. This is a window listener, so a
+		// tap on the feature dialog (a field, a region's ✕) lands here too —
+		// and on touch the hover below is still the last region tapped, so
+		// every dialog tap re-added it.
+		if (e.target !== canvas) return;
+		// Re-run the hover hit-test at the press itself: touch has no hover
+		// moves between taps, so the stored hover is the PREVIOUS tap's.
+		handlePointerMove(e);
+
 		const rect = canvas.getBoundingClientRect();
 		_mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
 		_mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;

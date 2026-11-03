@@ -1775,6 +1775,16 @@ export async function initEngine() {
 				const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal, sketchMode.xAxis);
 				return sketchToScreen(x, y, plane, camera, canvas);
 			},
+			// World point → client-pixel position, for aiming real pointer
+			// events outside sketch mode (e.g. a region of a finished sketch).
+			worldPointToScreen: (x, y, z) => {
+				const camera = getCameraObject();
+				const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
+				if (!camera || !canvas) return null;
+				const v = camera.position.clone().set(x, y, z).project(camera);
+				const r = canvas.getBoundingClientRect();
+				return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height };
+			},
 			computeChainOffset: async (ids, d) => {
 				const result = await querySketch({
 					type: 'OffsetPreview',
@@ -2311,6 +2321,10 @@ export function selectRef(ref, additive = false) {
 		addExtrudeRegionFromRef(ref);
 		return;
 	}
+	// A construction plane is never a profile: while a profile is being
+	// picked, a tap that reaches a datum plane (it often lies right under
+	// the sketch) must not select it in place of the region.
+	if (profilePickMode && isDatumPlaneRef(ref)) return;
 
 	// Intercept edge clicks when in axis pick mode (revolve)
 	if (axisPickMode && ref?.kind?.type === 'Edge') {
@@ -5106,9 +5120,16 @@ export function addExtrudeRegion(sketchId, sketchName, profileIndex, region = nu
 	// selections still dedup by (sketchId, profileIndex).
 	const subRegion = region && region.profile_entity_ids == null;
 	const key = subRegion ? regionKey(region) : null;
+	// A whole-loop entry may still carry its region object (with
+	// profile_entity_ids): classify stored entries by the same rule, not by
+	// region == null, or a re-picked circle stacks up as a duplicate.
+	const isSub = (r) => r.region != null && r.region.profile_entity_ids == null;
 	const exists = extrudeDialogState.regions.some(r =>
+		r.type === 'sketchProfile' &&
 		r.sketchId === sketchId &&
-		(subRegion ? r.regionKey === key : (r.region == null && r.profileIndex === profileIndex))
+		(subRegion
+			? isSub(r) && (r.regionKey ?? regionKey(r.region)) === key
+			: !isSub(r) && r.profileIndex === profileIndex)
 	);
 	if (exists) return;
 	extrudeDialogState = {

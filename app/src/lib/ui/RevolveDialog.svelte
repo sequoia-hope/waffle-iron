@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getRevolveDialogState,
 		hideRevolveDialog,
@@ -207,7 +208,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="revolve-panel" data-testid="revolve-dialog">
+	<div use:viewportSheet class="revolve-panel" data-testid="revolve-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{dialogState.editingFeatureId ? 'Edit Revolve' : 'Revolve'}</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

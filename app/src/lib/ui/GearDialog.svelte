@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getGearDialogState,
 		hideGearDialog,
@@ -147,7 +148,7 @@
 </script>
 
 {#if dialogState}
-	<div class="gear-dialog" class:mobile={isMobile} data-testid="gear-dialog">
+	<div use:viewportSheet class="gear-dialog" class:mobile={isMobile} data-testid="gear-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">{editingGearId != null ? 'Edit' : 'Create'} Gear</span>
 			<button class="close-btn" onclick={handleCancel} data-testid="gear-dialog-close">&times;</button>

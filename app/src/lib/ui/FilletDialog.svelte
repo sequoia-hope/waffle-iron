@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getFilletDialogState,
 		hideFilletDialog,
@@ -55,7 +56,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fillet-panel" onkeydown={handleKeydown} data-testid="fillet-dialog">
+	<div use:viewportSheet class="fillet-panel" onkeydown={handleKeydown} data-testid="fillet-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">Fillet</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

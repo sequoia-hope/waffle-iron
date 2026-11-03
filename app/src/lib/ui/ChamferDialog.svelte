@@ -1,4 +1,5 @@
 <script>
+	import { viewportSheet } from './viewportSheet.svelte.js';
 	import {
 		getChamferDialogState,
 		hideChamferDialog,
@@ -55,7 +56,7 @@
 
 {#if dialogState}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="chamfer-panel" onkeydown={handleKeydown} data-testid="chamfer-dialog">
+	<div use:viewportSheet class="chamfer-panel" onkeydown={handleKeydown} data-testid="chamfer-dialog">
 		<div class="dialog-header">
 			<span class="dialog-title">Chamfer</span>
 			<button class="close-btn" onclick={handleCancel}>&times;</button>

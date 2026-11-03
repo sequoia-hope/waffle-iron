@@ -11,7 +11,9 @@
 		getSketchMode,
 		isPlaneVisible,
 		isAxisVisible,
-		computeFacePlane
+		computeFacePlane,
+		clearSelection,
+		getProfilePickMode
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
 	import { AXIS_COLORS } from '$lib/config.js';
@@ -148,7 +150,28 @@
 		if (rayHitsModel(event)) return;
 		event.stopPropagation();
 		const additive = event.nativeEvent?.shiftKey ?? false;
+		// Tapping the one selected plane again deselects it — on a phone
+		// there is no Escape key and often no empty space to tap.
+		const sel = getSelectedRefs();
+		if (!additive && !getProfilePickMode() && sel.length === 1 && geomRefEquals(sel[0], ref)) {
+			clearSelection();
+			return;
+		}
 		selectRef(ref, additive);
+	}
+
+	/**
+	 * A click that missed this plane. CadModel clears the selection on a
+	 * background miss, but only when a body exists — a sketch-only document
+	 * had no handler, so a selected plane could never be deselected. Threlte
+	 * also reports a miss (before the click) when another object is hit; a
+	 * plain click there replaces the selection anyway, and a shift-click must
+	 * keep it, so only plain clicks clear.
+	 * @param {MouseEvent} e
+	 */
+	function handleMiss(e) {
+		if (e?.shiftKey) return;
+		if (getSelectedRefs().length > 0) clearSelection();
 	}
 
 	function handlePointerEnter(ref, event) {
@@ -228,6 +251,7 @@
 				geometry={planeGeometry}
 				material={pd.fillMaterial}
 				onclick={(e) => handleClick(pd.ref, e)}
+				onpointermissed={handleMiss}
 				onpointerenter={(e) => handlePointerEnter(pd.ref, e)}
 				onpointerleave={() => handlePointerLeave(pd.ref)}
 			/>
