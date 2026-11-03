@@ -20,7 +20,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
 	import { constraintKey } from './constraintBadges.js';
-	import { internalToDisplay, formatWithUnit, parseAndConvert, isPlainMeasurement } from '$lib/units.js';
+	import { internalToDisplay, formatWithUnit, parseAndConvert, isPlainMeasurement, UNIT_ORDER, UNITS } from '$lib/units.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 
 	let sm = $derived(getSketchMode());
@@ -33,6 +33,9 @@
 	/** @type {number | null} */
 	let editingIndex = $state(null);
 	let editValue = $state('');
+	// Unit the edited value is read in: the document unit unless the chip
+	// beside the input cycles it (a number keypad can't type a suffix).
+	let editUnit = $state('mm');
 
 	// Which constraint is selected (shared with geometric badges; a dimension is
 	// just a constraint, so Delete reuses the global deleteSelectedConstraint).
@@ -363,6 +366,7 @@
 	function startEditing(index, currentValue, labelType) {
 		editingIndex = index;
 		editingType = labelType;
+		editUnit = displayUnit;
 		const expr = constraints[index]?.expression;
 		if (expr) {
 			// Expression-driven: edit the expression text itself.
@@ -391,7 +395,7 @@
 		if (!typed) return;
 
 		const isAngle = labelType === 'Angle';
-		const numericVal = isAngle ? parseFloat(typed) : parseAndConvert(typed, displayUnit);
+		const numericVal = isAngle ? parseFloat(typed) : parseAndConvert(typed, editUnit);
 		const isNumeric = isAngle
 			? /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(typed)
 			: isPlainMeasurement(typed);
@@ -418,6 +422,11 @@
 			return;
 		}
 		updateConstraintExpression(index, exprToStore, internal);
+	}
+
+	function cycleEditUnit() {
+		const i = UNIT_ORDER.indexOf(editUnit);
+		editUnit = UNIT_ORDER[(i + 1) % UNIT_ORDER.length];
 	}
 
 	function handleKeyDown(e) {
@@ -453,16 +462,38 @@
 		<!-- HTML label -->
 		<HTML position={[label.world.x, label.world.y, label.world.z]} center pointerEvents="auto" wrapperClass="dim-html-wrapper">
 			{#if editingIndex === label.index}
-				<input
-					type="text"
-					inputmode="decimal"
-					class="dim-input"
-					value={editValue}
-					oninput={(e) => { editValue = e.target.value; }}
-					onblur={finishEditing}
-					onkeydown={handleKeyDown}
-					autofocus
-				/>
+				<span class="dim-edit">
+					<input
+						type="text"
+						inputmode="decimal"
+						class="dim-input"
+						value={editValue}
+						oninput={(e) => { editValue = e.target.value; }}
+						onblur={finishEditing}
+						onkeydown={handleKeyDown}
+						autofocus
+					/>
+					{#if editingType !== 'Angle'}
+						<!-- Cycles on pointerdown, not click: this label lives inside
+						     the canvas wrapper, where OrbitControls captures the
+						     pointer and retargets the click to the canvas. The
+						     preventDefault keeps focus (and the keypad) in the input,
+						     so cycling the unit doesn't blur-commit the edit. -->
+						<button
+							type="button"
+							class="dim-edit-unit"
+							class:dim-edit-unit-override={editUnit !== displayUnit}
+							data-testid="dim-edit-unit"
+							title="Unit for this value (tap to change)"
+							onpointerdown={(e) => {
+								if (e.button !== 0) return;
+								e.preventDefault();
+								cycleEditUnit();
+							}}
+							onmousedown={(e) => e.preventDefault()}
+						>{UNITS[editUnit]?.label ?? editUnit}</button>
+					{/if}
+				</span>
 			{:else}
 				<button
 					class="dim-label"
@@ -535,5 +566,40 @@
 		width: 96px;
 		outline: none;
 		pointer-events: auto !important;
+	}
+
+	:global(.dim-edit) {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	:global(.dim-edit-unit) {
+		background: color-mix(in srgb, var(--bg-secondary) 96%, transparent);
+		color: var(--text-muted);
+		border: 1px solid var(--border-color, currentColor);
+		border-radius: 3px;
+		padding: 3px 6px;
+		font-size: 14px;
+		font-family: monospace;
+		cursor: pointer;
+		touch-action: manipulation;
+		pointer-events: auto !important;
+	}
+
+	:global(.dim-edit-unit.dim-edit-unit-override) {
+		color: var(--sketch-snap);
+		border-color: var(--sketch-snap);
+	}
+
+	@media (max-width: 768px) {
+		:global(.dim-input),
+		:global(.dim-edit-unit) {
+			font-size: 16px;
+		}
+		:global(.dim-edit-unit) {
+			min-height: 32px;
+			min-width: 40px;
+		}
 	}
 </style>

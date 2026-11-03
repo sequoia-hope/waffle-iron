@@ -128,4 +128,30 @@ test.describe('dimension select / delete', () => {
 		const dy = Math.abs(moved.y - box.y);
 		expect(dx + dy).toBeGreaterThan(5);
 	});
+
+	test('editing a dimension: unit chip overrides the document unit', async ({ waffle }) => {
+		const page = waffle.page;
+		const label = await lineWithDistance(page);
+		await label.click();
+
+		const input = page.locator('.dim-input');
+		await expect(input).toBeVisible({ timeout: 2000 });
+		const unit = page.getByTestId('dim-edit-unit');
+		await expect(unit).toHaveText('mm');
+
+		await input.fill('3');
+		// mm -> cm -> m -> in; tapping the chip must not blur-commit the edit.
+		await unit.click();
+		await unit.click();
+		await unit.click();
+		await expect(unit).toHaveText('in');
+		await expect(input).toBeFocused();
+		await input.press('Enter');
+		await expect(input).not.toBeVisible({ timeout: 2000 });
+
+		const dist = (await getConstraints(page)).find((c) => c.type === 'Distance');
+		expect(dist.value).toBeCloseTo(3 * 0.0254, 9);
+		// The label still reads in the document unit: 3 in = 76.2 mm.
+		await expect(page.locator('.dim-label').first()).toContainText('76.2');
+	});
 });
