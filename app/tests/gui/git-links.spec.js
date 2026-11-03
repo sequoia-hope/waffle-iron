@@ -6,6 +6,7 @@
  * Gitea API adapters against mocked endpoints. The modules run in the browser
  * (WebCrypto, IndexedDB), imported straight from the dev server.
  */
+import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
 
 const GIT = '/src/lib/storage/git';
@@ -301,5 +302,66 @@ test.describe('git links: host adapters', () => {
 		});
 		expect(r.ok).toEqual({ text: '{"format":"waffle-iron"}' });
 		expect(r.bad).toBe('invalid');
+	});
+});
+
+test.describe('git links: files over 1 MiB on GitHub', () => {
+	// GitHub answers a contents request for a large file with JSON that has no
+	// content, so fetchBlob asks again with the raw media type. GitHub gives both
+	// replies `Vary: Accept` and the SAME ETag. The browser revalidates its cached
+	// JSON with that ETag, gets a 304, and hands the JSON back as if it were the
+	// file: every linked .kicad_pcb over 1 MiB failed to parse.
+	//
+	// A real server, not page.route: Playwright turns the HTTP cache off while a
+	// route is installed, which hides this bug.
+	test('fetchBlob gets the raw file, not the cached JSON', async ({ page }) => {
+		const file = '(kicad_pcb (version 20241229))\n';
+		const etag = '"same-for-both-media-types"';
+		const accepts = [];
+		const server = createServer((req, res) => {
+			accepts.push(req.headers.accept);
+			const headers = {
+				'Access-Control-Allow-Origin': '*',
+				'Cache-Control': 'public, max-age=60, s-maxage=60',
+				Vary: 'Accept, Accept-Encoding, Accept, X-Requested-With',
+				ETag: etag
+			};
+			if (req.headers['if-none-match'] === etag) {
+				res.writeHead(304, headers);
+				return res.end();
+			}
+			if (req.headers.accept === 'application/vnd.github.raw+json') {
+				res.writeHead(200, { ...headers, 'Content-Type': 'application/vnd.github.raw+json' });
+				return res.end(file);
+			}
+			res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ name: 'big.kicad_pcb', sha: 'abc123', size: 1294055, encoding: 'none', content: '' }));
+		});
+		await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+		try {
+			await page.goto('/home');
+			const got = await withModule(
+				page,
+				'hosts',
+				async (m, api) => {
+					const remote = 'https://github.com/acme/board';
+					const adapter = m.adapterFor({ remote });
+					const apiBase = adapter.apiBase;
+					adapter.apiBase = () => ({ api, repo: 'acme/board' });
+					try {
+						return await adapter.fetchBlob(remote, '0'.repeat(40), 'hw/big.kicad_pcb', null);
+					} finally {
+						adapter.apiBase = apiBase;
+					}
+				},
+				`http://127.0.0.1:${server.address().port}`
+			);
+			expect(got.text).toBe(file);
+			expect(got.blobSha).toBe('abc123');
+			expect(accepts).toContain('application/vnd.github.raw+json');
+		} finally {
+			server.closeAllConnections();
+			await new Promise((resolve) => server.close(resolve));
+		}
 	});
 });

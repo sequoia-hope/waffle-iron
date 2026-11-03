@@ -129,7 +129,10 @@ const github = {
 			return { text: decodeBase64Utf8(data.content), blobSha: String(data.sha).toLowerCase() };
 		}
 		// Files over 1 MiB come back without content; take the raw media type.
+		// `no-store`: GitHub gives both replies the same ETag, so a revalidation
+		// gets a 304 and the browser would hand back the JSON it just cached.
 		const raw = await doFetch(url, {
+			cache: 'no-store',
 			headers: { ...this.headers(token), Accept: 'application/vnd.github.raw+json' }
 		});
 		if (!raw.ok) throw await failFor(raw, `fetch ${path} (raw) from ${remote}`);
