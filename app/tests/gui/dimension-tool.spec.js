@@ -373,6 +373,70 @@ test.describe('dimension popup DOM interaction', () => {
 		expect(constraintsAfter).toBe(constraintsBefore);
 	});
 
+	// iOS: the decimal keypad has no Return key; its Done (✓) only blurs
+	// the field. A typed value must survive that blur.
+	test('edited dimension value commits on blur (iOS keypad Done)', async ({ waffle }) => {
+		await clickSketch(waffle.page);
+		await drawLine(waffle.page, -100, 0, 100, 0);
+		await waitForEntityCount(waffle.page, 3, 3000);
+		const line = (await getEntities(waffle.page)).find(e => e.type === 'Line');
+
+		await waffle.page.evaluate((lineId) => {
+			window.__waffle.showDimensionPopup({
+				entityA: lineId, entityB: null, sketchX: 0, sketchY: 0,
+				dimType: 'distance', defaultValue: 0.002
+			});
+		}, line.id);
+		const input = waffle.page.locator('.dimension-input');
+		await input.waitFor({ state: 'visible', timeout: 3000 });
+		const before = await getConstraintCountByType(waffle.page, 'Distance');
+
+		await input.fill('15');
+		await waffle.page.evaluate(() => document.querySelector('.dimension-input')?.blur());
+		await waffle.page.waitForFunction(
+			() => window.__waffle?.getDimensionPopup() == null,
+			{ timeout: 3000 }
+		);
+
+		const dists = (await getConstraints(waffle.page)).filter(c => c.type === 'Distance');
+		expect(dists.length).toBe(before + 1);
+		expect(dists[dists.length - 1].value).toBeCloseTo(0.015, 9);
+	});
+
+	test('unit chip overrides the document unit for one dimension', async ({ waffle }) => {
+		await clickSketch(waffle.page);
+		await drawLine(waffle.page, -100, 0, 100, 0);
+		await waitForEntityCount(waffle.page, 3, 3000);
+		const line = (await getEntities(waffle.page)).find(e => e.type === 'Line');
+
+		await waffle.page.evaluate((lineId) => {
+			window.__waffle.showDimensionPopup({
+				entityA: lineId, entityB: null, sketchX: 0, sketchY: 0,
+				dimType: 'distance', defaultValue: 0.002
+			});
+		}, line.id);
+		const input = waffle.page.locator('.dimension-input');
+		await input.waitFor({ state: 'visible', timeout: 3000 });
+		const unit = waffle.page.getByTestId('dimension-input-unit');
+		await expect(unit).toHaveText('mm');
+
+		await input.fill('2');
+		// mm -> cm -> m -> in; the input keeps focus throughout.
+		await unit.click();
+		await unit.click();
+		await unit.click();
+		await expect(unit).toHaveText('in');
+		await expect(input).toBeFocused();
+		await input.press('Enter');
+		await waffle.page.waitForFunction(
+			() => window.__waffle?.getDimensionPopup() == null,
+			{ timeout: 3000 }
+		);
+
+		const dists = (await getConstraints(waffle.page)).filter(c => c.type === 'Distance');
+		expect(dists[dists.length - 1].value).toBeCloseTo(2 * 0.0254, 9);
+	});
+
 	test('invalid dimension value (0 or negative) does not create constraint', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 		await drawLine(waffle.page, -100, 0, 100, 0);
