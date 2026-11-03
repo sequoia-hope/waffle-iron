@@ -200,3 +200,33 @@ Inspecting `crates/test-harness/src/assay/prospect/{gen3.rs:459-469, mod.rs:444-
   - Pass 1 op 7 (`475.94 s` total): `natural = 0.56 s` (`a=7396 b=36`), `iter 0 = 2.21 s` (`a=26758 b=72`), `iter 1 = 13.12 s` (`a=104858 b=144`), `iter 2 = 75.51 s` (`a=415776 b=288`, `s2 = 31.06 s`, `before-3c-merge = 26.52 s`), **`iter 3 = 384.54 s`** (`s1_refine = 28.62 s`, `pre_s2 = 23.06 s`, **`s2 = 236.46 s` [61.5% of iter 3]**, `keep_resolve = 1.29 s`, **`s4_emit = 93.52 s` [24.3%, led by `441-update = 23.97 s`, `[i13d/i13e] = 13.22 s`, B-Rep `~20.9 s`, `before-3c-merge = 14.89 s`, `before-transit = 6.39 s`, `phase-a = 3.94 s`, `before-441-update = 2.73 s`]**, `failures = 1.26 s`).
   - Pass 2 op 7 (`545.44 s` total): `natural = 0.61 s`, `iter 0 = 2.31 s`, `iter 1 = 12.05 s`, `iter 2 = 56.41 s`, **`iter 3 = 474.06 s`** (`s1_refine = 17.38 s`, `pre_s2 = 19.96 s`, `s2 = 318.12 s`, `keep_resolve = 2.11 s`, `s4_emit = 114.35 s`, `failures = 1.73 s`).
 - **Dominant stage & attachment:** Stage-2 `s2` (`61.5%` / `67.1%` of `iter 3`) on the `1.67M`-triangle whole-face `×16` refinement mesh (`L3`/`N62`, Roadmap F3 item 2, `refs/text/yang2025_hybrid_boolean.txt:659-677`), but a single evaluation (`~467–530 s` CPU) finishes **well under** the `900 s` budget. Attached to **Harness hole** (`judge_generated` multi-pass evaluation under a single-pass `900 s` CPU budget).
+
+---
+
+## 4. Post-Fix Re-Judgement (`agy/seed6-triage`: H1 & H2)
+
+Rebased onto `origin/main` (`07cb9a4f`) and fixed both harness holes in `crates/test-harness` only:
+- **H1 (`f310312e`):** `categorize::judge_empty_result` + conservative ball-covering `ExactChain::certified_empty_at` in `exact_membership::exact_volume_verdict` judge zero-live-solid results (`SUPPORTED_CORRECT` when certified empty, `SUPPORTED_WRONG` when non-empty / lost body, `ERROR` with reason when uncovered). Exact-chain coverage (`assay_exact_coverage`, **computed**): corpus `355 → 356 / 374` (`P0023` covered; thin-wall `C0034`, `C0117` still declined), seed-6 `195 → 197 / 198` (`00000`, `00095` covered; only `00043` remains `NotCovered`).
+- **H2 (`db725aa7`):** removed two redundant evaluations (`gen3::generate` + `gen3::build` fused into single-pass `gen3::generate_and_build_with`; `prospect::measure_document` reuses `categorize_with_builder`'s loaded `ModelBuilder` instead of calling `builder.load` twice) and gave the unavoidable `AddFeature` build pass (`PROSPECT_BUILD_GENERATED` / `PROSPECT_BUILD_RECIPE`) and `LoadProject` verdict pass (`PROSPECT_CANDIDATE`) separate per-evaluation CPU budgets with `build_cpu_secs` and `judge_cpu_secs` recorded in `report.jsonl`.
+
+### Computed Re-Judgements (`PROSPECT_BUDGET_SECS=900`, `PROSPECT_JOBS=4`, `prospect_run`)
+
+All 6 rows below were **computed** end-to-end through `prospect_run` (`scratch/rejudge_seed6/report.jsonl`, `scratch/logs/h2_rejudge_seed6.log`):
+
+| id | baseline (`dc422b05`) | post-H1+H2 verdict | `build_cpu_secs` | `judge_cpu_secs` | reported `cpu_secs` | detail |
+|---|---|---|---|---|---|---|
+| `X00000006-00000` | `ERROR` (`empty_result`) | **`SUPPORTED_CORRECT`** | `0.00 s` | `0.00 s` | `0.00 s` | `empty result, confirmed by exact_volume (exact 0.000000e0)` |
+| `X00000006-00095` | `ERROR` (`empty_result`) | **`SUPPORTED_CORRECT`** | `0.09 s` | `0.09 s` | `0.09 s` | `empty result, confirmed by exact_volume (exact 0.000000e0)` |
+| `X00000006-00097` | `TIMEOUT` (`> 900 s` combined) | **`SUPPORTED_CORRECT`** | `654.01 s` | `662.59 s` | `662.59 s` | `all checks passed` (`solids 3`, `exact_vs_mesh rel -3.537e-8`) |
+| `X00000006-00190` | `TIMEOUT` (`> 900 s` combined) | **`SUPPORTED_CORRECT`** | `430.72 s` | `441.67 s` | `441.67 s` | `all checks passed` (`solids 3`, `exact_vs_mesh rel -4.570e-8`) |
+| `X00000006-00004` | `TIMEOUT` | **`TIMEOUT`** | `900.02 s` | — (not run) | `900.02 s` | `build pass: cpu 900.0s > budget 900s` (partial 4-step `.lineage.json` flushed) |
+| `X00000006-00159` | `TIMEOUT` | **`TIMEOUT`** | `900.01 s` | — (not run) | `900.01 s` | `build pass: cpu 900.0s > budget 900s` (partial 3-step `.lineage.json` flushed) |
+
+### Seed-6 Totals Without a Full 200-Case Re-Run
+
+- **Baseline (`dc422b05`, `/home/claude/workspace/target/prospect/seed-6/report.jsonl`, 200 cases):**
+  `178 CORRECT / 6 WRONG / 12 ERROR / 0 UNSUPPORTED / 4 TIMEOUT`
+- **Post-H1+H2 harness delta (6 rows computed above + 194 rows inferred unchanged from `seed-6/report.jsonl`):**
+  **`182 CORRECT / 6 WRONG / 10 ERROR / 0 UNSUPPORTED / 2 TIMEOUT`** (`ERROR` rate `12/200 → 10/200 = 5.0%`; `TIMEOUT` count `4 → 2`).
+  - **Why the 194 un-run rows are inferred unchanged under H1 + H2 alone:** H1 (`judge_empty_result` / zero-cube `certified_empty_at`) only fires when `live_solid_handles().is_empty()` or `exact_membership` reads zero inside cubes (`00000` and `00095` were the only 2 `empty_result` rows in `seed-6/report.jsonl`, and `h1_census_seed6.log` confirmed zero coverage changes across the other 196 `.waffle` files); H2 is verdict-preserving on non-`TIMEOUT` rows (`generate_and_build_with` is bit-identical to `generate` + `build`, and `measure_document` reuses the same loaded `ModelBuilder`), while all 4 `TIMEOUT` rows were re-run above.
+  - **Note on concurrent `main` changes outside `dc422b05`:** `origin/main` (`07cb9a4f`) also includes commits landed after `dc422b05` (e.g. `docs/kernel_1_0.md:93` records `X00000006-00021` moving `WRONG → CORRECT`, which would make a full fresh re-run on current `main` + H1 + H2 **inferred** `183 CORRECT / 5 WRONG / 10 ERROR / 0 UNSUPPORTED / 2 TIMEOUT` pending any other `main` oracle/engine changes not re-evaluated here).
