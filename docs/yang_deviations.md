@@ -8281,3 +8281,18 @@ rather than by the inventory:
 2. §4.5.2 exhausted on `IllegalIntersection`: C0052, C0054, P0057.
 3. `reassembled output would be non-2-manifold`: C0103, F0060.
 None is attributed yet; each is anchored before a fix.
+
+**F0058 anchored (2026-11-03).** On main all four intersecting patches are I2d
+refusals (`YANG_441_UPDATE_CENSUS=<file>`: `{"ChordDegradation": 4}`,
+`APPLIED patches=0`, no Fig. 11(a) arm): the case reads CORRECT on the
+RELOCATED mesh, the §4.4.1 update never touching it. With the refusal off the
+four patches re-triangulate and the Stage-3 curve build that runs inside the
+update (`compute_phase_a_with_side_labels`) meets an intersection edge running
+from one Steinmetz ellipse to the other across their crossing (`edge (37,58)`:
+`p_s` on one branch, `p_e` on the other, `matched=0`); every refined rerun
+then stops on an edge at the crossing that both ellipses contain. Not chain
+decimation (`YANG_434_DECIMATE_PROBE` silent: it never runs here) and not a
+tolerance: the crossing is a corner of every patch around it, so the working
+hypothesis is the F2 item-1 open class (the self-touching split cycle,
+P0040) — to be confirmed by dumping the patch cycles at the crossing. The
+other two class-1 cases (R0046, R0063) are not yet anchored.
