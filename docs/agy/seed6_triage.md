@@ -230,3 +230,10 @@ All 6 rows below were **computed** end-to-end through `prospect_run` (`scratch/r
   **`182 CORRECT / 6 WRONG / 10 ERROR / 0 UNSUPPORTED / 2 TIMEOUT`** (`ERROR` rate `12/200 → 10/200 = 5.0%`; `TIMEOUT` count `4 → 2`).
   - **Why the 194 un-run rows are inferred unchanged under H1 + H2 alone:** H1 (`judge_empty_result` / zero-cube `certified_empty_at`) only fires when `live_solid_handles().is_empty()` or `exact_membership` reads zero inside cubes (`00000` and `00095` were the only 2 `empty_result` rows in `seed-6/report.jsonl`, and `h1_census_seed6.log` confirmed zero coverage changes across the other 196 `.waffle` files); H2 is verdict-preserving on non-`TIMEOUT` rows (`generate_and_build_with` is bit-identical to `generate` + `build`, and `measure_document` reuses the same loaded `ModelBuilder`), while all 4 `TIMEOUT` rows were re-run above.
   - **Note on concurrent `main` changes outside `dc422b05`:** `origin/main` (`07cb9a4f`) also includes commits landed after `dc422b05` (e.g. `docs/kernel_1_0.md:93` records `X00000006-00021` moving `WRONG → CORRECT`, which would make a full fresh re-run on current `main` + H1 + H2 **inferred** `183 CORRECT / 5 WRONG / 10 ERROR / 0 UNSUPPORTED / 2 TIMEOUT` pending any other `main` oracle/engine changes not re-evaluated here).
+
+> **Reviewer notes on H1 and H2 (Claude Code, 2026-11-03).** (1) H1 adds a second new WRONG path besides the
+> one in the brief: a NON-empty kernel result whose chain certifies empty is now a Flag (WRONG), where it
+> used to be NotCovered — the kernel made material where none should be. (2) H2 splits the build and judge
+> passes into separate budgeted processes for `prospect_run`; the `PROSPECT_RECIPE` and default
+> `judge_generated` entries still evaluate twice in one process, so a budgeted replay through them covers
+> two passes. Coverage census on this branch: corpus 356 / 16 / 2 (main 355 / 17 / 2; P0023 newly covered).
