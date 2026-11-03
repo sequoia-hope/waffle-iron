@@ -482,11 +482,21 @@ test.describe('Agent link authoring (Phase 1)', () => {
 			// I12 / O9 time the Disconnect action to the relay, not the page
 			// settling: after the gear lands, CI's software GL drops frames for
 			// ~1.4 s, and `click()`'s stability wait (which needs frames) spent
-			// 1.3–1.5 s of the two failing runs' totals before the click fired.
-			// Start the clock once the page renders again.
-			await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
-			const clickedAt = Date.now();
+			// 1.3–1.5 s of two failing runs' totals before the click fired; a
+			// two-frame wait before the click did not absorb it (1027 ms). The
+			// clock starts when the page's own click handler runs.
+			await page.evaluate(() => {
+				document.querySelector('[data-testid="agent-disconnect"]').addEventListener(
+					'click',
+					() => {
+						window.__disconnectClickedAt = Date.now();
+					},
+					{ capture: true, once: true }
+				);
+			});
 			await page.getByTestId('agent-disconnect').click();
+			const clickedAt = await page.evaluate(() => window.__disconnectClickedAt);
+			expect(typeof clickedAt).toBe('number');
 			await expect
 				.poll(async () => (await relay.callTool('waffle_status')).structuredContent.state, { timeout: 1000, intervals: [25] })
 				.toBe('unpaired');
