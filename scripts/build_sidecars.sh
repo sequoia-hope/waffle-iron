@@ -81,11 +81,16 @@ else
 fi
 
 log "configuring + building (Release) — this is the ~22 min step ..."
+# CMake 4 removed compatibility with `cmake_minimum_required(< 3.5)`, which the
+# bundled oneTBB still declares; this is CMake's own escape for that, and older
+# CMake ignores it (sequoia-server, cmake 4.2.3, 2026-11-03).
+export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 cmake -S "${REPO_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 # Build ONLY the CLI targets we use. The upstream CMake also defines interactive
 # GUI demo targets (mesh_booleans_arap / _rotation) that require GLFW + OpenGL,
 # which aren't installed (and aren't needed). Building "all" fails on those.
-cmake --build "${BUILD_DIR}" -j "$(nproc)" \
+# Under `reserve`, build with the booked cores, not the whole machine.
+cmake --build "${BUILD_DIR}" -j "${RESERVED_CORES:-$(nproc)}" \
   --target mesh_booleans mesh_booleans_inputcheck
 
 if [[ ! -x "${BIN}" ]]; then
