@@ -131,11 +131,11 @@ fn n106_d3_cylinder_r50_long_axial_span_eliminates_circumferential_slivers_and_r
     assert_eq!(param_plan.new_tris.len(), 2 * n_steps);
     assert_eq!(iso_plan.new_tris.len(), 2 * n_steps);
 
-    // Production entry point remains byte-identical to `ChartMetric::Parametric`.
+    // The production entry point runs the isometric chart (N106, 2026-11-03).
     let prod_plan =
         rebuild_patch_planar_bounded_ex(&mesh, 0, &patch, None, &BTreeSet::new()).unwrap();
-    assert_eq!(prod_plan.new_tris, param_plan.new_tris);
-    assert_eq!(prod_plan.new_tri_bounds, param_plan.new_tri_bounds);
+    assert_eq!(prod_plan.new_tris, iso_plan.new_tris);
+    assert_eq!(prod_plan.new_tri_bounds, iso_plan.new_tri_bounds);
 
     let projected_uv: Vec<Point2> = verts.iter().map(|&p| chart.project(p)).collect();
 

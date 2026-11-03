@@ -8259,3 +8259,14 @@ once, landed by the F2 owner:
 Next (F2 owner): wire the bound into the inventoried consumers, switch the
 patch CDT to the isometric chart, then retire the I2d refusal and the arms
 kept behind it (re-measuring the 2026-10-16 volume regressions first).
+
+**Increment 1 (2026-11-03): the patch CDT runs in the isometric chart.** Every
+production patch rebuild goes through `rebuild_patch_planar_bounded_ex`, which
+now passes `ChartMetric::Isometric`: Delaunay in (r·θ, y) on cylinders and the
+developed sector on cones, boundaries, constraints, lifting and the d(T)
+certificate unchanged. Corpus 360C / 0W / 9E / 5EE / 0T held (sequoia, wall
+770 s against 757 s); exactly 12 cases changed geometry (canonical hash, every
+other case bit-identical) and none changed category: P0014 P0017 P0029 P0039
+P0049 R0003 R0004 R0019 R0032 R0044 R0053 R0081. The I2d refusal is still in
+force — increment 2 wires the per-triangle bound into the post-update readers
+(the inventory's B4/B5, A-rows), increment 3 retires I2d / I2e.
