@@ -998,16 +998,26 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
             .map(|t| [at(t[0]), at(t[1]), at(t[2])])
             .collect();
         if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() {
+            let cycle_edges: BTreeSet<(u32, u32)> = patch
+                .cycles
+                .iter()
+                .flat_map(|c| (0..c.len()).map(move |k| {
+                    let (a, b) = (c[k], c[(k + 1) % c.len()]);
+                    (a.min(b), a.max(b))
+                }))
+                .collect();
+            let mut chords = BTreeSet::new();
             for t in &new_tris {
-                let has = |v: u32| t.contains(&v);
-                if has(37) && has(58) {
-                    eprintln!(
-                        "[trial-edge] patch={patch_index} band={band} new tri {t:?} carries edge (37,58); \
-                         37 on cycle={} 58 on cycle={}",
-                        cycle_verts.contains(&37),
-                        cycle_verts.contains(&58)
-                    );
+                for k in 0..3 {
+                    let (a, b) = (t[k], t[(k + 1) % 3]);
+                    let e = (a.min(b), a.max(b));
+                    if cycle_verts.contains(&a) && cycle_verts.contains(&b) && !cycle_edges.contains(&e) {
+                        chords.insert(e);
+                    }
                 }
+            }
+            if !chords.is_empty() {
+                eprintln!("[trial-chord] patch={patch_index} band={band} cycle-vertex chords={chords:?}");
             }
         }
         let new_verts: Vec<Point3> = seeds.iter().map(|&s| chart.lift(s)).collect();
