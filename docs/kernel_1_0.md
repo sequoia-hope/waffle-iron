@@ -92,6 +92,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 1 | corpus WRONG | 0 (HEAD a1932058: 360C / 0W / 9E / 5EE / 0T, 2026-11-03) | 0 |
 | 1 | fresh-seed WRONG | seed 6: 6 → 5 after the engine cut fix (00021 CORRECT); the 5 left are oracle defects (body membership by bbox, stale extent box, composition band); 0 kernel | 0 on two seeds |
 | 1 | record-only oracles | 2 (O2, O5) | 0 |
+| 1 | exact-chain coverage (`assay_exact_coverage`) | corpus 355 / 374; seed 6 195 / 198 (main 592c813f) | no lower than baseline; every decline justified |
 | 1 | N100 items open | see ledger N100 | 0 |
 | 2 | ledger debt | 65 | 0 |
 | 2 | matrix not-faithful | 132 of 194 | 0 MISSING/ORDER; rest PERMANENT-backed |
