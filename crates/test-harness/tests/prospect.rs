@@ -237,9 +237,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use test_harness::assay::prospect::{
-    self, gen3, judge_generated, judge_mutant, judge_recipe, metamorphic, minimize,
-    process_cpu_secs, promote, signature, signature_at, signature_slug, ReportLine, Signature,
-    SignatureKey, OUTCOME_PREFIX,
+    self, build_generated, build_recipe, gen3, judge_generated, judge_mutant, judge_recipe,
+    metamorphic, minimize, process_cpu_secs, promote, signature, signature_at, signature_slug,
+    ReportLine, Signature, SignatureKey, OUTCOME_PREFIX,
 };
 
 fn env_u64(name: &str, default: u64) -> u64 {
@@ -258,9 +258,18 @@ fn out_dir(seed: u64) -> PathBuf {
     }
 }
 
-/// Verdict CHILD: `PROSPECT_OUT` + `PROSPECT_SEED` + `PROSPECT_INDEX` ⇒
-/// generate + build + judge; or `PROSPECT_CANDIDATE=<stem>` ⇒ judge a
-/// document on disk. Prints exactly one `PROSPECT_OUTCOME\t{json}` line.
+/// Verdict CHILD: executes ONE budgeted evaluation pass per invocation when
+/// driven by `prospect_run` / `prospect_minimize` / `prospect_mutate` /
+/// `prospect_metamorphic`:
+/// - `PROSPECT_BUILD_GENERATED=1` + `PROSPECT_OUT` + `PROSPECT_SEED` +
+///   `PROSPECT_INDEX` ⇒ fused `generate_and_build` (`AddFeature` pass only);
+/// - `PROSPECT_BUILD_RECIPE=<stem>` ⇒ `build_recipe` (`AddFeature` pass only);
+/// - `PROSPECT_CANDIDATE=<stem>` ⇒ single-pass `measure_stem` (`LoadProject`
+///   verdict + measurement reusing one `ModelBuilder`);
+/// - `PROSPECT_MUTATE_PARENT=<path>` ⇒ single-pass `judge_mutant`;
+/// - `PROSPECT_RECIPE=<stem>` / default ⇒ legacy in-process convenience entry.
+///
+/// Prints exactly one `PROSPECT_OUTCOME\t{json}` line.
 #[test]
 #[ignore = "verdict subprocess entry (spawned by prospect_run); not a test"]
 fn prospect_judge() {
@@ -276,6 +285,35 @@ fn prospect_judge() {
             }),
             Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("mutate: {e}") }),
         }
+    } else if std::env::var("PROSPECT_BUILD_GENERATED").is_ok() {
+        let seed = env_u64("PROSPECT_SEED", 1);
+        let index = env_u64("PROSPECT_INDEX", 0);
+        let out = out_dir(seed);
+        match build_generated(&out, seed, index) {
+            Ok((recipe, build)) => serde_json::json!({
+                "category": "BUILT",
+                "detail": "",
+                "summary": recipe.summary(),
+                "steps": recipe.steps.len(),
+                "scale": recipe.scale,
+                "build_stopped_by": build.stopped_by,
+            }),
+            Err(e) => {
+                serde_json::json!({ "category": "ERROR", "detail": format!("generate: {e}") })
+            }
+        }
+    } else if let Ok(stem) = std::env::var("PROSPECT_BUILD_RECIPE") {
+        match build_recipe(Path::new(&stem)) {
+            Ok((recipe, build)) => serde_json::json!({
+                "category": "BUILT",
+                "detail": "",
+                "summary": recipe.summary(),
+                "steps": recipe.steps.len(),
+                "scale": recipe.scale,
+                "build_stopped_by": build.stopped_by,
+            }),
+            Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("recipe: {e}") }),
+        }
     } else if let Ok(stem) = std::env::var("PROSPECT_RECIPE") {
         match judge_recipe(Path::new(&stem)) {
             Ok((o, build)) => serde_json::json!({
@@ -286,8 +324,9 @@ fn prospect_judge() {
             Err(e) => serde_json::json!({ "category": "ERROR", "detail": format!("recipe: {e}") }),
         }
     } else if let Ok(stem) = std::env::var("PROSPECT_CANDIDATE") {
-        // Judge + measure (volume, χ, bodies) — the metamorphic driver reads
-        // the measurement; a plain judge reads category/detail.
+        // Judge + measure (volume, χ, bodies) in ONE evaluation pass — the
+        // metamorphic driver reads the measurement; a plain judge reads
+        // category/detail.
         match prospect::measure_stem(Path::new(&stem)) {
             Ok(m) => serde_json::json!({
                 "category": m.category,
@@ -331,6 +370,8 @@ fn run_child(
     cmd.args(["--exact", "prospect_judge", "--ignored", "--nocapture"])
         .env_remove("PROSPECT_CANDIDATE")
         .env_remove("PROSPECT_RECIPE")
+        .env_remove("PROSPECT_BUILD_GENERATED")
+        .env_remove("PROSPECT_BUILD_RECIPE")
         .env_remove("PROSPECT_MUTATE_PARENT")
         .env_remove("PROSPECT_INDEX")
         .stdin(Stdio::null())
@@ -392,9 +433,15 @@ fn run_child(
     }
     let output = reader.join().unwrap_or_default();
     if timed_out {
+        let budget_secs = budget.as_secs_f64();
+        let budget_fmt = if (budget_secs - budget_secs.round()).abs() < 1e-6 {
+            format!("{budget_secs:.0}s")
+        } else {
+            format!("{budget_secs:.2}s")
+        };
         return (
             "TIMEOUT".into(),
-            format!("cpu {last_cpu:.1}s > budget {:.0}s", budget.as_secs_f64()),
+            format!("cpu {last_cpu:.1}s > budget {budget_fmt}"),
             serde_json::Value::Null,
             last_cpu,
         );
@@ -467,7 +514,11 @@ fn sign_line(line: &mut ReportLine, extra: &serde_json::Value) {
         .map(str::to_string);
 }
 
-/// Spawn the verdict child for `(seed, index)` under a CPU budget.
+/// Spawn the verdict children for `(seed, index)` under per-evaluation CPU
+/// budgets (seed-6 H2): Pass 1 (`PROSPECT_BUILD_GENERATED`) gets `budget` to
+/// author `<id>.waffle` in one `AddFeature` pass; Pass 2 (`PROSPECT_CANDIDATE`)
+/// gets its own fresh `budget` to replay `<id>.waffle` in one `LoadProject`
+/// pass. A `TIMEOUT` means one evaluation exceeded `budget`.
 fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportLine {
     let id = gen3::candidate_id(seed, index);
     let mut line = ReportLine {
@@ -482,39 +533,85 @@ fn spawn_verdict(seed: u64, index: u64, out: &Path, budget: Duration) -> ReportL
         scale: 0.0,
         build_stopped_by: None,
         cpu_secs: 0.0,
+        build_cpu_secs: None,
+        judge_cpu_secs: None,
         parent: None,
         knob: None,
         signature_key: None,
         site: None,
     };
-    let (category, detail, v, cpu) = run_child(
+    let (b_cat, b_detail, b_v, build_cpu) = run_child(
         &[
+            ("PROSPECT_BUILD_GENERATED", "1".to_string()),
             ("PROSPECT_SEED", seed.to_string()),
             ("PROSPECT_INDEX", index.to_string()),
             ("PROSPECT_OUT", out.display().to_string()),
         ],
         budget,
     );
-    line.cpu_secs = cpu;
-    line.category = category;
-    line.detail = detail;
-    sign_line(&mut line, &v);
-    line.summary = v["summary"].as_str().unwrap_or("").to_string();
-    line.steps = v["steps"].as_u64().unwrap_or(0) as usize;
-    line.scale = v["scale"].as_f64().unwrap_or(0.0);
-    line.build_stopped_by = v["build_stopped_by"].as_str().map(str::to_string);
+    line.build_cpu_secs = Some(build_cpu);
+    line.cpu_secs = build_cpu;
+    if !b_v.is_null() {
+        line.summary = b_v["summary"].as_str().unwrap_or("").to_string();
+        line.steps = b_v["steps"].as_u64().unwrap_or(0) as usize;
+        line.scale = b_v["scale"].as_f64().unwrap_or(0.0);
+        line.build_stopped_by = b_v["build_stopped_by"].as_str().map(str::to_string);
+    } else if let Ok(s) =
+        std::fs::read_to_string(out.join("candidates").join(format!("{id}.lineage.json")))
+    {
+        if let Ok(lin) = serde_json::from_str::<serde_json::Value>(&s) {
+            if let Ok(r) = serde_json::from_value::<gen3::Recipe>(lin["recipe"].clone()) {
+                line.summary = r.summary();
+                line.steps = r.steps.len();
+                line.scale = r.scale;
+            }
+        }
+    }
+    if b_cat != "BUILT" {
+        line.category = b_cat.clone();
+        line.detail = if b_cat == "TIMEOUT" {
+            format!("build pass: {b_detail}")
+        } else {
+            b_detail
+        };
+        sign_line(&mut line, &b_v);
+        return line;
+    }
+
+    let stem = out.join("candidates").join(&id);
+    let (j_cat, j_detail, j_v, judge_cpu) = run_child(
+        &[("PROSPECT_CANDIDATE", stem.display().to_string())],
+        budget,
+    );
+    line.judge_cpu_secs = Some(judge_cpu);
+    line.cpu_secs = build_cpu.max(judge_cpu);
+    line.category = j_cat.clone();
+    line.detail = if j_cat == "TIMEOUT" {
+        format!("judge pass: {j_detail} (build pass {build_cpu:.1}s)")
+    } else {
+        j_detail
+    };
+    sign_line(&mut line, &j_v);
     line
 }
 
-/// The prospector's search: `PROSPECT_SEED` (1), `PROSPECT_COUNT` (200),
-/// `PROSPECT_JOBS` (8), `PROSPECT_BUDGET_SECS` (600), `PROSPECT_OUT`
-/// (`target/prospect/seed-<seed>`). Resumable: ids already in
-/// `report.jsonl` are skipped. Never run during a full assay.
+/// The prospector's search: `PROSPECT_SEED` (1), `PROSPECT_COUNT` (200) or
+/// explicit `PROSPECT_INDICES=0,4,97,...`, `PROSPECT_JOBS` (8),
+/// `PROSPECT_BUDGET_SECS` (600, per evaluation pass), `PROSPECT_OUT`
+/// (`target/prospect/seed-<seed>`). Resumable: ids already in `report.jsonl`
+/// are skipped. Never run during a full assay.
 #[test]
 #[ignore = "the prospector search (long, release); run by hand — see specs/assay_prospector.md §9"]
 fn prospect_run() {
     let seed = env_u64("PROSPECT_SEED", 1);
     let count = env_u64("PROSPECT_COUNT", 200);
+    let indices: Vec<u64> = match std::env::var("PROSPECT_INDICES") {
+        Ok(raw) if !raw.trim().is_empty() => raw
+            .split(',')
+            .map(|s| s.trim().parse::<u64>().expect("PROSPECT_INDICES u64"))
+            .collect(),
+        _ => (0..count).collect(),
+    };
     let jobs = env_u64("PROSPECT_JOBS", 8).max(1) as usize;
     let budget = Duration::from_secs(env_u64("PROSPECT_BUDGET_SECS", 600));
     let out = out_dir(seed);
@@ -531,7 +628,8 @@ fn prospect_run() {
         })
         .unwrap_or_default();
     eprintln!(
-        "[prospect] seed={seed} count={count} jobs={jobs} budget={}s out={} (resuming {} done)",
+        "[prospect] seed={seed} count={} jobs={jobs} budget={}s/pass out={} (resuming {} done)",
+        indices.len(),
         budget.as_secs(),
         out.display(),
         done.len()
@@ -545,27 +643,36 @@ fn prospect_run() {
             .expect("report.jsonl"),
     ));
     let next = Arc::new(AtomicU64::new(0));
+    let indices = Arc::new(indices);
     let done = Arc::new(done);
     let started = Instant::now();
     let workers: Vec<_> = (0..jobs)
         .map(|_| {
             let next = Arc::clone(&next);
+            let indices = Arc::clone(&indices);
             let done = Arc::clone(&done);
             let report = Arc::clone(&report);
             let out = out.clone();
             std::thread::spawn(move || loop {
-                let index = next.fetch_add(1, Ordering::SeqCst);
-                if index >= count {
+                let slot = next.fetch_add(1, Ordering::SeqCst) as usize;
+                if slot >= indices.len() {
                     break;
                 }
+                let index = indices[slot];
                 let id = gen3::candidate_id(seed, index);
                 if done.contains(&id) {
                     continue;
                 }
                 let line = spawn_verdict(seed, index, &out, budget);
+                let pass_cpu = match (line.build_cpu_secs, line.judge_cpu_secs) {
+                    (Some(b), Some(j)) => format!("(build={b:.1}s judge={j:.1}s)"),
+                    (Some(b), None) => format!("(build={b:.1}s)"),
+                    (None, Some(j)) => format!("(judge={j:.1}s)"),
+                    (None, None) => String::new(),
+                };
                 eprintln!(
-                    "[prospect] {} {:<18} {:>6.1}s  {}  {}",
-                    line.id, line.category, line.cpu_secs, line.summary, line.signature
+                    "[prospect] {} {:<18} {:>6.1}s {:<28} {}  {}",
+                    line.id, line.category, line.cpu_secs, pass_cpu, line.summary, line.signature
                 );
                 let mut f = report.lock().unwrap();
                 let _ = writeln!(f, "{}", serde_json::to_string(&line).unwrap());
@@ -615,17 +722,37 @@ fn prospect_run() {
     let _ = prospect::PROSPECT_META_VERSION;
 }
 
-/// Judge a recipe through the child: write it to `<stem>.recipe.json`,
-/// run, return the signature.
-fn judge_recipe_via_child(recipe: &gen3::Recipe, stem: &Path, budget: Duration) -> Option<String> {
-    std::fs::write(
-        stem.with_extension("recipe.json"),
-        serde_json::to_string_pretty(recipe).ok()?,
+/// Judge a recipe through per-pass budgeted children (seed-6 H2): write
+/// `<stem>.recipe.json`, run `PROSPECT_BUILD_RECIPE` under `budget`, then run
+/// `PROSPECT_CANDIDATE` under its own `budget`, returning `(signature,
+/// build_cpu_secs, judge_cpu_secs)`.
+fn judge_recipe_via_child(
+    recipe: &gen3::Recipe,
+    stem: &Path,
+    budget: Duration,
+) -> (Option<String>, f64, Option<f64>) {
+    let Ok(json) = serde_json::to_string_pretty(recipe) else {
+        return (None, 0.0, None);
+    };
+    if std::fs::write(stem.with_extension("recipe.json"), json).is_err() {
+        return (None, 0.0, None);
+    }
+    let (b_cat, b_detail, b_v, build_cpu) = run_child(
+        &[("PROSPECT_BUILD_RECIPE", stem.display().to_string())],
+        budget,
+    );
+    if b_cat != "BUILT" {
+        return (Some(signature_of(&b_cat, &b_detail, &b_v)), build_cpu, None);
+    }
+    let (j_cat, j_detail, j_v, judge_cpu) = run_child(
+        &[("PROSPECT_CANDIDATE", stem.display().to_string())],
+        budget,
+    );
+    (
+        Some(signature_of(&j_cat, &j_detail, &j_v)),
+        build_cpu,
+        Some(judge_cpu),
     )
-    .ok()?;
-    let (category, detail, v, _) =
-        run_child(&[("PROSPECT_RECIPE", stem.display().to_string())], budget);
-    Some(signature_of(&category, &detail, &v))
 }
 
 /// P3: minimize every finding of a report (one per signature, the example
@@ -704,9 +831,13 @@ fn prospect_minimize() {
         let mut judge = |r: &gen3::Recipe| -> Option<String> {
             n += 1;
             let stem = work.join(format!("try{n:03}"));
-            let s = judge_recipe_via_child(r, &stem, budget);
+            let (s, b_cpu, j_cpu) = judge_recipe_via_child(r, &stem, budget);
+            let cpu_note = match j_cpu {
+                Some(j) => format!("build={b_cpu:.1}s judge={j:.1}s"),
+                None => format!("build={b_cpu:.1}s"),
+            };
             eprintln!(
-                "[minimize]   {} try{n:03} ({} steps) → {}",
+                "[minimize]   {} try{n:03} ({} steps, {cpu_note}) → {}",
                 example.id,
                 r.steps.len(),
                 s.as_deref().unwrap_or("?")
@@ -716,7 +847,7 @@ fn prospect_minimize() {
         let (min, rep) = minimize::minimize(&recipe, sig, &mut judge, min_steps);
         // Materialize the minimal recipe as the finding's document.
         let stem = dir.join(format!("{}-min", example.id));
-        let final_sig = judge_recipe_via_child(&min, &stem, budget);
+        let (final_sig, _, _) = judge_recipe_via_child(&min, &stem, budget);
         let readme = format!(
             "# {sig}\n\nseed {} index {} ({}) — {} example(s) in the report\n\n\
              steps {} → {} after {} verdict(s){}\n\nkept reductions:\n{}\n\n\
@@ -1071,6 +1202,8 @@ fn prospect_mutate() {
                     scale: 0.0,
                     build_stopped_by: None,
                     cpu_secs: cpu,
+                    build_cpu_secs: None,
+                    judge_cpu_secs: Some(cpu),
                     parent: Some(parent_id),
                     knob: v["knob"].as_str().map(str::to_string),
                     signature_key: None,
@@ -1078,8 +1211,8 @@ fn prospect_mutate() {
                 };
                 sign_line(&mut line, &v);
                 eprintln!(
-                    "[mutate] {} {:<18} {:>6.1}s  {}  {}",
-                    line.id, line.category, line.cpu_secs, line.summary, line.signature
+                    "[mutate] {} {:<18} {:>6.1}s (judge={:.1}s)  {}  {}",
+                    line.id, line.category, line.cpu_secs, cpu, line.summary, line.signature
                 );
                 let mut f = report.lock().unwrap();
                 let _ = writeln!(f, "{}", serde_json::to_string(&line).unwrap());
@@ -1124,22 +1257,24 @@ fn prospect_mutate() {
 
 // ── Metamorphic identities (spec §6) ─────────────────────────────────────
 
-/// Measure a document written to `<stem>.waffle` through the child.
+/// Measure a document written to `<stem>.waffle` through a single-pass child,
+/// returning `(measurement, judge_cpu_secs)`.
 fn measure_via_child(
     doc: &serde_json::Value,
     stem: &Path,
     budget: Duration,
-) -> Option<metamorphic::Measurement> {
-    std::fs::write(
-        stem.with_extension("waffle"),
-        serde_json::to_string(doc).ok()?,
-    )
-    .ok()?;
-    let (category, detail, v, _) = run_child(
+) -> (Option<metamorphic::Measurement>, f64) {
+    let Ok(json) = serde_json::to_string(doc) else {
+        return (None, 0.0);
+    };
+    if std::fs::write(stem.with_extension("waffle"), json).is_err() {
+        return (None, 0.0);
+    }
+    let (category, detail, v, cpu) = run_child(
         &[("PROSPECT_CANDIDATE", stem.display().to_string())],
         budget,
     );
-    match serde_json::from_value::<metamorphic::Measurement>(v["measurement"].clone()) {
+    let m = match serde_json::from_value::<metamorphic::Measurement>(v["measurement"].clone()) {
         Ok(m) => Some(m),
         Err(_) => Some(metamorphic::Measurement {
             category,
@@ -1148,7 +1283,8 @@ fn measure_via_child(
             chi: None,
             bodies: 0,
         }),
-    }
+    };
+    (m, cpu)
 }
 
 /// The metamorphic search: for every parent (`PROSPECT_MUTATE=<dir>`,
@@ -1243,13 +1379,15 @@ fn prospect_metamorphic() {
                 };
                 let scale = test_harness::assay::prospect::mutate::characteristic_length(&doc);
                 let cdir = out.join("candidates");
-                let original = measure_via_child(&doc, &cdir.join(format!("{id}-orig")), budget);
+                let (original, orig_cpu) =
+                    measure_via_child(&doc, &cdir.join(format!("{id}-orig")), budget);
                 let reference_doc = metamorphic::with_explicit_x_axes(&doc);
                 let mut problems: Vec<String> = Vec::new();
-                let mut cpu = 0.0;
+                let mut max_judge_cpu: f64 = orig_cpu;
                 if let (Some(orig), Some(ref_doc)) = (original.as_ref(), reference_doc.as_ref()) {
-                    let reference =
+                    let (reference, ref_cpu) =
                         measure_via_child(ref_doc, &cdir.join(format!("{id}-ref")), budget);
+                    max_judge_cpu = max_judge_cpu.max(ref_cpu);
                     if let Some(reference) = reference.as_ref() {
                         if let Some(p) =
                             metamorphic::compare("axes", orig, reference, 1.0, REL_BAND)
@@ -1261,9 +1399,10 @@ fn prospect_metamorphic() {
                         );
                         let motion = metamorphic::RigidMotion::draw(&mut rng, scale);
                         if let Some(rot) = metamorphic::rigid_motion(ref_doc, &motion) {
-                            if let Some(moved) =
-                                measure_via_child(&rot, &cdir.join(format!("{id}-rigid")), budget)
-                            {
+                            let (moved, moved_cpu) =
+                                measure_via_child(&rot, &cdir.join(format!("{id}-rigid")), budget);
+                            max_judge_cpu = max_judge_cpu.max(moved_cpu);
+                            if let Some(moved) = moved {
                                 if let Some(p) =
                                     metamorphic::compare("rigid", reference, &moved, 1.0, REL_BAND)
                                 {
@@ -1275,9 +1414,10 @@ fn prospect_metamorphic() {
                         if let Some(sc) =
                             test_harness::assay::prospect::mutate::scale_document(ref_doc, factor)
                         {
-                            if let Some(scaled) =
-                                measure_via_child(&sc, &cdir.join(format!("{id}-scale")), budget)
-                            {
+                            let (scaled, scaled_cpu) =
+                                measure_via_child(&sc, &cdir.join(format!("{id}-scale")), budget);
+                            max_judge_cpu = max_judge_cpu.max(scaled_cpu);
+                            if let Some(scaled) = scaled {
                                 if let Some(p) = metamorphic::compare(
                                     &format!("scale×{factor:.0e}"),
                                     reference,
@@ -1290,7 +1430,6 @@ fn prospect_metamorphic() {
                             }
                         }
                     }
-                    cpu = 0.0;
                 }
                 let (category, signature) = if problems.is_empty() {
                     ("SUPPORTED_CORRECT".to_string(), "correct".to_string())
@@ -1330,7 +1469,9 @@ fn prospect_metamorphic() {
                     steps: 0,
                     scale,
                     build_stopped_by: None,
-                    cpu_secs: cpu,
+                    cpu_secs: max_judge_cpu,
+                    build_cpu_secs: None,
+                    judge_cpu_secs: Some(max_judge_cpu),
                     parent: Some(parent_id),
                     knob: None,
                     // A broken identity, not an error text.
@@ -1338,8 +1479,8 @@ fn prospect_metamorphic() {
                     site: None,
                 };
                 eprintln!(
-                    "[metamorphic] {} {:<18} {}  {}",
-                    line.id, line.category, line.summary, line.detail
+                    "[metamorphic] {} {:<18} {:>6.1}s {}  {}",
+                    line.id, line.category, line.cpu_secs, line.summary, line.detail
                 );
                 let mut f = report.lock().unwrap();
                 let _ = writeln!(f, "{}", serde_json::to_string(&line).unwrap());
@@ -1369,4 +1510,83 @@ fn prospect_metamorphic() {
     for l in &bad {
         eprintln!("[metamorphic]   {} {}: {}", l.id, l.signature, l.detail);
     }
+}
+
+/// Seed-6 H2: `measure_document` reuses `categorize_with_builder`'s loaded
+/// `ModelBuilder` in a single evaluation pass and reports accurate volume, χ,
+/// and live-body count for both non-empty and legitimately empty documents.
+#[test]
+fn measure_document_single_pass_matches_categorize_and_measures_live_bodies() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sk", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 2.0, 1.0)
+        .unwrap();
+    b.extrude("box", "sk", 0.5).unwrap();
+    let waffle = b.save().unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let meta = derive_meta("X-measure-box", &doc).unwrap();
+    let m = prospect::measure_document(&waffle, &meta);
+    assert_eq!(m.category, "SUPPORTED_CORRECT", "{}", m.detail);
+    assert_eq!(m.bodies, 1);
+    assert_eq!(m.chi, Some(2));
+    assert!((m.volume.expect("box volume") - 1.0).abs() < 1e-6, "{m:?}");
+
+    let mut d = ModelBuilder::kernel_v2();
+    d.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
+        .unwrap();
+    d.extrude("a", "sk_a", 1.0).unwrap();
+    d.rect_sketch("sk_b", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 5.0, 1.0, 1.0)
+        .unwrap();
+    d.extrude_no_merge("b", "sk_b", 1.0).unwrap();
+    let _ = d.boolean_intersect("i", "a", "b");
+    let empty_waffle = d.save().unwrap();
+    let empty_doc: serde_json::Value = serde_json::from_str(&empty_waffle).unwrap();
+    let empty_meta = derive_meta("X-measure-empty", &empty_doc).unwrap();
+    let em = prospect::measure_document(&empty_waffle, &empty_meta);
+    assert_eq!(em.category, "SUPPORTED_CORRECT", "{}", em.detail);
+    assert_eq!(em.bodies, 0);
+    assert_eq!(em.volume, None);
+    assert_eq!(em.chi, None);
+}
+
+/// Seed-6 H2: `spawn_verdict` budgets the build pass (`build_generated`) and
+/// the verdict pass (`PROSPECT_CANDIDATE`) separately, records per-pass CPU
+/// (`build_cpu_secs`, `judge_cpu_secs`, `cpu_secs = max(build, judge)`), and
+/// flushes `<id>.lineage.json` before a slow step times out in the build pass.
+#[test]
+fn spawn_verdict_budgets_build_and_judge_separately_and_records_per_pass_cpu() {
+    let dir = std::env::temp_dir().join(format!("waffle_h2_test_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let ok_line = spawn_verdict(6, 0, &dir, Duration::from_secs(60));
+    assert_eq!(ok_line.category, "SUPPORTED_CORRECT", "{}", ok_line.detail);
+    let b_cpu = ok_line.build_cpu_secs.expect("build_cpu_secs recorded");
+    let j_cpu = ok_line.judge_cpu_secs.expect("judge_cpu_secs recorded");
+    assert!(
+        (ok_line.cpu_secs - b_cpu.max(j_cpu)).abs() < 1e-9,
+        "cpu_secs must be max(build_cpu_secs, judge_cpu_secs), not their sum: {ok_line:?}"
+    );
+
+    // Seed 6 index 4 spends >400 s CPU on step 3 even in --release; under a
+    // 0.15 s per-pass budget, Pass 1 times out cleanly, Pass 2 is skipped, and
+    // the partial lineage flushed before the slow step is recovered.
+    let to_line = spawn_verdict(6, 4, &dir, Duration::from_millis(150));
+    assert_eq!(to_line.category, "TIMEOUT", "{to_line:?}");
+    assert!(
+        to_line.detail.starts_with("build pass: cpu"),
+        "detail must name the pass that exceeded budget: {}",
+        to_line.detail
+    );
+    assert!(to_line.build_cpu_secs.is_some());
+    assert!(to_line.judge_cpu_secs.is_none());
+    assert!(
+        dir.join("candidates/X00000006-00004.lineage.json").exists(),
+        "partial lineage must be flushed before a build-pass timeout"
+    );
+    assert!(
+        to_line.steps >= 2 && !to_line.summary.is_empty(),
+        "build-pass timeout must recover drawn summary/steps from partial lineage: {to_line:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

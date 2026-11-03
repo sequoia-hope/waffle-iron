@@ -391,8 +391,17 @@ pub struct ReportLine {
     pub scale: f64,
     /// The harness error that stopped the build, if any.
     pub build_stopped_by: Option<String>,
-    /// CPU seconds the verdict subprocess used.
+    /// CPU seconds of the slowest single evaluation pass (the quantity each
+    /// per-evaluation budget caps; on single-pass modes, that pass's CPU).
     pub cpu_secs: f64,
+    /// CPU seconds of the build pass (`build_generated` / `build_recipe`),
+    /// when run as a separate evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_cpu_secs: Option<f64>,
+    /// CPU seconds of the verdict (`categorize` / `measure_stem`) pass, when
+    /// run as a separate evaluation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub judge_cpu_secs: Option<f64>,
     /// Mutants only: the parent document's id and the knob turned.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
@@ -426,9 +435,57 @@ pub fn process_cpu_secs(_pid: u32) -> Option<f64> {
     None
 }
 
-/// Generate, build, save and judge ONE candidate — the body of the verdict
-/// child. Files land as `<out>/candidates/<id>.{waffle,meta.json,lineage.json}`.
-/// Returns the outcome (category, detail) plus the build report.
+/// Build and save ONE generated candidate in a single evaluation pass (seed-6
+/// H2): fuses `gen3::generate` and `gen3::build` via
+/// [`gen3::generate_and_build_with`] so steps `0..n-1` are not rebuilt from
+/// scratch, and flushes `<id>.lineage.json` before each step executes so a
+/// build-pass `TIMEOUT` still leaves the recipe-so-far on disk. Writes
+/// `<out>/candidates/<id>.{waffle,meta.json,lineage.json}`.
+pub fn build_generated(
+    out: &std::path::Path,
+    seed: u64,
+    index: u64,
+) -> Result<(gen3::Recipe, gen3::BuildReport), String> {
+    let id = gen3::candidate_id(seed, index);
+    let dir = out.join("candidates");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let lineage_path = dir.join(format!("{id}.lineage.json"));
+    let (recipe, mut builder, report) = gen3::generate_and_build_with(seed, index, |partial| {
+        if let Ok(json) = serde_json::to_string_pretty(&serde_json::json!({
+            "kind": "generated",
+            "recipe": partial,
+            "build": serde_json::Value::Null,
+        })) {
+            let _ = std::fs::write(&lineage_path, json);
+        }
+    });
+    let waffle = builder.save().map_err(|e| format!("save: {e}"))?;
+    let doc: Value = serde_json::from_str(&waffle).map_err(|e| format!("parse: {e}"))?;
+    let meta = derive_meta(&id, &doc)?;
+    std::fs::write(dir.join(format!("{id}.waffle")), &waffle).map_err(|e| e.to_string())?;
+    std::fs::write(
+        dir.join(format!("{id}.meta.json")),
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(
+        &lineage_path,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "kind": "generated",
+            "recipe": recipe,
+            "build": report,
+        }))
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok((recipe, report))
+}
+
+/// Generate, build, save and judge ONE candidate in-process (two evaluations:
+/// [`build_generated`] to author `<id>.waffle` via `AddFeature`, then
+/// [`judge_document`] to replay `<id>.waffle` via `LoadProject`). The
+/// subprocess search loop (`prospect_run`) runs those two passes in separate
+/// budgeted child processes so each evaluation gets its own CPU budget.
 pub fn judge_generated(
     out: &std::path::Path,
     seed: u64,
@@ -441,51 +498,9 @@ pub fn judge_generated(
     ),
     String,
 > {
-    let recipe = gen3::generate(seed, index);
-    let id = recipe.id();
-    let dir = out.join("candidates");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // The lineage is a function of the RECIPE alone, so write it BEFORE the
-    // build. A candidate whose build spends the whole CPU budget inside a
-    // kernel operation (seed 2 indices 16 and 78: a 586-cone-face gear
-    // revolve whose 0.74 M-triangle Stage-1 mesh enters the Stage-2
-    // arrangement) is killed by the driver before `judge_generated` returns,
-    // and the report line then carries `steps: 0` and an empty summary — the
-    // finding names nothing it can be re-run from. Writing the recipe first
-    // makes a build-phase TIMEOUT re-playable (`PROSPECT_RECIPE`) and
-    // minimizable like any other finding. The build report is appended once
-    // the build completes.
-    std::fs::write(
-        dir.join(format!("{id}.lineage.json")),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "kind": "generated",
-            "recipe": recipe,
-            "build": serde_json::Value::Null,
-        }))
-        .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    let (mut builder, report) = gen3::build(&recipe);
-    let waffle = builder.save().map_err(|e| format!("save: {e}"))?;
-    let doc: Value = serde_json::from_str(&waffle).map_err(|e| format!("parse: {e}"))?;
-    let meta = derive_meta(&id, &doc)?;
-    std::fs::write(dir.join(format!("{id}.waffle")), &waffle).map_err(|e| e.to_string())?;
-    std::fs::write(
-        dir.join(format!("{id}.meta.json")),
-        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    std::fs::write(
-        dir.join(format!("{id}.lineage.json")),
-        serde_json::to_string_pretty(&serde_json::json!({
-            "kind": "generated",
-            "recipe": recipe,
-            "build": report,
-        }))
-        .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
-    let outcome = crate::assay::categorize::categorize(&id, &waffle, &meta);
+    let (recipe, report) = build_generated(out, seed, index)?;
+    let stem = out.join("candidates").join(recipe.id());
+    let outcome = judge_document(&stem)?;
     Ok((outcome, recipe, report))
 }
 
@@ -511,12 +526,9 @@ pub fn judge_document(
     Ok(crate::assay::categorize::categorize(&id, &waffle, &meta))
 }
 
-/// Build, save and judge a recipe file (`<stem>.recipe.json`) — the verdict
-/// child's third mode, used by the minimizer. Writes `<stem>.waffle` and
-/// `<stem>.meta.json` next to it.
-pub fn judge_recipe(
-    stem: &std::path::Path,
-) -> Result<(crate::assay::categorize::CaseOutcome, gen3::BuildReport), String> {
+/// Build and save a recipe file (`<stem>.recipe.json`) in a single evaluation
+/// pass, writing `<stem>.waffle` and `<stem>.meta.json` next to it.
+pub fn build_recipe(stem: &std::path::Path) -> Result<(gen3::Recipe, gen3::BuildReport), String> {
     let recipe: gen3::Recipe = serde_json::from_str(
         &std::fs::read_to_string(stem.with_extension("recipe.json")).map_err(|e| e.to_string())?,
     )
@@ -536,10 +548,18 @@ pub fn judge_recipe(
         serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
     )
     .map_err(|e| e.to_string())?;
-    Ok((
-        crate::assay::categorize::categorize(&id, &waffle, &meta),
-        report,
-    ))
+    Ok((recipe, report))
+}
+
+/// Build, save and judge a recipe file (`<stem>.recipe.json`) in-process.
+/// The minimizer runs [`build_recipe`] and [`measure_stem`] in separate
+/// budgeted child processes so each evaluation gets its own CPU budget.
+pub fn judge_recipe(
+    stem: &std::path::Path,
+) -> Result<(crate::assay::categorize::CaseOutcome, gen3::BuildReport), String> {
+    let (_recipe, report) = build_recipe(stem)?;
+    let outcome = judge_document(stem)?;
+    Ok((outcome, report))
 }
 
 /// A filesystem-safe slug for a signature (directory name under `findings/`).
@@ -611,12 +631,14 @@ pub fn judge_mutant(
     ))
 }
 
-/// Judge AND measure a document: the categorizer's verdict plus the live
-/// bodies' summed signed volume and exact-bit χ (the quantities the
-/// metamorphic identities compare). Tessellation at the exact oracle's
-/// tolerance for the meta's scale.
+/// Judge AND measure a document in a SINGLE evaluation pass (seed-6 H2):
+/// reuses the [`crate::ModelBuilder`] already loaded by
+/// [`crate::assay::categorize::categorize_with_builder`] to tessellate the live
+/// bodies at `oracle_tol(meta.scale)` instead of re-running `LoadProject` a
+/// second time.
 pub fn measure_document(waffle: &str, meta: &AssayMeta) -> metamorphic::Measurement {
-    let outcome = crate::assay::categorize::categorize(&meta.id, waffle, meta);
+    let (outcome, builder) =
+        crate::assay::categorize::categorize_with_builder(&meta.id, waffle, meta);
     let mut m = metamorphic::Measurement {
         category: outcome.category.label(),
         detail: outcome.detail,
@@ -624,10 +646,9 @@ pub fn measure_document(waffle: &str, meta: &AssayMeta) -> metamorphic::Measurem
         chi: None,
         bodies: 0,
     };
-    let mut builder = crate::ModelBuilder::kernel_v2();
-    if builder.load(waffle).is_err() {
+    let Some(mut builder) = builder else {
         return m;
-    }
+    };
     let tol = crate::assay::volume_oracle_doc::oracle_tol(meta.scale);
     if let Ok(meshes) = builder.tessellate_live_with_tol(tol) {
         let meshes: Vec<_> = meshes

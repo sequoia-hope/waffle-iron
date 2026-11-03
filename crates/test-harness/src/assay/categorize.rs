@@ -155,16 +155,44 @@ pub const NOT_SUPPORTED_MARKER: &str = "operation not supported:";
 ///
 /// `id` is only used for messages and the composition oracle's label.
 pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome {
+    categorize_with_builder(id, waffle_json, meta).0
+}
+
+/// Like [`categorize`], also returning the loaded [`ModelBuilder`] (when
+/// `LoadProject` succeeded) so callers such as [`crate::assay::prospect::measure_document`]
+/// can read tessellated mesh quantities without re-running `LoadProject` a
+/// second time.
+pub fn categorize_with_builder(
+    id: &str,
+    waffle_json: &str,
+    meta: &AssayMeta,
+) -> (CaseOutcome, Option<ModelBuilder>) {
+    let mut builder = ModelBuilder::kernel_v2();
+    if let Err(e) = builder.load(waffle_json) {
+        return (
+            CaseOutcome {
+                id: id.to_string(),
+                category: Category::Error,
+                detail: format!("LoadProject failed: {e}"),
+            },
+            None,
+        );
+    }
+    let outcome = categorize_loaded(id, &mut builder, waffle_json, meta);
+    (outcome, Some(builder))
+}
+
+fn categorize_loaded(
+    id: &str,
+    builder: &mut ModelBuilder,
+    waffle_json: &str,
+    meta: &AssayMeta,
+) -> CaseOutcome {
     let err_outcome = |detail: String| CaseOutcome {
         id: id.to_string(),
         category: Category::Error,
         detail,
     };
-
-    let mut builder = ModelBuilder::kernel_v2();
-    if let Err(e) = builder.load(waffle_json) {
-        return err_outcome(format!("LoadProject failed: {e}"));
-    }
 
     let engine_errors: Vec<String> = builder
         .engine_errors()
@@ -191,7 +219,7 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
             &format!("assay/{id}"),
             &format!(
                 "geom={:016x} errors={:016x}",
-                live_geometry_hash(&builder),
+                live_geometry_hash(builder),
                 fnv1a_words(&error_words)
             ),
         );
@@ -542,7 +570,7 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     // each adjacent face's surface). Outside `ON_SURFACE_BAND_REL` of the
     // case scale it is a geometric defect the mesh oracles cannot see; the
     // band and its census are in `assay::on_surface`.
-    let reading = crate::assay::on_surface::measure(&builder, meta.scale);
+    let reading = crate::assay::on_surface::measure(builder, meta.scale);
     if reading.is_defect() {
         failures.push(format!(
             "on_surface: boundary {:.3e} m off its surface (rel {:.3e} > band {:.0e})",
@@ -554,16 +582,16 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     let on_surface = reading.summary();
     // Remediation plan O2, RECORD-ONLY: the kernel's exact B-Rep volume
     // against the render mesh's, at the expected-volume oracle's tolerance.
-    let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(&mut builder, tess_tol).summary();
+    let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(builder, tess_tol).summary();
     // Remediation plan O5, RECORD-ONLY: the authored per-op volume
     // direction against the exact live volume after each op.
     let monotonic =
-        crate::assay::monotonicity::measure(&builder, &meta.oracles.volume_monotonicity).summary();
+        crate::assay::monotonicity::measure(builder, &meta.oracles.volume_monotonicity).summary();
     // Remediation plan O3: the render mesh's vertices and triangle
     // centroids against their faces' surfaces — planes against O1's band,
     // curved faces against their own render sagitta band (census and bands
     // in `assay::mesh_on_surface`).
-    let mesh_reading = crate::assay::mesh_on_surface::measure(&builder, meta.scale);
+    let mesh_reading = crate::assay::mesh_on_surface::measure(builder, meta.scale);
     if mesh_reading.is_defect() {
         failures.push(format!(
             "mesh_on_surface: render mesh off its surfaces (plane rel {:.3e} > {:.0e} or chord ratio {:.3e} > {})",
