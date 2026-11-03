@@ -8292,7 +8292,16 @@ from one Steinmetz ellipse to the other across their crossing (`edge (37,58)`:
 `p_s` on one branch, `p_e` on the other, `matched=0`); every refined rerun
 then stops on an edge at the crossing that both ellipses contain. Not chain
 decimation (`YANG_434_DECIMATE_PROBE` silent: it never runs here) and not a
-tolerance: the crossing is a corner of every patch around it, so the working
-hypothesis is the F2 item-1 open class (the self-touching split cycle,
-P0040) — to be confirmed by dumping the patch cycles at the crossing. The
-other two class-1 cases (R0046, R0063) are not yet anchored.
+tolerance. **Anchored (same day, trial probes):** NOT a self-touching cycle
+(every patch cycle is simple; the crossings are ordinary cycle vertices). The
+two independent per-patch CDTs of patch 2 (operand A's cylinder band) and
+patch 5 (operand B's) EACH add the interior chord (37,58) between the same two
+shared cycle vertices — equal perpendicular cylinders are TANGENT at the
+crossings (both normals ±y at (0, ±0.2, 0)), so near them the two operands'
+chords coincide. Stage 3, re-run inside the update, infers an intersection
+edge from "an edge with A and B triangles", so the coincident chord reads as a
+curve edge spanning the two branches. **Mechanism:** the post-update curve
+build re-derives curve incidence from triangle adjacency instead of carrying
+it; §4.4.1 maps "boundary curves to boundary curves" (`:546-571`), so the
+update already knows the curve chains — carry them. (On main I2d refuses both
+CDTs, which is the only reason this does not fire.) R0046 / R0063 next.
