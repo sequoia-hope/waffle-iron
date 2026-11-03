@@ -259,30 +259,17 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
         ));
     }
 
-    // 3c. No live solid at all (remediation plan O6, prospector spec §8 seed
-    //     2): the chain consumed every body — a disjoint Intersect, an
-    //     engulfing cut. `tessellate_last_bodies_with_tol` below walks back to
-    //     the last feature WITH outputs regardless of consumption, so it would
-    //     grade a dead body and call the document CORRECT. An empty result is
-    //     a typed ERROR instead: the engine should STOP typed at the op that
-    //     emptied the model, and until it does nothing downstream is judged.
+    // 3c. No live solid at all (remediation plan O6, seed-6 H1): the chain
+    //     consumed every body — a disjoint Intersect, an engulfing cut, or a
+    //     buggy boolean that dropped a body. `tessellate_last_bodies_with_tol`
+    //     below walks back to the last feature WITH outputs regardless of
+    //     consumption, so falling through would grade a dead body. Instead,
+    //     adjudicate emptiness against the independent exact chain
+    //     (`judge_empty_result`): CORRECT when certified empty, WRONG when the
+    //     exact chain finds positive volume (lost body), ERROR with the reason
+    //     when the exact chain cannot cover or resolve the document.
     if builder.live_solid_handles().is_empty() {
-        // An EMPTY result the meta authored is the right answer, not a hole:
-        // P0023 (two cubes meeting along one edge, Intersect) pins exactly
-        // that its intersection has no volume, `expected_solid_count: 0`. It
-        // is judged by that expectation alone — never by grading a dead body.
-        if meta.oracles.expected_solid_count == Some(0) {
-            return CaseOutcome {
-                id: id.to_string(),
-                category: Category::SupportedCorrect,
-                detail: "empty result, as authored (expected_solid_count 0)".to_string(),
-            };
-        }
-        return err_outcome(
-            "empty_result: no live solid — the chain consumed every body \
-             (e.g. a disjoint Intersect); nothing left to judge"
-                .to_string(),
-        );
+        return judge_empty_result(id, waffle_json, meta);
     }
 
     // 4. Tessellate the last solid (scale-adaptive tolerance like the legacy
@@ -604,6 +591,100 @@ pub fn categorize(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome 
     }
 }
 
+/// Judge a model that rebuilt with no engine error and left ZERO live solids
+/// (`builder.live_solid_handles().is_empty()`).
+///
+/// Never passes an empty result vacuously: requires an independent emptiness
+/// reading from [`crate::assay::exact_membership`] (or an authored
+/// `expected_solid_count: 0` pin such as P0023 when the exact chain does not
+/// cover the document).
+/// - Exact chain covers & certifies empty → [`Category::SupportedCorrect`].
+/// - Exact chain covers & finds positive volume → [`Category::SupportedWrong`]
+///   (a body was lost).
+/// - Exact chain does not cover / cannot resolve → [`Category::Error`] whose
+///   `detail` names why it could not be judged.
+pub fn judge_empty_result(id: &str, waffle_json: &str, meta: &AssayMeta) -> CaseOutcome {
+    let err_outcome = |detail: String| CaseOutcome {
+        id: id.to_string(),
+        category: Category::Error,
+        detail,
+    };
+    let authored_fallback = |why: &str| -> CaseOutcome {
+        match meta.oracles.expected_solid_count {
+            Some(0) => CaseOutcome {
+                id: id.to_string(),
+                category: Category::SupportedCorrect,
+                detail: format!("empty result, as authored (expected_solid_count 0; {why})"),
+            },
+            Some(expected) => CaseOutcome {
+                id: id.to_string(),
+                category: Category::SupportedWrong,
+                detail: format!("expected_solid_count: 0 live bodies vs expected {expected}"),
+            },
+            None => err_outcome(format!("empty_result: no live solid, and {why}")),
+        }
+    };
+
+    let exact_on = !matches!(
+        std::env::var("ASSAY_EXACT_VOLUME").as_deref(),
+        Ok("0") | Ok("off")
+    );
+    if !exact_on {
+        return authored_fallback("ASSAY_EXACT_VOLUME is disabled");
+    }
+
+    let doc: serde_json::Value = match serde_json::from_str(waffle_json) {
+        Ok(d) => d,
+        Err(e) => return authored_fallback(&format!("document JSON did not parse ({e})")),
+    };
+
+    match crate::assay::exact_membership::ExactChain::from_waffle(&doc) {
+        Ok(chain) => {
+            use crate::assay::exact_membership::ExactVolumeVerdict;
+            match crate::assay::exact_membership::exact_volume_verdict(&chain, 0.0) {
+                ExactVolumeVerdict::Agree { .. } => {
+                    if let Some(expected) = meta.oracles.expected_solid_count {
+                        if expected > 0 {
+                            return CaseOutcome {
+                                id: id.to_string(),
+                                category: Category::SupportedWrong,
+                                detail: format!(
+                                    "expected_solid_count: 0 live bodies vs expected {expected}"
+                                ),
+                            };
+                        }
+                    }
+                    CaseOutcome {
+                        id: id.to_string(),
+                        category: Category::SupportedCorrect,
+                        detail: if meta.oracles.expected_solid_count == Some(0) {
+                            "empty result, confirmed by exact_volume and authored expected_solid_count 0".to_string()
+                        } else {
+                            "empty result, confirmed by exact_volume (exact 0.000000e0)".to_string()
+                        },
+                    }
+                }
+                ExactVolumeVerdict::Flag {
+                    rel,
+                    band,
+                    exact,
+                    kernel,
+                } => CaseOutcome {
+                    id: id.to_string(),
+                    category: Category::SupportedWrong,
+                    detail: format!(
+                        "exact_volume: kernel {kernel:.6e} (no live solid) vs exact {exact:.6e} (rel {rel:+.3e} outside band {band:.3e})"
+                    ),
+                },
+                ExactVolumeVerdict::NotCovered(why) => {
+                    authored_fallback(&format!("exact_volume could not judge document ({why})"))
+                }
+            }
+        }
+        Err(why) => authored_fallback(&format!("exact chain does not cover document ({why})")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -635,6 +716,53 @@ mod tests {
         assert_eq!(
             unsupported_reason("coplanar input face pair"),
             UnsupportedReason::CoplanarBoolean
+        );
+    }
+
+    #[test]
+    fn judge_empty_result_catches_lost_body_and_explains_uncovered() {
+        // Overlapping Intersect whose kernel result is forced empty: WRONG.
+        let mut b = ModelBuilder::kernel_v2();
+        b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 2.0, 2.0)
+            .unwrap();
+        b.extrude("a", "sk_a", 2.0).unwrap();
+        b.rect_sketch("sk_b", [0.0, 0.0, 0.5], [0.0, 0.0, 1.0], 0.5, 0.5, 2.0, 2.0)
+            .unwrap();
+        b.extrude_no_merge("b", "sk_b", 2.0).unwrap();
+        b.boolean_intersect("i", "a", "b").unwrap();
+        let waffle = b.save().unwrap();
+        let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+        let meta = crate::assay::prospect::derive_meta("X-forced-empty-overlap", &doc).unwrap();
+        let outcome = judge_empty_result("X-forced-empty-overlap", &waffle, &meta);
+        assert_eq!(
+            outcome.category,
+            Category::SupportedWrong,
+            "a lost non-empty body must be SUPPORTED_WRONG: {}",
+            outcome.detail
+        );
+        assert!(
+            outcome.detail.starts_with("exact_volume:"),
+            "detail: {}",
+            outcome.detail
+        );
+
+        // Uncovered document (region extrude) with empty result: ERROR naming why.
+        let mut uncovered_doc = doc.clone();
+        uncovered_doc["tabs"][0]["kind"]["features"]["features"][1]["operation"]["params"]
+            ["regions"] = serde_json::json!([{"x": 0}]);
+        let uncovered_waffle = serde_json::to_string(&uncovered_doc).unwrap();
+        let uncovered_outcome = judge_empty_result("X-uncovered-empty", &uncovered_waffle, &meta);
+        assert_eq!(
+            uncovered_outcome.category,
+            Category::Error,
+            "{}",
+            uncovered_outcome.detail
+        );
+        assert!(
+            uncovered_outcome.detail.starts_with("empty_result:")
+                && uncovered_outcome.detail.contains("region"),
+            "uncovered empty must stay ERROR with reason: {}",
+            uncovered_outcome.detail
         );
     }
 }

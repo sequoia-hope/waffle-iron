@@ -304,6 +304,63 @@ impl Profile2 {
             ),
         }
     }
+
+    /// Sound conservative over-approximation of `{ q : dist(q, self) <= margin }`.
+    /// If ANY point within `margin` of `(u, v)` belongs to the profile, returns `true`.
+    fn may_contain_2d(&self, u: f64, v: f64, margin: f64) -> bool {
+        let m = margin.max(0.0);
+        match self {
+            Profile2::Polygon(pts) => {
+                pts.len() >= 3
+                    && (point_in_polygon(pts, u, v) || polygon_boundary_dist(pts, u, v) <= m)
+            }
+            Profile2::Circle { cx, cy, r } => (u - cx).hypot(v - cy) <= *r + m,
+            Profile2::Gear(g) => (u - g.cx).hypot(v - g.cy) <= g.add_r + m,
+            Profile2::Region { outer, holes } => {
+                outer.may_contain_2d(u, v, m) && !holes.iter().any(|h| h.must_contain_2d(u, v, m))
+            }
+        }
+    }
+
+    /// Sound conservative under-approximation of `{ q : closed_ball(q, margin) ⊂ int(self) }`.
+    /// Only returns `true` when EVERY point within `margin` of `(u, v)` lies strictly inside.
+    fn must_contain_2d(&self, u: f64, v: f64, margin: f64) -> bool {
+        let m = margin.max(0.0);
+        match self {
+            Profile2::Polygon(pts) => {
+                pts.len() >= 3
+                    && point_in_polygon(pts, u, v)
+                    && polygon_boundary_dist(pts, u, v) > m
+            }
+            Profile2::Circle { cx, cy, r } => *r > m && (u - cx).hypot(v - cy) < *r - m,
+            Profile2::Gear(g) => g.root_r > m && (u - g.cx).hypot(v - g.cy) < g.root_r - m,
+            Profile2::Region { outer, holes } => {
+                outer.must_contain_2d(u, v, m) && !holes.iter().any(|h| h.may_contain_2d(u, v, m))
+            }
+        }
+    }
+}
+
+fn polygon_boundary_dist(pts: &[(f64, f64)], u: f64, v: f64) -> f64 {
+    let n = pts.len();
+    if n == 0 {
+        return f64::INFINITY;
+    }
+    let mut best = f64::INFINITY;
+    for i in 0..n {
+        let (ax, ay) = pts[i];
+        let (bx, by) = pts[(i + 1) % n];
+        let (dx, dy) = (bx - ax, by - ay);
+        let len2 = dx * dx + dy * dy;
+        let d = if len2 <= 0.0 {
+            (u - ax).hypot(v - ay)
+        } else {
+            let t = (((u - ax) * dx + (v - ay) * dy) / len2).clamp(0.0, 1.0);
+            (u - (ax + t * dx)).hypot(v - (ay + t * dy))
+        };
+        best = best.min(d);
+    }
+    best
 }
 
 /// Even-odd point-in-polygon (crossing number); boundary points count as
@@ -400,6 +457,136 @@ impl ExactSolid {
                 let q = add(add(*axis_origin, scale(*axis, h)), scale(*w_hat, rho));
                 let (u, v) = basis.local(q);
                 profile.contains(u, v)
+            }
+        }
+    }
+
+    /// Sound over-approximation: `true` if ANY point in `closed_ball(p, rad)`
+    /// could belong to `self`.
+    fn may_contain_ball(&self, p: [f64; 3], rad: f64) -> bool {
+        let m3 = rad.max(0.0) * (1.0 + 1e-12);
+        match self {
+            ExactSolid::Extrude {
+                basis,
+                profile,
+                face_origin,
+                dir,
+                depth,
+            } => {
+                if *depth < 0.0 {
+                    return false;
+                }
+                let dn = dot(*dir, basis.n);
+                if !dn.is_finite() || dn.abs() <= 1e-15 {
+                    return true;
+                }
+                // For ||x - p|| <= m3, both |t(x) - t(p)| and ||q(x) - q(p)||
+                // in the orthonormal sketch plane are bounded by m3 / |d · n|.
+                let m = m3 / dn.abs();
+                let r = sub(p, *face_origin);
+                let t = dot(r, basis.n) / dn;
+                if t.is_nan() || t < -m || t > *depth + m {
+                    return false;
+                }
+                let q = sub(r, scale(*dir, t));
+                profile.may_contain_2d(dot(q, basis.x), dot(q, basis.y), m)
+            }
+            ExactSolid::Revolve {
+                basis,
+                profile,
+                axis_origin,
+                axis,
+                w_hat,
+                m_hat,
+                angle,
+                full_turn,
+            } => {
+                if !*full_turn && *angle < 0.0 {
+                    return false;
+                }
+                let r = sub(p, *axis_origin);
+                let h = dot(r, *axis);
+                let rad_vec = sub(r, scale(*axis, h));
+                let rho = dot(rad_vec, rad_vec).sqrt();
+                if !*full_turn && rho > m3 {
+                    let theta = dot(rad_vec, *m_hat)
+                        .atan2(dot(rad_vec, *w_hat))
+                        .rem_euclid(TAU);
+                    if theta > *angle {
+                        let gap = (theta - *angle).min(TAU - theta);
+                        let dtheta = (m3 / rho).clamp(0.0, 1.0).asin();
+                        if gap > dtheta {
+                            return false;
+                        }
+                    }
+                }
+                let q = add(add(*axis_origin, scale(*axis, h)), scale(*w_hat, rho));
+                let (u, v) = basis.local(q);
+                profile.may_contain_2d(u, v, m3)
+            }
+        }
+    }
+
+    /// Sound under-approximation: `true` only when EVERY point in
+    /// `closed_ball(p, rad)` lies strictly inside `self`.
+    fn must_contain_ball(&self, p: [f64; 3], rad: f64) -> bool {
+        let m3 = rad.max(0.0) * (1.0 + 1e-12);
+        match self {
+            ExactSolid::Extrude {
+                basis,
+                profile,
+                face_origin,
+                dir,
+                depth,
+            } => {
+                let dn = dot(*dir, basis.n);
+                if !dn.is_finite() || dn.abs() <= 1e-15 {
+                    return false;
+                }
+                let m = m3 / dn.abs();
+                if *depth <= 2.0 * m {
+                    return false;
+                }
+                let r = sub(p, *face_origin);
+                let t = dot(r, basis.n) / dn;
+                if t.is_nan() || t <= m || t >= *depth - m {
+                    return false;
+                }
+                let q = sub(r, scale(*dir, t));
+                profile.must_contain_2d(dot(q, basis.x), dot(q, basis.y), m)
+            }
+            ExactSolid::Revolve {
+                basis,
+                profile,
+                axis_origin,
+                axis,
+                w_hat,
+                m_hat,
+                angle,
+                full_turn,
+            } => {
+                let r = sub(p, *axis_origin);
+                let h = dot(r, *axis);
+                let rad_vec = sub(r, scale(*axis, h));
+                let rho = dot(rad_vec, rad_vec).sqrt();
+                if !*full_turn {
+                    if rho <= m3 {
+                        return false;
+                    }
+                    let dtheta = (m3 / rho).clamp(0.0, 1.0).asin();
+                    if *angle <= 2.0 * dtheta {
+                        return false;
+                    }
+                    let theta = dot(rad_vec, *m_hat)
+                        .atan2(dot(rad_vec, *w_hat))
+                        .rem_euclid(TAU);
+                    if theta <= dtheta || theta >= *angle - dtheta {
+                        return false;
+                    }
+                }
+                let q = add(add(*axis_origin, scale(*axis, h)), scale(*w_hat, rho));
+                let (u, v) = basis.local(q);
+                profile.must_contain_2d(u, v, m3)
             }
         }
     }
@@ -595,6 +782,107 @@ impl ExactChain {
             Expr::Sub(a, b) => self.expr_contains(a, p) && !self.expr_contains(b, p),
             Expr::Inter(a, b) => self.expr_contains(a, p) && self.expr_contains(b, p),
         }
+    }
+
+    fn expr_may_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
+        match e {
+            Expr::Leaf(i) => self.ops[*i].solid.may_contain_ball(p, rad),
+            Expr::Union(es) => es.iter().any(|e| self.expr_may_contain_ball(e, p, rad)),
+            Expr::Sub(a, b) => {
+                self.expr_may_contain_ball(a, p, rad) && !self.expr_must_contain_ball(b, p, rad)
+            }
+            Expr::Inter(a, b) => {
+                self.expr_may_contain_ball(a, p, rad) && self.expr_may_contain_ball(b, p, rad)
+            }
+        }
+    }
+
+    fn expr_must_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
+        match e {
+            Expr::Leaf(i) => self.ops[*i].solid.must_contain_ball(p, rad),
+            Expr::Union(es) => es.iter().any(|e| self.expr_must_contain_ball(e, p, rad)),
+            Expr::Sub(a, b) => {
+                self.expr_must_contain_ball(a, p, rad) && !self.expr_may_contain_ball(b, p, rad)
+            }
+            Expr::Inter(a, b) => {
+                self.expr_must_contain_ball(a, p, rad) && self.expr_must_contain_ball(b, p, rad)
+            }
+        }
+    }
+
+    /// Sound emptiness certificate for the live bodies after the first `prefix`
+    /// operations: returns `true` ONLY when the conservative bounding box has
+    /// zero 3D volume (including `None`, e.g. disjoint `Intersect` boxes or
+    /// segment/face-only contact like P0023) OR when every cell ball covering
+    /// the conservative bounding box at `cells` resolution is certified
+    /// disjoint from every live body. A sub-lattice thin wall (e.g. C0034 /
+    /// C0117, 1e-4 m wall at h ≈ 4e-3 m) fails the ball check on its wall
+    /// cells and returns `false`.
+    pub fn certified_empty_at(&self, prefix: usize, cells: usize) -> bool {
+        let bodies = self.bodies_after(prefix);
+        if bodies.is_empty() {
+            return false;
+        }
+        let Some((wlo, whi)) = self.bodies_bbox(&bodies) else {
+            return true;
+        };
+        if (whi[0] - wlo[0]) <= 0.0 || (whi[1] - wlo[1]) <= 0.0 || (whi[2] - wlo[2]) <= 0.0 {
+            return true;
+        }
+        let f = &self.frame;
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for c in 0..8 {
+            let p = [
+                if c & 1 == 0 { wlo[0] } else { whi[0] },
+                if c & 2 == 0 { wlo[1] } else { whi[1] },
+                if c & 4 == 0 { wlo[2] } else { whi[2] },
+            ];
+            let r = sub(p, f.origin);
+            let q = [dot(r, f.x), dot(r, f.y), dot(r, f.n)];
+            for k in 0..3 {
+                lo[k] = lo[k].min(q[k]);
+                hi[k] = hi[k].max(q[k]);
+            }
+        }
+        let ext = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+        if ext[0] <= 0.0 || ext[1] <= 0.0 || ext[2] <= 0.0 {
+            return true;
+        }
+        let longest = ext[0].max(ext[1]).max(ext[2]);
+        if !longest.is_finite() || cells == 0 {
+            return false;
+        }
+        let h = longest / cells as f64;
+        let n = [
+            ((ext[0] / h).ceil() as usize + 2).max(1),
+            ((ext[1] / h).ceil() as usize + 2).max(1),
+            ((ext[2] / h).ceil() as usize + 2).max(1),
+        ];
+        let start = [lo[0] - h, lo[1] - h, lo[2] - h];
+        let cell_rad = 0.5 * 3.0_f64.sqrt() * h;
+        for k in 0..n[2] {
+            for j in 0..n[1] {
+                for i in 0..n[0] {
+                    let (u, v, w) = (
+                        start[0] + (i as f64 + 0.5) * h,
+                        start[1] + (j as f64 + 0.5) * h,
+                        start[2] + (k as f64 + 0.5) * h,
+                    );
+                    let p = add(
+                        f.origin,
+                        add(add(scale(f.x, u), scale(f.y, v)), scale(f.n, w)),
+                    );
+                    if bodies
+                        .iter()
+                        .any(|b| self.expr_may_contain_ball(&b.expr, p, cell_rad))
+                    {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// Bounding box of one body's expression (a subtraction keeps the
@@ -1852,14 +2140,40 @@ pub const EXACT_VOLUME_CELLS: usize = 256;
 /// that removes nothing, a complementary wedge) sit at 7–90 %. A chain the
 /// document leaves indeterminate (a mid-extent cut) is declined.
 pub fn exact_volume_verdict(chain: &ExactChain, kernel_volume: f64) -> ExactVolumeVerdict {
+    let empty_verdict = |kernel_volume: f64| {
+        if kernel_volume == 0.0 {
+            ExactVolumeVerdict::Agree {
+                rel: 0.0,
+                band: 0.0,
+            }
+        } else {
+            let rel = if kernel_volume.is_nan() {
+                f64::NAN
+            } else {
+                f64::INFINITY
+            };
+            ExactVolumeVerdict::Flag {
+                rel,
+                band: 0.0,
+                exact: 0.0,
+                kernel: kernel_volume,
+            }
+        }
+    };
     if let Some(why) = chain.indeterminate.first() {
         return ExactVolumeVerdict::NotCovered(why.clone());
     }
     let Some(r) = readout_exact(chain, chain.ops.len(), EXACT_VOLUME_CELLS, 0.5) else {
+        if chain.certified_empty_at(chain.ops.len(), EXACT_VOLUME_CELLS) {
+            return empty_verdict(kernel_volume);
+        }
         return ExactVolumeVerdict::NotCovered("no bounding box (no live body)".into());
     };
     let exact = r.volume;
     if exact <= 0.0 {
+        if chain.certified_empty_at(chain.ops.len(), EXACT_VOLUME_CELLS) {
+            return empty_verdict(kernel_volume);
+        }
         return ExactVolumeVerdict::NotCovered(format!(
             "exact reads empty at {EXACT_VOLUME_CELLS} cells — sub-lattice or empty (kernel {kernel_volume:.6e})"
         ));
@@ -2544,6 +2858,63 @@ mod tests {
         let thin = ExactChain::from_waffle(&thin).unwrap();
         assert!(matches!(
             exact_volume_verdict(&thin, 1e-4),
+            ExactVolumeVerdict::NotCovered(_)
+        ));
+    }
+
+    #[test]
+    fn exact_volume_verdict_judges_certified_empty_and_declines_sub_lattice_wall() {
+        // 1. Disjoint Intersect (disjoint world AABBs): certified empty.
+        let disjoint = ExactChain::from_waffle(&doc(vec![
+            square_sketch("s1", [0.0; 3], &[(0.0, 0.0, 0.5, 0.5, true)]),
+            extrude("e1", "s1", 1.0, false, serde_json::json!({})),
+            square_sketch("s2", [5.0, 5.0, 0.0], &[(0.0, 0.0, 0.5, 0.5, true)]),
+            extrude(
+                "e2",
+                "s2",
+                1.0,
+                false,
+                serde_json::json!({"combine": {"type": "Intersect"}, "targets": [target("e1")]}),
+            ),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            exact_volume_verdict(&disjoint, 0.0),
+            ExactVolumeVerdict::Agree { .. }
+        ));
+        assert!(matches!(
+            exact_volume_verdict(&disjoint, 1.0),
+            ExactVolumeVerdict::Flag { exact: 0.0, .. }
+        ));
+
+        // 2. Engulfing Cut (positive-volume AABB, certified empty on cell balls).
+        let engulfed = ExactChain::from_waffle(&doc(vec![
+            square_sketch("s1", [0.0; 3], &[(0.0, 0.0, 0.5, 0.5, true)]),
+            extrude("e1", "s1", 1.0, false, serde_json::json!({})),
+            square_sketch("s2", [0.0, 0.0, -0.5], &[(0.0, 0.0, 1.5, 1.5, true)]),
+            extrude("e2", "s2", 2.0, true, serde_json::json!({})),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            exact_volume_verdict(&engulfed, 0.0),
+            ExactVolumeVerdict::Agree { .. }
+        ));
+
+        // 3. C0034-shape thin-wall square tube (1e-4 wall < h = 1/256):
+        //    reads 0 cubes at 256 cells, MUST stay NotCovered even at kernel 0.0.
+        let thin_tube = ExactChain::from_waffle(&doc(vec![
+            square_sketch("s1", [0.0; 3], &[(0.0, 0.0, 0.5, 0.5, true)]),
+            extrude("e1", "s1", 1.0, false, serde_json::json!({})),
+            square_sketch("s2", [0.0, 0.0, -0.5], &[(0.0, 0.0, 0.4999, 0.4999, true)]),
+            extrude("e2", "s2", 2.0, true, serde_json::json!({})),
+        ]))
+        .unwrap();
+        assert!(matches!(
+            exact_volume_verdict(&thin_tube, 0.0),
+            ExactVolumeVerdict::NotCovered(_)
+        ));
+        assert!(matches!(
+            exact_volume_verdict(&thin_tube, 4e-4),
             ExactVolumeVerdict::NotCovered(_)
         ));
     }

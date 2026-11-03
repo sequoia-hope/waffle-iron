@@ -4,7 +4,7 @@
 //! file is judged by the corpus categorizer through a meta derived from
 //! the document itself.
 
-use test_harness::assay::categorize::{categorize, Category};
+use test_harness::assay::categorize::{categorize, judge_empty_result, Category};
 use test_harness::assay::prospect::derive_meta;
 use test_harness::ModelBuilder;
 
@@ -105,13 +105,14 @@ fn derived_meta_keeps_a_correct_document_correct() {
     );
 }
 
-/// Remediation plan O6 / `specs/assay_prospector.md` §8 (seed 2): a chain
-/// whose last op annihilates every body read SUPPORTED_CORRECT, because the
-/// harness tessellated the last feature WITH outputs — a consumed body. A
-/// disjoint Intersect leaves no live solid; it must get a typed verdict, never
-/// CORRECT.
+/// Remediation plan O6 + seed-6 H1: a chain whose last op annihilates every
+/// body previously graded a consumed body (`tessellate_last_bodies_with_tol`),
+/// then stopped as `empty_result` ERROR until the independent exact chain was
+/// wired to judge empty outputs. When the exact chain covers the document and
+/// certifies the intersection is empty, the verdict is `SUPPORTED_CORRECT`
+/// (confirmed by `exact_volume`, never by grading a dead body).
 #[test]
-fn a_disjoint_intersect_is_a_typed_empty_result_not_correct() {
+fn a_disjoint_intersect_is_confirmed_empty_and_correct() {
     let mut b = ModelBuilder::kernel_v2();
     b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
         .unwrap();
@@ -119,23 +120,83 @@ fn a_disjoint_intersect_is_a_typed_empty_result_not_correct() {
     b.rect_sketch("sk_b", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 5.0, 1.0, 1.0)
         .unwrap();
     b.extrude_no_merge("b", "sk_b", 1.0).unwrap();
-    // The engine may accept the empty Intersect or refuse it; either way
-    // the document is what a prospector candidate would be.
     let _ = b.boolean_intersect("i", "a", "b");
     let waffle = b.save().unwrap();
     let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
     let meta = derive_meta("X-disjoint-intersect", &doc).unwrap();
     let outcome = categorize("X-disjoint-intersect", &waffle, &meta);
-    assert_ne!(
+    assert_eq!(
         outcome.category,
         Category::SupportedCorrect,
-        "an annihilated chain must not read CORRECT: {}",
+        "a disjoint Intersect certified empty by exact_volume must read CORRECT: {}",
         outcome.detail
     );
+    assert!(
+        outcome.detail.contains("confirmed by exact_volume"),
+        "must be judged by exact_volume, never by grading a dead body: {}",
+        outcome.detail
+    );
+}
+
+/// Seed-6 H1: an overlapping Intersect whose kernel result is forced empty in
+/// the empty-result verdict function must read `SUPPORTED_WRONG` (a lost body
+/// is a silent-wrong defect, never CORRECT or ERROR).
+#[test]
+fn an_overlapping_intersect_forced_empty_is_supported_wrong() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 2.0, 2.0)
+        .unwrap();
+    b.extrude("a", "sk_a", 2.0).unwrap();
+    b.rect_sketch("sk_b", [0.0, 0.0, 0.5], [0.0, 0.0, 1.0], 0.5, 0.5, 2.0, 2.0)
+        .unwrap();
+    b.extrude_no_merge("b", "sk_b", 2.0).unwrap();
+    b.boolean_intersect("i", "a", "b").unwrap();
+    let waffle = b.save().unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let meta = derive_meta("X-overlapping-intersect", &doc).unwrap();
+    let outcome = judge_empty_result("X-overlapping-intersect", &waffle, &meta);
+    assert_eq!(
+        outcome.category,
+        Category::SupportedWrong,
+        "an overlapping Intersect with an empty kernel output lost a body: {}",
+        outcome.detail
+    );
+    assert!(
+        outcome.detail.starts_with("exact_volume:"),
+        "detail: {}",
+        outcome.detail
+    );
+}
+
+/// Seed-6 H1: when a document leaves no live solid AND the exact chain does
+/// not cover it, `categorize` keeps it as a typed `empty_result:` ERROR naming
+/// why it could not be judged — never turning unverified emptiness into CORRECT.
+#[test]
+fn an_uncovered_empty_result_stays_error_with_reason() {
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sk_a", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.0, 0.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude("a", "sk_a", 1.0).unwrap();
+    b.rect_sketch("sk_b", [0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 5.0, 5.0, 1.0, 1.0)
+        .unwrap();
+    b.extrude_no_merge("b", "sk_b", 1.0).unwrap();
+    let _ = b.boolean_intersect("i", "a", "b");
+    let waffle = b.save().unwrap();
+    let mut doc: serde_json::Value = serde_json::from_str(&waffle).unwrap();
+    let meta = derive_meta("X-uncovered-disjoint-intersect", &doc).unwrap();
+    // Inject a non-empty `regions` array on the first extrude: the engine's
+    // disjoint Intersect still leaves zero live solids, while `ExactChain`
+    // declines `params.regions` with a typed `NotCovered::Feature`.
+    doc["tabs"][0]["kind"]["features"]["features"][1]["operation"]["params"]["regions"] = serde_json::json!([{
+        "outer": [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        "holes": []
+    }]);
+    let uncovered_waffle = serde_json::to_string(&doc).unwrap();
+    let outcome = categorize("X-uncovered-disjoint-intersect", &uncovered_waffle, &meta);
     assert_eq!(outcome.category, Category::Error, "{}", outcome.detail);
     assert!(
-        outcome.detail.starts_with("empty_result:"),
-        "typed detail: {}",
+        outcome.detail.starts_with("empty_result:") && outcome.detail.contains("region"),
+        "must explain why exact chain could not judge emptiness: {}",
         outcome.detail
     );
 }
