@@ -56,7 +56,7 @@ the first op whose verdict is WRONG:
 | 00024 | `star8:boss circle:cut ×3 circle:∩` | the ∩ | same step, same oracle path — inferred, to confirm when the oracle fix lands | oracle (inferred) |
 | 00134 | `… convex8:∩ convex5:cut` | the ∩ | same — inferred | oracle (inferred) |
 | 00021 | `circle:boss convex4:cut …` | op 2, the first cut | cut AUTO-REVERSAL: the engine reads the target's extent along n from its B-Rep VERTICES — a cylinder has only its seam ⇒ `[-10.74, -7.34]` vs the true `[-11.8, 8.4]` — and reverses (`FE_CUT_TRACE`), the chain does not (`EXACT_CUT_TRACE`) | ENGINE (`solids_projection_range` ignores curved extent) |
-| 00122 | `circle:boss circle:boss convex3:boss circle:cut star3:cut` | op 5, the second cut | same: engine vertex range `[-0.79, 0.95]` vs box `[-2.54, 1.06]` along x; engine `reverse=false`, chain `true` | ENGINE |
+| 00122 | `circle:boss circle:boss convex3:boss circle:cut star3:cut` | op 5, the second cut | first read as the 00021 mechanism; **re-traced after the engine fix: the ORACLE.** The engine's TRUE extent `[-0.79, 0.95]` along x matches the kernel mesh after op 4 (`x ∈ [-0.788, 0.951]`); the chain's box `[-2.54, 1.06]` still holds material op 4's cut removed (stale box) | oracle (stale extent box) |
 | 00100 | `star6(0.14):boss circle:boss` | op 2 | `volume_composition` rel 3.497e-4 vs band 3.379e-4; `ORACLE_DEBUG`: the composed residual (8.8e-2) is SMALLER than operand 0's own (4.09e-1) — the band does not carry operand residuals through the composition | oracle band (probable; confirm at a finer grid) |
 
 The cut-reversal rows are the seed-4/5 mechanism, now traced to its cause: the
@@ -64,6 +64,30 @@ engine's direction rule measures a curved body by its vertices, so a user's
 direction-less cut can sweep the wrong way. The kernel computed what it was
 asked in every row. ERROR / TIMEOUT rows: triage delegated (report only,
 `agy/seed6-triage`).
+
+**Engine fix (2026-11-03, this branch's landing commit).** A cut's
+auto-reversal and a `ThroughAll` depth now read ONE measurement, the kernel's
+true support interval along the axis (`KernelIntrospect::solid_extent_along`,
+`kernel_v2::extent`: vertices, each conic edge's own critical points in closed
+form, and sphere / torus / cone-apex interior extremes that lie in their face).
+**00021 → CORRECT.** 00122, 00112, 00024, 00134 and 00100 are oracle defects
+(test-harness task `agy/oracle-extent`). One corpus case moved on the first
+run and moved back: **R0020** (303.7° revolve about an axis in its sketch
+plane, then two direction-less cuts on that plane). The true extent is
+symmetric about the plane, so the mid-extent rule was a TIE and rounding
+reversed both cuts → kernel STOP. Ties now sweep the authored normal
+(`rebuild/depth.rs::cut_sweeps_reversed`, band 1e-9 of scale) — R0020's
+authored behaviour, CORRECT again; corpus 360C / 0W / 9E / 5EE / 0T over 374
+(sequoia, 12 jobs, wall 742 s).
+
+**New kernel tail customer (not in the corpus): R0020 with both cuts
+REVERSED.** A valid document; the kernel refuses it loudly —
+`§4.5.2 local refinement ended with 2 unresolved failure site(s):
+MissedIntersection×2; first on faces [(A, 2), (B, 2)]: tris 78×424 touch
+within 3.296e-7 at (-52.58, 36.64, -54.71); the arrangement joins no triangle
+pair of their one-rings`. Reproduce by giving R0020's two cuts an explicit
+`direction` opposite their sketch normal. Owner: F3 (§4.5 near-miss /
+collection), to be anchored before promotion.
 
 ## 2026-10-30 (R0015 / R0026 / R0050 CONVERTED) — **the on-surface WRONG rows are typed at Stage-5 emission (ledger N60 amendment, N104); corpus 360C / 0W / 9E / 5EE / 0T over 374, on-surface oracle in force**
 

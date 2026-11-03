@@ -919,7 +919,7 @@ pub(crate) fn execute_feature(
             // `docs/yang_tail_triage.md`, not papered over here.
             //
             // Only the features that actually consume the reading pay for it:
-            // it walks every vertex of the body, which on a large one is not
+            // it walks every boundary curve of the body, which on a large one is not
             // free, and a plain blind boss has no use for it.
             let needs_axis_measurement = (is_cut && params.direction.is_none())
                 || matches!(params.depth_mode, DepthMode::ThroughAll)
@@ -948,16 +948,10 @@ pub(crate) fn execute_feature(
             // The decision is the measured body's mid-extent along the axis —
             // a bulk property, so it is insensitive to which vertex happens to
             // be extreme. It only ever flips a cut; a boss and an authored
-            // direction sweep exactly as written.
+            // direction sweep exactly as written. A tie (mid-extent ON the
+            // plane) sweeps the authored normal — see `cut_sweeps_reversed`.
             let should_reverse_for_cut = if is_cut && params.direction.is_none() {
-                let decision = match measured_range {
-                    Some((lo, hi)) => {
-                        // Reverse only when the body's midpoint is behind the plane.
-                        (lo + hi) * 0.5 < sketch_proj
-                    }
-                    // Nothing measurable: legacy reverse behaviour.
-                    None => true,
-                };
+                let decision = cut_sweeps_reversed(measured_range, sketch_proj);
                 if std::env::var_os("FE_CUT_TRACE").is_some() {
                     match measured_range {
                         Some((lo, hi)) => eprintln!(

@@ -450,6 +450,39 @@ pub trait KernelIntrospect {
         None
     }
 
+    /// The solid's extent along `direction`: `(min, max)` of `p · d̂` over
+    /// every point `p` of the solid, `d̂` the unit of `direction`. `None`
+    /// for a degenerate direction or nothing measurable.
+    ///
+    /// The default reads the B-Rep VERTICES, which is exact only for a
+    /// polyhedron — a curved solid's extent lies on its rims and faces
+    /// (a plain cylinder's two vertices both sit on its seam). A kernel
+    /// with curved geometry overrides it with the true extent.
+    fn solid_extent_along(
+        &self,
+        solid: &KernelSolidHandle,
+        direction: [f64; 3],
+    ) -> Option<(f64, f64)> {
+        let len = (direction[0] * direction[0]
+            + direction[1] * direction[1]
+            + direction[2] * direction[2])
+            .sqrt();
+        if !len.is_finite() || len <= 0.0 {
+            return None;
+        }
+        let d = [direction[0] / len, direction[1] / len, direction[2] / len];
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for v in self.list_vertices(solid) {
+            if let Some(c) = self.compute_signature(v, TopoKind::Vertex).centroid {
+                let s = c[0] * d[0] + c[1] * d[1] + c[2] * d[2];
+                lo = lo.min(s);
+                hi = hi.max(s);
+            }
+        }
+        (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+    }
+
     /// Geometric conformance of an exact solid's B-Rep: for every face, the
     /// largest distance from a point of its boundary (loop vertices and
     /// samples of each bounding edge curve) to the face's own surface

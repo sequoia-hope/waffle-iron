@@ -134,17 +134,21 @@ pub(super) fn unit_or_none(direction: [f64; 3]) -> Option<[f64; 3]> {
     (len >= TAU_WORK).then(|| [direction[0] / len, direction[1] / len, direction[2] / len])
 }
 
-/// The interval the given solids' vertices occupy along `direction`, as
-/// absolute projections (`v · d̂`), or `None` when nothing could be measured.
+/// The interval the given solids occupy along `direction`, as absolute
+/// projections (`p · d̂`), or `None` when nothing could be measured.
 ///
 /// ONE measurement feeds BOTH gates that ask "where is the material this
 /// feature acts on, along the extrude axis?" — the cut-direction reversal and
 /// a `ThroughAll` depth (CLAUDE.md: fix all gates sharing a metric).
-/// It reads vertex positions, not face centroids, so it is the true extent
-/// along the axis regardless of face counts or centroid weighting. Note the
-/// FULL interval: the old `compute_solid_extent` returned the far end alone,
-/// clamped at `0.0`, which read "extent 0" for a body lying entirely behind
-/// the plane — indistinguishable from a body touching it (assay P0012).
+/// It is the kernel's TRUE extent (`KernelIntrospect::solid_extent_along`),
+/// not the B-Rep vertices: a curved body's extent lies on its rims and faces,
+/// and a plain cylinder's only two vertices sit on its seam. Reading vertices
+/// reversed direction-less cuts on curved bodies (prospector seed 6, row
+/// 00021, 2026-11-03: a cylinder read `[-10.7, -7.3]` along the cut normal
+/// against its true `[-11.8, 8.4]`). Note the FULL interval: the old
+/// `compute_solid_extent` returned the far end alone, clamped at `0.0`,
+/// which read "extent 0" for a body lying entirely behind the plane —
+/// indistinguishable from a body touching it (assay P0012).
 pub(super) fn solids_projection_range(
     introspect: &dyn waffle_types::kernel::KernelIntrospect,
     solids: &[waffle_types::kernel::KernelSolidHandle],
@@ -154,16 +158,36 @@ pub(super) fn solids_projection_range(
     let mut lo = f64::INFINITY;
     let mut hi = f64::NEG_INFINITY;
     for solid in solids {
-        for vid in &introspect.list_vertices(solid) {
-            let sig = introspect.compute_signature(*vid, TopoKind::Vertex);
-            if let Some(c) = sig.centroid {
-                let proj = c[0] * dir[0] + c[1] * dir[1] + c[2] * dir[2];
-                lo = lo.min(proj);
-                hi = hi.max(proj);
-            }
+        if let Some((a, b)) = introspect.solid_extent_along(solid, dir) {
+            lo = lo.min(a);
+            hi = hi.max(b);
         }
     }
     (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+}
+
+/// How close to the sketch plane a body's mid-extent may sit and still count
+/// as ON it, as a fraction of the reading's own magnitude. Far above the
+/// rounding of a closed-form extent (~1e-15), far below any asymmetry a
+/// document can mean.
+pub(super) const CUT_SIDE_TIE_REL: f64 = 1e-9;
+
+/// Whether a cut with no authored direction sweeps AGAINST its sketch normal:
+/// only when the measured body's mid-extent lies decidedly behind the plane.
+///
+/// A body whose true extent is symmetric about the plane is a TIE, and a tie
+/// sweeps the authored normal. Ties are geometric, not rare: a profile
+/// revolved more than 270° about an axis IN its sketch plane reaches both
+/// sides equally, so every cut sketched on that plane sits exactly at the
+/// mid-extent (assay R0020, 2026-11-03 — a bare `<` let rounding pick the
+/// side, and the reversed cut met a kernel STOP the authored one never did).
+/// `None` — nothing measurable — keeps the legacy reversal.
+pub(super) fn cut_sweeps_reversed(range: Option<(f64, f64)>, sketch_proj: f64) -> bool {
+    let Some((lo, hi)) = range else {
+        return true;
+    };
+    let scale = (hi - lo).max(lo.abs()).max(hi.abs()).max(sketch_proj.abs());
+    (lo + hi) * 0.5 < sketch_proj - CUT_SIDE_TIE_REL * scale
 }
 
 /// Resolve a GeomRef to a 3D position for UpTo depth mode.
@@ -271,4 +295,37 @@ pub(super) fn find_latest_solid_handle(
     })?;
 
     find_solid_handle(geom_ref, feature_results)
+}
+
+#[cfg(test)]
+mod cut_side_tests {
+    use super::cut_sweeps_reversed;
+
+    #[test]
+    fn a_body_behind_the_plane_reverses_the_cut() {
+        assert!(cut_sweeps_reversed(Some((-10.0, -2.0)), 0.0));
+        assert!(cut_sweeps_reversed(Some((-10.0, 4.0)), 0.0));
+    }
+
+    #[test]
+    fn a_body_in_front_of_the_plane_keeps_the_authored_normal() {
+        assert!(!cut_sweeps_reversed(Some((2.0, 10.0)), 0.0));
+        assert!(!cut_sweeps_reversed(Some((-4.0, 10.0)), 0.0));
+    }
+
+    #[test]
+    fn a_body_symmetric_about_the_plane_keeps_the_authored_normal() {
+        // R0020's boss along its cut normal: [-41.79583, 27.20879] about a
+        // sketch plane at their midpoint, read off by one rounding either way.
+        let (lo, hi) = (-4.179_583e1, 2.720_879e1);
+        let mid = (lo + hi) * 0.5;
+        for plane in [mid, mid * (1.0 + 1e-15), mid * (1.0 - 1e-15)] {
+            assert!(!cut_sweeps_reversed(Some((lo, hi)), plane), "plane {plane}");
+        }
+    }
+
+    #[test]
+    fn nothing_measurable_keeps_the_legacy_reversal() {
+        assert!(cut_sweeps_reversed(None, 0.0));
+    }
 }

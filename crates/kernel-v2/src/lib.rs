@@ -75,6 +75,7 @@ pub mod dxf_export;
 pub mod error;
 pub mod euler;
 pub(crate) mod exact2d;
+pub mod extent;
 pub mod geom;
 pub mod imported;
 pub mod ingest;
@@ -114,6 +115,7 @@ pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
 };
+pub use extent::{extent_along, vertex_extent_along};
 pub use ingest::ingest_analytic;
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};

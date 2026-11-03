@@ -90,7 +90,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | gate | metric | 2026-11-03 baseline | 1.0 target |
 |---|---|---|---|
 | 1 | corpus WRONG | 0 (HEAD a1932058: 360C / 0W / 9E / 5EE / 0T, 2026-11-03) | 0 |
-| 1 | fresh-seed WRONG | seed 6: 6 — 4 oracle defects (body membership by bbox; composition band), 2 engine cut auto-reversal; 0 kernel | 0 on two seeds |
+| 1 | fresh-seed WRONG | seed 6: 6 → 5 after the engine cut fix (00021 CORRECT); the 5 left are oracle defects (body membership by bbox, stale extent box, composition band); 0 kernel | 0 on two seeds |
 | 1 | record-only oracles | 2 (O2, O5) | 0 |
 | 1 | N100 items open | see ledger N100 | 0 |
 | 2 | ledger debt | 65 | 0 |
@@ -154,4 +154,5 @@ of building the paper's mechanism (memory, 2026-10-31).
 | date | step | gate 1 | gate 2 (debt / not-faithful) | gate 3 | gate 4 | commit |
 |---|---|---|---|---|---|---|
 | 2026-11-03 | adopted; step 0 started | — | 65 / 132 | pair matrix not built | — | dc422b05 |
-| 2026-11-03 | step 0: corpus on HEAD + seed 6 | corpus 0W; seed 6 6W (0 kernel) | 65 / 132 | ERROR 6 % | seed 6: 4 T | (this commit) |
+| 2026-11-03 | step 0: corpus on HEAD + seed 6 | corpus 0W; seed 6 6W (0 kernel) | 65 / 132 | ERROR 6 % | seed 6: 4 T | 38190e9b |
+| 2026-11-03 | engine: cut direction + ThroughAll read the true extent | corpus 360C/0W (R0020 tie found and fixed); seed 6 5W, all oracle | 65 / 132 | — | — | (this commit) |

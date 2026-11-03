@@ -1674,6 +1674,43 @@ impl KernelIntrospect for KernelV2Adapter {
             .flatten()
     }
 
+    /// The true extent along `direction` (`extent::extent_along`): vertices,
+    /// each edge curve's critical points, and sphere / torus / cone-apex
+    /// face-interior critical points. An imported (mesh-backed) body IS its
+    /// mesh, so its vertex interval is exact. Falls back to the vertex
+    /// interval if a face cannot be tessellated for the membership test.
+    fn solid_extent_along(
+        &self,
+        solid: &KernelSolidHandle,
+        direction: [f64; 3],
+    ) -> Option<(f64, f64)> {
+        if let Some(slot) = self.imported_slot_of(solid) {
+            let len = (direction[0] * direction[0]
+                + direction[1] * direction[1]
+                + direction[2] * direction[2])
+                .sqrt();
+            if !len.is_finite() || len <= 0.0 {
+                return None;
+            }
+            let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
+            for face in &self.imported[slot].faces {
+                for p in face.positions.chunks_exact(3) {
+                    let s = (p[0] * direction[0] + p[1] * direction[1] + p[2] * direction[2]) / len;
+                    lo = lo.min(s);
+                    hi = hi.max(s);
+                }
+            }
+            return lo.is_finite().then_some((lo, hi));
+        }
+        let sid = self.solid_of(solid).ok()?;
+        match crate::extent::extent_along(&self.arena, sid, direction) {
+            Ok(r) => r,
+            Err(_) => crate::extent::vertex_extent_along(&self.arena, sid, direction)
+                .ok()
+                .flatten(),
+        }
+    }
+
     /// ICR-1: the exact-rational B-Rep surface area
     /// (`introspect::surface_area`); same contract as `solid_volume`.
     fn solid_surface_area(&self, solid: &KernelSolidHandle) -> Result<f64, KernelError> {
