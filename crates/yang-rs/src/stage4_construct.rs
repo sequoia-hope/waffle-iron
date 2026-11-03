@@ -683,6 +683,29 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
     // Interior carry (cylinder only): every old-triangle vertex not on the
     // cycles, branch-assigned into the unwrapped boundary span.
     let cycle_verts: BTreeSet<u32> = patch.cycles.iter().flatten().copied().collect();
+    // TRIAL PROBE (not for landing): patch cycles near the F0058 Steinmetz crossings.
+    if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() && !matches!(chart, SurfaceChart::Plane { .. }) {
+        let near = |v: u32| {
+            let p = mesh.verts[v as usize];
+            [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+                ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 2e-2
+            })
+        };
+        for (ci, cyc) in patch.cycles.iter().enumerate() {
+            let mut seen = BTreeSet::new();
+            let dups: Vec<u32> = cyc.iter().copied().filter(|v| !seen.insert(*v)).collect();
+            let close: Vec<(u32, [f64; 3])> = cyc
+                .iter()
+                .copied()
+                .filter(|&v| near(v))
+                .map(|v| (v, mesh.verts[v as usize].as_array()))
+                .collect();
+            eprintln!(
+                "[trial-cycle] patch={patch_index} band={band} cycle={ci} len={} dups={dups:?} near_crossing={close:?}",
+                cyc.len()
+            );
+        }
+    }
     let mut interior_back: Vec<u32> = Vec::new();
     let mut pool = p2.verts.clone();
     let mut interior_idx: Vec<u32> = Vec::new();
