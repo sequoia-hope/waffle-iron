@@ -43,6 +43,28 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-03 (kernel 1.0 step 0) — **HEAD a1932058 holds 360C / 0W / 9E / 5EE / 0T over 374 (release, 12 jobs on sequoia-server, wall 761 s); prospector seed 6 (first seed with O1/O3 in force): 178 C / 6 W / 12 E / 4 T — all six WRONG rows are the HARNESS or the ENGINE, none the kernel**
+
+Seed 6: `PROSPECT_SEED=6 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`,
+1092 s. ERROR rate 6 % (seed 5: 5.5 %). Each WRONG row was judged one prefix
+at a time (every document truncated after each solid-bearing feature) to find
+the first op whose verdict is WRONG:
+
+| row | ops | first WRONG prefix | mechanism | who is wrong |
+|---|---|---|---|---|
+| 00112 | `circle:boss convex6:boss circle:∩` | the ∩ | the hex boss (`merge`, sketched on the cylinder's cap plane, origin 3.6e-6 outside the rim) is truly DISJOINT from the cylinder: after two ops the kernel has two solids, 1.198e-11 (= πr²h exactly) + 1.235e-11, and the exact chain agrees. The ENGINE's `Add` keeps the cylinder as a leftover body (disjointness proved by the multi-lump union, `rebuild/combine.rs:433-440`); the EXACT CHAIN folds it into the boss's body because their bounding BOXES overlap (`exact_membership.rs` §"Bodies and combine modes"), so its ∩ intersects the cylinder too. Kernel output = untouched cylinder + (hex ∩ B3) | oracle (body membership by bbox) |
+| 00024 | `star8:boss circle:cut ×3 circle:∩` | the ∩ | same step, same oracle path — inferred, to confirm when the oracle fix lands | oracle (inferred) |
+| 00134 | `… convex8:∩ convex5:cut` | the ∩ | same — inferred | oracle (inferred) |
+| 00021 | `circle:boss convex4:cut …` | op 2, the first cut | cut AUTO-REVERSAL: the engine reads the target's extent along n from its B-Rep VERTICES — a cylinder has only its seam ⇒ `[-10.74, -7.34]` vs the true `[-11.8, 8.4]` — and reverses (`FE_CUT_TRACE`), the chain does not (`EXACT_CUT_TRACE`) | ENGINE (`solids_projection_range` ignores curved extent) |
+| 00122 | `circle:boss circle:boss convex3:boss circle:cut star3:cut` | op 5, the second cut | same: engine vertex range `[-0.79, 0.95]` vs box `[-2.54, 1.06]` along x; engine `reverse=false`, chain `true` | ENGINE |
+| 00100 | `star6(0.14):boss circle:boss` | op 2 | `volume_composition` rel 3.497e-4 vs band 3.379e-4; `ORACLE_DEBUG`: the composed residual (8.8e-2) is SMALLER than operand 0's own (4.09e-1) — the band does not carry operand residuals through the composition | oracle band (probable; confirm at a finer grid) |
+
+The cut-reversal rows are the seed-4/5 mechanism, now traced to its cause: the
+engine's direction rule measures a curved body by its vertices, so a user's
+direction-less cut can sweep the wrong way. The kernel computed what it was
+asked in every row. ERROR / TIMEOUT rows: triage delegated (report only,
+`agy/seed6-triage`).
+
 ## 2026-10-30 (R0015 / R0026 / R0050 CONVERTED) — **the on-surface WRONG rows are typed at Stage-5 emission (ledger N60 amendment, N104); corpus 360C / 0W / 9E / 5EE / 0T over 374, on-surface oracle in force**
 
 Anchored with a temporary per-edge conformance probe and a decline-reason

@@ -89,8 +89,8 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 
 | gate | metric | 2026-11-03 baseline | 1.0 target |
 |---|---|---|---|
-| 1 | corpus WRONG | 0 (2026-10-30 run; HEAD re-run pending, step 0) | 0 |
-| 1 | fresh-seed WRONG | seed 5: 3 (2026-10-13, before O1/O3); seed 6 pending | 0 on two seeds |
+| 1 | corpus WRONG | 0 (HEAD a1932058: 360C / 0W / 9E / 5EE / 0T, 2026-11-03) | 0 |
+| 1 | fresh-seed WRONG | seed 6: 6 — 4 oracle defects (body membership by bbox; composition band), 2 engine cut auto-reversal; 0 kernel | 0 on two seeds |
 | 1 | record-only oracles | 2 (O2, O5) | 0 |
 | 1 | N100 items open | see ledger N100 | 0 |
 | 2 | ledger debt | 65 | 0 |
@@ -98,8 +98,8 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 2 | consecutive clean audits | 0 | 2 |
 | 3 | surface pairs with a CORRECT customer | not built | 21 of 21 |
 | 3 | B-spline end to end | no | yes |
-| 3 | fresh-seed ERROR rate | seed 5: 5 %; seed 6 pending | ≤ 5 %, all typed |
-| 4 | corpus + seed TIMEOUTs | corpus 0; seed 5: 2 (budgeted) | 0 |
+| 3 | fresh-seed ERROR rate | seed 6: 6 % (12/200; 2 are the empty-result harness verdict) | ≤ 5 %, all typed |
+| 4 | corpus + seed TIMEOUTs | corpus 0; seed 6: 4 | 0 |
 | 4 | undocumented panic sites in yang-rs (K7) | ~60 (review count; not yet gated) | 0 |
 
 ## 3. The way there
@@ -153,4 +153,5 @@ of building the paper's mechanism (memory, 2026-10-31).
 
 | date | step | gate 1 | gate 2 (debt / not-faithful) | gate 3 | gate 4 | commit |
 |---|---|---|---|---|---|---|
-| 2026-11-03 | adopted; step 0 started | pending | 65 / 132 | pair matrix not built | — | (this commit) |
+| 2026-11-03 | adopted; step 0 started | — | 65 / 132 | pair matrix not built | — | dc422b05 |
+| 2026-11-03 | step 0: corpus on HEAD + seed 6 | corpus 0W; seed 6 6W (0 kernel) | 65 / 132 | ERROR 6 % | seed 6: 4 T | (this commit) |
