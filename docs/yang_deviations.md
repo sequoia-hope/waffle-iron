@@ -8292,19 +8292,17 @@ from one Steinmetz ellipse to the other across their crossing (`edge (37,58)`:
 `p_s` on one branch, `p_e` on the other, `matched=0`); every refined rerun
 then stops on an edge at the crossing that both ellipses contain. Not chain
 decimation (`YANG_434_DECIMATE_PROBE` silent: it never runs here) and not a
-tolerance. **Anchored (same day, trial probes):** NOT a self-touching cycle
-(every patch cycle is simple; the crossings are ordinary cycle vertices). The
-two independent per-patch CDTs of patch 2 (operand A's cylinder band) and
-patch 5 (operand B's) EACH add the interior chord (37,58) between the same two
-shared cycle vertices — equal perpendicular cylinders are TANGENT at the
-crossings (both normals ±y at (0, ±0.2, 0)), so near them the two operands'
-chords coincide. Stage 3, re-run inside the update, infers an intersection
-edge from "an edge with A and B triangles", so the coincident chord reads as a
-curve edge spanning the two branches. **Mechanism:** the post-update curve
-build re-derives curve incidence from triangle adjacency instead of carrying
-it; §4.4.1 maps "boundary curves to boundary curves" (`:546-571`), so the
-update already knows the curve chains — carry them. (On main I2d refuses both
-CDTs, which is the only reason this does not fire.) **R0063: same mechanism**
-(its failing edge (69,77) is an interior chord of patch 3 AND patch 5, one per
-operand). **R0046: different** — no patch adds its failing edge (26,53) as a
-chord between cycle vertices; not yet anchored.
+tolerance. **Anchored (same day, trial probes), first reading RETRACTED:** NOT
+a self-touching cycle (every patch cycle entering the update is simple; the
+crossings are ordinary cycle vertices). A first probe saw the A patch and the
+B patch each add an interior chord (37,58) and I read that as coincident
+chords mistaken for a curve edge — **wrong**: an interior chord has two patch
+triangles and is not on its patch's boundary. Measured at the failing Stage-3
+call itself (same mesh state): edge (37,58) has exactly two mesh triangles, one
+in operand A's patch (face 2) and one in operand B's patch (face 2), and it is
+on BOTH patches' boundary cycles — a genuine A|B seam, running between the two
+Steinmetz branches past the crossing. R0063 shows the identical signature
+((69,77): one A triangle, one B triangle, on both cycles) on every refined
+rerun. Open: why the updated A and B patches meet along a seam that leaves the
+curve at the crossing (next probe: whether the crossing vertex is still on the
+patch cycles at that point). R0046 differs and is not yet anchored.
