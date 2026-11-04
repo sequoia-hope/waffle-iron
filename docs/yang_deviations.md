@@ -8338,3 +8338,33 @@ ear is ever made. **Owner:** the tangent crossing is not an ordinary cycle
 corner — §4.3 tangency (F4) / the update's corner handling, not the membrane
 pass, which only exposes it; recorded as a customer of both, no fix yet.
 R0046 differs and is not yet anchored.
+
+**Re-measured on main (2026-11-04, `trial-no-i2d-2` = e75b632b + the A1
+refusal off, private build dir):** corpus 352C / 0W / 17E / 5EE / 0T, wall
+767 s; the eight CORRECT → ERROR cases are exactly the 2026-11-03 eight, so
+75f2f1be (Stage-3 pair-curve membership) moved none of them.
+
+**R0046 anchored (same day, trial probes with `TRIAL_PTS` at the failing
+edge's endpoints): F0058's chain, plus the pinch split.** The plane is
+parallel to the cylinder axis (normal·axis ≈ 0), so the exact section is two
+generator lines; the failing edge (26,53) runs from one (p_s on candidate 1)
+to the other (p_e on candidate 0), 0.197 m across the strip — the
+`{candidates: 2, matched: 0}`. Between the update and Stage 3, per Stage-4
+step: before `remove_doubled_membranes` vertex 48 (p_e) is in 13 triangles;
+the pass removes 8 triangles (94 → 86), four of them at 48; the (4a2)
+tangency pinch-vertex split then gives one of 48's two remaining fans a new
+vertex 53 at the bit-identical position (48 in 6 triangles, 53 in 3). Edge
+(26,53) then has exactly one triangle in A's cylinder patch (face 2) and one
+in B's plane patch (face 5) and lies on both patches' cycles — the A|B seam
+signature of F0058's (37,58) and R0063's (69,77). Every refined rerun repeats
+it (edges (42,77), (74,125), (134,225); 4 removed at the far endpoint each
+time). So class 1 is ONE mechanism on all three cases: after the update the
+two operands' patch CDTs produce coincident triangles, and N41's cross-operand
+cancel deletes them as a "zero-volume fin". N41's premise (a membrane
+contributes nothing to the represented point set) holds for the mesh, not for
+the exact surfaces: here the two triangles stand for a cylinder and a plane
+that are a sagitta apart. The paper has no such pass; what it has is the
+per-triangle bound (§4.1.2) and the §4.5.2 refinement it feeds — the two
+triangles are within d(T) + d(T') of each other without intersecting.
+Recorded as increment 2's class-1 work item: the cancel must not read two
+operands' coincident CDT triangles as a fin.
