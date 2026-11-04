@@ -1272,6 +1272,25 @@ pub(crate) fn stage4_relocate_and_correct_ex(
     out
 }
 
+
+/// TRIAL PROBE (not for landing): triangles using a vertex at F0058's crossings.
+fn trial_crossing_use(mesh: &Mesh, label: &str) {
+    if std::env::var_os("TRIAL_CYCLE_PROBE").is_none() {
+        return;
+    }
+    let mut out = Vec::new();
+    for (vi, p) in mesh.verts.iter().enumerate() {
+        let near = [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+            ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 1e-6
+        });
+        if near {
+            let n = mesh.tris.iter().filter(|t| t.contains(&(vi as u32))).count();
+            out.push((vi, n));
+        }
+    }
+    eprintln!("[trial-step] {label}: crossing vertices (id, tris) = {out:?}; tris={}", mesh.tris.len());
+}
+
 #[allow(clippy::too_many_arguments)]
 fn stage4_relocate_and_correct_inner(
     mesh: &mut Mesh,
@@ -5757,6 +5776,7 @@ fn stage4_relocate_and_correct_inner(
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
     s4_lap("before-441-update", mesh);
+    trial_crossing_use(mesh, "before update");
     if crate::stage4_construct::update_patches_ex_with_bounds(
         mesh,
         attribution,
@@ -5897,6 +5917,7 @@ fn stage4_relocate_and_correct_inner(
     // from the mesh alone).
     let membranes_removed = {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        trial_crossing_use(mesh, "before remove_doubled_membranes");
         let n = remove_doubled_membranes_scoped_with_bounds(
             mesh,
             &mut attr_vec,
@@ -5998,6 +6019,7 @@ fn stage4_relocate_and_correct_inner(
     // the standard compact + Phase-A recompute.
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        trial_crossing_use(mesh, "before collapse_subtauwork");
         let c = collapse_subtauwork_mesh_edges_ex_with_bounds(
             mesh,
             &mut attr_vec,
@@ -6109,6 +6131,7 @@ fn stage4_relocate_and_correct_inner(
     // has been relocated and possibly collapsed since, so the earlier maps can
     // reference stale vertices.
     {
+        trial_crossing_use(mesh, "before compute_phase_a@6061");
         let (_infos_bc, inc_bc, curves_bc) = compute_phase_a_with_side_labels(
             mesh,
             attribution,
