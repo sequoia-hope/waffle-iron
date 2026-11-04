@@ -5,6 +5,10 @@
 **Commits:**
 - `1c9e6365` — `docs(specs): specify Operation::BoardShape authoring and evaluation (B1)`
 - `c4184e8d` — `feat(feature-engine): implement Operation::BoardShape evaluation and plumbing (B2)`
+- `e0a54998` — `docs(agy): add board-shape implementation and B3 summary (B4)`
+- `f3b92360` — `fix(feature-engine): use TAU_MODEL for non-adjacent same-loop proximity`
+- `1aeff136` — `fix(feature-engine): drop silent MIN_FEATURE_SIZE coincident welding`
+- `a4c1aa1a` — `refactor(feature-engine): share ARC_SAMPLES, COS_FACE_NORMAL_ALIGNMENT, and fnv1a_128`
 
 **Kernel / audit impact:** Zero changes to `yang-rs`, `kernel-v2`, `cherchi-rs`, or `ssi-rs`. Neither `docs/yang_deviations.md` nor `docs/audits/yang_2025_audit.md` was modified.
 
@@ -17,7 +21,7 @@ Committed before code (`1c9e6365`), `specs/board_shape_feature.md` specifies:
 - **Operation & parameters:** `Operation::BoardShape { params: BoardShapeParams }` referencing an upstream `Sketch` feature (`sketch_id: Uuid`), logical board name (`board: String`), board thickness in meters (`thickness: f64`) with optional mm-space driving expression (`thickness_expr: Option<String>`), and sparse per-entity role map (`roles: BTreeMap<u32, BoardEntityRole>`) serialized with decimal string keys (`"12": { "type": "outline" }`) and loud deserialization refusal on non-`u32` or duplicate keys.
 - **Entity roles:** `BoardEntityRole::Outline`, `BoardEntityRole::Cutout`, `BoardEntityRole::Hole { plated: bool, clearance: f64 }`, and `BoardEntityRole::Keepout { side: BoardSide, max_height: f64 }` (`BoardSide::{Front, Back, Both}`).
 - **Exact `{Line, Arc, Circle}` contour contract:** Only non-construction `SketchEntity::{Line, Arc, Circle}` may carry board roles; `Point`, `Spline`, `Gear`, and `Sprocket` are refused with `BoardShapeError::UnsupportedEntityKind` (never chord-approximated). Circles and holes record exact **diameters** (`diameter_m = 2.0 * radius`) per `SUITE-SPEC-AGREED.md`.
-- **Stable element & hole connector IDs:** Every evaluated element carries stable ID `waffle:<sketch_id>/<entity_id>` (`element_stable_id`). Each `Hole` emits a top-face `PartConnector` (`origin` at `plane_origin + u*x_axis + v*y_axis + thickness*normal`, `z_axis = normal`, `x_axis = sketch_x_axis`, `geometry = Some(ConnectorGeometry::CircularEdge(AxisKind::Cylindrical))`, `key = Some(stable_id)`) with deterministic UUID v5 `hole_connector_uuid(board_feature_id, &stable_id)` so assembly mates survive rebuilds and hole edits.
+- **Stable element & hole connector IDs:** Every evaluated element carries stable ID `waffle:<sketch_id>/<entity_id>` (`element_stable_id`). Each `Hole` emits a top-face `PartConnector` (`origin` at `plane_origin + u*x_axis + v*y_axis + thickness*normal`, `z_axis = normal`, `x_axis = sketch_x_axis`, `geometry = Some(ConnectorGeometry::CircularEdge(AxisKind::Cylindrical))`, `key = Some(stable_id)`) with deterministic 128-bit FNV-1a UUID `hole_connector_uuid(board_feature_id, &stable_id)` (`feature_engine::fnv1a_128`) so assembly mates survive rebuilds and hole edits.
 - **Format compatibility (no version / reader-floor bump):** `FORMAT_VERSION` and `MIN_READER_VERSION` stay at `15`. Unlike `Projection` or `Annotation` variants inside `Drawing` tabs, `Operation` already uses `crate::opaque::known_or_unknown` (`Operation::Unknown(Value)`, v4 Phase 1b), so older v15 readers preserve `"type": "BoardShape"` features verbatim across load → save and report `EngineError::UnsupportedOperation` rather than failing document load or silently dropping data.
 
 ---
@@ -29,8 +33,8 @@ Committed before code (`1c9e6365`), `specs/board_shape_feature.md` specifies:
 - **`crates/feature-engine/src/board_shape.rs`** (new module, exported at `crates/feature-engine/src/lib.rs:3`):
   - Authoring & error types: `BoardSide` (`:40`), `BoardEntityRole` (`:50`), `BoardShapeParams` (`:91`, custom `u32_role_map` serializer/deserializer at `:112-172`), and `BoardShapeError` (`:178`, covering validation failure classes B2–B26; B1 reuses `EngineError::SketchNotFound`).
   - Evaluated domain model: `BoardSegment2D` (`:278`, `Line` / `Arc` / `Circle` with `diameter_m`), `EvaluatedBoardLoop` (`:307`), `EvaluatedBoardHole` (`:320`, `diameter_m`), `EvaluatedBoardKeepout` (`:338`), `EvaluatedBoardShape` (`:348`), `element_stable_id` (`:362`), and `hole_connector_uuid` (`:369`).
-  - `evaluate_board_shape` (`:460`): validates sketch solve status, finite orthogonal sketch-plane basis, non-empty board name, `thickness >= MIN_FEATURE_SIZE`, entity existence, non-construction flag, `{Line, Arc, Circle}` restriction, non-negative finite `clearance` and `max_height`, non-degenerate geometry, endpoint equivalence under `SketchConstraint::Coincident` + `TAU_MODEL` welding, degree-2 closed-loop chaining, exact line/arc/circle self-intersection refusal (splitting non-adjacent sweep `> π/2` arcs into exact minor sub-arcs for intersection checks), exact curved-boundary winding + clearance checks (`Outline` encloses `Cutout`s and `Hole`s with gap `>= MIN_FEATURE_SIZE`; `Cutout`s pairwise disjoint and un-nested; `Hole`s disjoint from `Cutout`s and other `Hole`s; `Keepout`s closed and simple), CCW outer / CW cutout orientation normalization, and deterministic top-face `PartConnector` synthesis.
-  - `execute` (`:825`): builds exact analytical faces — `ClosedProfile` (`CircleProfile`) via `kb.make_faces_from_profiles` for `Circle` outlines/cutouts/holes (`extrude_circle`, `:1004`) and `Region` with exact minor `RegionEdge::Arc` segments (`sweep <= PI / 2`, `loop_to_region`, `:1072`) via `kb.make_face_from_region` for `Line`/`Arc` loops (`extrude_board_loop`, `:1043`) — extrudes the outer blank `[0, +thickness]` along `+normal`, and subtracts symmetric through-cutters (`[-0.5 * thickness, +1.5 * thickness]`, height `2.0 * thickness`) for each cutout and hole so cutter end-caps never coincide coplanarly with board caps, then assigns `Role::EndCapPositive` and `Role::EndCapNegative` to the surviving board caps.
+  - `evaluate_board_shape` (`:440`): validates sketch solve status, finite orthogonal sketch-plane basis, non-empty board name, `thickness >= MIN_FEATURE_SIZE`, entity existence, non-construction flag, `{Line, Arc, Circle}` restriction, non-negative finite `clearance` and `max_height`, non-degenerate geometry, endpoint equivalence under shared `Point` IDs or `TAU_MODEL` (`1e-7 m`) welding (no silent `MIN_FEATURE_SIZE` bridge), degree-2 closed-loop chaining, exact line/arc/circle self-intersection refusal with `TAU_MODEL` proximity on non-adjacent segments of the same loop (`:1760`, splitting non-adjacent sweep `> π/2` arcs into exact minor sub-arcs), exact curved-boundary winding + `TAU_MODEL` clearance checks (`:640-706`: `Outline` encloses `Cutout`s and `Hole`s with gap `> TAU_MODEL`; `Cutout`s pairwise disjoint and un-nested; `Hole`s disjoint from `Cutout`s and other `Hole`s; `Keepout`s closed and simple), CCW outer / CW cutout orientation normalization, and deterministic top-face `PartConnector` synthesis.
+  - `execute` (`:783`): builds exact analytical faces — `ClosedProfile` (`CircleProfile`) via `kb.make_faces_from_profiles` for `Circle` outlines/cutouts/holes (`extrude_circle`, `:962`) and `Region` with exact minor `RegionEdge::Arc` segments (`sweep <= PI / 2`, `ARC_SAMPLES` polygon samples from `waffle_types::profiles::ARC_SAMPLES` at `:396`, `loop_to_region` at `:1030`) via `kb.make_face_from_region` for `Line`/`Arc` loops (`extrude_board_loop`, `:1001`) — extrudes the outer blank `[0, +thickness]` along `+normal`, and subtracts symmetric through-cutters spanning `[-thickness, +2.0 * thickness]` (`origin - thickness * normal`, `depth = 3.0 * thickness`, `:879-888`) for each cutout and hole so cutter end-caps never coincide coplanarly with board caps, then assigns `Role::EndCapPositive` and `Role::EndCapNegative` to surviving planar board caps via `COS_FACE_NORMAL_ALIGNMENT` (`waffle_types::kernel::units` `:81`, shared with `modeling_ops::{pipe,sweep}` and `MockKernel`).
 - **`crates/feature-engine/src/types.rs`:**
   - Re-exports `BoardEntityRole`, `BoardShapeError`, `BoardShapeParams`, `BoardSide` (`:10`).
   - Adds `Operation::BoardShape` (`:690`), `KnownOperation::BoardShape` (`:764`), `"BoardShape"` in `OPERATION_TAGS` (`:770-790`, length `19`), `EngineError::BoardShape` (`:2241`), and `ErrorKind::BoardShape` (`:2327`, mapped at `:2435`).
@@ -39,7 +43,7 @@ Committed before code (`1c9e6365`), `specs/board_shape_feature.md` specifies:
 - **`crates/feature-engine/src/params.rs`:**
   - Wires `BoardShapeParams::thickness_expr` (mm-space `Tag::Length`, multiplied by `0.001` into meters) in `apply_parameters_scoped` (`:801`) and `expression_sites` (`:1364`), and adds `BoardShape` to `every_expression_feature` (`:2624`, bumping `every_expression_field_is_enumerated` to `49` sites at `:2674` and `every_expression_field_can_measure_and_is_enumerated_as_one` to `50` sites at `:2720`).
 - **`crates/feature-engine/src/rebuild.rs` & `crates/feature-engine/src/lib.rs`:**
-  - Stores `board_shapes: HashMap<Uuid, EvaluatedBoardShape>` on `RebuildState` (`rebuild.rs:150`) and `Engine` (`lib.rs:135`), carries untouched entries across incremental rebuilds via `Carried::board_shapes` (`rebuild.rs:161, 277-280`, `lib.rs:1212`), populates `Engine::connectors` in tree order from both `Operation::MateConnector` and `Operation::BoardShape` (`lib.rs:1284`), and adds `active_sketch` (`rebuild.rs:1579`) which resolves projected references without calling `expand_generators()` so `Gear` and `Sprocket` entities retain their authored IDs and fail with `BoardShapeError::UnsupportedEntityKind`.
+  - Stores `board_shapes: HashMap<Uuid, EvaluatedBoardShape>` on `RebuildState` (`rebuild.rs:150`) and `Engine` (`lib.rs:135`), carries untouched entries across incremental rebuilds via `Carried::board_shapes` (`rebuild.rs:161, 277-280`, `lib.rs:1212`), populates `Engine::connectors` in tree order from both `Operation::MateConnector` and `Operation::BoardShape` (`lib.rs:1284`), exports `fnv1a_128` (`lib.rs:1377`, shared with `wasm_bridge::assembly_view::step_product_tree` at `crates/wasm-bridge/src/assembly_view.rs:578`), and adds `active_sketch` (`rebuild.rs:1579`) which resolves projected references without calling `expand_generators()` so `Gear` and `Sprocket` entities retain their authored IDs and fail with `BoardShapeError::UnsupportedEntityKind`.
 
 ### 2.2 File Format, Bridge, Harness & Schema Plumbing
 
@@ -47,7 +51,7 @@ Committed before code (`1c9e6365`), `specs/board_shape_feature.md` specifies:
 - **`crates/wasm-bridge/src/dispatch.rs` (`:4101-4104`):** Formats default feature names `"Board shape (<board>)"` / `"Board shape"`.
 - **`crates/wasm-bridge/src/messages.rs` (`:2732`) & `crates/wasm-bridge/src/tools/summary.rs` (`:177-179`):** Exposes `key: Option<String>` on `PartConnectorInfo` and includes `"key"` on `model_summary` connector entries when present.
 - **`crates/test-harness/src/{workflow.rs,assertions.rs,report.rs}`:** Adds `ModelBuilder::board_shape` (`workflow.rs:1065`), `ModelBuilder::dispatch` (`workflow.rs:1521`), `ModelBuilder::rebuild_from_scratch` (`workflow.rs:1526`), and `Operation::BoardShape` formatting in assertions/reports.
-- **Schema golden, manifest & WASM bundle:** Regenerated `docs/schema/waffle-v5.schema.json`, synced `app/src/lib/agent/tools/engineSchemas.generated.js` and `relay/src/waffle_mcp_relay/agent-tools.manifest.json` via `node app/scripts/gen-agent-manifest.mjs`, and rebuilt `app/static/pkg/` via `./scripts/build-wasm.sh` (fingerprint `24486b9f3a7fc68fcddf4228f35f3ef6990f9e8ad5e5818e92be896b42c43811`).
+- **Schema golden, manifest & WASM bundle:** Regenerated `docs/schema/waffle-v5.schema.json`, synced `app/src/lib/agent/tools/engineSchemas.generated.js` and `relay/src/waffle_mcp_relay/agent-tools.manifest.json` via `node app/scripts/gen-agent-manifest.mjs`, and rebuilt `app/static/pkg/` via `./scripts/build-wasm.sh` (fingerprint `708a93c39b8be55d020ca651c5266cecee55d65cedbb1236e3b4ad325cf512d0`).
 
 ---
 
@@ -73,9 +77,9 @@ All 5 tests execute through `ModelBuilder::kernel_v2()` / `KernelV2Adapter` (`--
 ### 3.2 Engine Unit / Incremental-Rebuild & Format Suites
 
 - **`crates/feature-engine/tests/board_shape.rs`:**
-  1. `coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop` (`:46`): 4 independent lines (8 distinct `Point` IDs) joined via `SketchConstraint::Coincident` with a `4e-7 m` solver residual (`> TAU_MODEL`, `<= MIN_FEATURE_SIZE`) weld into a single closed `40 × 30 mm` outline.
-  2. `incremental_rebuild_carries_board_shape_and_connectors_when_not_reexecuted` (`:177`): editing a downstream feature after `Operation::BoardShape` preserves the exact `KernelSolidHandle::raw()` without re-executing `BoardShape` while carrying forward `Engine::board_shapes` and `Engine::connectors`.
-  3. `role_map_serde_rejects_non_u32_and_duplicate_keys_and_round_trips` (`:439`): verifies JSON round-trip of `Operation::BoardShape` and loud serde errors on `"not_a_number"` and duplicate `"5"` vs `"05"` role keys.
+  1. `coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop` (`:48`): 4 independent lines (8 distinct `Point` IDs drawn `0.5 mm` apart) solved via `sketch_solver::solve_sketch` converge to ~0 apart and weld into a single closed `40 × 30 mm` outline, while an unsolved `4e-7 m` endpoint gap (`> TAU_MODEL`, `<= MIN_FEATURE_SIZE`) with `SketchConstraint::Coincident` is refused loudly as `BoardShapeError::OutlineNotClosed`.
+  2. `incremental_rebuild_carries_board_shape_and_connectors_when_not_reexecuted` (`:222`): editing a downstream feature after `Operation::BoardShape` preserves the exact `KernelSolidHandle::raw()` without re-executing `BoardShape` while carrying forward `Engine::board_shapes` and `Engine::connectors`.
+  3. `role_map_serde_rejects_non_u32_and_duplicate_keys_and_round_trips` (`:484`): verifies JSON round-trip of `Operation::BoardShape` and loud serde errors on `"not_a_number"` and duplicate `"5"` vs `"05"` role keys.
 - **`crates/feature-engine/tests/opaque_operation.rs` (`:67`):** Updates `OPERATION_TAGS.len()` pin to `19`.
 - **`crates/file-format/tests/format_tests.rs`:**
   1. `board_shape_round_trips_through_waffle_v15_without_version_bump` (`:2419`): verifies `save_project_verified` → `load_project` round-trip of `Operation::BoardShape` (with `Outline`, `Cutout`, `Hole`, `Keepout`, and `thickness_expr`) at `version == 15` and `min_reader_version == 15`.
@@ -86,17 +90,19 @@ All 5 tests execute through `ModelBuilder::kernel_v2()` / `KernelV2Adapter` (`--
 
 All heavy jobs were booked under `CARGO_TARGET_DIR=/home/claude/workspace/target/wt-board-shape timeout 5400 ~/.claude/bin/reserve -c 6 --here`:
 
-1. **`cargo fmt --check -p feature-engine -p file-format -p wasm-bridge -p test-harness`** — exit `0`.
-2. **`cargo clippy --all-targets -p feature-engine -p file-format -p wasm-bridge -p test-harness -- -D warnings`** — exit `0` (`0` warnings).
-3. **`cargo test -p file-format --features json-schema --test schema_golden`**:
+1. **`cargo fmt --check -p waffle-types -p modeling-ops -p feature-engine -p file-format -p wasm-bridge -p test-harness`** — exit `0`.
+2. **`cargo clippy --all-targets -p waffle-types -p modeling-ops -p feature-engine -p file-format -p wasm-bridge -p test-harness -- -D warnings`** — exit `0` (`0` warnings).
+3. **`cargo test -p waffle-types` & `cargo test -p modeling-ops`** (7 targets / 322 passed; 3 targets / 57 passed):
    ```text
-   Running tests/schema_golden.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/schema_golden-a490506a4911644d)
-   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.17s
+   Running unittests src/lib.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/waffle_types-2424e7691b22d5e2)
+   test result: ok. 313 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+   Running unittests src/lib.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/modeling_ops-08bf4410650843e0)
+   test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
    ```
 4. **`cargo test -p feature-engine`** (43 test targets, 798 passed, 0 failed; key binaries quoted verbatim):
    ```text
    Running unittests src/lib.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/feature_engine-1651993d849af874)
-   test result: ok. 325 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+   test result: ok. 325 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
    Running tests/board_shape.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/board_shape-31e1f2f4ddc59e02)
    test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
    Running tests/opaque_operation.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/opaque_operation-f57e8b5f85b1e4c1)
@@ -114,12 +120,12 @@ All heavy jobs were booked under `CARGO_TARGET_DIR=/home/claude/workspace/target
 6. **`cargo test -p wasm-bridge`** (45 test targets, 536 passed, 0 failed, 5 ignored; unit test binary quoted verbatim):
    ```text
    Running unittests src/lib.rs (/home/claude/workspace/target/wt-board-shape/debug/deps/wasm_bridge-4f6bae9e3014c509)
-   test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+   test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
    ```
 7. **`cargo test --release -p test-harness --test board_shape_kv2`**:
    ```text
    Running tests/board_shape_kv2.rs (/home/claude/workspace/target/wt-board-shape/release/deps/board_shape_kv2-0ba3b4db77e3326f)
-   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.41s
+   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
    ```
 8. **`cargo test -p test-harness --lib`**:
    ```text
@@ -127,7 +133,7 @@ All heavy jobs were booked under `CARGO_TARGET_DIR=/home/claude/workspace/target
    test result: ok. 187 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 55.33s
    ```
 9. **Relay manifest byte & SHA-256 verification** (`node app/scripts/gen-agent-manifest.mjs --stdout` vs `relay/src/waffle_mcp_relay/agent-tools.manifest.json`): byte-identical, `manifest_hash = a683fed71f414e6c5da1474feb1b26b1ab049e38ba8338ffdd628f578d3bd562`.
-10. **WASM bundle** (`./scripts/build-wasm.sh`): exit `0`, `app/static/pkg/.build-fingerprint` matches `./scripts/wasm-fingerprint.sh` (`24486b9f3a7fc68fcddf4228f35f3ef6990f9e8ad5e5818e92be896b42c43811`).
+10. **WASM bundle** (`./scripts/build-wasm.sh`): exit `0`, `app/static/pkg/.build-fingerprint` matches `./scripts/wasm-fingerprint.sh` (`708a93c39b8be55d020ca651c5266cecee55d65cedbb1236e3b4ad325cf512d0`).
 
 ---
 
@@ -169,14 +175,14 @@ All heavy jobs were booked under `CARGO_TARGET_DIR=/home/claude/workspace/target
 
 Per `AGY_BRIEF_BOARD_SHAPE.md`:
 - **Agent tool authoring & Svelte UI (`B3`):** Listed in Section 5 above; `"BoardShape"` is intentionally omitted from `AUTHORABLE` in `crates/wasm-bridge/src/tools/author.rs:45` in this task.
-- **`board-interface` crate, DXF reader/writer, canonical geometry hash, publishing (`boards/<board>.board.dxf` + `.json`), pulling, `<board>.board.lock`, and ownership take-over (`ProvenanceOrigin` rewrite):** Deferred until Boardroom's `board-interface` crate lands (`specs/board_shape_feature.md` §9).
-- **Full 95-target `test-harness` integration suite & Playwright GUI runs:** We ran `cargo test --release -p test-harness --test board_shape_kv2` and `cargo test -p test-harness --lib` (plus full `cargo test` on `feature-engine`, `file-format`, and `wasm-bridge`, and `cargo clippy --all-targets` across all four crates). Per brief rule 4, no Playwright tests were run from this worktree.
+- **`board-interface` crate, DXF/JSON reader/writer, canonical geometry hash, publishing (`interface/<board>/board-shape.{dxf,json}`), pulling, `Derived` read-only provenance, and ownership take-over (`ProvenanceOrigin` severing with arrival ID preservation; there is no lock file):** Deferred until Boardroom's `board-interface` crate lands (`specs/board_shape_feature.md` §8).
+- **Full 95-target `test-harness` integration suite & Playwright GUI runs:** We ran `cargo test --release -p test-harness --test board_shape_kv2` and `cargo test -p test-harness --lib` (plus full `cargo test` on `waffle-types`, `modeling-ops`, `feature-engine`, `file-format`, and `wasm-bridge`, and `cargo clippy --all-targets` across all six crates). Per brief rule 4, no Playwright tests were run from this worktree.
 
 ### 6.2 Uncertainties / Edge Cases for Reviewer Awareness
 
-1. **Coincident tangent / vertex-sharing cutouts or holes:** `evaluate_board_shape` enforces a strict minimum clearance of `MIN_FEATURE_SIZE` (`1e-6 m`) between cutouts, holes, and the outer outline (`specs/board_shape_feature.md` §4 rows B20–B24) so the B-Rep solid never develops zero-thickness non-manifold walls. Edge-biting notches (e.g. card-edge slots or mouse-bites that open through the board perimeter) should be drawn as part of the `Outline` loop itself (verified in `board_with_concave_arc_edge_notch_exact_volume`).
+1. **Coincident tangent / vertex-sharing cutouts or holes:** `evaluate_board_shape` enforces a strict minimum clearance of `TAU_MODEL` (`1e-7 m`) between cutouts, holes, the outer outline, and non-adjacent edges of the same loop (`board_shape.rs:640-706, :1760`; `specs/board_shape_feature.md` §4 rows B17, B20–B24) so the B-Rep solid never develops sub-model-tolerance or non-manifold walls. Edge-biting notches (e.g. card-edge slots or mouse-bites that open through the board perimeter) should be drawn as part of the `Outline` loop itself (verified in `board_with_concave_arc_edge_notch_exact_volume`).
 2. **Keepout overlap policy:** `Keepout` loops are validated for closure, simplicity, and non-degeneracy (rows B11, B12, B17, B25, B26), but are intentionally allowed to extend to or across the board edge and overlap holes/cutouts or other keepouts (e.g. a `Front` height restriction overlapping a `Back` restriction or overhang keepout). When `board-interface` lands, confirm whether its DXF schema imposes any stricter containment rule on keepout layers.
-3. **Downstream coplanar face-on-face boss unions:** As throughout Waffle Iron, a downstream legacy `Extrude` sketched directly on `z = thickness` and swept only `+z` (`[thickness, thickness + d]`) meets the board cap purely face-on-face and hits Yang's Stage-0 coplanar boolean wall unless extruded bidirectionally into the board or combined once Stage-0 coplanar union support lands. `BoardShape` itself avoids Stage-0 coplanar contact internally by sweeping cutout and hole cutters symmetrically over `[-0.5 * thickness, +1.5 * thickness]`.
+3. **Downstream coplanar face-on-face boss unions:** As throughout Waffle Iron, a downstream legacy `Extrude` sketched directly on `z = thickness` and swept only `+z` (`[thickness, thickness + d]`) meets the board cap purely face-on-face and hits Yang's Stage-0 coplanar boolean wall unless extruded bidirectionally into the board or combined once Stage-0 coplanar union support lands. `BoardShape` itself avoids Stage-0 coplanar contact internally by sweeping cutout and hole cutters symmetrically over `[-thickness, +2.0 * thickness]` (`origin - thickness * normal`, `depth = 3.0 * thickness`, `board_shape.rs:879-888`).
 
 ---
 

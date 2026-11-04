@@ -13,7 +13,7 @@ This specification covers the **authoring operation, validation, evaluation, doc
 - Exact 3D solid evaluation (outline extruded by `thickness`, minus cutouts and holes) and deterministic top-face mate connector emission (one connector per hole, keyed by its stable element ID).
 - Document persistence in `file-format` (`.waffle` schema golden, migration arm, opaque-operation compatibility) and `wasm-bridge` plumbing.
 
-Publishing to DXF, pulling from `board-interface`, the provenance lock, take-over, MCP agent tools, and the Svelte dialog UI are deliberately out of scope for this slice (see §7 and §8).
+Publishing to `interface/<board>/board-shape.{dxf,json}`, pulling from `board-interface`, derived read-only provenance, take-over, MCP agent tools, and the Svelte dialog UI are deliberately out of scope for this slice (see §7 and §8).
 
 ---
 
@@ -123,7 +123,7 @@ Why `<sketch_feature_uuid>` rather than `Sketch.id`:
 
 ## 4. Validation Rules & Branch Table
 
-Validation runs over the current solved/reprojected `Sketch` before any kernel call. Endpoints of open curves (`Line`, `Arc`) weld when they share a `Point` ID, are linked by `SketchConstraint::Coincident` within `MIN_FEATURE_SIZE` (`1e-6` m), or lie within `TAU_MODEL` (`1e-7` m, matching `kicad_pcb::OUTLINE_WELD_M`). Gaps larger than `TAU_MODEL` are reported with their exact size and never silently bridged (Constitution P9/P10).
+Validation runs over the current solved/reprojected `Sketch` before any kernel call. Endpoints of open curves (`Line`, `Arc`) weld when they share a `Point` ID or lie within `TAU_MODEL` (`1e-7` m, matching `kicad_pcb::OUTLINE_WELD_M`; a solved `SketchConstraint::Coincident` is already ~0 apart). Gaps larger than `TAU_MODEL` are reported with their exact size and never silently bridged (Constitution P9/P10).
 
 ### 4.1 Branch Table
 
@@ -145,7 +145,7 @@ Validation runs over the current solved/reprojected `Sketch` before any kernel c
 | B14 | `Outline` entities have a degree-1 welded endpoint (open contour) | `Err(BoardShapeError::OutlineNotClosed { gap_m, at })` |
 | B15 | `Outline` entities have a welded vertex with `degree > 2` (T-junction / figure-eight shared vertex) | `Err(BoardShapeError::OutlineBranching { at, degree })` |
 | B16 | `Outline` entities form `count >= 2` closed loops (disjoint panel or nested loop marked `Outline`) | `Err(BoardShapeError::MultipleOutlines { count })` |
-| B17 | Any `Outline`, `Cutout`, or `Keepout` loop self-intersects (non-adjacent segments cross/touch, adjacent segments backtrack/overlap, or net area `<= TAU_MODEL²`) | `Err(BoardShapeError::SelfIntersectingLoop { role, entity_ids })` |
+| B17 | Any `Outline`, `Cutout`, or `Keepout` loop self-intersects (non-adjacent segments cross/touch within `TAU_MODEL`, adjacent segments backtrack/overlap, or net area `<= TAU_MODEL²`) | `Err(BoardShapeError::SelfIntersectingLoop { role, entity_ids })` |
 | B18 | `Cutout` entities have a degree-1 welded endpoint | `Err(BoardShapeError::CutoutNotClosed { gap_m, at })` |
 | B19 | `Cutout` entities have a welded vertex with `degree > 2` | `Err(BoardShapeError::CutoutBranching { at, degree })` |
 | B20 | A `Cutout` loop lies outside `Outline` or touches/crosses `Outline` (`dist <= TAU_MODEL`) | `Err(BoardShapeError::CutoutOutsideOutline { entity_ids })` |
@@ -176,8 +176,8 @@ Validation runs over the current solved/reprojected `Sketch` before any kernel c
 
 Given sketch plane `origin`, unit `normal`, and unit in-plane `x_axis` (`y_axis = normal × x_axis`):
 
-1. **Outer substrate:** The validated `Outline` loop is oriented counter-clockwise (`is_outer = true`) and converted to a kernel-ready `ClosedProfile` — a `CircleProfile` when the outline is a lone `Circle`, or an ordered vertex loop with `ArcSegment` metadata (16 interior synthetic arc samples per arc, identical to `waffle_types::profiles::build_finish_profiles`) so `kernel-v2` constructs exact analytical cylindrical faces for arc corners. The face at `origin` is extruded along `+normal` by `thickness`, spanning `[0, +thickness]`.
-2. **Cutouts and holes:** Every `Cutout` loop (ordered deterministically by minimum `entity_id`) and every `Hole` circle (ordered by ascending `entity_id`) is converted to its own kernel-ready `ClosedProfile` (`CircleProfile` for circles/holes; CCW loop + `ArcSegment`s for line/arc cutouts) and subtracted sequentially via `modeling_ops::execute_boolean(..., BooleanKind::Subtract)`.
+1. **Outer substrate:** The validated `Outline` loop is oriented counter-clockwise (`is_outer = true`) and converted to an exact kernel face — a `CircleProfile` via `make_faces_from_profiles` when the outline is a lone `Circle`, or a `Region` with exact minor `RegionEdge::Arc` segments (`sweep <= PI / 2`, plus `ARC_SAMPLES` interior polygon samples for `MockKernel`) via `make_face_from_region` so `kernel-v2` constructs exact analytical cylindrical faces for arc corners. The face at `origin` is extruded along `+normal` by `thickness`, spanning `[0, +thickness]`.
+2. **Cutouts and holes:** Every `Cutout` loop (ordered deterministically by minimum `entity_id`) and every `Hole` circle (ordered by ascending `entity_id`) is converted to its own analytical face (`CircleProfile` via `make_faces_from_profiles` for circles/holes; CCW `Region` with `RegionEdge::Arc` via `make_face_from_region` for line/arc cutouts) and subtracted sequentially via `modeling_ops::execute_boolean(..., BooleanKind::Subtract)`.
    - **Coplanar-cap avoidance (`kicad.rs:451-457` invariant):** Cutting a `[0, +t]` slab with a `[0, +t]` tool makes both cutter caps coplanar with the board's top and bottom faces, triggering Yang Stage-0's loud coplanar refusal on line+arc cutters. Each cutter is therefore placed at `origin - thickness * normal` and extruded along `+normal` by `3.0 * thickness`, spanning `[-t, +2t]` (symmetric clearance `t` outside both board caps).
    - **Deterministic per-element face PIDs:** Each sub-extrude sets a deterministic `ConstructSeed` hashed from `(feature.id, element_stable_ids)` so adding or removing a hole does not shift persistent face IDs of other holes or the outer board.
 3. **Keepouts:** Keepouts validate and record into `EvaluatedBoardShape::keepouts`; they do not cut the 3D solid.
@@ -194,7 +194,7 @@ For each `Hole` entity (in ascending `entity_id` order), evaluation produces a t
   - `x_axis = x_axis`
 - **Connector identity (`PartConnector`):**
   - `PartConnector` gains `pub key: Option<String>` (`None` for ordinary `MateConnector` and `Script` features; `Some(stable_id)` for board-shape hole connectors), plumbed to `PartConnectorInfo::key` (`#[serde(default, skip_serializing_if = "Option::is_none")]`).
-  - Because `assembly_view` and MCP `connector_add` address a part's `PartConnector` by `PartConnector::feature_id: Uuid`, giving multiple holes on one `BoardShape` the same `feature_id` would collide. Each hole connector therefore gets a deterministic 128-bit FNV-1a UUID derived from `(board_shape_feature.id, stable_id)` (same pattern as `assembly_view::step_product_tree`), making every hole individually addressable in assemblies across rebuilds.
+  - Because `assembly_view` and MCP `connector_add` address a part's `PartConnector` by `PartConnector::feature_id: Uuid`, giving multiple holes on one `BoardShape` the same `feature_id` would collide. Each hole connector therefore gets a deterministic 128-bit FNV-1a UUID derived from `(board_shape_feature.id, stable_id)` via `feature_engine::fnv1a_128` (shared with `assembly_view::step_product_tree`), making every hole individually addressable in assemblies across rebuilds.
   - `name`: `format!("{} hole {entity_id}", params.board.trim())`.
   - `geometry`: `Some(ConnectorGeometry::CircularEdge(AxisKind::Cylindrical))`.
 
@@ -231,7 +231,7 @@ This follows the exact precedent set by `Operation::Sketch3d` (`10f7f847`) and `
 
 1. `crates/feature-engine/src/types.rs`: add `BoardShape` to `Operation`, `KnownOperation`, `OPERATION_TAGS` (`18` → `19`), `From<KnownOperation> for Operation`, and `Operation::type_tag()`.
 2. `crates/feature-engine/tests/opaque_operation.rs`: update the `OPERATION_TAGS.len()` pin (`18` → `19`).
-3. `crates/file-format/src/migrate.rs`: add no-op arm `Operation::BoardShape { .. } => {}` in `migrate_feature_v1_to_v2` (`BoardShape` postdates v15; lengths are already metres).
+3. `crates/file-format/src/migrate.rs`: scale `thickness`, `Hole::clearance`, and `Keepout::max_height` by `s` in `migrate_feature_v1_to_v2`.
 4. `docs/schema/waffle-v5.schema.json`: regenerate via `UPDATE_SCHEMA=1 cargo test -p file-format --features json-schema --test schema_golden` so the committed JSON Schema golden includes `BoardShape`, `BoardShapeParams`, `BoardEntityRole`, and `BoardSide` (purely additive diff).
 5. `crates/wasm-bridge/src/dispatch.rs`: add `Operation::BoardShape` arm to `default_feature_name`; plumb `PartConnector::key` into `PartConnectorInfo` in `crates/wasm-bridge/src/messages.rs`.
 6. `crates/test-harness/src/{assertions.rs,report.rs}`: add `Operation::BoardShape` arms to exhaustive operation-name / report formatters.
@@ -257,13 +257,13 @@ All 2D validation and area calculations in `board_shape.rs` are **100% analytica
 - **Point-to-curve distance** (hole-vs-outline, hole-vs-cutout, boundary contact): exact segment projection for `Line`, exact $|\|p - c\| - R|$ for `Circle`, and exact angular-sector dispatch ($|\|p - c\| - R|$ inside sweep else endpoint minimum) for `Arc`.
 - **Point-in-loop containment**: exact analytical winding number $\frac{1}{2\pi} \sum \Delta\theta = \pm 1$ vs $0$. Each `Line` contributes $\operatorname{atan2}((a-p)\times(b-p), (a-p)\cdot(b-p))$; each `Arc` is split at its midpoint into sub-arcs of sweep $< \pi$, combining the chord angle with the exact $\pm 2\pi$ circular-segment lune test ($\|p - c\| < r$ on the bulge side of the chord, and $\pm\pi$ when $p$ lies on the open chord). This eliminates both polygon-chord error near curved boundaries and horizontal ray-grazing singularities at vertices/tangents.
 - **Loop area**: exact shoelace sum over segment endpoints plus exact circular-segment correction $\pm\frac{1}{2} r^2 (\theta - \sin\theta)$ per `Arc` (and $\pi r^2$ for `Circle`).
-- **3D B-Rep construction**: circles and holes pass `CircleProfile` and arcs pass `ArcSegment` metadata to `make_faces_from_profiles`, so `kernel-v2` builds analytical `SurfaceGeom::Cylindrical` faces rather than faceted prisms.
+- **3D B-Rep construction**: circles and holes pass `CircleProfile` to `make_faces_from_profiles`, and line/arc loops pass minor `RegionEdge::Arc` segments to `make_face_from_region`, so `kernel-v2` builds analytical `SurfaceGeom::Cylindrical` faces rather than faceted prisms.
 
 ---
 
 ## 8. Deliberately Deferred (Out of Scope for Task `board-shape`)
 
-1. **`board-interface` crate & DXF I/O:** Reading/writing the R2000 board-interface `.dxf` (`BOARD`..`KEEP_BOTH` layers, `1001 = BOARD_INTERFACE` XDATA, `00000000` header, `content_hash`) belongs to the shared `board-interface` crate being built in Boardroom's repo.
-2. **Document source & publishing (`SourceKind::BoardInterface`, `board_publish`):** Exporting `EvaluatedBoardShape` to `<board>.board.dxf` and recording provenance/hashes waits for `board-interface`.
-3. **Pulling, locking, and taking over (`ProvenanceOrigin`, lock enforcement, take-over):** Generating a read-only locked `Sketch` + `BoardShape` from a pulled `.board.dxf`, refusing edits while locked, and severing provenance on take-over while preserving foreign `composer:<uuid>` / `kicad:<uuid>` element IDs are deferred to the integration slice once `board-interface` lands.
+1. **`board-interface` crate & DXF/JSON I/O:** Reading/writing `interface/<board>/board-shape.dxf` (`BOARD_OUTLINE`, `BOARD_CUTOUT`, `BOARD_HOLE`, `BOARD_KEEPOUT` layers, `BOARD_INTERFACE` XDATA) and `interface/<board>/board-shape.json` (`revision`, `parent`, `author`, `driver`, `thickness_mm`, `geometry_hash`) belongs to the shared `board-interface` crate being built in Boardroom's repo.
+2. **Document source & publishing (`SourceKind::BoardInterface`, `board_publish`):** Exporting `EvaluatedBoardShape` to `interface/<board>/board-shape.{dxf,json}` and recording `interface_hash` and base revisions on `SourceEntry` waits for `board-interface` (there is no lock file).
+3. **Pulling, `Derived` read-only provenance, and taking over (`ProvenanceOrigin`, take-over):** Generating a read-only `Derived` `Sketch` + `BoardShape` from a pulled `interface/<board>/board-shape.{dxf,json}`, refusing edits while driven by the other side, and severing provenance on take-over while preserving foreign `composer:<id>` / `kicad:<uuid>` element IDs are deferred to the integration slice once `board-interface` lands.
 4. **MCP agent tool & Svelte UI (Brief B3):** Adding `BoardShape` to `wasm-bridge` agent authoring tools, `agent-tools.manifest.json`, and the Svelte feature dialog / entity-role picker is out of scope for this task and catalogued in `docs/agy/board_shape_summary.md`.
