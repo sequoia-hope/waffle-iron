@@ -8303,6 +8303,17 @@ in operand A's patch (face 2) and one in operand B's patch (face 2), and it is
 on BOTH patches' boundary cycles — a genuine A|B seam, running between the two
 Steinmetz branches past the crossing. R0063 shows the identical signature
 ((69,77): one A triangle, one B triangle, on both cycles) on every refined
-rerun. Open: why the updated A and B patches meet along a seam that leaves the
-curve at the crossing (next probe: whether the crossing vertex is still on the
-patch cycles at that point). R0046 differs and is not yet anchored.
+rerun. **Mechanism (bisected over the Stage-4 passes, same day):** the CDT
+drops no cycle vertex; after the update, A's and B's patch CDTs each close the
+corner at the tangent crossing with the SAME ear triangle (previous curve
+vertex, crossing, next curve vertex — the two operands' patches are bounded by
+the same two curve segments there, and the cylinders are tangent at the
+crossing), opposite winding. `remove_doubled_membranes` (N41, a cleanup-§2
+repair pass) cancels that pair as a fin: F0058's natural run 228 → 180
+triangles, every triangle at both crossings removed (`(45, 4) → (45, 0)`), the
+crossings orphaned, and the A|B seam (37,58) left joining the two branches;
+each refined rerun likewise (348 → 316). Under I2d both CDTs are refused, so no
+ear is ever made. **Owner:** the tangent crossing is not an ordinary cycle
+corner — §4.3 tangency (F4) / the update's corner handling, not the membrane
+pass, which only exposes it; recorded as a customer of both, no fix yet.
+R0046 differs and is not yet anchored.
