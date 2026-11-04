@@ -8368,3 +8368,29 @@ per-triangle bound (§4.1.2) and the §4.5.2 refinement it feeds — the two
 triangles are within d(T) + d(T') of each other without intersecting.
 Recorded as increment 2's class-1 work item: the cancel must not read two
 operands' coincident CDT triangles as a fin.
+
+**The three classes are mostly ONE (2026-11-04, measured).** Census: triangles
+`remove_doubled_membranes` removes per §4.5.2 rung (trial probe at the two
+steps around it), on `probe-control` (main + probes, I2d ON) against
+`trial-no-i2d-2` (I2d OFF), same machine and build dir:
+
+| case | class | main: removed per rung | no-I2d: removed per rung |
+|---|---|---|---|
+| F0058 | 1 | 0 | 48, 32 |
+| R0046 | 1 | 0 | 8, 8, 8, 8, 8 |
+| C0052 | 2 | 0 | 16, 16, 36, 80, 152 |
+| C0054 | 2 | 0 | 16, 30, 60, 118, 236 |
+| P0057 | 2 | 0 (two rungs) | 18, 34, 66, 124, 230 |
+| F0060 | 3 | 0 | 20, 32 |
+| C0103 | 3 | 0 | 0, 0, 0, 0, 0 |
+
+(R0063 from the 2026-11-03 probes: same chain.) The pass is a strict no-op on
+main for all seven, and with the refusal off it fires on every rung of six,
+growing with density — refinement does not separate the coincident
+triangles, so §4.5.2 cannot converge on them. **Seven of the eight
+CORRECT → ERROR cases are one mechanism**: the update's patch CDTs give two
+operands identical triangles and N41 cancels them; Stage 3 (class 1), the
+Stage-5 pair-chord certificate (class 2: "its ends lie on different
+branches") or the manifold gate (F0060) then reports the hole. C0103 alone is
+not this; it is the open anchor. The I2d refusal is what hides the mechanism
+on main: it keeps the relocated triangles, which never coincide.
