@@ -97,7 +97,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 2 | ledger debt | 65 | 0 |
 | 2 | matrix not-faithful | 132 of 194 | 0 MISSING/ORDER; rest PERMANENT-backed |
 | 2 | consecutive clean audits | 0 | 2 |
-| 3 | surface pairs with a CORRECT customer | 12 of 21 (`assay_pair_matrix`, 3 seeds, 0 WRONG, 105 of 108 CORRECT with exact-volume agreement); sphere × cylinder / cone / torus ERROR (Stage-3 sphere membership, fix in flight); 6 B-spline pairs not buildable (F5) | 21 of 21 |
+| 3 | surface pairs with a CORRECT customer | **15 of 21** (`assay_pair_matrix` on 75f2f1be, 3 seeds: 135 / 135 CORRECT, 0 WRONG, 0 ERROR, 132 with exact-volume agreement); the 6 B-spline pairs are not buildable (F5) | 21 of 21 |
 | 3 | B-spline end to end | no | yes |
 | 3 | fresh-seed ERROR rate | seed 6: 6 % (12/200; 2 are the empty-result harness verdict) | ≤ 5 %, all typed |
 | 4 | corpus + seed TIMEOUTs | corpus 0; seed 6: 4 | 0 |
