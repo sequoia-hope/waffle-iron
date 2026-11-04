@@ -17,7 +17,8 @@ import {
 	clickFinishSketch,
 	clickExtrude,
 	clickToolbarAction,
-	isToolOffered
+	isToolOffered,
+	resizeTo
 } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import { waitForEntityCount, waitForFeatureCount } from './helpers/state.js';
@@ -25,51 +26,6 @@ import { expectNothingOffscreen, expectViewportUsable, dragDivider } from './hel
 
 /** Desktop widths the shell must survive (the mobile projects cover ≤768). */
 const WIDTHS = [1920, 1600, 1366, 1280, 1100, 1024, 900, 800];
-
-/**
- * Resize the window and wait for the toolbar's collapse ladder to have walked
- * for it: a resize re-measures the toolbar in a microtask after a
- * ResizeObserver tick, and the toolbar counts completed walks in
- * `data-relayout-seq`. A fixed 150 ms wait lost that race on the loaded
- * four-core CI runner (four Chromiums rendering through SwiftShader): the
- * oracle then measured a toolbar one or two rungs short of the new width and
- * reported its right end outside the window. The wait also requires the
- * in-flow content to fit, so a ladder that runs out of rungs still fails
- * here, with a timeout naming the state.
- */
-async function resizeTo(page, size) {
-	const toolbar = page.getByTestId('toolbar');
-	const before = Number(await toolbar.getAttribute('data-relayout-seq'));
-	const current = page.viewportSize();
-	await page.setViewportSize(size);
-	const widthChanged = !current || current.width !== size.width;
-	await page.waitForFunction(
-		([before, widthChanged]) => {
-			const el = document.querySelector('[data-testid="toolbar"]');
-			if (!el) return false;
-			if (widthChanged && Number(el.dataset.relayoutSeq) <= before) return false;
-			// Same sum as the toolbar's own contentFits(): in-flow children only.
-			const cs = getComputedStyle(el);
-			const avail = el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
-			const gap = parseFloat(cs.columnGap) || 0;
-			let needed = 0;
-			let count = 0;
-			for (const child of el.children) {
-				const ccs = getComputedStyle(child);
-				if (ccs.display === 'none' || ccs.position === 'fixed' || ccs.position === 'absolute') continue;
-				count++;
-				if (child.classList.contains('toolbar-spacer')) continue;
-				needed += child.getBoundingClientRect().width + (parseFloat(ccs.marginLeft) || 0) + (parseFloat(ccs.marginRight) || 0);
-			}
-			needed += gap * Math.max(0, count - 1);
-			return needed <= avail + 0.5;
-		},
-		[before, widthChanged],
-		{ timeout: 15000 }
-	);
-	// One frame for the settled level to paint before the oracle measures.
-	await page.waitForTimeout(50);
-}
 
 test.describe('Layout overflow', () => {
 	test('modeling toolbar fits at every desktop width', async ({ waffle }) => {
