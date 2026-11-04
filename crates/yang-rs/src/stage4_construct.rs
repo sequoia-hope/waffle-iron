@@ -687,7 +687,7 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
     if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() && !matches!(chart, SurfaceChart::Plane { .. }) {
         let near = |v: u32| {
             let p = mesh.verts[v as usize];
-            [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+            crate::stage4_correct::trial_pts().iter().any(|&(x, y, z)| {
                 ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 2e-2
             })
         };

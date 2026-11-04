@@ -649,7 +649,7 @@ pub(crate) fn compute_phase_a_with_side_labels(
                     // Crossing vertices (F0058's Steinmetz crossings) and the cycle
                     // neighbourhood of the failing edge, in this mesh state.
                     for (vi, p) in mesh.verts.iter().enumerate() {
-                        let near = [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+                        let near = crate::stage4_correct::trial_pts().iter().any(|&(x, y, z)| {
                             ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 1e-6
                         });
                         if near {
@@ -1273,6 +1273,20 @@ pub(crate) fn stage4_relocate_and_correct_ex(
 }
 
 
+/// TRIAL PROBE: the probed points (`TRIAL_PTS="x,y,z;x,y,z"`, default F0058's crossings).
+pub(crate) fn trial_pts() -> Vec<(f64, f64, f64)> {
+    match std::env::var("TRIAL_PTS") {
+        Ok(s) => s
+            .split(';')
+            .map(|t| {
+                let v: Vec<f64> = t.split(',').map(|x| x.trim().parse().unwrap()).collect();
+                (v[0], v[1], v[2])
+            })
+            .collect(),
+        Err(_) => vec![(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)],
+    }
+}
+
 /// TRIAL PROBE (not for landing): triangles using a vertex at F0058's crossings.
 fn trial_crossing_use(mesh: &Mesh, label: &str) {
     if std::env::var_os("TRIAL_CYCLE_PROBE").is_none() {
@@ -1280,7 +1294,7 @@ fn trial_crossing_use(mesh: &Mesh, label: &str) {
     }
     let mut out = Vec::new();
     for (vi, p) in mesh.verts.iter().enumerate() {
-        let near = [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+        let near = crate::stage4_correct::trial_pts().iter().any(|&(x, y, z)| {
             ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 1e-6
         });
         if near {
