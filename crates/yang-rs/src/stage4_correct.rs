@@ -646,6 +646,33 @@ pub(crate) fn compute_phase_a_with_side_labels(
                             );
                         }
                     }
+                    // Crossing vertices (F0058's Steinmetz crossings) and the cycle
+                    // neighbourhood of the failing edge, in this mesh state.
+                    for (vi, p) in mesh.verts.iter().enumerate() {
+                        let near = [(0.0, 0.2, 0.0), (0.0, -0.2, 0.0)].iter().any(|&(x, y, z)| {
+                            ((p.x() - x).powi(2) + (p.y() - y).powi(2) + (p.z() - z).powi(2)).sqrt() < 1e-6
+                        });
+                        if near {
+                            let on_cycles: Vec<usize> = infos.iter().enumerate()
+                                .filter(|(_, inf)| inf.cycles.iter().flatten().any(|&(s, e)| s == vi as u32 || e == vi as u32))
+                                .map(|(k, _)| k).collect();
+                            let in_tris = mesh.tris.iter().filter(|tr| tr.contains(&(vi as u32))).count();
+                            eprintln!("[trial-incid] crossing vertex {vi} at {:?}: in {in_tris} tris, on cycles of patches {on_cycles:?}", p.as_array());
+                        }
+                    }
+                    for (pi, info) in infos.iter().enumerate() {
+                        for cyc in &info.cycles {
+                            if let Some(k) = cyc.iter().position(|&(s, e)| (if s < e { (s, e) } else { (e, s) }) == key) {
+                                let n = cyc.len();
+                                let around: Vec<(u32, u32)> = (0..5).map(|d| cyc[(k + n - 2 + d) % n]).collect();
+                                let pos = |v: u32| { let q = mesh.verts[v as usize]; [q.x(), q.y(), q.z()] };
+                                eprintln!(
+                                    "[trial-incid] patch {pi} cycle around {key:?}: {around:?}; ends {:?} {:?}",
+                                    pos(around[0].0), pos(around[4].1)
+                                );
+                            }
+                        }
+                    }
                     let mesh_tris_on_edge = mesh.tris.iter().filter(|tr| tr.contains(&key.0) && tr.contains(&key.1)).count();
                     eprintln!("[trial-incid] edge {key:?}: mesh triangles on edge = {mesh_tris_on_edge}");
                 }
