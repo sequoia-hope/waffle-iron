@@ -312,12 +312,12 @@ impl MockKernel {
                 let dot = fi.normal[0] * fj.normal[0]
                     + fi.normal[1] * fj.normal[1]
                     + fi.normal[2] * fj.normal[2];
-                if dot < -crate::kernel::units::COS_MOCK_FACE_SIMILARITY {
+                if dot < -crate::kernel::units::COS_FACE_NORMAL_ALIGNMENT {
                     // Opposite normals: internal face pair, remove both
                     remove_set.insert(i);
                     remove_set.insert(j);
                     break;
-                } else if dot > crate::kernel::units::COS_MOCK_FACE_SIMILARITY {
+                } else if dot > crate::kernel::units::COS_FACE_NORMAL_ALIGNMENT {
                     // Same normal: duplicate external face, remove one
                     remove_set.insert(j);
                     break;

@@ -17,14 +17,14 @@ use modeling_ops::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use waffle_types::kernel::units::{
-    COS_MOCK_FACE_SIMILARITY, MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE, TAU_WORK,
+    COS_FACE_NORMAL_ALIGNMENT, MIN_FEATURE_SIZE, TAU_COINCIDENT, TAU_MODEL, TAU_NORMALIZE, TAU_WORK,
 };
 use waffle_types::kernel::{
     AxisKind, ConstructSeed, KernelId, KernelIntrospect, KernelSolidHandle,
 };
 use waffle_types::{
     CircleProfile, ClosedProfile, OutputKey, Region, RegionEdge, Role, Sketch, SketchEntity,
-    SketchPlaneBasis, SolveStatus, TopoKind,
+    SketchPlaneBasis, SolveStatus, TopoKind, ARC_SAMPLES,
 };
 
 use crate::assembly::Frame;
@@ -367,30 +367,10 @@ pub fn element_stable_id(sketch_id: Uuid, entity_id: u32) -> String {
 /// derived from `(board_shape_feature_id, stable_id)` so multiple holes on one
 /// `BoardShape` feature have distinct, rebuild-stable assembly connector IDs.
 pub fn hole_connector_uuid(board_feature_id: Uuid, stable_id: &str) -> Uuid {
-    Uuid::from_u128(fnv1a_128_tagged(
+    Uuid::from_u128(crate::fnv1a_128(
         board_feature_id,
-        "hole-connector",
-        &[stable_id],
+        ["hole-connector", stable_id],
     ))
-}
-
-fn fnv1a_128_tagged<S: AsRef<str>>(feature_id: Uuid, domain: &str, items: &[S]) -> u128 {
-    let mut hash: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
-    let prime: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
-    let mut feed = |bytes: &[u8]| {
-        for &b in bytes {
-            hash ^= u128::from(b);
-            hash = hash.wrapping_mul(prime);
-        }
-    };
-    feed(feature_id.as_bytes());
-    feed(&[0xff]);
-    feed(domain.as_bytes());
-    for item in items {
-        feed(&[0x00]);
-        feed(item.as_ref().as_bytes());
-    }
-    hash
 }
 
 // ── Validated raw primitives before chaining ─────────────────────────────────
@@ -815,10 +795,9 @@ pub fn execute(
     let normal = unit_normal(sketch.plane_normal);
     let x_axis = sketch_x_axis(&sketch);
 
-    let outer_seed = ConstructSeed::from_u128(fnv1a_128_tagged(
+    let outer_seed = ConstructSeed::from_u128(crate::fnv1a_128(
         feature.id,
-        "outline",
-        &evaluated.outline.stable_ids,
+        std::iter::once("outline").chain(evaluated.outline.stable_ids.iter().map(String::as_str)),
     ));
     let saved_seed = kb.set_construct_seed(Some(outer_seed));
     let build_result = build_board_solid(feature.id, &evaluated, kb, origin, normal, x_axis);
@@ -909,8 +888,10 @@ fn build_board_solid(
     };
 
     for cutout in &evaluated.cutouts {
-        let seed =
-            ConstructSeed::from_u128(fnv1a_128_tagged(feature_id, "cutout", &cutout.stable_ids));
+        let seed = ConstructSeed::from_u128(crate::fnv1a_128(
+            feature_id,
+            std::iter::once("cutout").chain(cutout.stable_ids.iter().map(String::as_str)),
+        ));
         kb.set_construct_seed(Some(seed));
         let tool_res = extrude_board_loop(kb, cutout, cut_frame)?;
         let tool_handle = tool_res
@@ -941,10 +922,9 @@ fn build_board_solid(
     }
 
     for hole in &evaluated.holes {
-        let seed = ConstructSeed::from_u128(fnv1a_128_tagged(
+        let seed = ConstructSeed::from_u128(crate::fnv1a_128(
             feature_id,
-            "hole",
-            &[hole.stable_id.as_str()],
+            ["hole", hole.stable_id.as_str()],
         ));
         kb.set_construct_seed(Some(seed));
         let tool_res =
@@ -1081,13 +1061,12 @@ fn loop_to_region(loop_2d: &EvaluatedBoardLoop) -> Region {
                         let a = start_angle + signed_total * (k as f64 / pieces as f64);
                         [center[0] + radius * a.cos(), center[1] + radius * a.sin()]
                     };
-                    let samples = 16usize;
                     let a0 = (prev[1] - center[1]).atan2(prev[0] - center[0]);
                     let sub_sweep = directed_arc_sweep(center, prev, next, ccw);
                     let signed_sub = if ccw { sub_sweep } else { -sub_sweep };
                     outer.push((prev[0], prev[1]));
-                    for s in 1..samples {
-                        let ang = a0 + signed_sub * (s as f64 / samples as f64);
+                    for s in 1..ARC_SAMPLES {
+                        let ang = a0 + signed_sub * (s as f64 / ARC_SAMPLES as f64);
                         outer.push((
                             center[0] + radius * ang.cos(),
                             center[1] + radius * ang.sin(),
@@ -1135,9 +1114,9 @@ fn assign_board_roles(
             .filter(|_| sig.surface_type.as_deref() == Some("planar"))
             .map(|n| n[0] * normal[0] + n[1] * normal[1] + n[2] * normal[2])
             .unwrap_or(0.0);
-        if dot > COS_MOCK_FACE_SIMILARITY {
+        if dot > COS_FACE_NORMAL_ALIGNMENT {
             assignments.push((face_id, Role::EndCapPositive));
-        } else if dot < -COS_MOCK_FACE_SIMILARITY {
+        } else if dot < -COS_FACE_NORMAL_ALIGNMENT {
             assignments.push((face_id, Role::EndCapNegative));
         } else {
             assignments.push((face_id, Role::SideFace { index: side_index }));

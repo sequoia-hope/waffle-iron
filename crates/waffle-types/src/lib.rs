@@ -26,7 +26,7 @@ pub use gear_planetary::{
     PlanetaryError, PlanetaryParams, PlanetaryResult,
 };
 pub use geom_ref::*;
-pub use profiles::extract_profiles;
+pub use profiles::{extract_profiles, ARC_SAMPLES};
 pub use regions::{compute_regions, resolve_region_by_identity, union_regions, Region, RegionEdge};
 pub use roles::*;
 pub use sketch::*;

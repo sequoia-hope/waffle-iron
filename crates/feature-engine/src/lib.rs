@@ -1367,3 +1367,32 @@ impl Default for Engine {
         Self::new()
     }
 }
+
+/// Deterministic 128-bit FNV-1a hash seeded with a `Uuid` namespace and a
+/// sequence of NUL-delimited byte segments.
+///
+/// Shared by `board_shape` (hole `PartConnector` UUIDs and per-element
+/// `ConstructSeed`s) and `wasm_bridge::assembly_view` (synthetic STEP product
+/// feature IDs) so every history-free 128-bit derived identity uses one hasher.
+pub fn fnv1a_128<I, S>(namespace: Uuid, segments: I) -> u128
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<[u8]>,
+{
+    const OFFSET_BASIS: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
+    let mut hash = OFFSET_BASIS;
+    for &b in namespace.as_bytes() {
+        hash ^= u128::from(b);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    for seg in segments {
+        hash ^= 0x00;
+        hash = hash.wrapping_mul(PRIME);
+        for &b in seg.as_ref() {
+            hash ^= u128::from(b);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    }
+    hash
+}

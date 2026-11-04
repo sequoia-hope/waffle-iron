@@ -393,7 +393,7 @@ fn compute_profile_area(
 const ARC_SYNTH_ID_BASE: u32 = 900_000;
 
 /// How many segments an arc is sampled into.
-const ARC_SAMPLES: usize = 16;
+pub const ARC_SAMPLES: usize = 16;
 
 /// What a `FinishSketch` message carries: the profiles, and every point they
 /// name — the solved ones plus the synthetic arc samples minted here.
