@@ -16,10 +16,12 @@ use std::collections::{BTreeMap, HashMap};
 
 use feature_engine::board_shape::{element_stable_id, evaluate_board_shape, hole_connector_uuid};
 use feature_engine::types::{
-    BoardEntityRole, BoardShapeParams, BoardSide, CombineMode, DepthMode, ExtrudeParams, Operation,
+    BoardEntityRole, BoardShapeError, BoardShapeParams, BoardSide, CombineMode, DepthMode,
+    ExtrudeParams, Operation,
 };
 use feature_engine::Engine;
 use serde_json::json;
+use sketch_solver::solve_sketch;
 use uuid::Uuid;
 use waffle_types::kernel::MockKernel;
 use waffle_types::{
@@ -44,58 +46,58 @@ fn datum_plane_ref() -> GeomRef {
 
 #[test]
 fn coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop() {
-    // Four independent line segments (8 distinct Point IDs) joined via
-    // `SketchConstraint::Coincident` with a 4e-7 m solver residual (> TAU_MODEL
-    // = 1e-7 m, <= MIN_FEATURE_SIZE = 1e-6 m) must weld cleanly into a single
-    // closed 40 × 30 mm outline.
+    // Four independent line segments (8 distinct Point IDs initially drawn 0.5 mm
+    // apart) solved through `sketch_solver::solve_sketch` converge to ~0 apart
+    // and weld into a single closed 40 × 30 mm outline without a wide silent
+    // `MIN_FEATURE_SIZE` bridge.
     let sketch_id = Uuid::new_v4();
     let entities = vec![
         SketchEntity::Point {
             id: 1,
-            x: 0.0,
-            y: 0.0,
+            x: 0.0002,
+            y: -0.0001,
             construction: false,
         },
         SketchEntity::Point {
             id: 2,
-            x: 0.040,
-            y: 0.0,
+            x: 0.0398,
+            y: 0.0003,
             construction: false,
         },
         SketchEntity::Point {
             id: 3,
-            x: 0.040 + 4e-7,
-            y: 0.0,
+            x: 0.0403,
+            y: -0.0002,
             construction: false,
         },
         SketchEntity::Point {
             id: 4,
-            x: 0.040,
-            y: 0.030,
+            x: 0.0399,
+            y: 0.0297,
             construction: false,
         },
         SketchEntity::Point {
             id: 5,
-            x: 0.040,
-            y: 0.030 + 4e-7,
+            x: 0.0402,
+            y: 0.0303,
             construction: false,
         },
         SketchEntity::Point {
             id: 6,
-            x: 0.0,
-            y: 0.030,
+            x: 0.0003,
+            y: 0.0298,
             construction: false,
         },
         SketchEntity::Point {
             id: 7,
-            x: 0.0,
-            y: 0.030 - 4e-7,
+            x: -0.0002,
+            y: 0.0301,
             construction: false,
         },
         SketchEntity::Point {
             id: 8,
-            x: 4e-7,
-            y: 0.0,
+            x: 0.0005,
+            y: 0.0002,
             construction: false,
         },
         SketchEntity::Line {
@@ -124,6 +126,29 @@ fn coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop() {
         },
     ];
     let constraints = vec![
+        SketchConstraint::Pinned {
+            point: 1,
+            x: 0.0,
+            y: 0.0,
+        },
+        SketchConstraint::Horizontal { entity: 10 },
+        SketchConstraint::Vertical { entity: 11 },
+        SketchConstraint::Horizontal { entity: 12 },
+        SketchConstraint::Vertical { entity: 13 },
+        SketchConstraint::HDistance {
+            point_a: 1,
+            point_b: 2,
+            value: 0.040,
+            expression: None,
+            reference: false,
+        },
+        SketchConstraint::VDistance {
+            point_a: 3,
+            point_b: 4,
+            value: 0.030,
+            expression: None,
+            reference: false,
+        },
         SketchConstraint::Coincident {
             point_a: 2,
             point_b: 3,
@@ -141,7 +166,7 @@ fn coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop() {
             point_b: 1,
         },
     ];
-    let sketch = Sketch {
+    let mut sketch = Sketch {
         id: sketch_id,
         plane: datum_plane_ref(),
         plane_origin: [0.0, 0.0, 0.0],
@@ -149,12 +174,20 @@ fn coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop() {
         plane_x_axis: Some([1.0, 0.0, 0.0]),
         entities,
         constraints,
-        solve_status: SolveStatus::FullyConstrained,
+        solve_status: SolveStatus::Unsolved,
         solved_positions: HashMap::new(),
         solved_profiles: Vec::new(),
         projected: Vec::new(),
         plane_face: None,
     };
+    let solved = solve_sketch(&sketch);
+    assert!(
+        matches!(solved.status, SolveStatus::FullyConstrained),
+        "expected FullyConstrained, got {:?}",
+        solved.status
+    );
+    sketch.solve_status = solved.status;
+    sketch.solved_positions = solved.positions;
 
     let mut roles = BTreeMap::new();
     for id in [10, 11, 12, 13] {
@@ -165,12 +198,24 @@ fn coincident_constraints_weld_distinct_endpoint_ids_into_closed_loop() {
         board: "welded_pcb".to_string(),
         thickness: 0.0016,
         thickness_expr: None,
-        roles,
+        roles: roles.clone(),
     };
 
-    let ev = evaluate_board_shape(Uuid::new_v4(), &params, &sketch).expect("coincident weld");
+    let ev = evaluate_board_shape(Uuid::new_v4(), &params, &sketch).expect("solved coincident");
     assert_eq!(ev.outline.entity_ids, vec![10, 11, 12, 13]);
     assert!((ev.outline.area_m2 - 0.040 * 0.030).abs() < 1e-10);
+
+    // Conversely, an unsolved 4e-7 m endpoint gap (> TAU_MODEL = 1e-7 m,
+    // <= MIN_FEATURE_SIZE = 1e-6 m) is NOT silently bridged even if a
+    // `SketchConstraint::Coincident` is attached: it fails loudly with
+    // `BoardShapeError::OutlineNotClosed`.
+    sketch.solved_positions.insert(3, (0.040 + 4e-7, 0.0));
+    let err = evaluate_board_shape(Uuid::new_v4(), &params, &sketch)
+        .expect_err("unsolved 0.4 um gap must not silently weld");
+    assert!(
+        matches!(err, BoardShapeError::OutlineNotClosed { gap_m, .. } if (gap_m - 4e-7).abs() < 1e-11),
+        "expected OutlineNotClosed with gap ~4e-7 m, got {err:?}"
+    );
 }
 
 #[test]

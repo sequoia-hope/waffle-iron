@@ -23,8 +23,8 @@ use waffle_types::kernel::{
     AxisKind, ConstructSeed, KernelId, KernelIntrospect, KernelSolidHandle,
 };
 use waffle_types::{
-    CircleProfile, ClosedProfile, OutputKey, Region, RegionEdge, Role, Sketch, SketchConstraint,
-    SketchEntity, SketchPlaneBasis, SolveStatus, TopoKind,
+    CircleProfile, ClosedProfile, OutputKey, Region, RegionEdge, Role, Sketch, SketchEntity,
+    SketchPlaneBasis, SolveStatus, TopoKind,
 };
 
 use crate::assembly::Frame;
@@ -535,14 +535,6 @@ pub fn evaluate_board_shape(
         point_coords.insert(id, [u, v]);
     }
 
-    // Coincident point pairs declared in sketch constraints (used during welding).
-    let mut coincident_pairs: Vec<(u32, u32)> = Vec::new();
-    for constraint in &sketch.constraints {
-        if let SketchConstraint::Coincident { point_a, point_b } = constraint {
-            coincident_pairs.push((*point_a, *point_b));
-        }
-    }
-
     // B6–B12: per-entity role and primitive validation.
     let mut outline_raw: Vec<RawEntity> = Vec::new();
     let mut cutout_raw: Vec<RawEntity> = Vec::new();
@@ -648,12 +640,8 @@ pub fn evaluate_board_shape(
     if outline_raw.is_empty() {
         return Err(BoardShapeError::MissingOutline);
     }
-    let mut outline_loops = chain_and_validate_loops(
-        params.sketch_id,
-        &outline_raw,
-        &coincident_pairs,
-        LoopKind::Outline,
-    )?;
+    let mut outline_loops =
+        chain_and_validate_loops(params.sketch_id, &outline_raw, LoopKind::Outline)?;
     if outline_loops.len() != 1 {
         return Err(BoardShapeError::MultipleOutlines {
             count: outline_loops.len(),
@@ -665,12 +653,7 @@ pub fn evaluate_board_shape(
     let cutouts = if cutout_raw.is_empty() {
         Vec::new()
     } else {
-        chain_and_validate_loops(
-            params.sketch_id,
-            &cutout_raw,
-            &coincident_pairs,
-            LoopKind::Cutout,
-        )?
+        chain_and_validate_loops(params.sketch_id, &cutout_raw, LoopKind::Cutout)?
     };
 
     // B20: every cutout must lie strictly inside the outline.
@@ -745,12 +728,7 @@ pub fn evaluate_board_shape(
     // B17, B25–B26: keepout loops (grouped by `(side, max_height)`).
     let mut keepouts = Vec::new();
     for ((side, _), (max_height_m, group_raw)) in keepout_groups {
-        let loops = chain_and_validate_loops(
-            params.sketch_id,
-            &group_raw,
-            &coincident_pairs,
-            LoopKind::Keepout,
-        )?;
+        let loops = chain_and_validate_loops(params.sketch_id, &group_raw, LoopKind::Keepout)?;
         for loop_2d in loops {
             keepouts.push(EvaluatedBoardKeepout {
                 entity_ids: loop_2d.entity_ids.clone(),
@@ -1305,7 +1283,6 @@ struct OpenCurve {
 fn chain_and_validate_loops(
     sketch_id: Uuid,
     raw_entities: &[RawEntity],
-    coincident_pairs: &[(u32, u32)],
     kind: LoopKind,
 ) -> Result<Vec<EvaluatedBoardLoop>, BoardShapeError> {
     let mut loops = Vec::new();
@@ -1338,7 +1315,7 @@ fn chain_and_validate_loops(
     }
 
     if !open_raw.is_empty() {
-        let chained = chain_open_curves(sketch_id, &open_raw, coincident_pairs, kind)?;
+        let chained = chain_open_curves(sketch_id, &open_raw, kind)?;
         loops.extend(chained);
     }
 
@@ -1349,7 +1326,6 @@ fn chain_and_validate_loops(
 fn chain_open_curves(
     sketch_id: Uuid,
     open_raw: &[RawEntity],
-    coincident_pairs: &[(u32, u32)],
     kind: LoopKind,
 ) -> Result<Vec<EvaluatedBoardLoop>, BoardShapeError> {
     // Collect all endpoint occurrences: (entity_idx, is_end, point_id, uv).
@@ -1408,11 +1384,7 @@ fn chain_open_curves(
             let (pid_j, uv_j) = endpoints[j];
             let same_pid = pid_i == pid_j;
             let coord_dist = dist2(uv_i, uv_j);
-            let coincident_constraint = coord_dist <= MIN_FEATURE_SIZE
-                && coincident_pairs
-                    .iter()
-                    .any(|&(a, b)| (a == pid_i && b == pid_j) || (a == pid_j && b == pid_i));
-            if same_pid || coincident_constraint || coord_dist <= TAU_MODEL {
+            if same_pid || coord_dist <= TAU_MODEL {
                 union(&mut parent, i, j);
             }
         }
