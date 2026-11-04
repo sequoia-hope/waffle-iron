@@ -18,6 +18,8 @@ pub mod catalog;
 pub mod categorize;
 pub mod corpus;
 pub mod coverage;
+/// CPU-budgeted subprocess and in-process case runner shared by categorized suites.
+pub mod cpu_runner;
 pub mod determinism;
 /// EXACT analytic membership of a corpus document — the composed solid as a
 /// closed-form point predicate, no tessellation and no kernel anywhere.
@@ -30,6 +32,8 @@ pub mod geometry_hash;
 pub mod mesh_on_surface;
 pub mod monotonicity;
 pub mod on_surface;
+/// Kernel 1.0 Gate 3.1 — the 21-pair surface-pair matrix generator and report.
+pub mod pair_matrix;
 pub mod properties;
 pub mod properties_v2;
 /// Assay prospector library parts (`specs/assay_prospector.md`).
