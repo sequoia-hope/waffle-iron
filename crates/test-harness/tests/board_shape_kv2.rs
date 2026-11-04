@@ -2037,6 +2037,48 @@ fn every_invalid_role_assignment_refused_with_typed_error_on_kv2() {
             base_outline_roles(),
             |e| matches!(e, BoardShapeError::SelfIntersectingLoop { role, .. } if role == "outline"),
         );
+
+        // Non-adjacent edges passing within 5e-8 m (> TAU_COINCIDENT = 1e-9 m,
+        // <= TAU_MODEL = 1e-7 m) must also be refused as touching inside the loop
+        // rather than handing the kernel a sub-model-tolerance sliver.
+        let sliver_pts = [
+            (1, 0.0, 0.0),
+            (2, 0.040, 0.0),
+            (3, 0.040, 0.040),
+            (4, 0.025, 0.040),
+            (5, 0.025, 5e-8),
+            (6, 0.015, 5e-8),
+            (7, 0.015, 0.040),
+            (8, 0.0, 0.040),
+        ];
+        let mut sliver_ents: Vec<SketchEntity> = sliver_pts
+            .into_iter()
+            .map(|(id, x, y)| SketchEntity::Point {
+                id,
+                x,
+                y,
+                construction: false,
+            })
+            .collect();
+        let mut sliver_roles = BTreeMap::new();
+        for k in 0..8u32 {
+            let eid = 10 + k;
+            sliver_ents.push(SketchEntity::Line {
+                id: eid,
+                start_id: 1 + k,
+                end_id: 1 + ((k + 1) % 8),
+                construction: false,
+            });
+            sliver_roles.insert(eid, BoardEntityRole::Outline);
+        }
+        assert_board_refused(
+            "B17 SelfIntersectingLoop near-touching sliver within TAU_MODEL",
+            xy_sketch(Uuid::new_v4(), sliver_ents, Vec::new()),
+            "pcb",
+            t,
+            sliver_roles,
+            |e| matches!(e, BoardShapeError::SelfIntersectingLoop { role, .. } if role == "outline"),
+        );
     }
 
     // B18 & B19: CutoutNotClosed and CutoutBranching.

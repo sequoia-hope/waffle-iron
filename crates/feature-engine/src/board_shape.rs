@@ -1806,7 +1806,7 @@ fn loop_self_intersects(segments: &[BoardSegment2D]) -> bool {
                         return true;
                     }
                 }
-            } else if prim_prim_distance(&prims[i], &prims[j]) <= TAU_COINCIDENT {
+            } else if prim_prim_distance(&prims[i], &prims[j]) <= TAU_MODEL {
                 return true;
             }
         }
