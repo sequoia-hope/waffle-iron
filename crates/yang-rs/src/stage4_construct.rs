@@ -996,6 +996,22 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
             .map(|t| [at(t[0]), at(t[1]), at(t[2])])
             .collect();
         if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() {
+            // Is every cycle vertex still used by the new triangles? List the
+            // ones the CDT dropped, with their positions and any other cycle
+            // vertex at the same position.
+            let used: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
+            for &v in &cycle_verts {
+                if !used.contains(&v) {
+                    let p = mesh.verts[v as usize];
+                    let twins: Vec<u32> = cycle_verts.iter().copied().filter(|&w| w != v && {
+                        let q = mesh.verts[w as usize];
+                        ((p.x() - q.x()).powi(2) + (p.y() - q.y()).powi(2) + (p.z() - q.z()).powi(2)).sqrt() < 1e-9
+                    }).collect();
+                    eprintln!("[trial-drop] patch={patch_index} band={band} CDT dropped cycle vertex {v} at {:?}; same-position cycle vertices {twins:?}", p.as_array());
+                }
+            }
+        }
+        if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() {
             let cycle_edges: BTreeSet<(u32, u32)> = patch
                 .cycles
                 .iter()
