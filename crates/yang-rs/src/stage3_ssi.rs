@@ -452,75 +452,20 @@ pub(crate) fn curve_contains_point(
         // M5 (Y2): membership on a procedural surface-pair curve is the
         // per-point on-BOTH-surfaces test — the point lies within `tol` of the
         // implicit residual of EACH defining surface (the curve IS the common
-        // zero set). The producers are cyl×cyl and the cone-pair arms; a
-        // Plane/Sphere operand cannot arise and fails closed (defensive; there
-        // is no curve to be on).
+        // zero set). Producers: cyl×cyl, the cone-pair arms, torus pairs, and
+        // the non-coaxial sphere × cylinder / cone arms of `ssi_rs`.
         ssi_rs::SsiCurve::SurfacePair { a, b } => {
+            // The pair curve is the common zero set of the two surfaces, so
+            // membership reads each surface's own signed distance — the ONE
+            // form Stage-4 relocation and the kernel-v2 endpoint check also
+            // measure (`surface_value_and_normal`), for every surface kind.
+            // A per-kind closure here once lacked the sphere, so every
+            // sphere × cylinder / cone / torus pair curve matched nothing and
+            // stopped loudly (gate-3 pair matrix, 2026-11-03). `None` on an
+            // axis or a tube-centre circle, where no curve point can lie.
             let quadric_residual = |q: &ssi_rs::QuadricSurface| -> Option<f64> {
-                match q {
-                    ssi_rs::QuadricSurface::Cylinder {
-                        axis_point,
-                        axis_dir,
-                        radius,
-                    } => {
-                        let ap = axis_point.as_array();
-                        let ad = normalize3(axis_dir.as_array());
-                        let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
-                        let along = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
-                        let perp = [
-                            w[0] - along * ad[0],
-                            w[1] - along * ad[1],
-                            w[2] - along * ad[2],
-                        ];
-                        let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
-                        Some((r - radius).abs())
-                    }
-                    // Cone: |radial − |h|·tanα| (the signed_distance_to_surface
-                    // form; the double-nappe implicit whose zero set is the cone).
-                    ssi_rs::QuadricSurface::Cone {
-                        apex,
-                        axis_dir,
-                        half_angle,
-                    } => {
-                        let ap = apex.as_array();
-                        let ad = normalize3(axis_dir.as_array());
-                        let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
-                        let h = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
-                        let perp = [w[0] - h * ad[0], w[1] - h * ad[1], w[2] - h * ad[2]];
-                        let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
-                        Some((r - h.abs() * half_angle.tan()).abs())
-                    }
-                    // M5 torus arm (YT2): the exact signed distance
-                    // `√((ρ − R)² + h²) − r` — the `surface_value_and_normal`
-                    // torus form, so membership, Stage-4 relocation and the
-                    // kernel-v2 endpoint check all measure the same length.
-                    // `None` on the axis / tube-centre circle (no curve
-                    // point can be there).
-                    ssi_rs::QuadricSurface::Torus {
-                        center,
-                        axis_dir,
-                        major_radius,
-                        minor_radius,
-                    } => crate::stage4_relocate::surface_value_and_normal(
-                        Surface::Torus {
-                            center: *center,
-                            axis_dir: *axis_dir,
-                            major_radius: *major_radius,
-                            minor_radius: *minor_radius,
-                        },
-                        x,
-                    )
-                    .map(|(f, _)| f.abs()),
-                    // Torus × plane (increment 3): the plane's own distance.
-                    ssi_rs::QuadricSurface::Plane { point, normal } => {
-                        let (q, n) = (point.as_array(), normalize3(normal.as_array()));
-                        Some(
-                            ((x[0] - q[0]) * n[0] + (x[1] - q[1]) * n[1] + (x[2] - q[2]) * n[2])
-                                .abs(),
-                        )
-                    }
-                    _ => None,
-                }
+                let surface = quadric_to_surface(*q).ok()?;
+                crate::stage4_relocate::surface_value_and_normal(surface, x).map(|(f, _)| f.abs())
             };
             match (quadric_residual(a), quadric_residual(b)) {
                 (Some(ra), Some(rb)) => ra <= tol && rb <= tol,

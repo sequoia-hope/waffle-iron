@@ -169,17 +169,36 @@ pub fn categorize_with_builder(
 ) -> (CaseOutcome, Option<ModelBuilder>) {
     let mut builder = ModelBuilder::kernel_v2();
     if let Err(e) = builder.load(waffle_json) {
-        return (
-            CaseOutcome {
-                id: id.to_string(),
-                category: Category::Error,
-                detail: format!("LoadProject failed: {e}"),
-            },
-            None,
-        );
+        return (load_failed(id, &e.to_string()), None);
     }
-    let outcome = categorize_loaded(id, &mut builder, waffle_json, meta);
+    let (outcome, _) = categorize_loaded(id, &mut builder, waffle_json, meta);
     (outcome, Some(builder))
+}
+
+/// Same as [`categorize`], additionally returning the `ExactChain` 256-cell
+/// lattice [`crate::assay::exact_membership::ExactVolumeVerdict`] evaluated
+/// in-line (`None` when replay terminated before reaching the volume check).
+pub fn categorize_with_exact_volume(
+    id: &str,
+    waffle_json: &str,
+    meta: &AssayMeta,
+) -> (
+    CaseOutcome,
+    Option<crate::assay::exact_membership::ExactVolumeVerdict>,
+) {
+    let mut builder = ModelBuilder::kernel_v2();
+    if let Err(e) = builder.load(waffle_json) {
+        return (load_failed(id, &e.to_string()), None);
+    }
+    categorize_loaded(id, &mut builder, waffle_json, meta)
+}
+
+fn load_failed(id: &str, e: &str) -> CaseOutcome {
+    CaseOutcome {
+        id: id.to_string(),
+        category: Category::Error,
+        detail: format!("LoadProject failed: {e}"),
+    }
 }
 
 fn categorize_loaded(
@@ -187,7 +206,10 @@ fn categorize_loaded(
     builder: &mut ModelBuilder,
     waffle_json: &str,
     meta: &AssayMeta,
-) -> CaseOutcome {
+) -> (
+    CaseOutcome,
+    Option<crate::assay::exact_membership::ExactVolumeVerdict>,
+) {
     let err_outcome = |detail: String| CaseOutcome {
         id: id.to_string(),
         category: Category::Error,
@@ -234,15 +256,18 @@ fn categorize_loaded(
         .filter(|m| m.contains(NOT_SUPPORTED_MARKER))
         .collect();
     if let Some(first) = not_supported_msgs.first() {
-        return CaseOutcome {
-            id: id.to_string(),
-            category: Category::Unsupported(unsupported_reason(first)),
-            detail: format!(
-                "{} NotSupported boundary(ies); first: {}",
-                not_supported_msgs.len(),
-                first
-            ),
-        };
+        return (
+            CaseOutcome {
+                id: id.to_string(),
+                category: Category::Unsupported(unsupported_reason(first)),
+                detail: format!(
+                    "{} NotSupported boundary(ies); first: {}",
+                    not_supported_msgs.len(),
+                    first
+                ),
+            },
+            None,
+        );
     }
 
     // 2. Cases whose meta EXPECTS a rebuild error (legacy: disjoint-operand
@@ -251,20 +276,26 @@ fn categorize_loaded(
     //    normal mesh validation — succeeding with a valid (multi-shell)
     //    result is not wrong for the new kernel.
     if meta.oracles.expect_rebuild_error && !engine_errors.is_empty() {
-        return CaseOutcome {
-            id: id.to_string(),
-            category: Category::ExpectedError,
-            detail: format!("expected rebuild error: {}", engine_errors.join("; ")),
-        };
+        return (
+            CaseOutcome {
+                id: id.to_string(),
+                category: Category::ExpectedError,
+                detail: format!("expected rebuild error: {}", engine_errors.join("; ")),
+            },
+            None,
+        );
     }
 
     // 3. Any other engine error is an unexpected failure.
     if !engine_errors.is_empty() {
-        return err_outcome(format!(
-            "{} engine error(s): {}",
-            engine_errors.len(),
-            engine_errors.join("; ")
-        ));
+        return (
+            err_outcome(format!(
+                "{} engine error(s): {}",
+                engine_errors.len(),
+                engine_errors.join("; ")
+            )),
+            None,
+        );
     }
 
     // 3b. An auto-union failure that is NOT a declared NotSupported boundary
@@ -276,15 +307,18 @@ fn categorize_loaded(
         .filter(|w| w.contains("Auto-union failed"))
         .collect();
     if !union_failures.is_empty() {
-        return err_outcome(format!(
-            "{} auto-union failure(s): {}",
-            union_failures.len(),
-            union_failures
-                .iter()
-                .map(|s| s.as_str())
-                .collect::<Vec<_>>()
-                .join("; ")
-        ));
+        return (
+            err_outcome(format!(
+                "{} auto-union failure(s): {}",
+                union_failures.len(),
+                union_failures
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )),
+            None,
+        );
     }
 
     // 3c. No live solid at all (remediation plan O6, seed-6 H1): the chain
@@ -297,7 +331,7 @@ fn categorize_loaded(
     //     exact chain finds positive volume (lost body), ERROR with the reason
     //     when the exact chain cannot cover or resolve the document.
     if builder.live_solid_handles().is_empty() {
-        return judge_empty_result(id, waffle_json, meta);
+        return (judge_empty_result(id, waffle_json, meta), None);
     }
 
     // 4. Tessellate the last solid (scale-adaptive tolerance like the legacy
@@ -305,7 +339,12 @@ fn categorize_loaded(
     let tess_tol = (meta.scale * 0.01).clamp(1e-9, 0.1);
     let bodies = match builder.tessellate_last_bodies_with_tol(tess_tol) {
         Ok(m) => m,
-        Err(e) => return err_outcome(format!("no solid / tessellation failed: {e}")),
+        Err(e) => {
+            return (
+                err_outcome(format!("no solid / tessellation failed: {e}")),
+                None,
+            )
+        }
     };
     let mesh = crate::workflow::merge_meshes(bodies.clone());
 
@@ -519,51 +558,65 @@ fn categorize_loaded(
         std::env::var("ASSAY_EXACT_VOLUME").as_deref(),
         Ok("0") | Ok("off")
     );
-    if exact_on {
-        if let Ok(doc) = serde_json::from_str::<serde_json::Value>(waffle_json) {
-            if let Ok(chain) = crate::assay::exact_membership::ExactChain::from_waffle(&doc) {
-                let vol_tol = volume_oracle_doc::oracle_tol(meta.scale);
-                let kernel_vol = builder
-                    .tessellate_live_with_tol(vol_tol)
-                    .map(|meshes| {
-                        meshes
-                            .iter()
-                            .map(crate::helpers::mesh_signed_volume)
-                            .sum::<f64>()
-                    })
-                    .unwrap_or_else(|_| crate::helpers::mesh_signed_volume(&mesh));
-                use crate::assay::exact_membership::ExactVolumeVerdict;
-                match crate::assay::exact_membership::exact_volume_verdict(
-                    &chain, kernel_vol,
-                ) {
-                    ExactVolumeVerdict::Flag {
-                        rel,
-                        band,
-                        exact,
-                        kernel,
-                    } => failures.push(format!(
-                        "exact_volume: kernel {kernel:.6e} vs exact {exact:.6e} (rel {rel:+.3e} outside band {band:.3e})"
-                    )),
-                    // The magnitude band (`check_volume_magnitude`, volume ∈
-                    // [1e-8, 1e8]·scale³) is a heuristic for a document with
-                    // NO exact reading: it assumes the result is of the order
-                    // of the operands. An Intersect whose operands barely
-                    // touch legitimately leaves a sliver orders below that
-                    // band (prospector seed 5 index 39, 2026-10-13: a
-                    // pentagon tool clipping an octagon boss's corner,
-                    // 1.12e-17 against a band floor of 8e-17 — the kernel
-                    // agreed with an independent lattice to 0.1 %). When the
-                    // exact chain covers the document and AGREES, its reading
-                    // supersedes the heuristic: the magnitude failure is
-                    // withdrawn. A Flag or an uncovered document keeps it.
-                    ExactVolumeVerdict::Agree { .. } => {
-                        failures.retain(|f| !f.starts_with("volume_magnitude:"));
+    let exact_volume_reading = {
+        use crate::assay::exact_membership::ExactVolumeVerdict;
+        if !exact_on {
+            Some(ExactVolumeVerdict::NotCovered(
+                "ASSAY_EXACT_VOLUME=off".to_string(),
+            ))
+        } else {
+            match serde_json::from_str::<serde_json::Value>(waffle_json) {
+                Err(e) => Some(ExactVolumeVerdict::NotCovered(format!("invalid JSON: {e}"))),
+                Ok(doc) => match crate::assay::exact_membership::ExactChain::from_waffle(&doc) {
+                    Err(nc) => Some(ExactVolumeVerdict::NotCovered(format!(
+                        "ExactChain: {nc:?}"
+                    ))),
+                    Ok(chain) => {
+                        let vol_tol = volume_oracle_doc::oracle_tol(meta.scale);
+                        let kernel_vol = builder
+                            .tessellate_live_with_tol(vol_tol)
+                            .map(|meshes| {
+                                meshes
+                                    .iter()
+                                    .map(crate::helpers::mesh_signed_volume)
+                                    .sum::<f64>()
+                            })
+                            .unwrap_or_else(|_| crate::helpers::mesh_signed_volume(&mesh));
+                        let verdict = crate::assay::exact_membership::exact_volume_verdict(
+                            &chain, kernel_vol,
+                        );
+                        match &verdict {
+                            ExactVolumeVerdict::Flag {
+                                rel,
+                                band,
+                                exact,
+                                kernel,
+                            } => failures.push(format!(
+                                "exact_volume: kernel {kernel:.6e} vs exact {exact:.6e} (rel {rel:+.3e} outside band {band:.3e})"
+                            )),
+                            // The magnitude band (`check_volume_magnitude`, volume ∈
+                            // [1e-8, 1e8]·scale³) is a heuristic for a document with
+                            // NO exact reading: it assumes the result is of the order
+                            // of the operands. An Intersect whose operands barely
+                            // touch legitimately leaves a sliver orders below that
+                            // band (prospector seed 5 index 39, 2026-10-13: a
+                            // pentagon tool clipping an octagon boss's corner,
+                            // 1.12e-17 against a band floor of 8e-17 — the kernel
+                            // agreed with an independent lattice to 0.1 %). When the
+                            // exact chain covers the document and AGREES, its reading
+                            // supersedes the heuristic: the magnitude failure is
+                            // withdrawn. A Flag or an uncovered document keeps it.
+                            ExactVolumeVerdict::Agree { .. } => {
+                                failures.retain(|f| !f.starts_with("volume_magnitude:"));
+                            }
+                            ExactVolumeVerdict::NotCovered(_) => {}
+                        }
+                        Some(verdict)
                     }
-                    ExactVolumeVerdict::NotCovered(_) => {}
-                }
+                },
             }
         }
-    }
+    };
 
     // Remediation plan O1: the exact B-Rep's worst boundary-to-surface
     // distance over every live solid (vertices and edge-curve samples against
@@ -604,7 +657,7 @@ fn categorize_loaded(
     let mesh_on_surface = mesh_reading.summary();
     let on_surface = format!("{on_surface}; {mesh_on_surface}; {exact_vs_mesh}; {monotonic}");
 
-    if failures.is_empty() {
+    let outcome = if failures.is_empty() {
         CaseOutcome {
             id: id.to_string(),
             category: Category::SupportedCorrect,
@@ -616,7 +669,8 @@ fn categorize_loaded(
             category: Category::SupportedWrong,
             detail: format!("{}; {on_surface}", failures.join("; ")),
         }
-    }
+    };
+    (outcome, exact_volume_reading)
 }
 
 /// Judge a model that rebuilt with no engine error and left ZERO live solids

@@ -66,8 +66,48 @@ echo "Gate 2 — Faithful"
 echo "   consecutive clean independent audits: see docs/kernel_1_0.md §5 (manual)"
 echo
 echo "Gate 3 — Capable"
-if ls crates/test-harness/tests/surface_pair_matrix*.rs >/dev/null 2>&1; then
-  echo "   surface-pair matrix test: present (run it for the pair count)"
+if [ -f target/pair-matrix/report.json ]; then
+  python3 - target/pair-matrix/report.json "$(git rev-parse --short HEAD)" <<'PY'
+import json, sys
+
+r = json.load(open(sys.argv[1]))
+head = sys.argv[2]
+rep_commit = r.get("commit", "unstamped")
+stale = "" if rep_commit == head else f" [STALE vs HEAD {head}]"
+t = r["totals"]
+vol_pairs = r.get("pairs_with_correct_volume_agreement")
+vol_all = r.get("pairs_with_all_ops_correct_volume_agreement")
+vol_clause = (
+    f"; {vol_pairs}/{r['total_pairs']} CORRECT with volume agreement ({vol_all}/{r['total_pairs']} all 3 ops)"
+    if vol_pairs is not None
+    else ""
+)
+print(
+    f"   surface-pair matrix ({sys.argv[1]}, commit {rep_commit}{stale}, {r['seeds_per_op']} seed(s)/op): "
+    f"{r['pairs_with_correct_customer']}/{r['total_pairs']} pairs have a CORRECT customer "
+    f"({r['pairs_with_all_ops_correct']}/{r['total_pairs']} all 3 ops{vol_clause}; "
+    f"{r['buildable_pairs']} buildable, {r['not_buildable_pairs']} NOT BUILDABLE)"
+)
+ca = t.get("correct_volume_agree")
+cnc = t.get("correct_volume_not_covered")
+c_detail = f"{t['correct']}C({ca}A/{cnc}NC)" if ca is not None and cnc is not None else f"{t['correct']}C"
+print(
+    f"   runs: {c_detail} / {t['wrong']}W / {t['error']}E / "
+    f"{t['timeout']}T / {t['unsupported']}U over {r['total_cases_run']}"
+)
+wrong_cases = [c["id"] for c in r.get("cases", []) if c.get("category") == "SUPPORTED_WRONG"]
+if wrong_cases:
+    print(f"   SUPPORTED_WRONG cases ({len(wrong_cases)}): {', '.join(wrong_cases)}")
+missing = [
+    row["pair"]
+    for row in r.get("rows", [])
+    if row.get("buildable") and not row.get("has_correct_customer")
+]
+if missing:
+    print(f"   buildable pairs without a CORRECT customer ({len(missing)}): {', '.join(missing)}")
+PY
+elif ls crates/test-harness/tests/assay_pair_matrix*.rs crates/test-harness/tests/surface_pair_matrix*.rs >/dev/null 2>&1; then
+  echo "   surface-pair matrix test: present (no target/pair-matrix/report.json — run assay_pair_matrix)"
 else
   echo "   surface-pair matrix test: not built (target 21/21)"
 fi

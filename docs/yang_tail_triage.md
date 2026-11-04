@@ -43,6 +43,21 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-04 (Stage-3 pair-curve membership reads the shared surface distance) — **faithful, no deviation: §4.3 maps each mesh intersection edge to the surface intersection curve it lies on (`refs/text/yang2025_hybrid_boolean.txt:430-460`); membership on a surface-pair curve is the point lying on BOTH surfaces**
+
+The gate-3 pair matrix (`assay_pair_matrix`) found every sphere × cylinder /
+cone / torus boolean an ERROR on all three ops: `AmbiguousCurve { candidates:
+1, matched: 0 }`. `curve_contains_point`'s surface-pair arm read each surface's
+distance through a per-kind closure with no sphere arm, so a sphere operand
+never matched. It now reads `stage4_relocate::surface_value_and_normal` — the
+one signed distance Stage-4 relocation and the kernel-v2 endpoint check
+already use — for every kind (same forms as the old arms; the only difference,
+no reading on an axis, cannot change a match). Pins
+`kernel-v2/tests/sphere_pair_curves.rs` (sphere × off-centre oblique cylinder,
+union / cut / intersect): red on main with exactly the matrix's error, green
+here. Corpus geometry hashes identical to main on all 374 cases; rewrite tier
+green.
+
 ## 2026-11-03 (kernel 1.0 step 0) — **HEAD a1932058 holds 360C / 0W / 9E / 5EE / 0T over 374 (release, 12 jobs on sequoia-server, wall 761 s); prospector seed 6 (first seed with O1/O3 in force): 178 C / 6 W / 12 E / 4 T — all six WRONG rows are the HARNESS or the ENGINE, none the kernel**
 
 Seed 6: `PROSPECT_SEED=6 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`,
