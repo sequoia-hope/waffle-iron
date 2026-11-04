@@ -1207,7 +1207,10 @@ impl ExactChain {
         }
     }
 
-    fn expr_may_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
+    /// Sound over-approximation: `true` if ANY point of `closed_ball(p, rad)`
+    /// could belong to the body `e` (public for `assay::monotonicity`'s
+    /// per-step volume interval).
+    pub fn expr_may_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
         match e {
             Expr::Leaf(i) => self.ops[*i].solid.may_contain_ball(p, rad),
             Expr::AltLeaf(i) => self.leaf_solid(*i, true).may_contain_ball(p, rad),
@@ -1224,7 +1227,9 @@ impl ExactChain {
         }
     }
 
-    fn expr_must_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
+    /// Sound under-approximation: `true` only when EVERY point of
+    /// `closed_ball(p, rad)` lies inside the body `e`.
+    pub fn expr_must_contain_ball(&self, e: &Expr, p: [f64; 3], rad: f64) -> bool {
         match e {
             Expr::Leaf(i) => self.ops[*i].solid.must_contain_ball(p, rad),
             Expr::AltLeaf(i) => self.leaf_solid(*i, true).must_contain_ball(p, rad),
