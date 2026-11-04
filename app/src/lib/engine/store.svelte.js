@@ -518,6 +518,61 @@ let documentDisplay = $state({
 /** @type {string | null} Active document ID (from IndexedDB) */
 let activeDocId = $state(null);
 
+/** @type {string | null} Revision of activeDocId last observed/written in activeDocRevProvider */
+let activeDocRev = $state(null);
+
+/** @type {string | null} Storage provider id that activeDocRev belongs to */
+let activeDocRevProvider = $state(null);
+
+/**
+ * Non-null when a save was refused due to a revision conflict (`DocumentStore.put`
+ * returned `{ conflict: { theirs_rev } }`). Cleared on Reload, Save as a copy,
+ * or (for file imports into an existing id) explicit Replace.
+ * @type {{ docId: string, name: string, providerId: string, providerLabel: string, baseRev: string | null, theirsRev: string | null, fromImport?: boolean } | null}
+ */
+let documentConflict = $state(null);
+
+/** Storage key targeted when File→Open imported a file whose `document.id` already exists in storage. */
+/** @type {string | null} */
+let importedExistingTargetId = null;
+
+/** Monotonic epoch incremented whenever a document session is opened, forked, or copied. */
+let documentSessionEpoch = 0;
+
+/** True from the moment `loadPendingDocument` consumes sessionStorage until its load settles. */
+let pendingHandoffInFlight = false;
+
+/** Serializes storage writes in this tab so concurrent saves advance base revisions in order. */
+let saveChain = Promise.resolve();
+
+/** Monotonic sequence stamped as each save snapshot finishes composing on the engine. */
+let saveComposeSeq = 0;
+
+/** Highest `saveComposeSeq` persisted in the current `documentSessionEpoch`. */
+let lastSavedComposeSeq = 0;
+
+/** Offline local-fallback revision state when a remote provider throws a network error. */
+/** @type {{ docId: string | null, rev: string | null }} */
+let localFallbackState = { docId: null, rev: null };
+
+/** Resolves initial `localFallbackState` from any leftover `localFallback` record at session open. */
+let localFallbackSeedPromise = Promise.resolve();
+
+/**
+ * Run a storage write exclusively within this tab's save queue.
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+function enqueueSave(fn) {
+	const next = saveChain.then(fn, fn);
+	saveChain = next.then(
+		() => undefined,
+		() => undefined
+	);
+	return next;
+}
+
 /** @type {string | null} Active tab ID within the document */
 let activeTabId = $state(null);
 
@@ -1230,21 +1285,26 @@ export async function initEngine() {
 		// the /open route's freshly written linked record would otherwise be
 		// "the newest doc" — the dialog then sits over the read-only banner).
 		const handoffPending =
-			typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('waffle-active-doc');
+			pendingHandoffInFlight ||
+			(typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem('waffle-active-doc'));
 
 		// What a reload may bring back, per the restoreOnReload setting: reopened
 		// at the end of startup (`auto`) or offered in AutoRestoreDialog (`ask`).
 		const restorePolicy = getSetting('restoreOnReload');
 		if (!handoffPending && restorePolicy !== 'never') {
+			await pruneDrafts().catch(() => {});
 			const found = await findStartupRestore();
 			// `offered` is what AutoRestoreDialog renders on. Under `auto` the
 			// offer is only the reopen's input: showing the dialog then put
 			// "Reopen Your Last Work?" over a reopen already in progress — for a
 			// document that rebuilds for minutes, over an empty viewport with the
 			// old tabs already in the bar — and its Discard could not stop it.
-			autoRestoreState = found ? { ...found, offered: restorePolicy === 'ask' } : null;
+			if (!pendingHandoffInFlight && documentSessionEpoch === 0) {
+				autoRestoreState = found ? { ...found, offered: restorePolicy === 'ask' } : null;
+			}
+		} else {
+			pruneDrafts().catch(() => {});
 		}
-		pruneDrafts().catch(() => {});
 		installAutosaveLifecycle();
 
 		// Ensure activeDocId is set so saveToProvider() works on direct `/`
@@ -1253,6 +1313,9 @@ export async function initEngine() {
 		if (!activeDocId) {
 			if (!documentId) documentId = generateUUID();
 			activeDocId = documentId;
+			activeDocRev = null;
+			activeDocRevProvider = null;
+			documentConflict = null;
 		}
 
 		// (The store used to mint a default tab here for the doc-less `/`
@@ -1429,7 +1492,8 @@ export async function initEngine() {
 			loadProject: (jsonData) => loadProject(jsonData),
 			// Agent-link load gate (agent-document-load-gate.spec.js, failure log F10).
 			buildDocumentJson: () => buildDocumentJson(),
-			openDocumentRecord: (docId, json) => openDocumentRecord(docId, json),
+			openDocumentRecord: (docId, json, link, rev, revProvider) =>
+				openDocumentRecord(docId, json, link, rev, revProvider),
 			getDocumentLoadBusyReason: () => getDocumentLoadBusyReason(),
 			// Test SETUP: real file pickers can't be driven from Playwright.
 			importStepFromText: (fileName, text) => importStepFromText(fileName, text),
@@ -1967,6 +2031,9 @@ export async function initEngine() {
 			getDocumentState: () => ({
 				documentId,
 				activeDocId,
+				activeDocRev,
+				activeDocRevProvider,
+				conflict: documentConflict ? { ...documentConflict } : null,
 				activeTabId,
 				documentTabs: documentTabs.map(t => ({ id: t.id, name: t.name, kind: t.kind?.type })),
 				documentName,
@@ -1975,6 +2042,13 @@ export async function initEngine() {
 				documentLink: documentLink ? JSON.parse(JSON.stringify(documentLink)) : null,
 				readOnly: documentLink?.readOnly === true,
 			}),
+			getDocumentConflict: () => (documentConflict ? { ...documentConflict } : null),
+			reloadAfterConflict: () => reloadAfterConflict(),
+			saveConflictAsCopy: () => saveConflictAsCopy(),
+			replaceConflictedDocument: () => replaceConflictedDocument(),
+			saveToStorage: () => saveToStorage(),
+			hasPendingAutoSave: () => hasPendingAutoSave(),
+			commitPendingAutoSave: (opts) => commitPendingAutoSave(opts),
 			// Test/debug: the exact document JSON the save paths write.
 			buildDocumentJson: () => buildDocumentJson(),
 			// Agent link oracles (spec §5): every bridge send with its origin (O7),
@@ -7836,10 +7910,171 @@ export async function setBodyMaterial(bodyId, material) {
 // -- Document model --
 
 export function getActiveDocId() { return activeDocId; }
+export function getActiveDocRev() { return activeDocRev; }
+export function getDocumentConflict() { return documentConflict; }
 export function getActiveTabId() { return activeTabId; }
 export function getDocumentLink() { return documentLink; }
 /** True when the open document came from a share link and must not be saved over. */
 export function isDocumentReadOnly() { return documentLink?.readOnly === true; }
+
+/**
+ * Resolve a storage conflict by reloading the latest stored revision into this tab,
+ * discarding this tab's conflicting edits and stale draft.
+ * @returns {Promise<boolean>}
+ */
+export async function reloadAfterConflict() {
+	const conflict = documentConflict;
+	if (!conflict) return false;
+	cancelPendingAutoSave();
+	await saveChain;
+	const { getActiveProvider, getProvider, getStore } = await import('$lib/storage/index.js');
+	const preferred = getProvider(conflict.providerId) ?? getActiveProvider();
+	let found = null;
+	let foundProviderId = preferred.id;
+	try {
+		found = await preferred.get(conflict.docId);
+	} catch (err) {
+		showToast('error', `Reload failed: ${err?.message || err}`);
+		return false;
+	}
+	if (!found && preferred.id !== 'local') {
+		try {
+			const local = getStore();
+			found = await local.get(conflict.docId);
+			foundProviderId = local.id;
+		} catch {
+			found = null;
+		}
+	}
+	if (!found?.doc?.json) {
+		showToast('error', 'The document was deleted elsewhere — use Save as a copy to keep your work');
+		return false;
+	}
+	if (sketchMode.active) {
+		editingSketchFeatureId = null;
+		resetSketchState();
+		sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1], xAxis: null };
+	}
+	const key = tabKey();
+	if (key) {
+		await deleteDraft(key).catch(() => {});
+	}
+	try {
+		await openDocumentRecord(
+			found.doc.id,
+			found.doc.json,
+			found.doc.link ?? null,
+			found.rev,
+			foundProviderId
+		);
+	} catch (err) {
+		showToast('error', `Reload failed: ${err?.message || err}`);
+		return false;
+	}
+	showToast('info', 'Reloaded latest saved version');
+	log('action', 'Reloaded document after conflict', { docId: found.doc.id, rev: found.rev });
+	return true;
+}
+
+/**
+ * Resolve a storage conflict by saving this tab's state under a new document
+ * identity and storage record, leaving the other writer's stored revision untouched.
+ * @returns {Promise<string | null>} the new copy's document id, or null on failure
+ */
+export async function saveConflictAsCopy() {
+	const conflict = documentConflict;
+	if (!conflict) return null;
+	cancelPendingAutoSave();
+	await saveChain;
+	const prev = {
+		activeDocId,
+		activeDocRev,
+		activeDocRevProvider,
+		documentId,
+		documentName,
+		projectName,
+		documentCreated,
+		documentLink,
+		conflict
+	};
+	const copyId = generateUUID();
+	const baseName = (documentName || 'Untitled').replace(/\s+\(copy(?:\s+\d+)?\)$/i, '');
+	const copyName = `${baseName} (copy)`;
+	const copyCreated = new Date().toISOString();
+
+	documentSessionEpoch++;
+	lastSavedComposeSeq = 0;
+	localFallbackState = { docId: null, rev: null };
+	localFallbackSeedPromise = Promise.resolve();
+	importedExistingTargetId = null;
+	documentId = copyId;
+	documentName = copyName;
+	projectName = copyName;
+	documentCreated = copyCreated;
+	documentLink = null;
+	activeDocId = copyId;
+	activeDocRev = null;
+	activeDocRevProvider = null;
+
+	try {
+		await saveDocumentOrThrow({ allowEmpty: true });
+		documentConflict = null;
+		showToast('success', `Saved copy as "${copyName}"`);
+		log('action', 'Saved conflicted document as copy', { fromDocId: conflict.docId, copyId });
+		return copyId;
+	} catch (err) {
+		documentSessionEpoch++;
+		lastSavedComposeSeq = 0;
+		activeDocId = prev.activeDocId;
+		activeDocRev = prev.activeDocRev;
+		activeDocRevProvider = prev.activeDocRevProvider;
+		documentId = prev.documentId;
+		documentName = prev.documentName;
+		projectName = prev.projectName;
+		documentCreated = prev.documentCreated;
+		documentLink = prev.documentLink;
+		documentConflict = prev.conflict;
+		showToast('error', `Save as copy failed: ${err?.message || err}`);
+		return null;
+	}
+}
+
+/**
+ * Resolve an import conflict by explicitly replacing the stored document record
+ * at `conflict.theirsRev` (only offered when File→Open imported a `.waffle` file
+ * whose `document.id` already exists in storage).
+ * @returns {Promise<boolean>}
+ */
+export async function replaceConflictedDocument() {
+	const conflict = documentConflict;
+	if (!conflict || !conflict.fromImport || !conflict.theirsRev) return false;
+	cancelPendingAutoSave();
+	await saveChain;
+	const prevRev = activeDocRev;
+	const prevProvider = activeDocRevProvider;
+	activeDocRev = conflict.theirsRev;
+	activeDocRevProvider = conflict.providerId;
+	try {
+		await saveDocumentOrThrow({ allowEmpty: true });
+		documentConflict = null;
+		importedExistingTargetId = null;
+		showToast('success', 'Saved');
+		log('action', 'Replaced stored document from imported file', {
+			docId: conflict.docId,
+			replacedRev: conflict.theirsRev
+		});
+		return true;
+	} catch (err) {
+		activeDocRev = prevRev;
+		activeDocRevProvider = prevProvider;
+		if (!err?.conflict) {
+			documentConflict = conflict;
+			importedExistingTargetId = conflict.docId;
+			showToast('error', `Replace failed: ${err?.message || err}`);
+		}
+		return false;
+	}
+}
 
 /** The open document's identity, tabs and read-only state (agent link `document_info`). */
 export function getDocumentInfo() {
@@ -7879,30 +8114,43 @@ export async function loadPendingDocument() {
 	const pendingDocId = sessionStorage.getItem('waffle-active-doc');
 	const pendingJson = sessionStorage.getItem('waffle-active-json');
 	const pendingLink = sessionStorage.getItem('waffle-active-link');
+	const pendingRev = sessionStorage.getItem('waffle-active-rev');
+	const pendingRevProvider = sessionStorage.getItem('waffle-active-rev-provider');
 	if (!pendingDocId || !pendingJson) return;
 
+	pendingHandoffInFlight = true;
 	sessionStorage.removeItem('waffle-active-doc');
 	sessionStorage.removeItem('waffle-active-json');
 	sessionStorage.removeItem('waffle-active-link');
+	sessionStorage.removeItem('waffle-active-rev');
+	sessionStorage.removeItem('waffle-active-rev-provider');
 	let link = null;
 	if (pendingLink) {
 		try { link = JSON.parse(pendingLink); } catch { link = null; }
 	}
 
-	// Wait for engine if not ready yet
-	if (!engineReady) {
-		await new Promise((resolve) => {
-			const check = setInterval(() => {
-				if (engineReady) { clearInterval(check); resolve(); }
-			}, 100);
-			setTimeout(() => { clearInterval(check); resolve(); }, 10000);
-		});
-	}
-
 	try {
-		await openDocumentRecord(pendingDocId, pendingJson, link);
+		// Wait for engine if not ready yet
+		if (!engineReady) {
+			await new Promise((resolve) => {
+				const check = setInterval(() => {
+					if (engineReady) { clearInterval(check); resolve(); }
+				}, 100);
+				setTimeout(() => { clearInterval(check); resolve(); }, 10000);
+			});
+		}
+
+		await openDocumentRecord(
+			pendingDocId,
+			pendingJson,
+			link,
+			pendingRev ?? null,
+			pendingRevProvider ?? null
+		);
 	} catch (err) {
 		log('error', `Failed to load pending document: ${err}`);
+	} finally {
+		pendingHandoffInFlight = false;
 	}
 }
 
@@ -7914,9 +8162,11 @@ export async function loadPendingDocument() {
  * @param {string} docId - the storage record id
  * @param {string} json - the record's `.waffle` text
  * @param {any} [link] - share-link provenance (read-only linked copies)
+ * @param {string | null} [rev] - stored revision at open (`undefined` looks up the active provider)
+ * @param {string | null} [revProvider] - provider id that `rev` belongs to
  * @throws when the engine does not load the file
  */
-export async function openDocumentRecord(docId, json, link = null) {
+export async function openDocumentRecord(docId, json, link = null, rev = undefined, revProvider = null) {
 	// A pending autosave belongs to the PREVIOUS document; firing after the
 	// engine swaps trees would capture mixed state.
 	cancelPendingAutoSave();
@@ -7924,15 +8174,42 @@ export async function openDocumentRecord(docId, json, link = null) {
 	// Set before the first await: a call arriving during the load is refused,
 	// not answered from the half-swapped store.
 	documentLoadPending = true;
-	fitAllOnDocumentOpen();
 	try {
-		initDocumentState(docId, parsed, link);
+		if (!bridge || !engineReady || fileTooNew(parsed)) {
+			throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
+		}
+		fitAllOnDocumentOpen();
+		documentSessionEpoch++;
 		// Load the document into the engine — ALWAYS, even when the active tab
 		// is empty: the engine owns the document's `sources` table (v4 §2.3),
 		// which an empty tab can still belong to, and the Rust loader is the
-		// one place migrations run.
+		// one place migrations run. `initDocumentState` runs AFTER `loadProject`
+		// (matching the File→Open path) so `activeDocId` never advertises `docId`
+		// while `ModelUpdated` has not yet mirrored `display_unit` and `tabs`,
+		// and a rejected load leaves the open document's host metadata intact.
 		if (!(await loadProject(json, { silent: true }))) {
 			throw new Error('the engine did not load the document (not ready, or saved by a newer version)');
+		}
+		initDocumentState(docId, parsed, link, rev ?? null, revProvider);
+		const epoch = documentSessionEpoch;
+		if (rev === undefined) {
+			try {
+				const { getActiveProvider } = await import('$lib/storage/index.js');
+				const provider = getActiveProvider();
+				const existing = await provider.get(docId);
+				const ownExisting = existing && !link && existing.doc?.link ? null : existing;
+				if (activeDocId === docId && documentSessionEpoch === epoch) {
+					if (ownExisting) {
+						activeDocId = ownExisting.doc.id;
+						activeDocRev = ownExisting.rev;
+					} else {
+						activeDocRev = null;
+					}
+					activeDocRevProvider = provider.id;
+				}
+			} catch {
+				// Leave activeDocRev null if storage cannot be queried.
+			}
 		}
 		// (The store used to take the engine's tab ids here, because it had
 		// minted its own while parsing the same file. It no longer parses and
@@ -9666,10 +9943,13 @@ function mirrorSessionDocument(info) {
  * @param {object} parsed - Parsed v3 JSON
  * @param {import('$lib/storage/open-link.js').DocumentLink | null} [link] -
  *   share-link provenance; non-null makes the document read-only here.
+ * @param {string | null} [rev]
+ * @param {string | null} [revProvider]
  */
-export function initDocumentState(docId, parsed, link = null) {
+export function initDocumentState(docId, parsed, link = null, rev = null, revProvider = null) {
 	// What is left here is the state the ENGINE does not have: which storage
-	// record this tab is filed under, and where the document was linked from.
+	// record this tab is filed under, its base revision, and where the document
+	// was linked from.
 	//
 	// The name, the display unit, the tab list and the active tab used to be
 	// parsed out of the `.waffle` right here — a second reader of the format,
@@ -9677,7 +9957,33 @@ export function initDocumentState(docId, parsed, link = null) {
 	// the Rust v3→v4 migration does" to keep the two agreeing. They never
 	// quite did (see C3a). `LoadProject` now tells the store all of it through
 	// `ModelUpdated.document` (S2 C4, A2.1), so the parser is gone.
+	documentSessionEpoch++;
+	lastSavedComposeSeq = 0;
+	localFallbackState = { docId: null, rev: null };
+	const fallbackEpoch = documentSessionEpoch;
+	localFallbackSeedPromise = (async () => {
+		if (!docId) return;
+		try {
+			const { getStore } = await import('$lib/storage/index.js');
+			const existingLocal = await getStore().get(docId);
+			if (
+				fallbackEpoch === documentSessionEpoch &&
+				localFallbackState.docId === null &&
+				existingLocal &&
+				!existingLocal.doc?.link &&
+				(existingLocal.doc?.localFallback || (rev && existingLocal.rev === rev))
+			) {
+				localFallbackState = { docId, rev: existingLocal.rev };
+			}
+		} catch {
+			// Local store unavailable.
+		}
+	})();
+	importedExistingTargetId = null;
 	activeDocId = docId;
+	activeDocRev = rev;
+	activeDocRevProvider = revProvider;
+	documentConflict = null;
 	documentLink = link && link.readOnly ? link : null;
 	// v4 identity stays the HOST's (v4 P2-5: the storage record is keyed by
 	// it, and C3c pushes it down to the session): adopt the file's id, or mint
@@ -9693,8 +9999,6 @@ export function initDocumentState(docId, parsed, link = null) {
 	// unit, the tab list and the active tab, all of which the engine now
 	// reports.
 	documentCreated = parsed.document?.created || parsed.project?.created || null;
-	// New document context: its rebuild warnings are "new" again.
-	lastRebuildWarnings = new Set();
 }
 
 /**
@@ -9852,13 +10156,53 @@ async function findStartupRestore() {
 	return best;
 }
 
+/**
+ * Resolve `(rev, providerId)` for a restored draft. Drafts saved on this branch
+ * carry `baseRev` (`string | null`); pre-branch drafts lack `baseRev`
+ * (`draft.baseRev === undefined`), in which case we adopt the stored record's
+ * revision only when the stored JSON equals `draft.json` (the draft's source),
+ * otherwise `null` so saving conflicts rather than overwriting.
+ * @param {import('$lib/storage/drafts.js').Draft} draft
+ * @returns {Promise<{ rev: string | null, providerId: string | null }>}
+ */
+async function resolveDraftBase(draft) {
+	if (draft.baseRev !== undefined) {
+		return {
+			rev: draft.baseRev ?? null,
+			providerId: draft.baseRevProvider ?? null
+		};
+	}
+	try {
+		const { getActiveProvider, getStore } = await import('$lib/storage/index.js');
+		const seen = new Set();
+		for (const store of [getActiveProvider(), getStore()]) {
+			if (!store || seen.has(store.id)) continue;
+			seen.add(store.id);
+			const found = await store.get(draft.docId);
+			if (found?.doc?.json === draft.json) {
+				return { rev: found.rev, providerId: store.id };
+			}
+		}
+	} catch {
+		// Storage unavailable: leave base null so saving conflicts safely.
+	}
+	return { rev: null, providerId: null };
+}
+
 export async function restoreAutoSave() {
 	const offer = autoRestoreState;
 	try {
 		if (offer?.source === 'draft' && offer.draftKey) {
 			const draft = await getDraft(offer.draftKey);
 			if (!draft?.json) return false;
-			await openDocumentRecord(draft.docId, draft.json);
+			const resolvedBase = await resolveDraftBase(draft);
+			await openDocumentRecord(
+				draft.docId,
+				draft.json,
+				null,
+				resolvedBase.rev,
+				resolvedBase.providerId
+			);
 			await restoreSketchSession(draft.sketch);
 			// A draft can be newer than the provider's copy (flushed on hide, or
 			// the provider was unreachable): store it again.
@@ -9867,13 +10211,20 @@ export async function restoreAutoSave() {
 		}
 		if (offer?.source === 'indexeddb' && offer.docId) {
 			const { getStore } = await import('$lib/storage/index.js');
-			const doc = await getStore().get(offer.docId);
-			if (!doc?.json) return false;
+			const store = getStore();
+			const found = await store.get(offer.docId);
+			if (!found?.doc?.json) return false;
 			// The whole record — tabs, identity, name — not just the active
 			// tab's tree: a bare loadProject left the bootstrap's one-tab
 			// state and a fresh document.id in place, and the next autosave
 			// wrote that over the stored document.
-			await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
+			await openDocumentRecord(
+				found.doc.id,
+				found.doc.json,
+				found.doc.link ?? null,
+				found.rev,
+				store.id
+			);
 			return true;
 		}
 		// Legacy localStorage restore
@@ -10033,7 +10384,9 @@ function scheduleAutoSave() {
 	if (autoSaveTimer) clearTimeout(autoSaveTimer);
 	// A linked document is read-only: never write it back to storage (the
 	// linked record must keep the bytes fetched at `resolved.commit`).
-	if (documentLink?.readOnly) return;
+	// A conflicted document also suspends background provider writes until
+	// the user chooses Reload or Save as a copy.
+	if (documentLink?.readOnly || documentConflict) return;
 	autoSaveTimer = setTimeout(() => {
 		autoSaveTimer = null;
 		autosaveNow();
@@ -10118,6 +10471,26 @@ function installAutosaveLifecycle() {
 }
 
 /**
+ * Compose a `.waffle` snapshot outside `saveChain`, so storage writes queued in
+ * `saveChain` never acquire or wait on `engineLock`, and callers passing
+ * `composeLock` release `engineLock` before waiting on `saveChain`.
+ * @param {{ via?: 'user' | 'agent', composeLock?: (<T>(fn: () => Promise<T>) => Promise<T>) | null }} [opts]
+ * @returns {Promise<{ docId: string, epoch: number, jsonData: string, seq: number } | null>}
+ */
+async function composeSaveSnapshot({ via = 'user', composeLock = null } = {}) {
+	const run = async () => {
+		if (!activeDocId || documentLink?.readOnly) return null;
+		cancelPendingAutoSave();
+		const docId = activeDocId;
+		const epoch = documentSessionEpoch;
+		const jsonData = await buildDocumentJson({ via });
+		if (!jsonData || activeDocId !== docId || documentSessionEpoch !== epoch) return null;
+		return { docId, epoch, jsonData, seq: ++saveComposeSeq };
+	};
+	return composeLock ? composeLock(run) : run();
+}
+
+/**
  * Store a pending autosave NOW and wait for it, so that whoever asked can
  * answer "stored" truthfully — the agent link does this after every mutating
  * tool, as the native host rewrites its record after every one
@@ -10125,45 +10498,58 @@ function installAutosaveLifecycle() {
  * loses nothing that was already answered. Nothing pending: resolves true at
  * once. Resolves false when neither the draft nor a storage record took it.
  * `via: 'agent'` composes through the agent entry point (see
- * `buildDocumentJson`); the caller then holds the engine lock as 'agent'.
- * @param {{ via?: 'user' | 'agent' }} [opts]
+ * `buildDocumentJson`); pass `composeLock` so the engine lock is held only
+ * while composing the snapshot and released before awaiting `saveChain`.
+ * @param {{ via?: 'user' | 'agent', composeLock?: (<T>(fn: () => Promise<T>) => Promise<T>) | null }} [opts]
  * @returns {Promise<boolean>}
  */
-export async function commitPendingAutoSave({ via = 'user' } = {}) {
+export async function commitPendingAutoSave({ via = 'user', composeLock = null } = {}) {
 	if (!autoSaveTimer) return true;
-	clearTimeout(autoSaveTimer);
-	autoSaveTimer = null;
-	return autosaveNow({ via });
+	cancelPendingAutoSave();
+	return autosaveNow({ via, composeLock });
 }
 
 /**
- * Compose the document once; store it as this tab's draft and in the active
- * provider. Resolves true when at least one of them took it.
- * @param {{ via?: 'user' | 'agent' }} [opts]
+ * Compose the document once outside `saveChain`; store it as this tab's draft
+ * and in the active provider inside `saveChain`. Resolves true when at least
+ * one of them took it.
+ * @param {{ via?: 'user' | 'agent', composeLock?: (<T>(fn: () => Promise<T>) => Promise<T>) | null }} [opts]
  * @returns {Promise<boolean>}
  */
-async function autosaveNow({ via = 'user' } = {}) {
-	if (!activeDocId) return false;
-	const docId = activeDocId;
-	const jsonData = await buildDocumentJson({ via });
-	if (!jsonData) return false;
-	let stored = await saveDraft(docId, jsonData);
-	try {
-		const { getActiveProvider } = await import('$lib/storage/index.js');
-		await putRecord(getActiveProvider(), docId, jsonData);
-		stored = true;
-	} catch (err) {
-		// If remote provider fails, fall back to local IndexedDB
-		console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
+async function autosaveNow({ via = 'user', composeLock = null } = {}) {
+	const snap = await composeSaveSnapshot({ via, composeLock });
+	if (!snap) return false;
+	const { docId, epoch, jsonData, seq } = snap;
+	return enqueueSave(async () => {
+		if (activeDocId !== docId || documentSessionEpoch !== epoch) return false;
+		if (seq < lastSavedComposeSeq) return true;
+		let stored = await saveDraft(docId, jsonData);
+		if (documentConflict) return stored;
 		try {
-			const { getStore } = await import('$lib/storage/index.js');
-			await putRecord(getStore(), docId, jsonData);
+			const { getActiveProvider } = await import('$lib/storage/index.js');
+			const res = await putRecord(getActiveProvider(), docId, jsonData);
+			if ('conflict' in res) {
+				return false;
+			}
+			if (seq > lastSavedComposeSeq) lastSavedComposeSeq = seq;
+			await saveDraft(docId, jsonData);
 			stored = true;
-		} catch {
-			console.warn('Local fallback auto-save also failed');
+		} catch (err) {
+			// If remote provider fails due to network/host error, fall back to local IndexedDB
+			console.warn('Auto-save to provider failed, falling back to local:', err.message || err);
+			try {
+				const { getStore } = await import('$lib/storage/index.js');
+				const fallbackRes = await putRecord(getStore(), docId, jsonData, { isLocalFallback: true });
+				if (!('conflict' in fallbackRes)) {
+					if (seq > lastSavedComposeSeq) lastSavedComposeSeq = seq;
+					stored = true;
+				}
+			} catch {
+				console.warn('Local fallback auto-save also failed');
+			}
 		}
-	}
-	return stored;
+		return stored;
+	});
 }
 
 /**
@@ -10172,7 +10558,14 @@ async function autosaveNow({ via = 'user' } = {}) {
  */
 async function saveDraft(docId, jsonData) {
 	try {
-		await putDraft({ docId, name: documentName, json: jsonData, sketch: sketchSessionSnapshot() });
+		await putDraft({
+			docId,
+			name: documentName,
+			json: jsonData,
+			sketch: sketchSessionSnapshot(),
+			baseRev: activeDocRev,
+			baseRevProvider: activeDocRevProvider
+		});
 		return true;
 	} catch (err) {
 		console.warn('Draft save failed:', err?.message || err);
@@ -10193,7 +10586,14 @@ export async function reopenDocumentById(docId) {
 	try {
 		const draft = (await listDrafts()).find((d) => d.docId === docId);
 		if (draft?.json) {
-			await openDocumentRecord(docId, draft.json);
+			const resolvedBase = await resolveDraftBase(draft);
+			await openDocumentRecord(
+				docId,
+				draft.json,
+				null,
+				resolvedBase.rev,
+				resolvedBase.providerId
+			);
 			await restoreSketchSession(draft.sketch);
 			scheduleAutoSave();
 			return true;
@@ -10203,47 +10603,120 @@ export async function reopenDocumentById(docId) {
 	}
 	const { getActiveProvider, getStore } = await import('$lib/storage/index.js');
 	for (const store of [getActiveProvider(), getStore()]) {
-		let doc = null;
+		let found = null;
 		try {
-			doc = await store.get(docId);
+			found = await store.get(docId);
 		} catch {
 			continue;
 		}
-		if (doc?.json) {
-			await openDocumentRecord(doc.id, doc.json, doc.link ?? null);
+		if (found?.doc?.json) {
+			await openDocumentRecord(
+				found.doc.id,
+				found.doc.json,
+				found.doc.link ?? null,
+				found.rev,
+				store.id
+			);
 			return true;
 		}
 	}
 	return false;
 }
 
-/** Create or update storage record `docId`, keeping its `created` time. */
-async function putRecord(store, docId, jsonData) {
-	const existing = await store.get(docId);
-	await store.put({
-		id: docId,
-		json: jsonData,
-		created: existing?.created || Date.now(),
-		modified: Date.now()
-	});
+/**
+ * Create or update storage record `docId` at this tab's expected `base` revision.
+ * Never overwrites a concurrent revision: a mismatch sets `documentConflict` and
+ * returns `{ conflict }`.
+ * @param {import('$lib/storage/types.js').DocumentStore} store
+ * @param {string} docId
+ * @param {string} jsonData
+ * @param {{ isLocalFallback?: boolean }} [opts]
+ * @returns {Promise<import('$lib/storage/types.js').DocumentPutResult>}
+ */
+async function putRecord(store, docId, jsonData, { isLocalFallback = false } = {}) {
+	if (isLocalFallback) {
+		await localFallbackSeedPromise;
+	}
+	const base = isLocalFallback
+		? localFallbackState.docId === docId
+			? localFallbackState.rev
+			: null
+		: activeDocRevProvider === store.id
+			? activeDocRev
+			: null;
+	const createdMs = Date.parse(documentCreated || '') || Date.now();
+	const res = await store.put(
+		{
+			id: docId,
+			json: jsonData,
+			created: createdMs,
+			modified: Date.now(),
+			...(documentLink ? { link: documentLink } : { link: null }),
+			...(isLocalFallback
+				? { localFallback: true }
+				: store.id === 'local'
+					? { localFallback: false }
+					: {})
+		},
+		{ base }
+	);
+	if ('conflict' in res) {
+		if (activeDocId === docId) {
+			documentConflict = {
+				docId,
+				name: documentName || 'Untitled',
+				providerId: store.id,
+				providerLabel: store.label || store.id,
+				baseRev: base,
+				theirsRev: res.conflict.theirs_rev ?? null,
+				fromImport: !isLocalFallback && importedExistingTargetId === docId
+			};
+		}
+		return res;
+	}
+	if (isLocalFallback) {
+		localFallbackState = { docId, rev: res.rev };
+	} else if (activeDocId === docId) {
+		activeDocRev = res.rev;
+		activeDocRevProvider = store.id;
+		documentConflict = null;
+		importedExistingTargetId = null;
+	}
+	return res;
 }
 
 /**
  * Save current document state to the active storage provider (and this tab's draft).
- * Builds full v3 JSON including all tabs.
+ * Builds full v3/v4 JSON outside `saveChain`, then queues only the storage write.
  */
 async function saveToProvider({ allowEmpty = true } = {}) {
 	if (!activeDocId) return false;
 	const docId = activeDocId;
+	const epoch = documentSessionEpoch;
 	const jsonData = await buildDocumentJson();
-	if (!jsonData) return false;
+	if (!jsonData || activeDocId !== docId || documentSessionEpoch !== epoch) return false;
+	const seq = ++saveComposeSeq;
 	if (!allowEmpty && documentTextIsEmpty(jsonData)) {
-		throw Object.assign(new Error('the document has no features, instances or sources'), { emptyDocument: true });
+		throw Object.assign(new Error('the document has no features, instances or sources'), {
+			emptyDocument: true
+		});
 	}
-	await saveDraft(docId, jsonData);
-	const { getActiveProvider } = await import('$lib/storage/index.js');
-	await putRecord(getActiveProvider(), docId, jsonData);
-	return true;
+	return enqueueSave(async () => {
+		if (activeDocId !== docId || documentSessionEpoch !== epoch) return false;
+		if (seq < lastSavedComposeSeq) return true;
+		await saveDraft(docId, jsonData);
+		const { getActiveProvider } = await import('$lib/storage/index.js');
+		const res = await putRecord(getActiveProvider(), docId, jsonData);
+		if ('conflict' in res) {
+			throw Object.assign(
+				new Error('This document was modified in another tab or window — reload or save as a copy'),
+				{ conflict: res.conflict }
+			);
+		}
+		if (seq > lastSavedComposeSeq) lastSavedComposeSeq = seq;
+		await saveDraft(docId, jsonData);
+		return true;
+	});
 }
 
 /** Whether an edit is waiting for its autosave (the last few seconds are not stored yet). */
@@ -10324,6 +10797,10 @@ export async function saveToStorage() {
 		log('action', 'Document saved');
 		return true;
 	} catch (err) {
+		if (err?.conflict) {
+			log('warn', `Document save refused due to revision conflict (${err.conflict.theirs_rev ?? 'deleted'})`);
+			return false;
+		}
 		showToast('error', `Save failed: ${err.message || err}`);
 		return false;
 	}
@@ -10351,11 +10828,19 @@ export async function forkLinkedDocument() {
 		}
 	}
 	const { getActiveProvider } = await import('$lib/storage/index.js');
+	documentSessionEpoch++;
+	lastSavedComposeSeq = 0;
+	localFallbackState = { docId: null, rev: null };
+	localFallbackSeedPromise = Promise.resolve();
+	importedExistingTargetId = null;
 	documentId = generateUUID();
 	documentCreated = new Date().toISOString();
 	documentLink = null;
 	// The fork's storage record is keyed by its new identity (P2-5).
 	activeDocId = documentId;
+	activeDocRev = null;
+	activeDocRevProvider = null;
+	documentConflict = null;
 	try {
 		await saveToProvider();
 	} catch (err) {
@@ -10557,7 +11042,7 @@ export async function loadExample(id) {
 			meta.created = now;
 			meta.modified = now;
 		});
-		await openDocumentRecord(docId, opening);
+		await openDocumentRecord(docId, opening, null, null, null);
 		examplesBrowserState.active = id;
 		showToast('info', `Example "${entry.name}" opened as a new document`);
 		return true;
@@ -11734,6 +12219,8 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 		// (loadPendingDocument runs initDocumentState itself; test-case loads
 		// deliberately keep the current document context).
 		if (parseTooNew(jsonData)) return false;
+		// New document context: its rebuild warnings are "new" again on LoadProject.
+		lastRebuildWarnings = new Set();
 		// The display unit (a legacy file's included — the loader converts
 		// `project.display_unit`) arrives with the answer's `document` and is
 		// mirrored there; nothing here parses the file for it.
@@ -11765,17 +12252,50 @@ export async function loadProject(jsonData, { silent = false } = {}) {
 				autoSaveTimer = null;
 			}
 			try {
+				let targetId = null;
+				let importedIntoExisting = false;
+				if (parsed) {
+					const fileUuid = isUuid(parsed.document?.id) ? parsed.document.id : generateUUID();
+					targetId = fileUuid;
+					try {
+						const { getActiveProvider } = await import('$lib/storage/index.js');
+						const provider = getActiveProvider();
+						const existing = await provider.get(fileUuid);
+						// Ignore read-only share-link caches stored under another key
+						// (`existing.doc.link && existing.doc.id !== fileUuid`): they belong
+						// to `/open`, not the user's own stored documents. When an own
+						// record exists (including an older 8-char-keyed record whose JSON
+						// carries `fileUuid`), address its actual key (`existing.doc.id`)
+						// with `base = null` so saving conflicts until the user explicitly
+						// chooses Replace, Save as a copy, or Reload.
+						const ownExisting =
+							existing && (!existing.doc?.link || existing.doc.id === fileUuid)
+								? existing
+								: null;
+						if (ownExisting) {
+							targetId = ownExisting.doc.id;
+							importedIntoExisting = true;
+						}
+					} catch {
+						// Storage unavailable: keep `targetId = fileUuid`, `base = null`.
+					}
+				}
+				// New document context: its rebuild warnings are "new" again on LoadProject.
+				lastRebuildWarnings = new Set();
 				await sendRebuild({ type: 'LoadProject', data: text });
 				// Adopt the opened file's tab structure (the engine only holds
 				// the active tab's tree) under the file's OWN identity as the
 				// storage key (v4 P2-5): a different document can never
 				// overwrite the previously open storage record
 				// (docs/FILE_FORMAT.md §14.4), and re-opening an export of a
-				// stored document re-homes to that same record. A legacy file
-				// without an identity gets a fresh one.
-				if (parsed) {
-					const fileId = isUuid(parsed.document?.id) ? parsed.document.id : generateUUID();
-					initDocumentState(fileId, parsed);
+				// stored document targets that same record without silently
+				// overwriting a newer stored version. A legacy file without an
+				// identity gets a fresh one.
+				if (parsed && targetId) {
+					initDocumentState(targetId, parsed, null, null, null);
+					if (importedIntoExisting) {
+						importedExistingTargetId = targetId;
+					}
 				}
 				// Project name from filename (wins over the stored doc name).
 				const nameWithoutExt = file.name.replace(/\.(waffle|json)$/i, '');

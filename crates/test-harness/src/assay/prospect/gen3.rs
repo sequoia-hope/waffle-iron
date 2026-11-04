@@ -417,6 +417,42 @@ fn draw_plane(rng: &mut Rng, aabb: &([f64; 3], [f64; 3])) -> Plane {
 /// as it goes (the kernel decides the envelope); the returned recipe is
 /// self-contained for [`build`].
 pub fn generate(seed: u64, index: u64) -> Recipe {
+    generate_internal(seed, index, false, |_| {}).0
+}
+
+/// Draw AND finish building one candidate in a SINGLE incremental pass (seed-6
+/// H2): steps `0..n-1` are already applied to `builder` while sampling
+/// `live_aabb` for subsequent steps, so applying the final drawn step `n-1` on
+/// that same `builder` avoids rebuilding `0..n-1` from scratch in [`build`].
+///
+/// `on_step_drawn` is invoked with the recipe-so-far immediately after each
+/// step is drawn (before the kernel executes it), allowing the caller to flush
+/// `<id>.lineage.json` to disk before a slow step can hit the CPU budget.
+pub fn generate_and_build_with<F>(
+    seed: u64,
+    index: u64,
+    on_step_drawn: F,
+) -> (Recipe, ModelBuilder, BuildReport)
+where
+    F: FnMut(&Recipe),
+{
+    generate_internal(seed, index, true, on_step_drawn)
+}
+
+/// Convenience wrapper for [`generate_and_build_with`] without a step hook.
+pub fn generate_and_build(seed: u64, index: u64) -> (Recipe, ModelBuilder, BuildReport) {
+    generate_and_build_with(seed, index, |_| {})
+}
+
+fn generate_internal<F>(
+    seed: u64,
+    index: u64,
+    finish_last_step: bool,
+    mut on_step_drawn: F,
+) -> (Recipe, ModelBuilder, BuildReport)
+where
+    F: FnMut(&Recipe),
+{
     let mut rng = Rng::new(seed ^ index.wrapping_mul(0xD6E8_FEB8_6659_FD93));
     let scale = rng.log_range(1e-4, 1e3);
     let n_steps = 2 + rng.below(7) as usize; // 2..=8
@@ -455,14 +491,23 @@ pub fn generate(seed: u64, index: u64) -> Recipe {
         snapped: None,
         snap_note: None,
     });
+    on_step_drawn(&recipe);
 
     let mut builder = ModelBuilder::kernel_v2();
     let mut names = Names::default();
+    let mut report = BuildReport {
+        steps_applied: 0,
+        stopped_by: None,
+    };
     let mut has_standalone = false;
     for k in 1..n_steps {
         // Build what we have so far to learn the envelope.
-        if apply_step(&mut builder, &mut names, &recipe.steps[k - 1], k - 1).is_err() {
-            break;
+        match apply_step(&mut builder, &mut names, &recipe.steps[k - 1], k - 1) {
+            Ok(()) => report.steps_applied += 1,
+            Err(e) => {
+                report.stopped_by = Some(format!("step {}: {e}", k - 1));
+                break;
+            }
         }
         let Some(aabb) = live_aabb(&mut builder, scale) else {
             break;
@@ -523,8 +568,19 @@ pub fn generate(seed: u64, index: u64) -> Recipe {
             snapped: None,
             snap_note: None,
         });
+        on_step_drawn(&recipe);
     }
-    recipe
+
+    if finish_last_step && report.stopped_by.is_none() && report.steps_applied < recipe.steps.len()
+    {
+        let last = recipe.steps.len() - 1;
+        match apply_step(&mut builder, &mut names, &recipe.steps[last], last) {
+            Ok(()) => report.steps_applied += 1,
+            Err(e) => report.stopped_by = Some(format!("step {last}: {e}")),
+        }
+    }
+
+    (recipe, builder, report)
 }
 
 fn envelope_extent(aabb: &([f64; 3], [f64; 3])) -> f64 {
@@ -786,6 +842,37 @@ mod tests {
         assert!(rep.steps_applied >= 1, "{rep:?}");
         let doc = b.save().unwrap();
         assert!(doc.contains("\"Extrude\"") || doc.contains("\"Revolve\""));
+    }
+
+    #[test]
+    fn generate_and_build_matches_separate_generate_and_build() {
+        for index in [0u64, 1, 3] {
+            let mut hook_lengths = Vec::new();
+            let (fused_recipe, fused_builder, fused_report) =
+                generate_and_build_with(1, index, |r| hook_lengths.push(r.steps.len()));
+            let sep_recipe = generate(1, index);
+            assert_eq!(fused_recipe, sep_recipe, "index {index}");
+            assert_eq!(
+                hook_lengths,
+                (1..=fused_recipe.steps.len()).collect::<Vec<_>>(),
+                "index {index}: hook fires once per drawn step"
+            );
+            let (sep_builder, sep_report) = build(&sep_recipe);
+            assert_eq!(fused_report.steps_applied, sep_report.steps_applied);
+            assert_eq!(
+                fused_report.stopped_by.is_some(),
+                sep_report.stopped_by.is_some()
+            );
+            assert_eq!(
+                fused_builder.live_solid_handles().len(),
+                sep_builder.live_solid_handles().len()
+            );
+            assert_eq!(
+                crate::assay::geometry_hash::live_geometry_hash(&fused_builder),
+                crate::assay::geometry_hash::live_geometry_hash(&sep_builder),
+                "index {index}: fused generate_and_build must emit bit-exact geometry"
+            );
+        }
     }
 
     #[test]

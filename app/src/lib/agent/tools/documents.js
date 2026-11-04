@@ -138,12 +138,21 @@ export const documentNewTool = {
 	annotations: { title: 'New document', readOnlyHint: false, destructiveHint: false, openWorldHint: false }
 };
 
+const replaceExisting = {
+	type: 'boolean',
+	default: false,
+	description:
+		'Replace an existing stored document with the same document.id in the active storage provider. ' +
+		'The user is still asked to confirm in the page; declining returns UserDeclined.'
+};
+
 export const documentImportTool = {
 	name: 'document_import',
 	description:
 		'Load a .waffle file\'s text as a document, as opening a file from the Home screen\'s picker does: the ' +
-		'document keeps its own identity (a record with that id in the active storage provider is replaced), is ' +
-		'stored there, named after the file unless name is given, and opened. Refused with UnsavedChanges while ' +
+		'document keeps its own identity, is stored in the active storage provider, named after the file unless ' +
+		'name is given, and opened. If a stored document with that id already exists, refuses with SaveFailed ' +
+		'unless replace: true (which asks the user to confirm in the page). Refused with UnsavedChanges while ' +
 		'the current document has changes waiting for autosave (call document_save first).',
 	inputSchema: {
 		type: 'object',
@@ -151,6 +160,7 @@ export const documentImportTool = {
 			file_name: { type: 'string', minLength: 1, description: 'The file\'s name, e.g. "Pinwheel.waffle"; the document is named after it without the extension.' },
 			text: { type: 'string', minLength: 1, description: 'The .waffle file contents (JSON).' },
 			name: { type: 'string', minLength: 1, description: 'Document name to use instead of the file name.' },
+			replace: replaceExisting,
 			discard_unsaved: discardUnsaved
 		},
 		required: ['file_name', 'text'],

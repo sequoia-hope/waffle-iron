@@ -27,9 +27,16 @@
 		status = 'resolving';
 		busy = true;
 		try {
-			const { id, json, link } = await openFromLocator(locator);
+			const { id, json, link, rev } = await openFromLocator(locator);
 			sessionStorage.setItem('waffle-active-doc', id);
 			sessionStorage.setItem('waffle-active-json', json);
+			if (rev) {
+				sessionStorage.setItem('waffle-active-rev', rev);
+				sessionStorage.setItem('waffle-active-rev-provider', 'local');
+			} else {
+				sessionStorage.removeItem('waffle-active-rev');
+				sessionStorage.removeItem('waffle-active-rev-provider');
+			}
 			sessionStorage.setItem('waffle-active-link', JSON.stringify(link));
 			goto(`${base}/`, { replaceState: true });
 		} catch (err) {

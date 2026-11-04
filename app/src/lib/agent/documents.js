@@ -81,10 +81,11 @@ function confirmLeaving(args) {
  * @param {string} json
  * @param {any} link
  * @param {string} provider
+ * @param {string | null} [rev]
  */
-async function open(storageId, json, link, provider) {
+async function open(storageId, json, link, provider, rev = null) {
 	try {
-		await openDocumentRecord(storageId, json, link);
+		await openDocumentRecord(storageId, json, link, rev, provider);
 	} catch (err) {
 		throw fail('StorageFailed', `The document did not load: ${reasonOf(err)}`, { provider, reason: reasonOf(err) });
 	}
@@ -122,15 +123,16 @@ export const DOCUMENT_QUERIES = {
 export const DOCUMENT_COMMANDS = {
 	async document_open(args) {
 		const store = providerFor(args.provider);
-		let doc = null;
+		let found = null;
 		try {
-			doc = await store.get(args.id);
+			found = await store.get(args.id);
 		} catch (err) {
 			throw fail('StorageFailed', `Reading ${store.label} failed: ${reasonOf(err)}`, { provider: store.id, reason: reasonOf(err) });
 		}
-		if (!doc) throw fail('DocumentNotFound', `No document "${args.id}" in ${store.label}.`, { provider: store.id, id: args.id });
+		if (!found) throw fail('DocumentNotFound', `No document "${args.id}" in ${store.label}.`, { provider: store.id, id: args.id });
 		confirmLeaving(args);
-		await open(doc.id, doc.json, doc.link ?? null, store.id);
+		const { doc, rev } = found;
+		await open(doc.id, doc.json, doc.link ?? null, store.id, rev);
 		return toolOk(documentInfo());
 	},
 
@@ -138,15 +140,22 @@ export const DOCUMENT_COMMANDS = {
 		confirmLeaving(args);
 		const store = getActiveProvider();
 		const record = newDocumentRecord({ name: args.name ?? 'Untitled' });
+		let putRes;
 		try {
-			await store.put(record);
+			putRes = await store.put(record, { base: null });
 		} catch (err) {
 			throw fail('SaveFailed', `Creating the document in ${store.label} failed: ${reasonOf(err)}`, {
 				provider: store.id,
 				reason: reasonOf(err)
 			});
 		}
-		await open(record.id, record.json, null, store.id);
+		if ('conflict' in putRes) {
+			throw fail('SaveFailed', `Creating the document in ${store.label} conflicted with revision ${putRes.conflict.theirs_rev}`, {
+				provider: store.id,
+				theirs_rev: putRes.conflict.theirs_rev
+			});
+		}
+		await open(record.id, record.json, null, store.id, putRes.rev);
 		return toolOk(documentInfo());
 	},
 
@@ -171,20 +180,80 @@ export const DOCUMENT_COMMANDS = {
 		confirmLeaving(args);
 		const store = getActiveProvider();
 		// The file's own identity is the storage key (v4 P2-5, the picker's
-		// rule): re-importing an export of a stored document re-homes to that
-		// record; a legacy file without one gets a fresh identity.
-		const id = isUuid(parsed?.document?.id) ? parsed.document.id : newUuid();
+		// rule): re-importing an export of a stored document targets that
+		// record (including an older 8-char-keyed record carrying `fileUuid`),
+		// ignoring `/open` read-only link caches stored under another key.
+		// A legacy file without an identity gets a fresh one.
+		const hasFileUuid = isUuid(parsed?.document?.id);
+		const fileUuid = hasFileUuid ? parsed.document.id : newUuid();
 		const now = Date.now();
-		const created = Date.parse(parsed?.document?.created ?? '') || now;
+		let existing = null;
+		if (hasFileUuid) {
+			try {
+				existing = await store.get(fileUuid);
+			} catch (err) {
+				throw fail('SaveFailed', `Reading ${store.label} failed: ${reasonOf(err)}`, {
+					provider: store.id,
+					reason: reasonOf(err)
+				});
+			}
+		}
+		const ownExisting =
+			existing && (!existing.doc?.link || existing.doc.id === fileUuid) ? existing : null;
+		const id = ownExisting ? ownExisting.doc.id : fileUuid;
+		let base = null;
+		if (ownExisting) {
+			if (!args.replace) {
+				throw fail(
+					'SaveFailed',
+					`A document with id "${id}" already exists in ${store.label} (revision ${ownExisting.rev}). Pass replace: true to ask the user to replace it.`,
+					{
+						provider: store.id,
+						id,
+						theirs_rev: ownExisting.rev
+					}
+				);
+			}
+			let existingName = id;
+			try {
+				const existingParsed = JSON.parse(ownExisting.doc.json);
+				existingName =
+					existingParsed?.document?.name || existingParsed?.project?.name || existingName;
+			} catch {
+				// Fall back to storage id when stored JSON lacks a readable name.
+			}
+			const accepted = window.confirm(
+				`An agent wants to replace the stored document "${existingName}" with imported file "${fileName}". Replace it?`
+			);
+			if (!accepted) {
+				throw fail('UserDeclined', 'The user declined to replace the stored document.', {
+					provider: store.id,
+					id
+				});
+			}
+			base = ownExisting.rev;
+		}
+		const created = ownExisting?.doc?.created ?? (Date.parse(parsed?.document?.created ?? '') || now);
+		let putRes;
 		try {
-			await store.put({ id, json: args.text, created, modified: now });
+			putRes = await store.put(
+				{ id, json: args.text, created, modified: now, link: null },
+				{ base }
+			);
 		} catch (err) {
 			throw fail('SaveFailed', `Storing the document in ${store.label} failed: ${reasonOf(err)}`, {
 				provider: store.id,
 				reason: reasonOf(err)
 			});
 		}
-		await open(id, args.text, null, store.id);
+		if ('conflict' in putRes) {
+			throw fail('SaveFailed', `Storing the document in ${store.label} conflicted with revision ${putRes.conflict.theirs_rev}`, {
+				provider: store.id,
+				id,
+				theirs_rev: putRes.conflict.theirs_rev
+			});
+		}
+		await open(id, args.text, null, store.id, putRes.rev);
 		// The file name wins over the stored name, as it does in the picker.
 		const name = args.name ?? fileName.replace(/\.(waffle|json)$/i, '');
 		if (name && name !== getDocumentInfo().name) {
@@ -216,6 +285,13 @@ export const DOCUMENT_COMMANDS = {
 				);
 			}
 			const provider = getActiveProvider().id;
+			if (err?.conflict) {
+				throw fail('SaveFailed', `Saving failed due to a revision conflict: ${reasonOf(err)}`, {
+					provider,
+					theirs_rev: err.conflict.theirs_rev ?? null,
+					reason: reasonOf(err)
+				});
+			}
 			throw fail('SaveFailed', `Saving failed: ${reasonOf(err)}`, { provider, reason: reasonOf(err) });
 		}
 	}

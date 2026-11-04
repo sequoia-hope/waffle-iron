@@ -12,6 +12,8 @@
 	let loading = $state(true);
 	/** Last share link produced (shown briefly; also copied to the clipboard). */
 	let shareNotice = $state('');
+	/** Shown when a rename on the home page conflicts with another tab's write. */
+	let conflictNotice = $state('');
 	let canShare = $derived.by(() => { void documents; return !!getActiveProvider()?.canShare; });
 
 	async function handleShare(doc) {
@@ -27,10 +29,28 @@
 		setTimeout(() => { if (shareNotice === url) shareNotice = ''; }, 8000);
 	}
 
-	onMount(async () => {
-		// Migrate legacy localStorage autosave (always to local provider)
-		await migrateLocalStorage(getStore());
-		await refreshDocuments();
+	/** @type {(() => void) | null} */
+	let unwatchProvider = null;
+
+	function installProviderWatch() {
+		unwatchProvider?.();
+		unwatchProvider =
+			getActiveProvider()?.watch?.(() => {
+				refreshDocuments();
+			}) ?? null;
+	}
+
+	onMount(() => {
+		installProviderWatch();
+		(async () => {
+			// Migrate legacy localStorage autosave (always to local provider)
+			await migrateLocalStorage(getStore());
+			await refreshDocuments();
+		})();
+		return () => {
+			unwatchProvider?.();
+			unwatchProvider = null;
+		};
 	});
 
 	async function refreshDocuments() {
@@ -48,7 +68,11 @@
 	async function handleNewDocument() {
 		const provider = getActiveProvider();
 		const doc = newDocumentRecord();
-		await provider.put(doc);
+		const res = await provider.put(doc, { base: null });
+		if ('conflict' in res) {
+			await refreshDocuments();
+			return;
+		}
 		goto(`${base}/doc/${doc.id}`);
 	}
 
@@ -58,8 +82,8 @@
 
 	async function handleRename(doc, newName) {
 		const provider = getActiveProvider();
-		const stored = await provider.get(doc.id);
-		if (!stored) return;
+		const found = await provider.get(doc.id);
+		if (!found) return;
 		try {
 			// A TARGETED edit of the metadata object, not a parse/stringify of
 			// the whole file: a stored document carries persistent entity ids,
@@ -68,14 +92,24 @@
 			// (`editDocumentMeta`, `waffle_types::pid_str`). Renaming a
 			// document used to silently unanchor every drawing dimension and
 			// entity name in it.
-			stored.json = editDocumentMeta(stored.json, (meta) => {
-				meta.name = newName;
-			});
-			stored.modified = Date.now();
-			await provider.put(stored);
+			const updated = {
+				...found.doc,
+				json: editDocumentMeta(found.doc.json, (meta) => {
+					meta.name = newName;
+				}),
+				modified: Date.now()
+			};
+			const res = await provider.put(updated, { base: found.rev });
+			if ('conflict' in res) {
+				console.warn(`Rename of ${doc.id} conflicted with revision ${res.conflict.theirs_rev}`);
+				conflictNotice = `Could not rename “${doc.name || 'Untitled'}” because it was modified in another tab or window. Showing the latest stored version.`;
+			} else {
+				conflictNotice = '';
+			}
 			documents = await provider.list();
 		} catch (err) {
 			console.warn('Failed to rename document:', err);
+			conflictNotice = `Failed to rename “${doc.name || 'Untitled'}”: ${err?.message || err}`;
 		}
 	}
 
@@ -85,9 +119,9 @@
 	 * it first. Also the way to get a document out that no longer opens.
 	 */
 	async function handleExport(doc) {
-		const stored = await getActiveProvider().get(doc.id);
-		if (!stored?.json) return;
-		const blob = new Blob([stored.json], { type: 'application/json' });
+		const found = await getActiveProvider().get(doc.id);
+		if (!found?.doc?.json) return;
+		const blob = new Blob([found.doc.json], { type: 'application/json' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
@@ -106,6 +140,7 @@
 	}
 
 	function handleProviderChange() {
+		installProviderWatch();
 		refreshDocuments();
 	}
 </script>
@@ -114,6 +149,19 @@
 	<HomeHeader oncreate={handleNewDocument} onproviderchange={handleProviderChange} />
 	{#if shareNotice}
 		<p class="share-notice" data-testid="share-notice">Share link copied: <code>{shareNotice}</code></p>
+	{/if}
+	{#if conflictNotice}
+		<div class="conflict-notice" data-testid="home-conflict-notice" role="alert">
+			<span>{conflictNotice}</span>
+			<button
+				type="button"
+				class="conflict-notice-dismiss"
+				data-testid="home-conflict-notice-dismiss"
+				onclick={() => { conflictNotice = ''; }}
+			>
+				Dismiss
+			</button>
+		</div>
 	{/if}
 
 	{#if loading}
@@ -131,6 +179,35 @@
 		font-size: 12px;
 		color: var(--text-secondary, #a6adc8);
 		word-break: break-all;
+	}
+
+	.conflict-notice {
+		margin: 12px 32px 0;
+		padding: 10px 14px;
+		border-radius: 6px;
+		border: 1px solid var(--error, #f38ba8);
+		background: rgba(243, 139, 168, 0.12);
+		color: var(--text-primary, #cdd6f4);
+		font-size: 13px;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+	}
+
+	.conflict-notice-dismiss {
+		background: transparent;
+		border: 1px solid var(--border-color, #45475a);
+		border-radius: 4px;
+		color: var(--text-primary, #cdd6f4);
+		font-size: 12px;
+		padding: 3px 10px;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+
+	.conflict-notice-dismiss:hover {
+		background: var(--bg-hover, #313244);
 	}
 
 	.home-page {

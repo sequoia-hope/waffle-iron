@@ -6,18 +6,23 @@
 
 import { base } from '$app/paths';
 
-const DEV_BASE = '/api/assay-cases';
+const DEV_BASE = `${base}/api/assay-cases`;
 const STATIC_BASE = `${base}/assay`;
 
 /**
  * Fetch with dev-server-first fallback to static files.
- * @param {string} devPath - Path under /api/assay-cases
- * @param {string} staticPath - Path under /assay/
+ *
+ * A static SPA host answers unknown paths under `${base}/*` with `index.html`
+ * and HTTP 200 (`text/html`), so `devRes.ok` alone would mistake the fallback
+ * shell for assay JSON/waffle text. Require the dev plugin's JSON content-type.
+ * @param {string} devPath - Path under ${base}/api/assay-cases
+ * @param {string} staticPath - Path under ${base}/assay/
  * @returns {Promise<Response>}
  */
 async function fetchWithFallback(devPath, staticPath) {
 	const devRes = await fetch(devPath);
-	if (devRes.ok) return devRes;
+	const contentType = devRes.headers.get('content-type') || '';
+	if (devRes.ok && contentType.includes('application/json')) return devRes;
 	// Dev server not available — try static
 	const staticRes = await fetch(staticPath);
 	return staticRes;

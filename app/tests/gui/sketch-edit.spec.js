@@ -100,7 +100,7 @@ test.describe('sketch edit mode entry', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -117,7 +117,7 @@ test.describe('sketch edit mode entry', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -136,7 +136,7 @@ test.describe('sketch edit mode entry', () => {
 		const beforeId = await waffle.page.evaluate(() => window.__waffle.getEditingSketchFeatureId());
 		expect(beforeId).toBeNull();
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -215,7 +215,7 @@ test.describe('sketch edit save (proxy-clone regression)', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -242,7 +242,7 @@ test.describe('sketch edit save (proxy-clone regression)', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -260,7 +260,7 @@ test.describe('sketch edit save (proxy-clone regression)', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }
@@ -277,7 +277,7 @@ test.describe('sketch edit save (proxy-clone regression)', () => {
 		const tree = await getFeatureTree(waffle.page);
 		const sketchFeatureId = tree.features[0].id;
 
-		await waffle.page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchFeatureId);
+		await waffle.page.evaluate((id) => void window.__waffle.enterSketchEditMode(id), sketchFeatureId);
 		await waffle.page.waitForFunction(
 			() => window.__waffle?.getState()?.sketchMode?.active === true,
 			{ timeout: 5000 }

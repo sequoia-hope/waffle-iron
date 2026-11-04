@@ -8,7 +8,7 @@
  * new button without an icon fails here.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch } from './helpers/toolbar.js';
+import { clickSketch, resizeTo } from './helpers/toolbar.js';
 
 /** Every visible toolbar button under `root`, with what it shows. */
 async function buttonFaces(page, rootSelector) {
@@ -57,7 +57,7 @@ test.describe('toolbar icons (desktop)', () => {
 	for (const width of [1280, 1920]) {
 		test(`every modeling-mode button shows an icon and a label @${width}`, async ({ waffle }) => {
 			const page = waffle.page;
-			await page.setViewportSize({ width, height: 900 });
+			await resizeTo(page, { width, height: 900 });
 			await expect(page.getByTestId('toolbar')).toBeVisible();
 			expectIconAndLabel(await buttonFaces(page, '[data-testid="toolbar"]'), `part @${width}`);
 
@@ -71,7 +71,7 @@ test.describe('toolbar icons (desktop)', () => {
 
 		test(`every sketch-mode button and constraint shows an icon @${width}`, async ({ waffle }) => {
 			const page = waffle.page;
-			await page.setViewportSize({ width, height: 900 });
+			await resizeTo(page, { width, height: 900 });
 			await clickSketch(page);
 			expectIconAndLabel(await buttonFaces(page, '[data-testid="toolbar"]'), `sketch @${width}`);
 
@@ -88,7 +88,7 @@ test.describe('toolbar icons (desktop)', () => {
 
 	test('every drawing-tab button shows an icon and a label', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.setViewportSize({ width: 1920, height: 900 });
+		await resizeTo(page, { width: 1920, height: 900 });
 		const drawingTab = await page.evaluate(() => window.__waffle.addTab('Drawing'));
 		expect(drawingTab, 'the engine added a Drawing tab').toBeTruthy();
 		await page.evaluate((id) => window.__waffle.switchTab(id), drawingTab);
@@ -105,7 +105,7 @@ test.describe('toolbar icons (desktop)', () => {
 
 	test('the ⋮ menu items carry icons, and view toggles report their state', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.setViewportSize({ width: 1100, height: 900 });
+		await resizeTo(page, { width: 1100, height: 900 });
 		await page.getByTestId('toolbar-btn-overflow').click();
 		const menu = page.getByTestId('toolbar-overflow-menu');
 		await expect(menu).toBeVisible();
@@ -121,7 +121,7 @@ test.describe('toolbar icons (desktop)', () => {
 
 	test('fillet, chamfer and shell look disabled and say so', async ({ waffle }) => {
 		const page = waffle.page;
-		await page.setViewportSize({ width: 3200, height: 900 });
+		await resizeTo(page, { width: 3200, height: 900 });
 		for (const id of ['fillet', 'chamfer', 'shell']) {
 			const btn = page.getByTestId(`toolbar-btn-${id}`);
 			await expect(btn).toBeVisible();

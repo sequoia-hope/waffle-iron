@@ -515,7 +515,7 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
         patch,
         d_eps,
         excluded_interiors,
-        ChartMetric::Parametric,
+        ChartMetric::Isometric,
     )
 }
 
@@ -524,9 +524,10 @@ type BoundedCdtOutput = (Vec<[u32; 3]>, Vec<Point3>, Vec<f64>);
 /// Chart metric used for the Delaunay criterion in
 /// [`rebuild_patch_planar_bounded_with_metric`].
 ///
-/// * [`ChartMetric::Parametric`]: current production behaviour — Delaunay in the
-///   raw unwrapped `(θ, y)` chart (`SurfaceChart::project`).
-/// * [`ChartMetric::Isometric`]: N106 D3 gated-off primitive — Delaunay in the
+/// * [`ChartMetric::Parametric`]: Delaunay in the raw unwrapped `(θ, y)` chart
+///   (`SurfaceChart::project`) — production until 2026-11-03, kept for the
+///   pins that compare the two charts.
+/// * [`ChartMetric::Isometric`]: PRODUCTION since 2026-11-03 (N106) — Delaunay in the
 ///   intrinsic isometric chart: `(r·θ, y)` on a cylinder of radius `r`, and the
 ///   developed (unrolled) circular-sector chart `(s·sin φ, s·cos φ − s_0)` with
 ///   `s = z·sec α`, `φ = (θ − θ_0)·sin α` on a cone of half-angle `α`
@@ -552,7 +553,6 @@ pub(crate) enum ChartMetric {
 ///   (`dX² + dY² = sec²α dz² + z² tan²α dθ²`, Jacobian `+s · tan α > 0` for
 ///   `z > 0`, orientation-preserving, cancellation-free near `φ = 0`).
 /// * `Plane` / `Torus`: unchanged (`Plane` is already Euclidean orthonormal).
-#[allow(dead_code)]
 pub(crate) fn isometric_cdt_pool(chart: &SurfaceChart, pool: &[Point2]) -> Vec<Point2> {
     match *chart {
         SurfaceChart::Cylinder { radius, .. } => pool
@@ -596,7 +596,7 @@ pub(crate) fn isometric_cdt_pool(chart: &SurfaceChart, pool: &[Point2]) -> Vec<P
 }
 
 /// [`rebuild_patch_planar`] with an explicit [`ChartMetric`] for the CDT's
-/// Delaunay criterion (N106 D3 gated-off primitive; not wired into production).
+/// Delaunay criterion — the pins compare the two charts through it.
 #[allow(dead_code)]
 pub(crate) fn rebuild_patch_planar_with_metric(
     mesh: &Mesh,
@@ -615,12 +615,14 @@ pub(crate) fn rebuild_patch_planar_with_metric(
 }
 
 /// [`rebuild_patch_planar_bounded_ex`] parameterized by [`ChartMetric`].
-/// Production callers pass [`ChartMetric::Parametric`] via
-/// [`rebuild_patch_planar_bounded_ex`]; [`ChartMetric::Isometric`] runs the
-/// CDT's Delaunay criterion in `(r·θ, y)` on cylinders and in the developed
-/// circular-sector chart on cones without changing patch boundaries,
-/// constraints, 3D lifting, or `stage4_dt::d_of_t` certification.
-#[allow(dead_code)]
+/// Production passes [`ChartMetric::Isometric`] through
+/// [`rebuild_patch_planar_bounded_ex`]: the CDT's Delaunay criterion runs in
+/// `(r·θ, y)` on cylinders and in the developed circular-sector chart on cones
+/// without changing patch boundaries, constraints, 3D lifting, or
+/// `stage4_dt::d_of_t` certification. The `(θ, y)` chart builds
+/// circumferential slivers whose covering rectangle (Fig. 6) charges a
+/// diagonal sliver its full width — the first of the two pieces the 2026-10-31
+/// N106 trial needed before the d(T) refusal can go.
 pub(crate) fn rebuild_patch_planar_bounded_with_metric(
     mesh: &Mesh,
     patch_index: usize,

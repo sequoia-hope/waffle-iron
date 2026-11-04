@@ -9,10 +9,12 @@
 
 	onMount(async () => {
 		const store = getStore();
-		const doc = await store.get(id);
-		if (doc) {
-			sessionStorage.setItem('waffle-active-doc', doc.id);
-			sessionStorage.setItem('waffle-active-json', doc.json);
+		const found = await store.get(id);
+		if (found) {
+			sessionStorage.setItem('waffle-active-doc', found.doc.id);
+			sessionStorage.setItem('waffle-active-json', found.doc.json);
+			sessionStorage.setItem('waffle-active-rev', found.rev);
+			sessionStorage.setItem('waffle-active-rev-provider', store.id);
 		}
 		goto(`${base}/`, { replaceState: true });
 	});

@@ -287,27 +287,68 @@ pub fn evaluate_composition(
     let Some(out) = output_scan(waffle, tol) else {
         return CompositionVerdict::NotCovered("output build failed");
     };
+    evaluate_composed_scans(id, &scans, &out, grid)
+}
+
+/// Compare the set union of pre-built operand scans against the output scan at
+/// resolution `grid`. Separated from [`evaluate_composition`] so unit tests can
+/// exercise the composition band on synthetic meshes without invoking the kernel.
+pub fn evaluate_composed_scans(
+    id: &str,
+    scans: &[SolidScan],
+    out: &SolidScan,
+    grid: usize,
+) -> CompositionVerdict {
     let refs: Vec<&SolidScan> = scans.iter().collect();
     let cuts = vec![false; refs.len()];
+    let operand_vols: Vec<_> = scans.iter().map(|s| scan_volume(s, grid)).collect();
+    let max_operand_residual = operand_vols
+        .iter()
+        .map(|v| v.residual)
+        .fold(0.0_f64, f64::max);
     let expected = composed_volume(&refs, &cuts, grid);
-    let actual = scan_volume(&out, grid);
+    let actual = scan_volume(out, grid);
 
     let denom = expected.volume.abs().max(actual.volume.abs()).max(1e-300);
     let rel = (expected.volume - actual.volume).abs() / denom;
     // The band is MEASURED, never chosen: both sides' own grid residuals,
     // relative, plus a small floor for f32 render-vertex quantisation.
-    let band = ((expected.residual + actual.residual) / denom) * 4.0 + 1e-5;
+    //
+    // `composed_volume`'s single scalar `|V(2n) - V(n)|` can under-report a
+    // non-cancelling discretisation bias in `V(2n)` when step-wall aliasing on
+    // the union XY bbox happens to align between `n` and `2n` (`X00000006-00100`:
+    // `|V(128) - V(64)| = 8.82e-2` while `|V(256) - V(128)| = 1.24` and operand 0
+    // `star6`'s own residual is `4.09e-1`), while boolean intersection on curved
+    // operands breaks exact XY common-mode alignment with `out`.
+    //
+    // Conversely, summing operand residuals grows linearly with overlapping
+    // operands, `max_k resid_k` alone still imports curved boundaries buried
+    // inside another operand (`iv_union`), and `|V(4n) - V(2n)|` alone imports
+    // common-mode XY step cliffs of axis-aligned boxes (`C0089`, where each
+    // operand's own residual is zero and `V_comp(2n) == V_out(2n)`). Taking
+    // `min(|V(4n) - V(2n)|, max_k resid_k)` carries only intrinsic operand
+    // discretisation error that remains exposed on the composed union, without
+    // growing with overlap or loosening buried/common-mode cases.
+    let fine_composed_residual =
+        if max_operand_residual > expected.residual || std::env::var_os("ORACLE_DEBUG").is_some() {
+            composed_volume(&refs, &cuts, 2 * grid).residual
+        } else {
+            0.0
+        };
+    let expected_residual = expected
+        .residual
+        .max(fine_composed_residual.min(max_operand_residual));
+    let band = ((expected_residual + actual.residual) / denom) * 4.0 + 1e-5;
     if std::env::var_os("ORACLE_DEBUG").is_some() {
-        for (k, s) in scans.iter().enumerate() {
-            let v = scan_volume(s, grid);
+        for (k, v) in operand_vols.iter().enumerate() {
             eprintln!(
                 "[oracle] {id} operand {k}: vol={:.6e} resid={:.2e}",
                 v.volume, v.residual
             );
         }
         eprintln!(
-            "[oracle] {id} composed={:.6e} (resid {:.2e})  output={:.6e} (resid {:.2e})",
-            expected.volume, expected.residual, actual.volume, actual.residual
+            "[oracle] {id} composed={:.6e} (resid {:.2e}, resid4n {:.2e}, band_resid {:.2e})  output={:.6e} (resid {:.2e})",
+            expected.volume, expected.residual, fine_composed_residual, expected_residual, actual.volume, actual.residual
         );
     }
     if rel <= band {
@@ -369,4 +410,217 @@ pub fn truncate_ops(waffle: &serde_json::Value, keep_ops: usize) -> Option<serde
         *ai = serde_json::Value::Null;
     }
     Some(doc)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use waffle_types::kernel::RenderMesh;
+
+    /// Extrude a star-shaped 2D profile `(u, v)` around `(0, 0)` from `0` to
+    /// `depth` along `origin + u*ax_u + v*ax_v + w*axis` into a closed,
+    /// outward-oriented `RenderMesh` (where `(ax_u, ax_v, axis)` is right-handed).
+    fn extruded_star_mesh(
+        origin: [f64; 3],
+        ax_u: [f64; 3],
+        ax_v: [f64; 3],
+        axis: [f64; 3],
+        ring_ccw: &[(f64, f64)],
+        depth: f64,
+    ) -> RenderMesh {
+        let map_pt = |u: f64, v: f64, w: f64| -> [f32; 3] {
+            [
+                (origin[0] + u * ax_u[0] + v * ax_v[0] + w * axis[0]) as f32,
+                (origin[1] + u * ax_u[1] + v * ax_v[1] + w * axis[1]) as f32,
+                (origin[2] + u * ax_u[2] + v * ax_v[2] + w * axis[2]) as f32,
+            ]
+        };
+        let m = ring_ccw.len();
+        let mut verts: Vec<[f32; 3]> = Vec::with_capacity(2 * m + 2);
+        let c_bot = 0u32;
+        verts.push(map_pt(0.0, 0.0, 0.0));
+        let c_top = 1u32;
+        verts.push(map_pt(0.0, 0.0, depth));
+        for &(u, v) in ring_ccw {
+            verts.push(map_pt(u, v, 0.0));
+        }
+        for &(u, v) in ring_ccw {
+            verts.push(map_pt(u, v, depth));
+        }
+        let bot = |i: usize| (2 + i) as u32;
+        let top = |i: usize| (2 + m + i) as u32;
+        let mut indices = Vec::with_capacity(12 * m);
+        for i in 0..m {
+            let next = (i + 1) % m;
+            // Bottom cap (outward normal = -axis).
+            indices.extend_from_slice(&[c_bot, bot(next), bot(i)]);
+            // Top cap (outward normal = +axis).
+            indices.extend_from_slice(&[c_top, top(i), top(next)]);
+            // Side quad (outward normal = (dv, -du, 0)).
+            indices.extend_from_slice(&[bot(i), bot(next), top(next), bot(i), top(next), top(i)]);
+        }
+        let mut vertices = Vec::with_capacity(verts.len() * 3);
+        for p in verts {
+            vertices.extend_from_slice(&p);
+        }
+        RenderMesh {
+            vertices,
+            normals: Vec::new(),
+            indices,
+            face_ranges: Vec::new(),
+        }
+    }
+
+    fn concat_meshes(a: &RenderMesh, b: &RenderMesh) -> RenderMesh {
+        let mut out = a.clone();
+        let base = (out.vertices.len() / 3) as u32;
+        out.vertices.extend_from_slice(&b.vertices);
+        out.indices.extend(b.indices.iter().map(|i| i + base));
+        out
+    }
+
+    /// Defect 3 regression (mirrors prospector seed-6 `X00000006-00100`):
+    /// Operand 0 is a sharp 6-pointed star prism extruded along +Y whose own
+    /// grid residual at `grid = 64` is ~0.40, while ~75% of its volume sits
+    /// inside Operand 1 (an oblique cylinder prism) so `composed_volume`'s
+    /// scalar residual `|V(2n) - V(n)|` is masked/cancelled ~5x smaller.
+    /// When boolean intersection refines Operand 1's curved wall along the
+    /// star-cylinder intersection arcs, the output scan shifts by ~0.78 (~3.5e-4
+    /// relative) — well inside Operand 0's measured grid uncertainty, yet
+    /// falsely flagged when the composition band drops operand residuals.
+    #[test]
+    fn composition_band_carries_dominant_operand_residual() {
+        let mut star_ring = Vec::with_capacity(12);
+        for k in 0..12 {
+            let theta = (k as f64) * std::f64::consts::PI / 6.0 + 0.827;
+            let r = if k % 2 == 0 { 8.9027 } else { 1.2353 };
+            star_ring.push((r * theta.cos(), r * theta.sin()));
+        }
+        // Right-handed frame `(ax_u, ax_v, axis) = (+Z, +X, +Y)` extrudes the
+        // XZ star along +Y from y = 0 to y = 9.628.
+        let m_star = extruded_star_mesh(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            &star_ring,
+            9.6282,
+        );
+        let s0 = SolidScan::from_render_mesh(&m_star).expect("star scan");
+        let exact_star_vol = 3.0 * 8.9027 * 1.2353 * 9.6282;
+        let s0_fine = scan_volume(&s0, 256);
+        assert!(
+            (s0_fine.volume - exact_star_vol).abs() < 0.05,
+            "star mesh orientation/volume sanity: got {}, expected {}",
+            s0_fine.volume,
+            exact_star_vol
+        );
+
+        let cyl_mesh = |facets: usize| -> RenderMesh {
+            let n_raw: [f64; 3] = [0.154024644, 0.787970659, 0.596136436];
+            let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+            let axis = [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len];
+            // Orthonormal basis perpendicular to `axis`: ax_u = normalize((1,0,0) x axis),
+            // ax_v = axis x ax_u so (ax_u, ax_v, axis) is right-handed.
+            let ux_raw: [f64; 3] = [0.0, -axis[2], axis[1]];
+            let ux_len = (ux_raw[1] * ux_raw[1] + ux_raw[2] * ux_raw[2]).sqrt();
+            let ax_u = [0.0, ux_raw[1] / ux_len, ux_raw[2] / ux_len];
+            let ax_v = [
+                axis[1] * ax_u[2] - axis[2] * ax_u[1],
+                axis[2] * ax_u[0] - axis[0] * ax_u[2],
+                axis[0] * ax_u[1] - axis[1] * ax_u[0],
+            ];
+            let ring: Vec<(f64, f64)> = (0..facets)
+                .map(|k| {
+                    let t = 2.0 * std::f64::consts::PI * (k as f64) / (facets as f64);
+                    (8.829 * t.cos(), 8.829 * t.sin())
+                })
+                .collect();
+            extruded_star_mesh([-2.8154, -0.7255, 1.9206], ax_u, ax_v, axis, &ring, 8.7060)
+        };
+
+        let m_cyl_isolated = cyl_mesh(72);
+        let s1 = SolidScan::from_render_mesh(&m_cyl_isolated).expect("cyl scan");
+
+        // Verify the exact failure precondition: operand 0's own residual
+        // dominates `composed_volume`'s masked/cancelled scalar residual.
+        let op0_v = scan_volume(&s0, 64);
+        let comp_v = composed_volume(&[&s0, &s1], &[false, false], 64);
+        assert!(
+            op0_v.residual > 3.0 * comp_v.residual,
+            "precondition: operand 0 residual ({:.3e}) must dominate composed residual ({:.3e})",
+            op0_v.residual,
+            comp_v.residual
+        );
+
+        // Output mesh represents the exact same union where boolean splitting
+        // inserted additional on-surface vertices along the cylinder rim.
+        let m_out = concat_meshes(&m_star, &cyl_mesh(96));
+        let out = SolidScan::from_render_mesh(&m_out).expect("out scan");
+        let s0_dup1 = SolidScan::from_render_mesh(&m_star).expect("star dup1");
+        let s0_dup2 = SolidScan::from_render_mesh(&m_star).expect("star dup2");
+        let s1_dup = SolidScan::from_render_mesh(&m_cyl_isolated).expect("cyl dup");
+        let operands = [s0, s1];
+
+        let pair_band = match evaluate_composed_scans("synth-00100", &operands, &out, 64) {
+            CompositionVerdict::Agree { rel, band } => {
+                assert!(rel <= band, "rel={rel:.3e} <= band={band:.3e}");
+                band
+            }
+            other => panic!("expected Agree once operand residuals are carried, got {other:?}"),
+        };
+
+        // Repeating overlapping operands must NOT inflate the composition band.
+        let overlapped_operands = [
+            SolidScan::from_render_mesh(&m_star).expect("star a"),
+            s0_dup1,
+            s0_dup2,
+            s1_dup,
+        ];
+        match evaluate_composed_scans("synth-overlap-no-sum", &overlapped_operands, &out, 64) {
+            CompositionVerdict::Agree { band, .. } => {
+                assert!(
+                    (band - pair_band).abs() <= 1e-12,
+                    "overlapping operands inflated band: {band:.6e} vs {pair_band:.6e}"
+                );
+            }
+            other => panic!("expected Agree on repeated overlapping operands, got {other:?}"),
+        }
+
+        // Burying a rough curved/star operand completely inside a larger outer
+        // axis-aligned box must NOT import the buried operand's isolated residual.
+        let box_ring = [(-20.0, -20.0), (20.0, -20.0), (20.0, 20.0), (-20.0, 20.0)];
+        let m_outer_box = extruded_star_mesh(
+            [0.0, 0.0, -20.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            &box_ring,
+            40.0,
+        );
+        let s_outer = SolidScan::from_render_mesh(&m_outer_box).expect("outer box");
+        let s_buried = SolidScan::from_render_mesh(&m_star).expect("buried star");
+        let out_box = SolidScan::from_render_mesh(&m_outer_box).expect("outer box out");
+        match evaluate_composed_scans("synth-buried", &[s_outer, s_buried], &out_box, 64) {
+            CompositionVerdict::Agree { band, .. } => {
+                assert!(
+                    band <= 1.0001e-5,
+                    "buried operand inflated enclosing box band: {band:.6e}"
+                );
+            }
+            other => panic!("expected Agree on enclosing box, got {other:?}"),
+        }
+
+        // Guard the opposite direction: a genuine set-level deficit (dropping
+        // operand 0's protruding spikes so output = cylinder alone, ~3.7% loss)
+        // must still be flagged loudly.
+        let out_dropped = SolidScan::from_render_mesh(&cyl_mesh(96)).expect("dropped scan");
+        assert!(
+            matches!(
+                evaluate_composed_scans("synth-dropped", &operands, &out_dropped, 64),
+                CompositionVerdict::Flag { .. }
+            ),
+            "dropping operand 0's protruding spikes must still Flag"
+        );
+    }
 }

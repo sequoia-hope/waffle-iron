@@ -79,7 +79,7 @@ export function assertWaffleDocument(text) {
  * Open a locator as a linked, read-only local document. Re-opening the same
  * link updates the existing linked record instead of piling up copies.
  * @param {any} locator
- * @returns {Promise<{id: string, json: string, link: DocumentLink}>}
+ * @returns {Promise<{id: string, json: string, link: DocumentLink, rev: string|null, documentName: string|null}>}
  */
 export async function openFromLocator(locator) {
 	// Persisted below: a plain object, never a Svelte `$state` proxy (IndexedDB
@@ -90,19 +90,42 @@ export async function openFromLocator(locator) {
 	await cachePut(contentHash, text);
 
 	const local = getStore();
-	const existing = (await local.list()).find((d) => d.link && sameLocator(d.link.locator, locator));
-	const id = existing?.id ?? generateDocId();
+	const existingSummary = (await local.list()).find((d) => d.link && sameLocator(d.link.locator, locator));
+	const existingRecord = existingSummary ? await local.get(existingSummary.id) : null;
+	const id = existingRecord?.doc.id ?? generateDocId();
 	const now = Date.now();
 	const name =
 		locator.type === 'Git' ? locator.path.split('/').pop() : locator.url.split('/').pop() || 'linked';
 	/** @type {DocumentLink} */
 	const link = { locator, resolved, contentHash, readOnly: true, name };
-	await local.put({
-		id,
-		json: text,
-		created: existing?.created ?? now,
-		modified: now,
-		link
-	});
-	return { id, json: text, link, documentName: parsed?.document?.name ?? null };
+	const putRes = await local.put(
+		{
+			id,
+			json: text,
+			created: existingRecord?.doc.created ?? now,
+			modified: now,
+			link
+		},
+		{ base: existingRecord?.rev ?? null }
+	);
+	if ('conflict' in putRes) {
+		const theirs = await local.get(id);
+		if (theirs) {
+			let theirsName = null;
+			try {
+				theirsName = JSON.parse(theirs.doc.json)?.document?.name ?? null;
+			} catch {
+				theirsName = null;
+			}
+			return {
+				id: theirs.doc.id,
+				json: theirs.doc.json,
+				link: theirs.doc.link ?? link,
+				rev: theirs.rev,
+				documentName: theirsName
+			};
+		}
+		return { id, json: text, link, rev: null, documentName: parsed?.document?.name ?? null };
+	}
+	return { id, json: text, link, rev: putRes.rev, documentName: parsed?.document?.name ?? null };
 }

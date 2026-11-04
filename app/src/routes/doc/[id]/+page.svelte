@@ -11,16 +11,24 @@
 		// The active provider first (a document listed on the home page comes
 		// from it), then the local store — the two are different stores.
 		const active = getActiveProvider();
-		let doc = null;
+		let found = null;
+		let foundProviderId = active.id;
 		try {
-			doc = await active.get(id);
+			found = await active.get(id);
 		} catch {
-			doc = null;
+			found = null;
 		}
-		if (!doc && active.id !== 'local') doc = await getStore().get(id);
-		if (doc) {
+		if (!found && active.id !== 'local') {
+			const local = getStore();
+			found = await local.get(id);
+			foundProviderId = local.id;
+		}
+		if (found) {
+			const { doc, rev } = found;
 			sessionStorage.setItem('waffle-active-doc', doc.id);
 			sessionStorage.setItem('waffle-active-json', doc.json);
+			sessionStorage.setItem('waffle-active-rev', rev);
+			sessionStorage.setItem('waffle-active-rev-provider', foundProviderId);
 			// A linked (share-link) record stays read-only when reopened.
 			if (doc.link) sessionStorage.setItem('waffle-active-link', JSON.stringify(doc.link));
 			else sessionStorage.removeItem('waffle-active-link');

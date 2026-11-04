@@ -8259,3 +8259,61 @@ once, landed by the F2 owner:
 Next (F2 owner): wire the bound into the inventoried consumers, switch the
 patch CDT to the isometric chart, then retire the I2d refusal and the arms
 kept behind it (re-measuring the 2026-10-16 volume regressions first).
+
+**Increment 1 (2026-11-03): the patch CDT runs in the isometric chart.** Every
+production patch rebuild goes through `rebuild_patch_planar_bounded_ex`, which
+now passes `ChartMetric::Isometric`: Delaunay in (r·θ, y) on cylinders and the
+developed sector on cones, boundaries, constraints, lifting and the d(T)
+certificate unchanged. Corpus 360C / 0W / 9E / 5EE / 0T held (sequoia, wall
+770 s against 757 s); exactly 12 cases changed geometry (canonical hash, every
+other case bit-identical) and none changed category: P0014 P0017 P0029 P0039
+P0049 R0003 R0004 R0019 R0032 R0044 R0053 R0081. The I2d refusal is still in
+force — increment 2 wires the per-triangle bound into the post-update readers
+(the inventory's B4/B5, A-rows), increment 3 retires I2d / I2e.
+
+**Measured (2026-11-03): what the I2d refusal still holds up.** Trial branch
+with the A1 refusal off (every curved patch CDT accepted, I2e never fires),
+corpus on sequoia: still **0 WRONG**; 135 cases change geometry; **8 CORRECT →
+ERROR**, in three classes — the work list for increment 2, by measurement
+rather than by the inventory:
+1. Stage-3 SSI edge matching `AmbiguousCurve { candidates: 2, matched: 0 }`:
+   F0058, R0046, R0063.
+2. §4.5.2 exhausted on `IllegalIntersection`: C0052, C0054, P0057.
+3. `reassembled output would be non-2-manifold`: C0103, F0060.
+None is attributed yet; each is anchored before a fix.
+
+**F0058 anchored (2026-11-03).** On main all four intersecting patches are I2d
+refusals (`YANG_441_UPDATE_CENSUS=<file>`: `{"ChordDegradation": 4}`,
+`APPLIED patches=0`, no Fig. 11(a) arm): the case reads CORRECT on the
+RELOCATED mesh, the §4.4.1 update never touching it. With the refusal off the
+four patches re-triangulate and the Stage-3 curve build that runs inside the
+update (`compute_phase_a_with_side_labels`) meets an intersection edge running
+from one Steinmetz ellipse to the other across their crossing (`edge (37,58)`:
+`p_s` on one branch, `p_e` on the other, `matched=0`); every refined rerun
+then stops on an edge at the crossing that both ellipses contain. Not chain
+decimation (`YANG_434_DECIMATE_PROBE` silent: it never runs here) and not a
+tolerance. **Anchored (same day, trial probes), first reading RETRACTED:** NOT
+a self-touching cycle (every patch cycle entering the update is simple; the
+crossings are ordinary cycle vertices). A first probe saw the A patch and the
+B patch each add an interior chord (37,58) and I read that as coincident
+chords mistaken for a curve edge — **wrong**: an interior chord has two patch
+triangles and is not on its patch's boundary. Measured at the failing Stage-3
+call itself (same mesh state): edge (37,58) has exactly two mesh triangles, one
+in operand A's patch (face 2) and one in operand B's patch (face 2), and it is
+on BOTH patches' boundary cycles — a genuine A|B seam, running between the two
+Steinmetz branches past the crossing. R0063 shows the identical signature
+((69,77): one A triangle, one B triangle, on both cycles) on every refined
+rerun. **Mechanism (bisected over the Stage-4 passes, same day):** the CDT
+drops no cycle vertex; after the update, A's and B's patch CDTs each close the
+corner at the tangent crossing with the SAME ear triangle (previous curve
+vertex, crossing, next curve vertex — the two operands' patches are bounded by
+the same two curve segments there, and the cylinders are tangent at the
+crossing), opposite winding. `remove_doubled_membranes` (N41, a cleanup-§2
+repair pass) cancels that pair as a fin: F0058's natural run 228 → 180
+triangles, every triangle at both crossings removed (`(45, 4) → (45, 0)`), the
+crossings orphaned, and the A|B seam (37,58) left joining the two branches;
+each refined rerun likewise (348 → 316). Under I2d both CDTs are refused, so no
+ear is ever made. **Owner:** the tangent crossing is not an ordinary cycle
+corner — §4.3 tangency (F4) / the update's corner handling, not the membrane
+pass, which only exposes it; recorded as a customer of both, no fix yet.
+R0046 differs and is not yet anchored.
