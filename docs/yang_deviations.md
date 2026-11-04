@@ -8271,19 +8271,16 @@ P0049 R0003 R0004 R0019 R0032 R0044 R0053 R0081. The I2d refusal is still in
 force — increment 2 wires the per-triangle bound into the post-update readers
 (the inventory's B4/B5, A-rows), increment 3 retires I2d / I2e.
 
-**UNREPRODUCED (2026-11-04) — read the next three paragraphs as observations
-of particular runs, not as established results.** The same trial (the I2d
-refusal off, every curved patch CDT accepted) re-run on 2026-11-04 in a
-separate sequoia worktree (`waffle-iron-trial`, own target dir) gives only the
-baseline nine ERRORs: none of the eight CORRECT → ERROR cases below recurs, and
-F0058 reads CORRECT five times running with and without every probe switch.
-The earlier failing runs (the first trial corpus in the main checkout on
-`c079ee36`; the anchoring probes in the trial worktree on `c740abfd` ..
-`afcfeb48`) were the same source; no rebuild separates the last failing and
-first passing runs. Unexplained — a determinism question for kernel 1.0 gate
-4, to be settled (same binary, same input, both outcomes observed) before any
-increment-2 work rests on these findings. Increment 3 (retiring I2d) may cost
-less than the list below says.
+**Reproducibility, corrected (2026-11-04).** An earlier note here called the
+trial's failures unreproduced; that was wrong. F0058 fails under the trial in
+BOTH sequoia checkouts and at both trial commits (`c079ee36`, `afcfeb48`):
+4 / 4 in the main checkout, and in the separate `waffle-iron-trial` worktree
+with `RAYON_NUM_THREADS` 1, 4 and default — the same error each time, so the
+anchoring below stands. The anomaly is a window of about an hour (2026-11-04,
+~02:00–03:00 UTC) in which every run in the trial worktree read CORRECT —
+F0058 five times running and a full corpus with only the baseline ERRORs —
+with no source change on either side of it. Not explained; kept open as a
+build/determinism question for gate 4 (same source, both outcomes observed).
 
 **Measured (2026-11-03): what the I2d refusal still holds up.** Trial branch
 with the A1 refusal off (every curved patch CDT accepted, I2e never fires),
