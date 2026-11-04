@@ -8271,6 +8271,20 @@ P0049 R0003 R0004 R0019 R0032 R0044 R0053 R0081. The I2d refusal is still in
 force — increment 2 wires the per-triangle bound into the post-update readers
 (the inventory's B4/B5, A-rows), increment 3 retires I2d / I2e.
 
+**UNREPRODUCED (2026-11-04) — read the next three paragraphs as observations
+of particular runs, not as established results.** The same trial (the I2d
+refusal off, every curved patch CDT accepted) re-run on 2026-11-04 in a
+separate sequoia worktree (`waffle-iron-trial`, own target dir) gives only the
+baseline nine ERRORs: none of the eight CORRECT → ERROR cases below recurs, and
+F0058 reads CORRECT five times running with and without every probe switch.
+The earlier failing runs (the first trial corpus in the main checkout on
+`c079ee36`; the anchoring probes in the trial worktree on `c740abfd` ..
+`afcfeb48`) were the same source; no rebuild separates the last failing and
+first passing runs. Unexplained — a determinism question for kernel 1.0 gate
+4, to be settled (same binary, same input, both outcomes observed) before any
+increment-2 work rests on these findings. Increment 3 (retiring I2d) may cost
+less than the list below says.
+
 **Measured (2026-11-03): what the I2d refusal still holds up.** Trial branch
 with the A1 refusal off (every curved patch CDT accepted, I2e never fires),
 corpus on sequoia: still **0 WRONG**; 135 cases change geometry; **8 CORRECT →
