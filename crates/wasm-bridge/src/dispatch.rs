@@ -910,7 +910,12 @@ fn handle_message(
                 tab_id: source_tab,
                 bodies,
             };
+            // Taking the engines stashes the open views, and stashing closes
+            // the open drawing; a probe is a query, so the drawing it read
+            // stays the open one (the next model update reports it).
+            let open = state.drawing.take();
             let mut reuse = state.take_part_engines();
+            state.drawing = open;
             let probed = crate::drawing_view::probe_views(
                 &drawing,
                 sheet_id,

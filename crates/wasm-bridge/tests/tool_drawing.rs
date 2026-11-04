@@ -2725,6 +2725,45 @@ fn the_probe_answers_the_placement_an_add_would_use_and_adds_nothing() {
 }
 
 #[test]
+fn a_probe_leaves_the_open_drawing_open_for_the_next_model_update() {
+    // The projected-view tool probes on every hover, and the page's autosave
+    // answers with a model update a few seconds later. The probe is a query:
+    // the drawing it read must still be the open one when that update is
+    // built, or the sheet unmounts under the cursor (CI run 41766954996).
+    let (mut state, mut kernel, part_tab, drawing_tab) = box_and_drawing();
+    let front = ok(
+        &mut state,
+        &mut kernel,
+        "drawing_view_add",
+        json!({ "tab_id": part_tab, "view": "front" }),
+    );
+    let front_id = front["view_id"].as_str().expect("a view id").to_string();
+    let probed = message(
+        &mut state,
+        &mut kernel,
+        json!({
+            "type": "ProbeDrawingView",
+            "tab_id": drawing_tab,
+            "source_tab": part_tab,
+            "projections": [
+                { "type": "ProjectedFrom", "parent": front_id, "direction": { "type": "Right" } },
+            ]
+        }),
+    );
+    assert_eq!(probed["type"], "DrawingViewProbed", "{probed}");
+    let updated = message(
+        &mut state,
+        &mut kernel,
+        json!({ "type": "SetDocumentMeta", "display_unit": "mm" }),
+    );
+    assert_eq!(updated["type"], "ModelUpdated", "{updated}");
+    assert!(
+        !updated["drawing"].is_null(),
+        "the model update after a probe dropped the open drawing: {updated}"
+    );
+}
+
+#[test]
 fn first_angle_flips_what_the_probe_says_a_sector_shows_but_not_where_it_goes() {
     // The projected-view tool reads BOTH out of the probe, so this is the
     // whole of what the first-angle setting does to the tool: the ghost keeps
