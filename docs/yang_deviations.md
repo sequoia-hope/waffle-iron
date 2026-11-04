@@ -8279,8 +8279,18 @@ with `RAYON_NUM_THREADS` 1, 4 and default — the same error each time, so the
 anchoring below stands. The anomaly is a window of about an hour (2026-11-04,
 ~02:00–03:00 UTC) in which every run in the trial worktree read CORRECT —
 F0058 five times running and a full corpus with only the baseline ERRORs —
-with no source change on either side of it. Not explained; kept open as a
-build/determinism question for gate 4 (same source, both outcomes observed).
+with no source change on either side of it. **Explained (2026-11-04): a
+build-cache collision, not kernel nondeterminism.** sequoia's
+`~/.cargo/config.toml` sets one absolute `build-dir` for every workspace, and
+cargo's unit hash for a workspace member is path-independent, so the main
+checkout and `waffle-iron-trial` build the SAME intermediate artifacts
+(`assay_kv2-<hash>`, `yang_rs-<hash>`); freshness is by mtime, so a checkout
+whose sources are older than the other's last build reuses that build.
+Reproduced in two throwaway workspaces with a shared build dir: checkout B
+printed checkout A's string. With `build-dir = ".../{workspace-path-hash}"`
+each prints its own. So in that hour the trial worktree ran main's I2d-on
+binary. Gate 4's determinism is unaffected; a second checkout on sequoia
+needs its own `CARGO_BUILD_BUILD_DIR` (or the template).
 
 **Measured (2026-11-03): what the I2d refusal still holds up.** Trial branch
 with the A1 refusal off (every curved patch CDT accepted, I2e never fires),
