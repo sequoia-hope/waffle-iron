@@ -626,6 +626,30 @@ pub(crate) fn compute_phase_a_with_side_labels(
 
     let curves =
         build_intersection_curves(&incidence, mesh, a, b, edge_provenance).inspect_err(|err| {
+            // TRIAL PROBE (not for landing): who carries the failing edge.
+            if std::env::var_os("TRIAL_CYCLE_PROBE").is_some() {
+                if let YangError::SsiRefinementFailed { edge, .. } = err {
+                    let key = if edge.0 < edge.1 { *edge } else { (edge.1, edge.0) };
+                    for (pi, (patch, info)) in patches.iter().zip(infos.iter()).enumerate() {
+                        let on_cycle = info.cycles.iter().flatten().any(|&(s, e)| {
+                            (if s < e { (s, e) } else { (e, s) }) == key
+                        });
+                        let n_tris_on_edge = patch.tri_indices.iter().filter(|&&t| {
+                            let tr = mesh.tris[t as usize];
+                            tr.contains(&key.0) && tr.contains(&key.1)
+                        }).count();
+                        if on_cycle || n_tris_on_edge > 0 {
+                            eprintln!(
+                                "[trial-incid] edge {key:?}: patch {pi} input {:?} face {} tris {} on_cycle={on_cycle} tris_on_edge={n_tris_on_edge} incidence={:?}",
+                                info.input, info.face_idx, patch.tri_indices.len(),
+                                incidence.get(&key).map(|v| v.iter().map(|(i, _)| *i).collect::<Vec<_>>())
+                            );
+                        }
+                    }
+                    let mesh_tris_on_edge = mesh.tris.iter().filter(|tr| tr.contains(&key.0) && tr.contains(&key.1)).count();
+                    eprintln!("[trial-incid] edge {key:?}: mesh triangles on edge = {mesh_tris_on_edge}");
+                }
+            }
             if let YangError::SsiRefinementFailed { edge, .. } = err {
                 crate::boolean::failures::note_ssi_failure(
                     mesh,
