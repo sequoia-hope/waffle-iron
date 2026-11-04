@@ -9,6 +9,7 @@
 - `f3b92360` — `fix(feature-engine): use TAU_MODEL for non-adjacent same-loop proximity`
 - `1aeff136` — `fix(feature-engine): drop silent MIN_FEATURE_SIZE coincident welding`
 - `a4c1aa1a` — `refactor(feature-engine): share ARC_SAMPLES, COS_FACE_NORMAL_ALIGNMENT, and fnv1a_128`
+- `d7eb422a` — `docs(board-shape): align summary and spec tolerances, cutter span, and interface paths`
 
 **Kernel / audit impact:** Zero changes to `yang-rs`, `kernel-v2`, `cherchi-rs`, or `ssi-rs`. Neither `docs/yang_deviations.md` nor `docs/audits/yang_2025_audit.md` was modified.
 
@@ -183,6 +184,10 @@ Per `AGY_BRIEF_BOARD_SHAPE.md`:
 1. **Coincident tangent / vertex-sharing cutouts or holes:** `evaluate_board_shape` enforces a strict minimum clearance of `TAU_MODEL` (`1e-7 m`) between cutouts, holes, the outer outline, and non-adjacent edges of the same loop (`board_shape.rs:640-706, :1760`; `specs/board_shape_feature.md` §4 rows B17, B20–B24) so the B-Rep solid never develops sub-model-tolerance or non-manifold walls. Edge-biting notches (e.g. card-edge slots or mouse-bites that open through the board perimeter) should be drawn as part of the `Outline` loop itself (verified in `board_with_concave_arc_edge_notch_exact_volume`).
 2. **Keepout overlap policy:** `Keepout` loops are validated for closure, simplicity, and non-degeneracy (rows B11, B12, B17, B25, B26), but are intentionally allowed to extend to or across the board edge and overlap holes/cutouts or other keepouts (e.g. a `Front` height restriction overlapping a `Back` restriction or overhang keepout). When `board-interface` lands, confirm whether its DXF schema imposes any stricter containment rule on keepout layers.
 3. **Downstream coplanar face-on-face boss unions:** As throughout Waffle Iron, a downstream legacy `Extrude` sketched directly on `z = thickness` and swept only `+z` (`[thickness, thickness + d]`) meets the board cap purely face-on-face and hits Yang's Stage-0 coplanar boolean wall unless extruded bidirectionally into the board or combined once Stage-0 coplanar union support lands. `BoardShape` itself avoids Stage-0 coplanar contact internally by sweeping cutout and hole cutters symmetrically over `[-thickness, +2.0 * thickness]` (`origin - thickness * normal`, `depth = 3.0 * thickness`, `board_shape.rs:879-888`).
+
+### 6.3 Consolidation Note for the Upcoming Derive Slice
+
+`crates/feature-engine/src/board_shape.rs` (`2,317` lines) carries its own 2D `{Line, Arc, Circle}` endpoint chaining, curved-loop containment/distance checks, and `Region` construction alongside `kicad_pcb::outline` (`crates/kicad-pcb/src/outline.rs`) / `crates/feature-engine/src/kicad.rs` (`derive_board` `:352`) and the profile/region extraction in `crates/waffle-types/src/profiles.rs` and `crates/waffle-types/src/regions.rs`. When the `board-interface` derive slice lands, it should merge those 2D chaining/containment/region routines into one shared implementation rather than adding a third copy.
 
 ---
 
