@@ -57,6 +57,10 @@ pub struct PartConnector {
     pub feature_id: Uuid,
     /// The feature's name — the connector's name.
     pub name: String,
+    /// Optional stable external/element key (e.g. `waffle:<sketch_id>/<entity_id>`
+    /// for a [`crate::types::Operation::BoardShape`] hole); `None` for an
+    /// explicit `MateConnector` feature.
+    pub key: Option<String>,
     pub frame: Frame,
     /// What the frame was derived from; `None` for an explicit frame.
     pub geometry: Option<ConnectorGeometry>,
@@ -115,6 +119,7 @@ pub fn part_connectors(
             Some(PartConnector {
                 feature_id: f.id,
                 name: f.name.clone(),
+                key: None,
                 frame,
                 geometry,
             })

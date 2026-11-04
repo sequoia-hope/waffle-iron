@@ -7,6 +7,8 @@ use waffle_types::{GeomRef, OutputKey, Sketch};
 use crate::expr::Dimension;
 use crate::names::{NameTable, NamedRef};
 
+pub use crate::board_shape::{BoardEntityRole, BoardShapeError, BoardShapeParams, BoardSide};
+
 /// User-assigned body display names, keyed by a body's persistent identity
 /// (`"{feature_id}/{output_key.tag()}"`). Absent ⇒ the body uses a derived
 /// name (its producing feature's name). Stored on the tree so it persists with
@@ -681,6 +683,13 @@ pub enum Operation {
     UnionAll {
         params: UnionAllParams,
     },
+    /// Authored PCB mechanical definition on a planar sketch
+    /// (`specs/board_shape_feature.md`): outer outline extruded by `thickness`
+    /// minus interior cutouts and circular holes, plus one top-face mate
+    /// connector per hole keyed by `waffle:<sketch_id>/<entity_id>`.
+    BoardShape {
+        params: BoardShapeParams,
+    },
     /// A well-formed `{"type": …}` operation this build does not know — one
     /// from a newer build. Kept verbatim, re-emitted on save, and its rebuild
     /// is a loud `EngineError::UnsupportedOperation`; so adding an operation
@@ -752,6 +761,9 @@ enum KnownOperation {
     UnionAll {
         params: UnionAllParams,
     },
+    BoardShape {
+        params: BoardShapeParams,
+    },
 }
 
 /// The operation `type` tags this build can rebuild.
@@ -774,6 +786,7 @@ pub const OPERATION_TAGS: &[&str] = &[
     "Sweep",
     "Script",
     "UnionAll",
+    "BoardShape",
 ];
 
 impl From<KnownOperation> for Operation {
@@ -797,6 +810,7 @@ impl From<KnownOperation> for Operation {
             KnownOperation::Sweep { params } => Operation::Sweep { params },
             KnownOperation::Script { params } => Operation::Script { params },
             KnownOperation::UnionAll { params } => Operation::UnionAll { params },
+            KnownOperation::BoardShape { params } => Operation::BoardShape { params },
         }
     }
 }
@@ -838,6 +852,7 @@ impl Operation {
             Operation::Sweep { .. } => "Sweep",
             Operation::Script { .. } => "Script",
             Operation::UnionAll { .. } => "UnionAll",
+            Operation::BoardShape { .. } => "BoardShape",
             Operation::Unknown(v) => crate::opaque::type_tag(v),
         }
     }
@@ -2220,6 +2235,10 @@ pub enum EngineError {
     /// generator's typed message, naming the offending value.
     #[error("sketch {sketch_id} has a generator that cannot be expanded: {reason}")]
     SketchGenerator { sketch_id: Uuid, reason: String },
+
+    /// An [`Operation::BoardShape`] feature failed role or contour validation.
+    #[error("board shape error: {0}")]
+    BoardShape(#[from] BoardShapeError),
 }
 
 /// The class of a feature error — the machine-readable half that hosts
@@ -2303,6 +2322,10 @@ pub enum ErrorKind {
     /// names nothing. A host must re-author the name, not retry it.
     NameRefused {
         name: String,
+    },
+    /// A [`BoardShapeParams`] validation refusal (`specs/board_shape_feature.md` §4).
+    BoardShape {
+        error: BoardShapeError,
     },
 }
 
@@ -2409,6 +2432,9 @@ impl From<&EngineError> for ErrorKind {
             | EngineError::InvalidName { name, .. }
             | EngineError::NameNotFound { name } => ErrorKind::NameRefused { name: name.clone() },
             EngineError::SketchGenerator { .. } => ErrorKind::InvalidParameter,
+            EngineError::BoardShape(error) => ErrorKind::BoardShape {
+                error: error.clone(),
+            },
         }
     }
 }

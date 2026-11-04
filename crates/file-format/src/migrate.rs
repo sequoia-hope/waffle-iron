@@ -149,6 +149,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
         Operation::UnionAll { .. } => {
             // Postdates v5; no lengths.
         }
+        Operation::BoardShape { .. } => {
+            // Postdates v5; thickness, clearance, and max_height are meters by definition.
+        }
         Operation::Unknown(_) => {
             // Opaque (v4 Phase 1b): this reader cannot know which of its
             // fields are lengths. Preserved verbatim; its rebuild fails loudly.

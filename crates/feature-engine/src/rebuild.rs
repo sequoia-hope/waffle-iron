@@ -144,6 +144,10 @@ pub struct RebuildState {
     /// live, and it is what a sweep and the renderer read. Carried for a
     /// feature this pass did not re-execute.
     pub sketch3d: HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>,
+    /// Evaluated [`Operation::BoardShape`] features, by feature. Carries both
+    /// the validated 2D loops/holes/keepouts and the hole mate connectors so
+    /// incremental rebuilds keep them when a `BoardShape` node is not re-executed.
+    pub board_shapes: HashMap<Uuid, crate::board_shape::EvaluatedBoardShape>,
 }
 
 /// What the previous rebuild established that a feature this pass does NOT
@@ -154,6 +158,7 @@ pub struct Carried<'a> {
     pub consumed_by: Option<&'a HashMap<Uuid, Vec<Uuid>>>,
     pub script_connectors: Option<&'a HashMap<Uuid, Vec<crate::connector::PartConnector>>>,
     pub sketch3d: Option<&'a HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>>,
+    pub board_shapes: Option<&'a HashMap<Uuid, crate::board_shape::EvaluatedBoardShape>>,
 }
 
 /// What changed since the last rebuild, which decides what a rebuild
@@ -203,6 +208,7 @@ pub fn rebuild(
         pid_to_feature: HashMap::new(),
         script_connectors: HashMap::new(),
         sketch3d: HashMap::new(),
+        board_shapes: HashMap::new(),
     };
 
     let active = tree.active_features();
@@ -266,6 +272,11 @@ pub fn rebuild(
                 // so what the last rebuild established stands.
                 if let Some(ev) = carried.sketch3d.and_then(|m| m.get(&feature.id)) {
                     state.sketch3d.insert(feature.id, ev.clone());
+                }
+            }
+            if matches!(feature.operation, Operation::BoardShape { .. }) {
+                if let Some(ev) = carried.board_shapes.and_then(|m| m.get(&feature.id)) {
+                    state.board_shapes.insert(feature.id, ev.clone());
                 }
             }
             let consumed_ids = if matches!(feature.operation, Operation::Script { .. }) {
@@ -365,6 +376,12 @@ pub fn rebuild(
                 }
                 o.result
             })
+        } else if let Operation::BoardShape { params } = &feature.operation {
+            crate::board_shape::execute(feature, params, kb, &state.feature_results, tree, context)
+                .map(|(res, ev)| {
+                    state.board_shapes.insert(feature.id, ev);
+                    res
+                })
         } else {
             execute_feature(
                 feature,
@@ -549,6 +566,10 @@ fn depends_on_tree_position(feature: &Feature, tree: &FeatureTree, sources: &Sou
             params.sketch_id,
             false,
         ),
+        Operation::BoardShape { params } => {
+            return find_sketch_in_tree(params.sketch_id, tree)
+                .is_ok_and(|s| !s.projected.is_empty());
+        }
         _ => return false,
     };
     let positional_targets = !matches!(eff.mode, CombineMode::NewBody)
@@ -1430,6 +1451,11 @@ pub(crate) fn execute_feature(
             crate::union_all::execute(feature, params, kb, feature_results, tree, already_consumed)
         }
 
+        Operation::BoardShape { params } => {
+            crate::board_shape::execute(feature, params, kb, feature_results, tree, context)
+                .map(|(res, _)| res)
+        }
+
         Operation::BooleanCombine { params } => {
             // A pair op cannot drop an operand, so a consumed one is loud
             // under either policy (`specs/b4_balanced_union.md` §2.4): the
@@ -1543,6 +1569,26 @@ fn current_sketch(
             sketch_id,
             reason: e.to_string(),
         })?;
+    Ok(sketch)
+}
+
+/// Look up an upstream planar sketch that has already executed in `feature_results`
+/// and return its current geometry (re-projecting projected points if any)
+/// without expanding generator entities (`Gear` / `Sprocket`) so callers like
+/// [`crate::board_shape`] can refuse unsupported entity kinds directly.
+pub(crate) fn active_sketch(
+    sketch_id: Uuid,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+    kb: &mut dyn KernelBundle,
+    context: Option<&EditContext>,
+) -> Result<Sketch, EngineError> {
+    let _ = find_sketch_result(sketch_id, feature_results)?;
+    let mut sketch = find_sketch_in_tree(sketch_id, tree)?.clone();
+    if !sketch.projected.is_empty() {
+        reproject_sketch(&mut sketch, feature_results, kb.as_introspect(), context);
+        sketch.solved_positions.clear();
+    }
     Ok(sketch)
 }
 

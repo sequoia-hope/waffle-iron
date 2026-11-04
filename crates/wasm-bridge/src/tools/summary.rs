@@ -166,14 +166,18 @@ fn connectors(state: &EngineState) -> Vec<Value> {
                 Vec::new(),
                 &feature_engine::assembly::Transform::identity(),
             )?;
-            Some(json!({
+            let mut row = json!({
                 "feature_id": info.feature_id,
                 "name": info.name,
                 "kind": info.kind,
                 "origin_m": info.origin,
                 "z_axis": info.z_axis,
                 "x_axis": info.x_axis,
-            }))
+            });
+            if let Some(key) = &info.key {
+                row["key"] = json!(key);
+            }
+            Some(row)
         })
         .collect()
 }

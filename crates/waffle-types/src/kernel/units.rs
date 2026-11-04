@@ -74,9 +74,11 @@ pub const TAU_TESS_GRID_FACTOR: f64 = 1e-5;
 /// Minimum tessellation grid size: 1e-10.
 pub const TAU_TESS_GRID_MIN: f64 = 1e-10;
 
-/// Cosine threshold for face-normal similarity in mock kernel face merging: 0.9.
-/// Used in MockKernel boolean simulation to detect duplicate/opposite face pairs.
-pub const COS_MOCK_FACE_SIMILARITY: f64 = 0.9;
+/// Cosine threshold for planar face-normal alignment: 0.9.
+/// Used to classify planar end-cap roles (`EndCapPositive` / `EndCapNegative`)
+/// in `modeling-ops` and `feature-engine`, and to detect duplicate/opposite
+/// face pairs in `MockKernel`.
+pub const COS_FACE_NORMAL_ALIGNMENT: f64 = 0.9;
 
 /// Dot-product threshold for axis-hint selection in plane basis construction: 0.9.
 /// When the reference axis has |dot| > this with the normal, an alternate

@@ -119,7 +119,7 @@ fn assign_sweep_roles(
         faces
             .iter()
             .filter_map(|&f| normal_of(f).map(|n| (f, dot(n, want))))
-            .filter(|(_, d)| *d > 0.9)
+            .filter(|(_, d)| *d > waffle_types::kernel::units::COS_FACE_NORMAL_ALIGNMENT)
             .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(f, _)| f)
     };

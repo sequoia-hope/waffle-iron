@@ -1,5 +1,6 @@
 pub mod assembly;
 pub mod assembly_solver;
+pub mod board_shape;
 pub mod connector;
 pub mod context;
 pub mod drawing;
@@ -128,6 +129,10 @@ pub struct Engine {
     /// connector's frame — its output is read here after the rebuild rather
     /// than out of an `OpResult`.
     pub sketch3d: HashMap<Uuid, waffle_types::sketch3d::Sketch3dEvaluation>,
+    /// Evaluated [`Operation::BoardShape`] features, by feature
+    /// (`specs/board_shape_feature.md`): 2D loops, holes, keepouts, and
+    /// top-face hole mate connectors keyed by stable element ID.
+    pub board_shapes: HashMap<Uuid, board_shape::EvaluatedBoardShape>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -156,6 +161,7 @@ impl Engine {
             connectors: Vec::new(),
             script_connectors: HashMap::new(),
             sketch3d: HashMap::new(),
+            board_shapes: HashMap::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -1203,6 +1209,7 @@ impl Engine {
                 consumed_by: Some(&self.consumed_by),
                 script_connectors: Some(&self.script_connectors),
                 sketch3d: Some(&self.sketch3d),
+                board_shapes: Some(&self.board_shapes),
             },
             &self.sources,
             self.context.as_ref(),
@@ -1210,6 +1217,7 @@ impl Engine {
         self.feature_results = state.feature_results;
         self.script_connectors = state.script_connectors;
         self.sketch3d = state.sketch3d;
+        self.board_shapes = state.board_shapes;
         self.rebuild_errors = state.feature_errors.clone();
         self.warnings = state.warnings;
         self.feature_warnings = state.feature_warnings;
@@ -1264,14 +1272,17 @@ impl Engine {
         }
         self.connectors =
             connector::part_connectors(&self.tree, &self.feature_results, kb.as_introspect());
-        // Script-placed connectors, in tree order, for live (built,
-        // unsuppressed) script nodes only.
+        // Script-placed and BoardShape hole connectors, in tree order, for
+        // live (built, unsuppressed) features only.
         for f in self.tree.active_features() {
             if f.suppressed || !self.feature_results.contains_key(&f.id) {
                 continue;
             }
             if let Some(cs) = self.script_connectors.get(&f.id) {
                 self.connectors.extend(cs.iter().cloned());
+            }
+            if let Some(ev) = self.board_shapes.get(&f.id) {
+                self.connectors.extend(ev.connectors.values().cloned());
             }
         }
         self.recompute_body_name_inheritance();
@@ -1355,4 +1366,33 @@ impl Default for Engine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Deterministic 128-bit FNV-1a hash seeded with a `Uuid` namespace and a
+/// sequence of NUL-delimited byte segments.
+///
+/// Shared by `board_shape` (hole `PartConnector` UUIDs and per-element
+/// `ConstructSeed`s) and `wasm_bridge::assembly_view` (synthetic STEP product
+/// feature IDs) so every history-free 128-bit derived identity uses one hasher.
+pub fn fnv1a_128<I, S>(namespace: Uuid, segments: I) -> u128
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<[u8]>,
+{
+    const OFFSET_BASIS: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d;
+    const PRIME: u128 = 0x0000_0000_0100_0000_0000_0000_0000_013b;
+    let mut hash = OFFSET_BASIS;
+    for &b in namespace.as_bytes() {
+        hash ^= u128::from(b);
+        hash = hash.wrapping_mul(PRIME);
+    }
+    for seg in segments {
+        hash ^= 0x00;
+        hash = hash.wrapping_mul(PRIME);
+        for &b in seg.as_ref() {
+            hash ^= u128::from(b);
+            hash = hash.wrapping_mul(PRIME);
+        }
+    }
+    hash
 }

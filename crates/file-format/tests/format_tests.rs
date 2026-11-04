@@ -2414,3 +2414,85 @@ fn compare_expr_keys(
     }
     n
 }
+
+#[test]
+fn board_shape_round_trips_through_waffle_v15_without_version_bump() {
+    use std::collections::BTreeMap;
+
+    use feature_engine::types::{BoardEntityRole, BoardShapeParams, BoardSide};
+    use file_format::MIN_READER_VERSION;
+
+    // `Operation::Unknown(Value)` (v4 Phase 1b) preserves unknown operation tags
+    // verbatim on older readers, so adding `Operation::BoardShape` requires
+    // neither a `FORMAT_VERSION` nor a `MIN_READER_VERSION` bump.
+    assert_eq!(FORMAT_VERSION, 15);
+    assert_eq!(MIN_READER_VERSION, 15);
+
+    let sketch_feature = make_sketch_feature("BoardSketch");
+    let sketch_id = sketch_feature.id;
+
+    let mut roles = BTreeMap::new();
+    roles.insert(5, BoardEntityRole::Outline);
+    roles.insert(6, BoardEntityRole::Outline);
+    roles.insert(7, BoardEntityRole::Outline);
+    roles.insert(8, BoardEntityRole::Outline);
+    roles.insert(9, BoardEntityRole::Cutout);
+    roles.insert(
+        10,
+        BoardEntityRole::Hole {
+            plated: true,
+            clearance: 0.00025,
+        },
+    );
+    roles.insert(
+        11,
+        BoardEntityRole::Keepout {
+            side: BoardSide::Front,
+            max_height: 0.0035,
+        },
+    );
+
+    let board_op = Operation::BoardShape {
+        params: BoardShapeParams {
+            sketch_id,
+            board: "main_controller".to_string(),
+            thickness: 0.0016,
+            thickness_expr: Some("pcb_thickness".to_string()),
+            roles,
+        },
+    };
+    let board_feature = Feature {
+        id: Uuid::new_v4(),
+        name: "Board shape (main_controller)".to_string(),
+        operation: board_op.clone(),
+        suppressed: false,
+        references: Vec::new(),
+    };
+
+    let mut tree = FeatureTree::new();
+    tree.features.push(sketch_feature);
+    tree.features.push(board_feature.clone());
+
+    let saved =
+        file_format::save_project_verified(&tree, &ProjectMetadata::new("BoardShape Roundtrip"))
+            .expect("save_project_verified must succeed");
+    let parsed_raw: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(parsed_raw["version"], 15);
+    assert_eq!(parsed_raw["min_reader_version"], 15);
+    assert_eq!(
+        parsed_raw["tabs"][0]["kind"]["features"]["features"][1]["operation"]["params"]
+            ["thickness_expr"],
+        "pcb_thickness"
+    );
+
+    let (loaded, _) = load_project(&saved).expect("load_project must succeed");
+    assert_eq!(loaded.features.len(), 2);
+    assert_eq!(loaded.features[1].id, board_feature.id);
+    assert_eq!(loaded.features[1].name, board_feature.name);
+    match (&loaded.features[1].operation, &board_op) {
+        (Operation::BoardShape { params: a }, Operation::BoardShape { params: b }) => {
+            assert_eq!(a, b);
+        }
+        other => panic!("expected BoardShape round-trip, got {other:?}"),
+    }
+}

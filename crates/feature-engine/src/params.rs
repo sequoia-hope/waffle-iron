@@ -798,6 +798,14 @@ pub fn apply_parameters_scoped(
                 );
                 changed
             }
+            Operation::BoardShape { params } => apply_field(
+                "thickness",
+                Dimension::Length,
+                &mut params.thickness,
+                params.thickness_expr.as_deref(),
+                &env,
+                &mut errs,
+            ),
             // Fillet/chamfer/shell are deferred (disabled in the UI);
             // booleans carry no dimension measurements, and a sweep's
             // section and path are both sketches (which carry their own).
@@ -1351,6 +1359,11 @@ fn expression_sites(op: &mut Operation) -> Vec<(String, &mut String)> {
             // `arg_exprs` is a BTreeMap, so this order is deterministic.
             for (name, expression) in params.arg_exprs.iter_mut() {
                 out.push((format!("arg {name}"), expression));
+            }
+        }
+        Operation::BoardShape { params } => {
+            if let Some(e) = params.thickness_expr.as_mut() {
+                out.push(("thickness".to_string(), e));
             }
         }
         // Fillet/chamfer/shell are deferred; booleans, imports and the
@@ -2608,6 +2621,12 @@ mod tests {
             json!({ "type": "Script", "params": {
                 "source_id": Uuid::new_v4(), "args": {},
                 "arg_exprs": { "teeth": "a" }}}),
+            json!({ "type": "BoardShape", "params": {
+                "sketch_id": sketch_id,
+                "board": "b",
+                "thickness": 0.0016,
+                "thickness_expr": "a",
+                "roles": {} }}),
             json!({ "type": "Sketch3d", "sketch": { "id": Uuid::new_v4(), "entities": [
                 { "type": "Point", "id": 1, "xyz": [0.0, 0.0, 0.0],
                   "xyz_expr": ["a", "a", "a"] },
@@ -2649,9 +2668,10 @@ mod tests {
         // and the same four again for the second leg (10); mirror plane
         // origin x/y/z (3); mate connector rotation + offset x/y/z (4);
         // imported body translation x/y/z + rotation x/y/z + scale (7); one
-        // script arg (1); three 3D-point coordinates + a 3D fillet radius
-        // (4); the rectangle sketch's two dimensions (2).
-        assert_eq!(sites.len(), 48, "{sites:#?}");
+        // script arg (1); board shape thickness (1); three 3D-point
+        // coordinates + a 3D fillet radius (4); the rectangle sketch's two
+        // dimensions (2).
+        assert_eq!(sites.len(), 49, "{sites:#?}");
         for site in &sites {
             assert_eq!(site.expression, "a", "{} {}", site.feature_name, site.field);
             assert_eq!(site.reads, vec!["a".to_string()]);
@@ -2697,8 +2717,8 @@ mod tests {
         let sites = measurement_sites(&mut tree);
         assert_eq!(
             sites.len(),
-            49,
-            "the 48 enumerated fields and one parameter: {sites:#?}"
+            50,
+            "the 49 enumerated fields and one parameter: {sites:#?}"
         );
         assert_eq!(
             sites.iter().filter(|s| s.feature.is_none()).count(),

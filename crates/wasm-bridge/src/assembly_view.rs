@@ -576,12 +576,7 @@ fn resolve_source(part: &PartRef, ctx: &Ctx) -> Result<Resolved, String> {
 /// of both — the same on every evaluation, so the part engine is reused and
 /// the render body ids (`{instance}/{feature}/{key}`) stay put.
 fn step_product_tree(source_id: Uuid, product: &str) -> FeatureTree {
-    // FNV-1a over the source id and the product name, 128-bit.
-    let mut h: u128 = 0x6c62_272e_07bb_0142_62b8_2175_6295_c58d ^ source_id.as_u128();
-    for b in product.bytes() {
-        h ^= b as u128;
-        h = h.wrapping_mul(0x0000_0000_0100_0000_0000_0000_0000_013b);
-    }
+    let h = feature_engine::fnv1a_128(source_id, [product]);
     let mut tree = FeatureTree::new();
     tree.features.push(feature_engine::types::Feature {
         id: Uuid::from_u128(h),
