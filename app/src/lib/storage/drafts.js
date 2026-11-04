@@ -33,8 +33,10 @@ let cachedTabKey = null;
 /**
  * `sketch` is the open sketch session, which the document does not hold until
  * the sketch is finished (store.svelte.js `sketchSessionSnapshot`); null when
- * no sketch is open.
- * @typedef {{ tabKey: string, docId: string, name: string, json: string, sketch: object | null, modified: number }} Draft
+ * no sketch is open. `baseRev` and `baseRevProvider` identify the stored
+ * revision this tab branched from, so restoring a draft after reload still
+ * checks for concurrent writes.
+ * @typedef {{ tabKey: string, docId: string, name: string, json: string, sketch: object | null, baseRev?: string | null, baseRevProvider?: string | null, modified: number }} Draft
  */
 
 /** @type {Promise<IDBDatabase> | null} */
@@ -128,13 +130,29 @@ export function rememberTabKey() {
 
 /**
  * Write this tab's draft.
- * @param {{ docId: string, name: string, json: string, sketch?: object | null }} draft
+ * @param {{ docId: string, name: string, json: string, sketch?: object | null, baseRev?: string | null, baseRevProvider?: string | null }} draft
  */
-export async function putDraft({ docId, name, json, sketch = null }) {
+export async function putDraft({
+	docId,
+	name,
+	json,
+	sketch = null,
+	baseRev = null,
+	baseRevProvider = null
+}) {
 	const key = tabKey();
 	if (!key) return;
 	/** @type {Draft} */
-	const record = { tabKey: key, docId, name, json, sketch, modified: Date.now() };
+	const record = {
+		tabKey: key,
+		docId,
+		name,
+		json,
+		sketch,
+		baseRev,
+		baseRevProvider,
+		modified: Date.now()
+	};
 	await run('readwrite', (s) => s.put(record));
 }
 

@@ -83,7 +83,7 @@ test.describe('Agent link documents (Phase 1)', () => {
 		expect(ok(await relay.callTool('document_info')).unsaved).toBe(false);
 		const stored = await page.evaluate(async (id) => {
 			const { getStore } = await import('/src/lib/storage/index.js');
-			return (await getStore().get(id))?.json ?? null;
+			return (await getStore().get(id))?.doc?.json ?? null;
 		}, a.storage_id);
 		expect(JSON.parse(stored).document.name).toBe('Agent Doc A');
 		expect(stored).toContain('"Extrude"');
@@ -217,11 +217,22 @@ test.describe('Agent link documents (Phase 1)', () => {
 		await buildAndSave();
 		const text = await page.evaluate(async (id) => {
 			const { getStore } = await import('/src/lib/storage/index.js');
-			return (await getStore().get(id)).json;
+			return (await getStore().get(id)).doc.json;
 		}, source.storage_id);
 		ok(await relay.callTool('document_new', { name: 'Elsewhere' }));
 
-		const imported = ok(await relay.callTool('document_import', { file_name: 'Pinwheel.waffle', text }));
+		// Importing into an existing document id conflicts unless replace: true is confirmed by the user.
+		refused(await relay.callTool('document_import', { file_name: 'Pinwheel.waffle', text }), 'SaveFailed');
+		page.once('dialog', (dialog) => dialog.dismiss());
+		refused(
+			await relay.callTool('document_import', { file_name: 'Pinwheel.waffle', text, replace: true }),
+			'UserDeclined'
+		);
+
+		page.once('dialog', (dialog) => dialog.accept());
+		const imported = ok(
+			await relay.callTool('document_import', { file_name: 'Pinwheel.waffle', text, replace: true })
+		);
 		expect(imported.document_id).toBe(source.document_id);
 		expect(imported.storage_id).toBe(source.storage_id);
 		expect(imported.name).toBe('Pinwheel');
@@ -234,7 +245,10 @@ test.describe('Agent link documents (Phase 1)', () => {
 		expect(record.name).toBe('Pinwheel');
 		expect(listed.documents.filter((d) => d.name === 'Source')).toEqual([]);
 
-		const named = ok(await relay.callTool('document_import', { file_name: 'x.json', text, name: 'Given' }));
+		page.once('dialog', (dialog) => dialog.accept());
+		const named = ok(
+			await relay.callTool('document_import', { file_name: 'x.json', text, name: 'Given', replace: true })
+		);
 		expect(named.name).toBe('Given');
 		refused(await relay.callTool('document_import', { file_name: 'bad.waffle', text: '{not json' }), 'InvalidDocument');
 		refused(
@@ -263,7 +277,7 @@ test.describe('Agent link documents (Phase 1)', () => {
 				readOnly: true,
 				name: 'linked.waffle'
 			};
-			await getStore().put(record);
+			await getStore().put(record, { base: null });
 			return record.id;
 		});
 		const opened = ok(await relay.callTool('document_open', { id }));

@@ -492,9 +492,10 @@ export async function executeTool(tool, args, ctx) {
  * @param {{content: object[], structuredContent: object, isError: boolean}} result
  */
 async function committed(result) {
-	// Under the agent lock and through the agent's entry point, so the store
-	// leaves no user-origin send in the engine log (parity oracle O7).
-	if (await withAgentLock(() => commitPendingAutoSave({ via: 'agent' }))) return result;
+	// Compose under the agent lock and through the agent's entry point, so the
+	// store leaves no user-origin send in the engine log (parity oracle O7),
+	// then release the engine lock before waiting on the storage write queue.
+	if (await commitPendingAutoSave({ via: 'agent', composeLock: withAgentLock })) return result;
 	return {
 		...result,
 		structuredContent: { ...result.structuredContent, autosave_error: true },

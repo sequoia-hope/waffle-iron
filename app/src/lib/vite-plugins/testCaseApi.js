@@ -2,10 +2,22 @@ import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
 
+/**
+ * Normalize SvelteKit / Vite base path to '' (root) or '/segment/...' (no trailing slash).
+ * @param {string | undefined} rawBase
+ * @returns {string}
+ */
+function normalizeBasePath(rawBase) {
+	if (!rawBase || rawBase === '/') return '';
+	const withLeading = rawBase.startsWith('/') ? rawBase : `/${rawBase}`;
+	return withLeading.replace(/\/+$/, '');
+}
+
 export default function testCaseApiPlugin() {
 	return {
 		name: 'test-case-api',
 		configureServer(server) {
+			const basePrefix = normalizeBasePath(process.env.BASE_PATH || server.config.base || '');
 			const CASES_DIR = path.resolve(server.config.root, 'tests/cases');
 			const MANIFEST_PATH = path.join(CASES_DIR, 'manifest.json');
 			const ASSAY_DIR = path.resolve(server.config.root, 'tests/cases/assay');
@@ -52,7 +64,7 @@ export default function testCaseApiPlugin() {
 				});
 			}
 
-			server.middlewares.use('/api/test-cases', async (req, res, next) => {
+			server.middlewares.use(`${basePrefix}/api/test-cases`, async (req, res, next) => {
 				// Set JSON content type for all responses
 				res.setHeader('Content-Type', 'application/json');
 
@@ -176,7 +188,7 @@ export default function testCaseApiPlugin() {
 				if (!Array.isArray(manifest.examples)) manifest.examples = [];
 				return manifest;
 			}
-			server.middlewares.use('/api/examples', async (req, res) => {
+			server.middlewares.use(`${basePrefix}/api/examples`, async (req, res) => {
 				res.setHeader('Content-Type', 'application/json');
 				try {
 					if (req.method === 'OPTIONS') {
@@ -242,7 +254,7 @@ export default function testCaseApiPlugin() {
 			});
 
 			// Assay cases API
-			server.middlewares.use('/api/assay-cases', async (req, res, next) => {
+			server.middlewares.use(`${basePrefix}/api/assay-cases`, async (req, res, next) => {
 				res.setHeader('Content-Type', 'application/json');
 				try {
 					const url = new URL(req.url, 'http://localhost');
@@ -310,7 +322,7 @@ export default function testCaseApiPlugin() {
 			// the manifest the first time the corpus was served from there
 			// (measured 2026-10-08). A committed fixture cannot live behind a
 			// mutable endpoint a test clears as part of its own setup.
-			server.middlewares.use('/api/sketch-cases', async (req, res) => {
+			server.middlewares.use(`${basePrefix}/api/sketch-cases`, async (req, res) => {
 				res.setHeader('Content-Type', 'application/json');
 				try {
 					if (req.method !== 'GET') {

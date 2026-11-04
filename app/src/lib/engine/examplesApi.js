@@ -9,7 +9,7 @@
 
 import { base } from '$app/paths';
 
-const DEV_BASE = '/api/examples';
+const DEV_BASE = `${base}/api/examples`;
 const STATIC_BASE = `${base}/examples`;
 
 /**

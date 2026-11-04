@@ -23,12 +23,15 @@ export async function migrateLocalStorage(store) {
 
 	const id = generateDocId();
 	const now = Date.now();
-	await store.put({
-		id,
-		json: raw,
-		created: now,
-		modified: now
-	});
+	await store.put(
+		{
+			id,
+			json: raw,
+			created: now,
+			modified: now
+		},
+		{ base: null }
+	);
 
 	localStorage.removeItem(key);
 	return id;

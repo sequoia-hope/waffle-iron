@@ -87,7 +87,7 @@ export class EngineBridge {
 				reject(new Error(`Worker failed to load: ${e.message}`));
 			});
 
-			const basePath = wasmUrl.substring(0, wasmUrl.indexOf('/pkg/'));
+			const basePath = wasmUrl.replace(/\/pkg\/[^/]*$/, '');
 			this._worker.postMessage({ type: 'init', wasmUrl, basePath });
 		});
 	}

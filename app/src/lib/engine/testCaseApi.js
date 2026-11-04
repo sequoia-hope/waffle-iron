@@ -1,9 +1,11 @@
 /**
  * Client API for test case CRUD operations.
- * Communicates with the Vite dev server plugin at /api/test-cases.
+ * Communicates with the Vite dev server plugin at ${base}/api/test-cases.
  */
 
-const BASE = '/api/test-cases';
+import { base } from '$app/paths';
+
+const BASE = `${base}/api/test-cases`;
 
 /**
  * Fetch all test cases (manifest).

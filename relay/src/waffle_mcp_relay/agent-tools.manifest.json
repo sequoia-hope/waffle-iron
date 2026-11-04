@@ -1,5 +1,5 @@
 {
-  "manifest_hash": "f63d0f26e9718fafdb1f6b94498ee6c60c89795bf764aab346435c72714cd70d",
+  "manifest_hash": "e2fcb4bd1d1f6771957fc407de09aaf118a29e10c1c11b5d251238ac8ef49c51",
   "protocol": "waffle-agent-link/1",
   "tools": [
     {
@@ -454,7 +454,7 @@
         "readOnlyHint": false,
         "title": "Import document file"
       },
-      "description": "Load a .waffle file's text as a document, as opening a file from the Home screen's picker does: the document keeps its own identity (a record with that id in the active storage provider is replaced), is stored there, named after the file unless name is given, and opened. Refused with UnsavedChanges while the current document has changes waiting for autosave (call document_save first).",
+      "description": "Load a .waffle file's text as a document, as opening a file from the Home screen's picker does: the document keeps its own identity, is stored in the active storage provider, named after the file unless name is given, and opened. If a stored document with that id already exists, refuses with SaveFailed unless replace: true (which asks the user to confirm in the page). Refused with UnsavedChanges while the current document has changes waiting for autosave (call document_save first).",
       "inputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -472,6 +472,11 @@
             "description": "Document name to use instead of the file name.",
             "minLength": 1,
             "type": "string"
+          },
+          "replace": {
+            "default": false,
+            "description": "Replace an existing stored document with the same document.id in the active storage provider. The user is still asked to confirm in the page; declining returns UserDeclined.",
+            "type": "boolean"
           },
           "text": {
             "description": "The .waffle file contents (JSON).",

@@ -67,15 +67,15 @@ export function refToString(ref) {
  * @param {string} what
  */
 async function failFor(res, what) {
-	if (res.status === 401) return new GitHostError(`${what}: authentication required`, 'auth_required');
+	if (res.status === 401) return new GitHostError(`${what}: authentication required`, 'auth_required', { status: res.status });
 	if (res.status === 403) {
 		if (res.headers.get('X-RateLimit-Remaining') === '0') {
-			return new GitHostError(`${what}: rate limited`, 'rate_limit');
+			return new GitHostError(`${what}: rate limited`, 'rate_limit', { status: res.status });
 		}
-		return new GitHostError(`${what}: permission denied (private repository?)`, 'permission_denied');
+		return new GitHostError(`${what}: permission denied (private repository?)`, 'permission_denied', { status: res.status });
 	}
-	if (res.status === 404) return new GitHostError(`${what}: not found`, 'not_found');
-	return new GitHostError(`${what}: HTTP ${res.status}`, 'api_error');
+	if (res.status === 404) return new GitHostError(`${what}: not found`, 'not_found', { status: res.status });
+	return new GitHostError(`${what}: HTTP ${res.status}`, 'api_error', { status: res.status });
 }
 
 /**
@@ -153,6 +153,7 @@ const github = {
 		if (res.status === 404) return null;
 		if (!res.ok) throw await failFor(res, `read ${path} on ${remote}`);
 		const data = await res.json();
+		if (!data?.sha) throw new GitHostError(`read ${path} on ${remote}: no sha in response`, 'api_error');
 		return { text: decodeBase64Utf8(data.content), sha: String(data.sha).toLowerCase() };
 	},
 	async putFile(remote, branch, path, text, message, token, existingSha = null) {
@@ -230,24 +231,37 @@ const gitlab = {
 		if (res.status === 404) return null;
 		if (!res.ok) throw await failFor(res, `read ${path} on ${remote}`);
 		const data = await res.json();
-		return { text: decodeBase64Utf8(data.content), sha: data.blob_id ? String(data.blob_id).toLowerCase() : 'exists' };
+		const rev = data?.last_commit_id || data?.blob_id;
+		if (!rev) {
+			throw new GitHostError(
+				`read ${path} on ${remote}: no last_commit_id or blob_id in response`,
+				'api_error'
+			);
+		}
+		return { text: decodeBase64Utf8(data.content), sha: String(rev).toLowerCase() };
 	},
 	async putFile(remote, branch, path, text, message, token, existingSha = null) {
 		const { api } = this.apiBase(remote);
+		/** @type {Record<string, unknown>} */
+		const body = { branch, content: text, commit_message: message };
+		if (existingSha) body.last_commit_id = existingSha;
 		const res = await doFetch(`${api}/repository/files/${encodeURIComponent(path)}`, {
 			method: existingSha ? 'PUT' : 'POST',
 			headers: { ...this.headers(token), 'Content-Type': 'application/json' },
-			body: JSON.stringify({ branch, content: text, commit_message: message })
+			body: JSON.stringify(body)
 		});
 		if (!res.ok) throw await failFor(res, `write ${path} on ${remote}`);
 		return { sha: null };
 	},
-	async deleteFile(remote, branch, path, message, token) {
+	async deleteFile(remote, branch, path, message, token, existingSha = null) {
 		const { api } = this.apiBase(remote);
+		/** @type {Record<string, unknown>} */
+		const body = { branch, commit_message: message };
+		if (existingSha) body.last_commit_id = existingSha;
 		const res = await doFetch(`${api}/repository/files/${encodeURIComponent(path)}`, {
 			method: 'DELETE',
 			headers: { ...this.headers(token), 'Content-Type': 'application/json' },
-			body: JSON.stringify({ branch, commit_message: message })
+			body: JSON.stringify(body)
 		});
 		if (!res.ok && res.status !== 404) throw await failFor(res, `delete ${path} on ${remote}`);
 	}
@@ -318,6 +332,7 @@ const gitea = {
 		if (res.status === 404) return null;
 		if (!res.ok) throw await failFor(res, `read ${path} on ${remote}`);
 		const data = await res.json();
+		if (!data?.sha) throw new GitHostError(`read ${path} on ${remote}: no sha in response`, 'api_error');
 		return { text: decodeBase64Utf8(data.content), sha: String(data.sha).toLowerCase() };
 	},
 	async putFile(remote, branch, path, text, message, token, existingSha = null) {

@@ -82,8 +82,12 @@ rawTest.describe('Document identity as the storage key', () => {
 		expect(state.activeDocId).toBe(DOC_ID);
 		expect(state.documentId).toBe(DOC_ID);
 
-		// Ctrl+S writes the opened content into THAT record.
+		// Ctrl+S refuses to overwrite silently until the person confirms Replace,
+		// then writes the opened content into THAT record.
 		await page.keyboard.press('Control+s');
+		await expect(page.locator('[data-testid="document-conflict-dialog"]')).toBeVisible({ timeout: 10000 });
+		await page.locator('[data-testid="conflict-replace-btn"]').click();
+		await expect(page.locator('[data-testid="document-conflict-dialog"]')).toBeHidden({ timeout: 10000 });
 		await page.waitForFunction(async (id) => {
 			return await new Promise((resolve) => {
 				const req = indexedDB.open('waffle-iron', 1);

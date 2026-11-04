@@ -8,6 +8,7 @@
 	import AgentBar from '$lib/agent/AgentBar.svelte';
 	import ContextBanner from '$lib/ui/ContextBanner.svelte';
 	import ImportLinkDialog from '$lib/ui/ImportLinkDialog.svelte';
+	import DocumentConflictDialog from '$lib/ui/DocumentConflictDialog.svelte';
 	import AssemblyPanel from '$lib/ui/AssemblyPanel.svelte';
 	import FeatureTree from '$lib/ui/FeatureTree.svelte';
 	import PropertyEditor from '$lib/ui/PropertyEditor.svelte';
@@ -121,6 +122,7 @@
 		}
 
 		function onKeyDown(e) {
+			if (e.defaultPrevented) return;
 			if ((e.ctrlKey || e.metaKey) && e.key === 's') {
 				e.preventDefault();
 				saveToStorage();
@@ -259,6 +261,7 @@
 <ScriptEditor />
 <SketchPlaneDialog />
 <ImportLinkDialog />
+<DocumentConflictDialog />
 <ToastContainer />
 <TestCaseBrowser />
 <SaveTestCaseDialog />
