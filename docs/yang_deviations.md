@@ -8417,3 +8417,20 @@ increment 2's design question (owner sign-off pending: §4.4.1 `:566-571`
 says to recalculate d(T) "to maintain controllable error"; whether a new
 boundary triangle whose d(T) exceeds the distance to the other operand is a
 §4.5 failure is not stated in the paper).
+
+**C0103 is NOT curve under-sampling (2026-11-05, measured).** An independent
+re-read proposed that the 132° chord came from §4.3.4 running after the
+update (N81) and skipping conic arcs, leaving the curve under-sampled when
+the CDT ran. Trial probe (`[trial-path]`, the cylinder patch's cycle between
+the two triple points, at update time, rungs 1–5): the top-rim path carries
+6 / 9 / 17 / 31 / 61 vertices (18° → 2.25° spacing) and the z = 1 arc path
+16 / 30 / 54 / 106 / 206 — every curve is sampled. The patch is L-shaped in
+its (θ, z) chart (all θ for z ∈ [0, 1], θ ∈ [−66°, 66°] for z ∈ [1, 2]) and
+has **zero interior vertices at every rung** (a Stage-1 cylinder is
+rim-to-rim). The CDT of a boundary-only L joins the two re-entrant corners by
+the chart-straight line z = 1 — interior to the patch, an arc on the
+surface — and its lifted edge is the 3D secant, d(T) = 0.3 on r = 0.5. So the
+re-sited §4.3.4 does not answer C0103; what does is an interior surface
+point where the update's triangle cannot carry the surface (Fig. 11(c)
+`:564-566` generalized, the re-read's remedy 2), which is the 2026-10-31
+refine-to-budget trial's operation in a narrower trigger.
