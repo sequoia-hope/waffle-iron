@@ -91,7 +91,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 |---|---|---|---|
 | 1 | corpus WRONG | 0 (HEAD a1932058: 360C / 0W / 9E / 5EE / 0T, 2026-11-03) | 0 |
 | 1 | fresh-seed WRONG | seed 6: 6 → 5 after the engine cut fix (00021 CORRECT); the 5 left are oracle defects (body membership by bbox, stale extent box, composition band); 0 kernel | 0 on two seeds |
-| 1 | record-only oracles | 2 (O2, O5) | 0 |
+| 1 | record-only oracles | 2 (O2, O5) → **1 (O2)** — O5 a verdict 2026-11-05: 1171 corpus steps checked, 121 not covered, 0 violations | 0 |
 | 1 | exact-chain coverage (`assay_exact_coverage`) | corpus 355 / 374; seed 6 195 / 198 (main 592c813f) | no lower than baseline; every decline justified |
 | 1 | N100 items open | see ledger N100 | 0 |
 | 2 | ledger debt | 65 | 0 |
@@ -169,4 +169,5 @@ of building the paper's mechanism (memory, 2026-10-31).
 |---|---|---|---|---|---|---|
 | 2026-11-03 | adopted; step 0 started | — | 65 / 132 | pair matrix not built | — | dc422b05 |
 | 2026-11-03 | step 0: corpus on HEAD + seed 6 | corpus 0W; seed 6 6W (0 kernel) | 65 / 132 | ERROR 6 % | seed 6: 4 T | 38190e9b |
-| 2026-11-03 | engine: cut direction + ThroughAll read the true extent | corpus 360C/0W (R0020 tie found and fixed); seed 6 5W, all oracle | 65 / 132 | — | — | (this commit) |
+| 2026-11-03 | engine: cut direction + ThroughAll read the true extent | corpus 360C/0W (R0020 tie found and fixed); seed 6 5W, all oracle | 65 / 132 | — | — | 8dfcb8e8 |
+| 2026-11-05 | step 0: O5 promoted to a verdict (direction AND bounds from a certified per-step interval of the exact chain, not the authored meta) | corpus 360C/0W/9E/5EE/0T held, O5 0 violations; record-only oracles 1 (O2) | 65 / 132 | — | corpus 0 T | (this commit) |
