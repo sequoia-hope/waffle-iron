@@ -8394,3 +8394,26 @@ Stage-5 pair-chord certificate (class 2: "its ends lie on different
 branches") or the manifold gate (F0060) then reports the hole. C0103 alone is
 not this; it is the open anchor. The I2d refusal is what hides the mechanism
 on main: it keeps the relocated triangles, which never coincide.
+
+**C0103 anchored (2026-11-05): the same root, as an EDGE.** A is a cylinder
+r = 0.5 on the z axis, B a box with faces x = 0.2 (face 3) and z = 1
+(face 0); the triple points are (0.2, ±0.458, 1). Under the trial (probe
+`NONMANIFOLD_SITE_PROBE`) the cylinder patch's update CDT joins the two
+triple points by a chord that is straight in the (θ, z) chart — a 132° span
+— and lifts to the 3D secant through the cylinder's interior, 0.3 deep on
+r = 0.5: exactly B's box edge x = 0.2, z = 1. The edge (23,39) then carries
+four triangles (two of A's cylinder, one of each B plane), and the shell
+reads χ = 3 (`s4-shell-euler double-cover edge`) on every rung. On main the
+same patch is the census's one `ChordDegradation` refusal and the case is
+CORRECT. **So all eight CORRECT → ERROR cases have one root:** the update
+CDT draws a chord between two intersection-curve vertices that the other
+operand's mesh already holds as the same simplex — a triangle (seven cases,
+cancelled by N41) or an edge (C0103, a double cover). The two surfaces are
+apart there by the chord's own d(T) (C0103: 0.3; R0046: the cylinder
+sagitta); the triangle's bound, carried as §4.1.2 says, is what certifies
+the two meshes are NOT separated there. Retiring I2d therefore needs a
+consumer that reads that bound at exactly these simplices — which is
+increment 2's design question (owner sign-off pending: §4.4.1 `:566-571`
+says to recalculate d(T) "to maintain controllable error"; whether a new
+boundary triangle whose d(T) exceeds the distance to the other operand is a
+§4.5 failure is not stated in the paper).
