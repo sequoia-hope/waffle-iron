@@ -636,10 +636,39 @@ fn categorize_loaded(
     // Remediation plan O2, RECORD-ONLY: the kernel's exact B-Rep volume
     // against the render mesh's, at the expected-volume oracle's tolerance.
     let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(builder, tess_tol).summary();
-    // Remediation plan O5, RECORD-ONLY: the authored per-op volume
-    // direction against the exact live volume after each op.
-    let monotonic =
-        crate::assay::monotonicity::measure(builder, &meta.oracles.volume_monotonicity).summary();
+    // Remediation plan O5 (kernel 1.0 gate 1.2), a VERDICT: the kernel's
+    // exact live-volume change at every op against the exact chain's
+    // direction for that prefix (decrease / none / increase, within the
+    // changed region's own lattice band — `assay::monotonicity`). Not the
+    // authored `volume_monotonicity`, which the generator writes without
+    // knowing reach. An uncovered prefix is not covered, never a pass; the
+    // exact oracle's A/B knob turns this off with it.
+    let mono_doc = if exact_on {
+        serde_json::from_str::<serde_json::Value>(waffle_json).ok()
+    } else {
+        None
+    };
+    // `ASSAY_O5_TIME_PROBE=1` appends the oracle's own wall time to its
+    // summary (dev probe for the oracle's cost; never on by default, so the
+    // committed results stay run-independent).
+    let o5_probe = std::env::var("ASSAY_O5_TIME_PROBE").is_ok_and(|v| v == "1");
+    let o5_started = o5_probe.then(std::time::Instant::now);
+    let mono_reading = crate::assay::monotonicity::measure(builder, mono_doc.as_ref());
+    if mono_reading.is_defect() {
+        let detail = mono_reading.summary();
+        failures.push(format!(
+            "volume_monotonicity: kernel change disagrees with the exact chain ({})",
+            detail.trim_start_matches("monotonicity: ")
+        ));
+    }
+    let mut monotonic = mono_reading.summary();
+    if let Some(t0) = o5_started {
+        monotonic.push_str(&format!(
+            " (o5 {:.3} s, parses {:.3} s)",
+            t0.elapsed().as_secs_f64(),
+            mono_reading.probe_parse_secs.unwrap_or(f64::NAN)
+        ));
+    }
     // Remediation plan O3: the render mesh's vertices and triangle
     // centroids against their faces' surfaces — planes against O1's band,
     // curved faces against their own render sagitta band (census and bands
