@@ -18,7 +18,8 @@
 //! - **Sketch planes** from the sketch's own `plane_origin` / `plane_normal`
 //!   (every corpus sketch carries them), with the UI basis
 //!   (`SketchPlaneBasis` / `tangent_x_from_normal`: `x̂ = normalize(ẑ × n̂)`,
-//!   `ŷ = n̂ × x̂`).
+//!   `ŷ = n̂ × x̂`) — or, when the sketch names a `plane_x_axis`, that axis
+//!   projected into the plane (`SketchPlaneBasis::from_origin_normal_x`).
 //! - **Profiles**: the face the kernel adapter stages for `profile_index`
 //!   (`kernel_v2::adapter::make_faces_from_profiles`, one face per input
 //!   profile): an `is_outer` loop becomes a REGION with every `is_outer =
@@ -5807,7 +5808,31 @@ impl ParsedSketch {
             .get("plane_normal")
             .and_then(vec3)
             .ok_or("sketch without plane_normal")?;
-        let basis = Basis::from_origin_normal(origin, normal).ok_or("degenerate plane normal")?;
+        // An explicit `plane_x_axis` orients the sketch the way the engine
+        // orients it (`SketchPlaneBasis::from_origin_normal_x`, the one
+        // source); without it, the derived basis. Ignoring it put every
+        // point of a rigidly moved or imported sketch in the wrong place
+        // (P0001 under the metamorphic motion: the star rotated in its own
+        // plane, its overlap with the octagon read empty).
+        let basis = match sk.get("plane_x_axis").and_then(vec3) {
+            Some(x) => {
+                if norm(normal).is_none() {
+                    return Err("degenerate plane normal".into());
+                }
+                let b = waffle_types::sketch_plane::SketchPlaneBasis::from_origin_normal_x(
+                    origin,
+                    normal,
+                    Some(x),
+                );
+                Basis {
+                    origin: b.origin,
+                    x: b.x_axis,
+                    y: b.y_axis,
+                    n: b.normal,
+                }
+            }
+            None => Basis::from_origin_normal(origin, normal).ok_or("degenerate plane normal")?,
+        };
         let mut positions = HashMap::new();
         if let Some(obj) = sk.get("solved_positions").and_then(Value::as_object) {
             for (k, v) in obj {
@@ -6300,6 +6325,25 @@ mod tests {
     // On a +z-normal plane the UI basis is x̂ = (0, −1, 0), ŷ = (1, 0, 0):
     // sketch (u, v) ↦ world (v, −u, ·). The unit square therefore occupies
     // x ∈ [0, 1], y ∈ [−1, 0].
+    // An explicit `plane_x_axis` is the sketch's x̂ (projected into the
+    // plane), exactly as the engine reads it — not the derived basis.
+    #[test]
+    fn an_explicit_plane_x_axis_orients_the_sketch() {
+        let sk = serde_json::json!({
+            "plane_origin": [0.0, 0.0, 0.0], "plane_normal": [0.0, 0.0, 1.0],
+            "plane_x_axis": [1.0, 0.0, 0.5],
+        });
+        let b = ParsedSketch::parse(&sk).expect("parses").basis;
+        assert_eq!(b.x, [1.0, 0.0, 0.0]);
+        assert_eq!(b.y, [0.0, 1.0, 0.0]);
+        let derived = ParsedSketch::parse(&serde_json::json!({
+            "plane_origin": [0.0, 0.0, 0.0], "plane_normal": [0.0, 0.0, 1.0],
+        }))
+        .expect("parses")
+        .basis;
+        assert_eq!(derived.x, [0.0, -1.0, 0.0]);
+    }
+
     #[test]
     fn basis_on_a_z_plane_maps_u_to_minus_y_and_v_to_x() {
         let b = Basis::from_origin_normal([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]).unwrap();
