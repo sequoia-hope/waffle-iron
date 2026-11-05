@@ -69,7 +69,7 @@ test.describe('Examples panel', () => {
 		if (testInfo.status === testInfo.expectedStatus) await page.goto('about:blank');
 	});
 
-	test('lists the shipped examples and opens the gravel bike as a new document', async ({ page }) => {
+	test('lists the shipped examples and opens the gravel bike as a new document', async ({ page, browserName }, testInfo) => {
 		// The heaviest document in the suite by a wide margin: twelve tabs whose
 		// active one is an assembly of fourteen instances, which the WASM engine
 		// rebuilds and tessellates into 1.15 M triangles before anything renders.
@@ -77,6 +77,25 @@ test.describe('Examples panel', () => {
 		// 60 s default cut it off at zero bodies (CI, 2026-09-23). Still a real
 		// bound — a document that never builds fails. The 300 s is configured on
 		// the describe, so it covers this test's hooks as well as its body.
+		//
+		// Under Playwright, Firefox runs this one engine call several times
+		// slower than the other browsers, and that is the HARNESS, not the app:
+		// Playwright's Firefox driver (Juggler, `content/Runtime.js`) makes the
+		// engine worker's global a `Debugger` debuggee so it can evaluate there,
+		// and SpiderMonkey compiles WebAssembly in a debuggee realm debug-enabled
+		// — baseline tier only, never Ion (read from the Juggler shipped in
+		// Playwright's firefox-1532 build; there is no switch to turn it off).
+		// The `OpenAssembly` that evaluates the bike is one synchronous wasm
+		// call (15 s in Chromium on loaf); on the
+		// nightly runner Firefox took ~200 s on the one night it passed (3.9 min
+		// test, run 41510181039) and was still inside it at 240 s on three
+		// others (runs 41442091137, 41679827368, 41875087563: `Send:
+		// OpenAssembly` at 9.9 s, no reply, the screen still "Rebuilding…").
+		// WebKit finishes the whole test in ~1.6 min. So Firefox gets the triple
+		// budget, and both waits below take what is left of it rather than a
+		// number of their own; the other browsers keep exactly the bound above.
+		test.slow(browserName === 'firefox', 'Juggler compiles the engine wasm in debug mode (baseline tier)');
+		const buildBudget = testInfo.timeout - 60000;
 		const crashes = collectCrashErrors(page);
 		const before = await documentInfo(page);
 
@@ -97,7 +116,7 @@ test.describe('Examples panel', () => {
 		await bike.click();
 		// The whole document arrives: twelve tabs, the assembly active, and its
 		// placed parts rendered (the bike is fourteen instances).
-		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: 240000 }).toBe(12);
+		await expect.poll(async () => (await documentInfo(page)).tabs?.length ?? 0, { timeout: buildBudget }).toBe(12);
 		const info = await documentInfo(page);
 		expect(info.name).toBe('Gravel bike v2');
 		expect(info.tabs.map((t) => t.name)).toEqual([
@@ -107,7 +126,7 @@ test.describe('Examples panel', () => {
 		const active = info.tabs.find((t) => t.id === info.activeTab);
 		expect(active?.name).toBe('Gravel bike');
 		await expect
-			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: 240000 })
+			.poll(async () => page.evaluate(() => (window.__waffle.getMeshes() ?? []).filter((m) => m.triangleCount > 0).length), { timeout: buildBudget })
 			.toBeGreaterThanOrEqual(14);
 		// A copy: the example opens under an identity of its own, never the file's.
 		expect(info.storageId).not.toBe(before.storageId);
