@@ -704,6 +704,42 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
                 "[trial-cycle] patch={patch_index} band={band} cycle={ci} len={} dups={dups:?} near_crossing={close:?}",
                 cyc.len()
             );
+            // TRIAL PROBE: the cycle path between the first two TRIAL_PTS, both ways.
+            let pts = crate::stage4_correct::trial_pts();
+            if pts.len() >= 2 {
+                let at = |q: (f64, f64, f64)| {
+                    cyc.iter().position(|&v| {
+                        let p = mesh.verts[v as usize];
+                        ((p.x() - q.0).powi(2) + (p.y() - q.1).powi(2) + (p.z() - q.2).powi(2)).sqrt() < 1e-9
+                    })
+                };
+                if let (Some(i0), Some(i1)) = (at(pts[0]), at(pts[1])) {
+                    let n = cyc.len();
+                    let interiors = patch
+                        .tris
+                        .iter()
+                        .flat_map(|&t| mesh.tris[t as usize])
+                        .filter(|v| !cycle_verts.contains(v))
+                        .collect::<BTreeSet<u32>>()
+                        .len();
+                    for (dir, (a, b)) in [("fwd", (i0, i1)), ("rev", (i1, i0))] {
+                        let mut path = Vec::new();
+                        let mut k = (a + 1) % n;
+                        while k != b {
+                            let p = mesh.verts[cyc[k] as usize];
+                            path.push((cyc[k], [p.x(), p.y(), p.z()], p.y().atan2(p.x()).to_degrees()));
+                            k = (k + 1) % n;
+                        }
+                        eprintln!(
+                            "[trial-path] patch={patch_index} surface={:?} cycle={ci} {dir} {}→{}: {} vertices between; patch interior vertices {interiors}; path {path:?}",
+                            std::mem::discriminant(&patch.surface),
+                            cyc[a],
+                            cyc[b],
+                            path.len()
+                        );
+                    }
+                }
+            }
         }
     }
     let mut interior_back: Vec<u32> = Vec::new();
