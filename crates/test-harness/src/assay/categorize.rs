@@ -638,8 +638,8 @@ fn categorize_loaded(
     let exact_vs_mesh = crate::assay::exact_vs_mesh::measure(builder, tess_tol).summary();
     // Remediation plan O5 (kernel 1.0 gate 1.2), a VERDICT: the kernel's
     // exact live-volume change at every op against the exact chain's
-    // direction for that prefix (decrease / none / increase, within the
-    // changed region's own lattice band — `assay::monotonicity`). Not the
+    // certified interval for that prefix (its direction — decrease / none /
+    // increase — and its bounds, `assay::monotonicity`). Not the
     // authored `volume_monotonicity`, which the generator writes without
     // knowing reach. An uncovered prefix is not covered, never a pass; the
     // exact oracle's A/B knob turns this off with it.

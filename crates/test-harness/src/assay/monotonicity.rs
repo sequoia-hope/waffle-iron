@@ -52,9 +52,10 @@
 //!
 //! The exact chain's direction is *decrease* when `I < 0`, *increase* when
 //! `I > 0`, *none* when `0 ∈ I`. A step is a VIOLATION when the kernel's
-//! exact change disagrees: a decrease the kernel did not make (a dropped
-//! cut), an increase it did not make, or — where the exact chain says none —
-//! a kernel change outside `I`. The kernel's own "no change" is
+//! exact change disagrees: any kernel change outside `I` (on a decrease or
+//! increase step `I` is only as tight as the first level with a sign), and
+//! on a decrease or increase step a kernel change of the
+//! wrong sign or none (a dropped cut). The kernel's own "no change" is
 //! [`MONOTONIC_REL_EPS`] of its volume.
 //!
 //! **Not covered** (no verdict, never a pass): a step whose prefix (or the
@@ -162,11 +163,18 @@ pub fn judge_step(
     let eps = MONOTONIC_REL_EPS * kernel_before.abs().max(kernel_after.abs());
     let (lo, hi) = exact.interval();
     let expected = exact.direction();
-    let bad = match expected {
-        Direction::Decrease => d >= -eps,
-        Direction::Increase => d <= eps,
-        Direction::None => d < lo - eps || d > hi + eps,
-    };
+    // `I` holds the true change whatever the direction, so the kernel's change
+    // must lie in it on EVERY step. On a decrease / increase step `I` is the
+    // first octree level with a sign (`run` stops there), so this catches a
+    // change beyond that coarse bound, not every partly dropped cut; the
+    // sign test catches the dropped one (`I` may straddle the kernel's eps).
+    let outside = d < lo - eps || d > hi + eps;
+    let bad = outside
+        || match expected {
+            Direction::Decrease => d >= -eps,
+            Direction::Increase => d <= eps,
+            Direction::None => false,
+        };
     bad.then_some(Violation {
         step,
         expected,
@@ -891,6 +899,10 @@ mod tests {
         // A cut that ADDED material is also flagged.
         assert!(judge_step(1, &s1, 1.0, 1.1).is_some());
         assert!(judge_step(1, &s1, 1.0, 0.75).is_none());
+        // A decrease larger than `I` allows (the cut took more than its tool
+        // can reach) is flagged too.
+        let v = judge_step(1, &s1, 1.0, 1.0 + s1.lo - 0.01).expect("over-removal flagged");
+        assert_eq!(v.expected, Direction::Decrease);
     }
 
     /// A cut whose tool misses the body (a free-space cut — the adjudicated
