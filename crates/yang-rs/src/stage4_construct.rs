@@ -1009,7 +1009,8 @@ fn rebuild_patch_inner(
                 new_max = new_max.max(dt);
                 new_tri_bounds.push(dt);
             }
-            if new_max > budget {
+            // TRIAL (N106 measurement, never lands): the I2d refusal is off.
+            if std::env::var_os("TRIAL_KEEP_I2D").is_some() && new_max > budget {
                 return Err(ConstructError::ChordDegradation {
                     patch: patch_index,
                     old_max: budget,
