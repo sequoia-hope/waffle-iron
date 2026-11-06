@@ -631,6 +631,71 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
     excluded_interiors: &BTreeSet<u32>,
     metric: ChartMetric,
 ) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_inner(
+        mesh,
+        patch_index,
+        patch,
+        d_eps,
+        excluded_interiors,
+        metric,
+        None,
+        &mut Vec::new(),
+    )
+}
+
+/// N106 increment 2: the simplices of one curved patch's update CDT that the
+/// OTHER operand's mesh already holds — the coincidences
+/// [`separate_coincident_simplices`] found — and the chart seeds earlier
+/// rounds already inserted for them.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CoincidentSplit {
+    /// Chart seeds of earlier rounds (re-inserted as they were).
+    pub prior: Vec<Point2>,
+    /// Coincident triangles (mesh indices, any order): each gets the surface
+    /// point at its chart centroid.
+    pub tris: Vec<[u32; 3]>,
+    /// Coincident interior edges: each gets the surface point at its chart
+    /// midpoint.
+    pub edges: Vec<(u32, u32)>,
+}
+
+/// [`rebuild_patch_planar_bounded_ex`] with the N106 increment-2 points: the
+/// patch CDT re-run with one interior surface point per coincident simplex
+/// (Fig. 11(c) generalized, `refs/text/yang2025_hybrid_boolean.txt:564-566`).
+/// The I2e retry does not run (the seeds are this pass's, not a grid);
+/// `seeds_out` receives every chart seed the plan inserted, so a later round
+/// can re-insert them.
+pub(crate) fn rebuild_patch_separating(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    split: &CoincidentSplit,
+    seeds_out: &mut Vec<Point2>,
+) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_inner(
+        mesh,
+        patch_index,
+        patch,
+        d_eps,
+        &BTreeSet::new(),
+        ChartMetric::Isometric,
+        Some(split),
+        seeds_out,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rebuild_patch_inner(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+    metric: ChartMetric,
+    split: Option<&CoincidentSplit>,
+    seeds_out: &mut Vec<Point2>,
+) -> Result<PatchRebuild, ConstructError> {
     if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
     }
@@ -975,6 +1040,93 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
         let new_verts: Vec<Point3> = seeds.iter().map(|&s| chart.lift(s)).collect();
         Ok((new_tris, new_verts, new_tri_bounds))
     };
+
+    // N106 increment 2: one chart point per coincident simplex — the chart
+    // centroid of a triangle, the chart midpoint of an edge — on the branch
+    // inside the patch polygon, lifted exactly onto the surface by
+    // `run_attempt`. A point the polygon does not contain is skipped (the
+    // caller's re-check then still sees the coincidence and keeps the
+    // previous plan).
+    if let Some(split) = split {
+        let mid = theta_span.map(|(lo, hi)| 0.5 * (lo + hi));
+        let near = |q: Point2, to: Point2| -> Point2 {
+            if theta_span.is_none() {
+                return q;
+            }
+            let k = ((to.x() - q.x()) / std::f64::consts::TAU).round();
+            Point2::new(q.x() + k * std::f64::consts::TAU, q.y())
+        };
+        let inside = |q: Point2| -> bool {
+            crate::stage4_project::point_in_polygon(q, &p2.boundary, &p2.verts)
+                && !p2
+                    .holes
+                    .iter()
+                    .any(|h| crate::stage4_project::point_in_polygon(q, h, &p2.verts))
+        };
+        let place = |c: Point2| -> Option<Point2> {
+            let q = if band {
+                Point2::new(band_branch(c)?, c.y())
+            } else if let Some(m) = mid {
+                near(c, Point2::new(m, c.y()))
+            } else {
+                c
+            };
+            inside(q).then_some(q)
+        };
+        let uv = |v: u32| chart.project(mesh.verts[v as usize]);
+        let mut seeds = split.prior.clone();
+        let mut push = |q: Option<Point2>| {
+            if let Some(q) = q {
+                if !seeds.contains(&q) {
+                    seeds.push(q);
+                }
+            }
+        };
+        for t in &split.tris {
+            let p0 = uv(t[0]);
+            let (p1, p2_) = (near(uv(t[1]), p0), near(uv(t[2]), p0));
+            push(place(Point2::new(
+                (p0.x() + p1.x() + p2_.x()) / 3.0,
+                (p0.y() + p1.y() + p2_.y()) / 3.0,
+            )));
+        }
+        for &(u, v) in &split.edges {
+            let p0 = uv(u);
+            let p1 = near(uv(v), p0);
+            push(place(Point2::new(
+                0.5 * (p0.x() + p1.x()),
+                0.5 * (p0.y() + p1.y()),
+            )));
+        }
+        let out = run_attempt(&seeds)?;
+        // Every inserted point must be a vertex of the new triangulation —
+        // an unreferenced one would be appended to the mesh as an orphan.
+        let base = mesh.verts.len() as u32;
+        let used: BTreeSet<u32> = out.0.iter().flatten().copied().collect();
+        if (0..seeds.len() as u32).any(|k| !used.contains(&(base + k))) {
+            return Err(ConstructError::MalformedPatch { patch: patch_index });
+        }
+        seeds_out.clear();
+        seeds_out.extend(seeds);
+        let (new_tris, new_verts, new_tri_bounds) = out;
+        let kept: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
+        let dropped: BTreeSet<u32> = old
+            .iter()
+            .flatten()
+            .copied()
+            .filter(|v| !kept.contains(v))
+            .collect();
+        return Ok(PatchRebuild {
+            patch: patch_index,
+            old_tris: patch.tris.clone(),
+            new_tris,
+            new_tri_bounds,
+            new_verts,
+            dropped,
+            plan_verts: mesh.verts.len() as u32,
+            plan_tris: mesh.tris.len() as u32,
+        });
+    }
 
     let (new_tris, new_verts, new_tri_bounds) = match run_attempt(&[]) {
         Ok(out) => out,
@@ -4317,6 +4469,9 @@ pub(crate) fn update_patches_ex_with_bounds(
 
     let chord_band = crate::stage4_correct::stage4_chord_band(a, b);
     let mut patch_plans: Vec<Option<PatchPlanEntry>> = vec![None; n_patches];
+    // The SplicePatch each wholesale plan was built from, so N106's
+    // coincident-simplex separation can re-run it with points.
+    let mut patch_splices: Vec<Option<SplicePatch>> = vec![None; n_patches];
     let mut fig11a_cdt_patches = 0usize;
     let mut fig11a_declined_patches = 0usize;
     let mut fig11a_n106_arm_patches = 0usize;
@@ -4424,6 +4579,7 @@ pub(crate) fn update_patches_ex_with_bounds(
                         }
                         let post_tris = plan.new_tris.clone();
                         patch_plans[pi] = Some((vec![plan], post_tris));
+                        patch_splices[pi] = Some(patch.clone());
                     } else {
                         refusal = if plan_has_moved_degen {
                             "plan-keeps-moved-degenerate".into()
@@ -4667,6 +4823,19 @@ pub(crate) fn update_patches_ex_with_bounds(
         applied_split_keys.extend(comp_keys);
     }
 
+    // N106 increment 2: an update chord the other operand already holds.
+    let separable: Vec<Option<(SplicePatch, Vec<(u32, u32)>)>> = (0..n_patches)
+        .map(|pi| {
+            if !patch_req_splits[pi].is_empty() {
+                return None;
+            }
+            patch_splices[pi]
+                .clone()
+                .map(|sp| (sp, directed_boundary(&patch_old_tris[pi])))
+        })
+        .collect();
+    separate_coincident_simplices(mesh, attribution, &mut plans, &separable, chord_band);
+
     if plans.is_empty() {
         log_update_census(&format!(
             "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_n106_arm={fig11a_n106_arm_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
@@ -4703,6 +4872,189 @@ pub(crate) fn update_patches_ex_with_bounds(
     tri_bounds.assert_lockstep(mesh.tris.len(), "update_patches_ex_with_bounds exit");
     n
 }
+
+/// N106 increment 2 — an update chord the other operand already holds.
+///
+/// Yang §4.4.1 sets r_A = r_B = r for every intersection point
+/// (`refs/text/yang2025_hybrid_boolean.txt:550-554`), so the two operands'
+/// meshes share the curve's vertices by index. A patch CDT whose only
+/// vertices there are curve vertices can then draw the very simplex the
+/// other operand's mesh holds: a triangle (F0058, R0046, R0063: both patches
+/// close a corner with the same ear; C0052, C0054, P0057, F0060) or an edge
+/// (C0103: the chart-straight chord of a boundary-only cylinder patch lifts
+/// onto the box edge). The two surfaces are apart there by the triangle's own
+/// d(T), but the meshes coincide, and nothing downstream can tell them apart
+/// — N41's membrane cancel deletes a coincident pair, an edge in four
+/// triangles is a double cover. Where a curved patch's new triangle cannot
+/// carry its surface this way, the paper's remedy for a loop with no surface
+/// sample applies (Fig. 11(c), "we insert a point to ensure that the
+/// topology of the trimmed mesh patch aligns with the trimmed surface",
+/// `:564-566`): the surface point at the coincident triangle's chart
+/// centroid, or the coincident edge's chart midpoint, is inserted and the
+/// patch re-triangulated. Owner-signed 2026-11-06 (N106).
+///
+/// The test is exact and tolerance-free: a sorted vertex triple (or vertex
+/// pair, for an edge interior to the patch) present in the other operand's
+/// post-update mesh. Only a curved patch (some coincident triangle with
+/// d(T) > 0) inserts — a point on a plane stays on the plane. Rounds repeat
+/// until no coincidence remains or [`SEPARATE_ROUNDS`]; a re-plan the
+/// rebuild refuses, or whose boundary changed, keeps the previous plan and
+/// the coincidence is left to the loud consumers downstream.
+fn separate_coincident_simplices(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    plans: &mut [PatchRebuild],
+    separable: &[Option<(SplicePatch, Vec<(u32, u32)>)>],
+    chord_band: Option<f64>,
+) {
+    use crate::brep::InputId;
+    let op_of = |t: u32| -> Option<InputId> {
+        attribution
+            .attributions
+            .get(t as usize)
+            .copied()
+            .flatten()
+            .map(|a| a.input)
+    };
+    let sorted = |mut t: [u32; 3]| {
+        t.sort_unstable();
+        t
+    };
+    let ekey = |u: u32, v: u32| if u < v { (u, v) } else { (v, u) };
+    let mut seeds: BTreeMap<usize, Vec<Point2>> = BTreeMap::new();
+    let mut frozen: BTreeSet<usize> = BTreeSet::new();
+    for round in 0..SEPARATE_ROUNDS {
+        // The post-update mesh, per operand: untouched triangles plus every
+        // plan's new ones (a seed vertex is private to its plan, so a
+        // triangle using one coincides with nothing).
+        let replaced: BTreeSet<u32> = plans
+            .iter()
+            .flat_map(|r| r.old_tris.iter().copied())
+            .collect();
+        let mut tri_set: [BTreeSet<[u32; 3]>; 2] = [BTreeSet::new(), BTreeSet::new()];
+        let mut edge_set: [BTreeSet<(u32, u32)>; 2] = [BTreeSet::new(), BTreeSet::new()];
+        let slot = |op: InputId| usize::from(op == InputId::B);
+        let mut add = |op: InputId, t: [u32; 3]| {
+            tri_set[slot(op)].insert(sorted(t));
+            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                edge_set[slot(op)].insert(ekey(u, v));
+            }
+        };
+        for (ti, &t) in mesh.tris.iter().enumerate() {
+            if replaced.contains(&(ti as u32)) {
+                continue;
+            }
+            if let Some(op) = op_of(ti as u32) {
+                add(op, t);
+            }
+        }
+        for r in plans.iter() {
+            let Some(op) = r.old_tris.first().and_then(|&t| op_of(t)) else {
+                continue;
+            };
+            for &t in &r.new_tris {
+                if t.iter().all(|&v| v < r.plan_verts) {
+                    add(op, t);
+                }
+            }
+        }
+
+        let mut work: Vec<(usize, CoincidentSplit)> = Vec::new();
+        for (k, r) in plans.iter().enumerate() {
+            if frozen.contains(&r.patch) {
+                continue;
+            }
+            let Some(Some((sp, _))) = separable.get(r.patch) else {
+                continue;
+            };
+            if matches!(sp.surface, Surface::Plane { .. }) {
+                continue;
+            }
+            let Some(op) = r.old_tris.first().and_then(|&t| op_of(t)) else {
+                continue;
+            };
+            let other = 1 - slot(op);
+            let mut split = CoincidentSplit {
+                prior: seeds.get(&r.patch).cloned().unwrap_or_default(),
+                ..Default::default()
+            };
+            let mut forced_tri = vec![false; r.new_tris.len()];
+            for (i, &t) in r.new_tris.iter().enumerate() {
+                let curved = r.new_tri_bounds.get(i).is_some_and(|&d| d > 0.0);
+                if curved
+                    && t.iter().all(|&v| v < r.plan_verts)
+                    && tri_set[other].contains(&sorted(t))
+                {
+                    forced_tri[i] = true;
+                    split.tris.push(t);
+                }
+            }
+            let mut uses: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+            for (i, &t) in r.new_tris.iter().enumerate() {
+                for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                    uses.entry(ekey(u, v)).or_default().push(i);
+                }
+            }
+            for (&(u, v), at) in &uses {
+                let interior = at.len() == 2;
+                let curved = at
+                    .iter()
+                    .any(|&i| r.new_tri_bounds.get(i).is_some_and(|&d| d > 0.0));
+                if interior
+                    && curved
+                    && u < r.plan_verts
+                    && v < r.plan_verts
+                    && !at.iter().any(|&i| forced_tri[i])
+                    && edge_set[other].contains(&(u, v))
+                {
+                    split.edges.push((u, v));
+                }
+            }
+            if !split.tris.is_empty() || !split.edges.is_empty() {
+                work.push((k, split));
+            }
+        }
+        if work.is_empty() {
+            return;
+        }
+        for (k, split) in work {
+            let pi = plans[k].patch;
+            let Some(Some((sp, want_bd))) = separable.get(pi) else {
+                continue;
+            };
+            let mut used = Vec::new();
+            match rebuild_patch_separating(mesh, pi, sp, chord_band, &split, &mut used) {
+                Ok(plan) if plan_matches_boundary(&plan.new_tris, want_bd) => {
+                    log_update_census(&format!(
+                        "SEPARATED round={round} patch={pi} tris={} edges={} points={}",
+                        split.tris.len(),
+                        split.edges.len(),
+                        used.len()
+                    ));
+                    seeds.insert(pi, used);
+                    plans[k] = plan;
+                }
+                other => {
+                    log_update_census(&format!(
+                        "SEPARATE_REFUSED round={round} patch={pi} tris={} edges={} why={}",
+                        split.tris.len(),
+                        split.edges.len(),
+                        match other {
+                            Ok(_) => "boundary-mismatch".to_string(),
+                            Err(e) => format!("{e:?}").replace(' ', ""),
+                        }
+                    ));
+                    frozen.insert(pi);
+                }
+            }
+        }
+    }
+}
+
+/// Rounds of [`separate_coincident_simplices`]: a re-plan can draw a new
+/// coincident simplex elsewhere in the patch, so the check repeats; each
+/// round adds at least one point per remaining coincidence.
+const SEPARATE_ROUNDS: usize = 8;
 
 #[cfg(test)]
 mod tests {
@@ -4743,6 +5095,139 @@ mod tests {
             plan_keeps_boundary(&tris, &plan.new_tris),
             "the rebuilt band keeps its directed boundary (orientation from the boundary)"
         );
+    }
+
+    fn unit_cylinder() -> Surface {
+        Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: cad_primitives::Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        }
+    }
+
+    fn on_cyl(theta: f64, z: f64) -> Point3 {
+        Point3::new(theta.cos(), theta.sin(), z)
+    }
+
+    fn a_b_attribution(ops: &[crate::brep::InputId]) -> TriangleAttributionMap {
+        TriangleAttributionMap {
+            attributions: ops
+                .iter()
+                .map(|&input| Some(crate::brep::TriangleAttribution { input, face: 0 }))
+                .collect(),
+        }
+    }
+
+    // N106 increment 2: a curved patch whose update CDT draws the triangle
+    // the other operand already holds gets the surface point at that
+    // triangle's chart centroid; the coincidence is gone and the patch keeps
+    // its boundary.
+    #[test]
+    fn a_coincident_cross_operand_triangle_gets_its_surface_centroid() {
+        use crate::brep::InputId;
+        let verts = vec![on_cyl(0.0, 0.0), on_cyl(1.0, 0.0), on_cyl(0.5, 1.0)];
+        let mesh = Mesh::new(verts, vec![[0, 1, 2], [0, 2, 1]]);
+        let attribution = a_b_attribution(&[InputId::A, InputId::B]);
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2]],
+            tris: vec![0],
+            surface: unit_cylinder(),
+        };
+        let plan = rebuild_patch_planar(&mesh, 0, &patch).expect("the patch rebuilds");
+        assert_eq!(
+            plan.new_tris.len(),
+            1,
+            "a boundary-only triangle is its own CDT"
+        );
+        let want_bd = directed_boundary(&[mesh.tris[0]]);
+        let mut plans = vec![plan];
+        let separable = vec![Some((patch, want_bd.clone()))];
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        let r = &plans[0];
+        assert_eq!(r.new_verts.len(), 1, "one point for the one coincidence");
+        let c = r.new_verts[0];
+        let (rho, theta) = (c.x().hypot(c.y()), c.y().atan2(c.x()));
+        assert!(
+            (rho - 1.0).abs() < 1e-12,
+            "the point is on the cylinder: r = {rho}"
+        );
+        assert!((theta - 0.5).abs() < 1e-12 && (c.z() - 1.0 / 3.0).abs() < 1e-12);
+        assert_eq!(r.new_tris.len(), 3);
+        assert!(!r.new_tris.iter().any(|t| {
+            let mut s = *t;
+            s.sort_unstable();
+            s == [0, 1, 2]
+        }));
+        assert!(plan_matches_boundary(&r.new_tris, &want_bd));
+    }
+
+    // C0103's form: the update CDT's interior chord is an edge of the other
+    // operand's mesh. The chord gets the surface point at its chart
+    // midpoint, and no triangle of the patch uses the chord any more.
+    #[test]
+    fn a_coincident_cross_operand_edge_gets_its_surface_midpoint() {
+        use crate::brep::InputId;
+        let verts = vec![
+            on_cyl(0.0, 0.0),
+            on_cyl(1.0, 0.0),
+            on_cyl(1.0, 1.0),
+            on_cyl(0.0, 1.0),
+            Point3::new(0.0, 0.0, 0.5),
+        ];
+        let quad = vec![[0, 1, 2], [0, 2, 3]];
+        let mesh0 = Mesh::new(verts.clone(), quad.clone());
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3]],
+            tris: vec![0, 1],
+            surface: unit_cylinder(),
+        };
+        let first = rebuild_patch_planar(&mesh0, 0, &patch).expect("the patch rebuilds");
+        let mut uses: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for t in &first.new_tris {
+            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                *uses.entry((u.min(v), u.max(v))).or_default() += 1;
+            }
+        }
+        let (&(u, v), _) = uses.iter().find(|(_, &n)| n == 2).expect("one diagonal");
+        // B holds the diagonal as an edge of one of its triangles.
+        let mut tris = quad;
+        tris.push([u, v, 4]);
+        let mesh = Mesh::new(verts, tris);
+        let attribution = a_b_attribution(&[InputId::A, InputId::A, InputId::B]);
+        let want_bd = directed_boundary(&mesh.tris[..2]);
+        let mut plans = vec![rebuild_patch_planar(&mesh, 0, &patch).expect("rebuilds")];
+        let separable = vec![Some((patch, want_bd.clone()))];
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        let r = &plans[0];
+        assert_eq!(r.new_verts.len(), 1);
+        let c = r.new_verts[0];
+        assert!((c.x().hypot(c.y()) - 1.0).abs() < 1e-12, "on the cylinder");
+        assert!(!r.new_tris.iter().any(|t| {
+            [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]
+                .iter()
+                .any(|&(a, b)| (a.min(b), a.max(b)) == (u, v))
+        }));
+        assert!(plan_matches_boundary(&r.new_tris, &want_bd));
+    }
+
+    // A planar patch never inserts: a point on a plane stays on the plane,
+    // so the coincidence is not the patch's to separate.
+    #[test]
+    fn a_planar_patch_is_not_separated() {
+        use crate::brep::InputId;
+        let verts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.0),
+        ];
+        let mesh = Mesh::new(verts, vec![[0, 1, 2], [0, 2, 1]]);
+        let attribution = a_b_attribution(&[InputId::A, InputId::B]);
+        let patch = plane_patch(vec![vec![0, 1, 2]], vec![0]);
+        let mut plans = vec![rebuild_patch_planar(&mesh, 0, &patch).expect("rebuilds")];
+        let before = plans.clone();
+        let separable = vec![Some((patch, directed_boundary(&[mesh.tris[0]])))];
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        assert_eq!(plans, before);
     }
 
     #[test]
