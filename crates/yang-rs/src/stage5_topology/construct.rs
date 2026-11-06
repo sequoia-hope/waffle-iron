@@ -809,16 +809,13 @@ pub(super) fn run_construct_passes(
             // Single-sided rebuilds. A patch that declines takes all its seams
             // out of the batch (its partners must not collapse one-sidedly).
             let mut out = Vec::with_capacity(mod_cycles.len());
-            let chord_band = crate::stage4_correct::stage4_chord_band(a, b);
             for (&pi, cycles) in &mod_cycles {
                 let modp = SplicePatch {
                     cycles: cycles.clone(),
                     tris: patches[pi].tris.clone(),
                     surface: patches[pi].surface,
                 };
-                match crate::stage4_construct::rebuild_patch_planar_bounded(
-                    mesh, pi, &modp, chord_band,
-                ) {
+                match crate::stage4_construct::rebuild_patch_planar(mesh, pi, &modp) {
                     Ok(r) => out.push(r),
                     Err(e) => {
                         skip[6] += 1;

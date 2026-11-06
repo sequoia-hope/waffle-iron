@@ -22,7 +22,7 @@ use crate::brep::{
 };
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
-    apply_rebuild_batch, rebuild_patch_planar_bounded_ex, refill_fan_hole_seeded_with_bounds,
+    apply_rebuild_batch, rebuild_patch_planar_ex, refill_fan_hole_seeded_with_bounds,
     update_patches_ex_with_bounds, PatchRebuild,
 };
 use crate::stage4_correct::{
@@ -119,10 +119,9 @@ fn n106_d2_pin_a_patch_cdt_all_new_tris_carry_recomputed_d_of_t() {
         surface: cyl_surface,
     };
 
-    let chord_band = 5.0;
-    let rebuild =
-        rebuild_patch_planar_bounded_ex(&mesh, 0, &patch, Some(chord_band), &BTreeSet::new())
-            .expect("cylinder patch CDT must succeed");
+    let chord_band = 5.0f64;
+    let rebuild = rebuild_patch_planar_ex(&mesh, 0, &patch, &BTreeSet::new())
+        .expect("cylinder patch CDT must succeed");
 
     assert_eq!(rebuild.new_tri_bounds.len(), rebuild.new_tris.len());
     let mut n_boundary = 0usize;
@@ -160,11 +159,12 @@ fn n106_d2_pin_a_patch_cdt_all_new_tris_carry_recomputed_d_of_t() {
     assert_eq!(n_boundary, 12);
     assert_eq!(n_inner, 2);
 
-    // (2) I2e-seeded cylinder patch (`radius = 2.0`, θ ∈ [0, π/2], z ∈ [0, 3.0]
-    // notched drum where seedless `(θ, z)` CDT fans mid-height notch vertices
-    // across wide θ and triggers I2e interior Steiner seeds `new_verts`):
-    // verify `!new_verts.is_empty()` and EVERY emitted triangle (both boundary
-    // AND pure-I2e-seed interior) carries its own `d_of_t`, never `gate_d_eps`.
+    // (2) Seeded cylinder patch (`radius = 2.0`, θ ∈ [0, π/2], z ∈ [0, 3.0]
+    // notched drum, re-planned with one N106 separation point per triangle of
+    // its seedless CDT — since 2026-11-06 the only seeds a patch rebuild
+    // mints): verify `!new_verts.is_empty()` and EVERY emitted triangle (both
+    // boundary AND pure-seed interior) carries its own `d_of_t`, never a
+    // scalar `gate_d_eps`.
     let drum_surface = Surface::Cylinder {
         axis_point: pt(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
@@ -213,18 +213,24 @@ fn n106_d2_pin_a_patch_cdt_all_new_tris_carry_recomputed_d_of_t() {
         tris: (0..12).collect(),
         surface: drum_surface,
     };
-    let gate_d_eps = 1.0;
-    let seeded_rebuild = rebuild_patch_planar_bounded_ex(
+    let gate_d_eps = 1.0f64;
+    let seedless = rebuild_patch_planar_ex(&drum_mesh, 0, &drum_patch, &BTreeSet::new())
+        .expect("cylinder patch CDT must succeed");
+    let split = crate::stage4_construct::CoincidentSplit {
+        tris: seedless.new_tris.clone(),
+        ..Default::default()
+    };
+    let seeded_rebuild = crate::stage4_construct::rebuild_patch_separating(
         &drum_mesh,
         0,
         &drum_patch,
-        Some(gate_d_eps),
-        &BTreeSet::new(),
+        &split,
+        &mut Vec::new(),
     )
-    .expect("I2e-seeded cylinder patch CDT must succeed");
+    .expect("seeded cylinder patch CDT must succeed");
     assert!(
         !seeded_rebuild.new_verts.is_empty(),
-        "I2e seed grid must mint interior Steiner vertices"
+        "the separation points are interior Steiner vertices"
     );
     let pos_of = |vi: u32| -> Point3 {
         if vi < seeded_rebuild.plan_verts {
@@ -255,7 +261,7 @@ fn n106_d2_pin_a_patch_cdt_all_new_tris_carry_recomputed_d_of_t() {
     }
     assert!(
         n_seed_inner > 0,
-        "expected pure I2e-seed interior triangles, got {n_seed_inner}"
+        "expected pure-seed interior triangles, got {n_seed_inner}"
     );
 
     // (3) Seeded `refill_fan_hole_seeded_with_bounds` on `cyl_surface`: 6-gon
@@ -345,9 +351,8 @@ fn n106_d2_pin_a_patch_cdt_all_new_tris_carry_recomputed_d_of_t() {
         tris: (0..cone_old_tris.len() as u32).collect(),
         surface: cone_surface,
     };
-    let cone_rebuild =
-        rebuild_patch_planar_bounded_ex(&cone_mesh, 0, &cone_patch, Some(5.0), &BTreeSet::new())
-            .expect("cone patch CDT must succeed");
+    let cone_rebuild = rebuild_patch_planar_ex(&cone_mesh, 0, &cone_patch, &BTreeSet::new())
+        .expect("cone patch CDT must succeed");
     assert_eq!(
         cone_rebuild.new_tri_bounds.len(),
         cone_rebuild.new_tris.len()

@@ -52,12 +52,12 @@ use crate::brep::{
 use crate::errors::{ChainDecimateError, YangError};
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
-    apply_rebuild_batch, directed_boundary, rebuild_patch_planar_bounded_ex,
+    apply_rebuild_batch, directed_boundary, rebuild_patch_planar_ex,
     refill_fan_hole_seeded_with_bounds, PatchRebuild,
 };
 use crate::stage4_correct::{
     merge_same_plane_patches_with_side_labels, paper_chain_metrics, paper_chain_sample_redundant,
-    stage4_chord_band, PatchInfo,
+    PatchInfo,
 };
 use crate::stage4_project::SurfaceChart;
 use crate::stage4_splice::SplicePatch;
@@ -1189,7 +1189,6 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
 
     enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
 
-    let d_eps = stage4_chord_band(a, b);
     let rebuilds: Vec<PatchRebuild> = 'plan_batch: loop {
         // Any discontinuous cycle on a patch forces all chains on that patch to
         // decline so we never rebuild against incomplete cycle data.
@@ -1410,7 +1409,7 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
                 let whole = if info.had_fold_sliver || !SurfaceChart::supports(&info.inherited) {
                     None
                 } else {
-                    rebuild_patch_planar_bounded_ex(mesh, pi, &mod_splice, d_eps, &victims)
+                    rebuild_patch_planar_ex(mesh, pi, &mod_splice, &victims)
                         .ok()
                         .filter(|r| {
                             certify_patch_rebuild(

@@ -58,6 +58,10 @@ pub(crate) fn balance_census(mesh: &Mesh, checkpoint: &str) {
 /// `None` iff `parent` does not contain the edge `{u, v}` — the callers choose
 /// the parent from the edge's own incidence list, so this is unreachable by
 /// construction and they treat it as an invariant violation.
+// Its last production caller, the unzip's local arms kept behind the N106
+// d(T) refusal, retired with that refusal (2026-11-06); kept as the pure
+// split its winding pins exercise.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn split_tri_at_edge(
     parent: [u32; 3],
     u: u32,

@@ -288,16 +288,13 @@ pub(crate) enum ConstructError {
     /// The patch's old triangles do not all share one attribution, so the
     /// replacement triangles have no unambiguous attribution to inherit.
     MixedAttribution { patch: usize },
-    /// I2d (Yang §4.4.1's closing sentence, "we recalculate d(T) to
-    /// maintain controllable error"): the rebuilt CURVED patch certifies a
-    /// LARGER discretization error than the triangles it replaces. A chart
-    /// CDT is geometry-blind — on a curved patch, chart-valid
-    /// triangulations are NOT geometry-equivalent, and a boundary whose
-    /// θ-sampling is sparse away from the rims forces secant triangles
-    /// that shave the cylindrical bulge (the kv6b revolve∪box measurement:
-    /// watertight, topology-clean, −10 % pipeline-mesh volume). The budget
-    /// is the patch's own PRE-rebuild certified max `d(T)` — like for like
-    /// (certified bound vs certified bound), tolerance-free.
+    /// The seeded fan refill ([`refill_fan_hole_seeded_with_bounds`]) could
+    /// not certify its refill within the fossil fan's own d(T) before its
+    /// seed budget ran out. (Until 2026-11-06 the wholesale patch rebuild
+    /// also refused with this — the I2d budget — which is not the paper's
+    /// operation: §4.4.1 re-bounds each new triangle by its own d(T),
+    /// `refs/text/yang2025_hybrid_boolean.txt:566-571`; ledger N106. The
+    /// refill's budget is the inventory's open B-row, not retired here.)
     ChordDegradation {
         patch: usize,
         old_max: f64,
@@ -477,43 +474,23 @@ pub(crate) fn rebuild_patch_planar(
     patch_index: usize,
     patch: &SplicePatch,
 ) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_planar_bounded(mesh, patch_index, patch, None)
+    rebuild_patch_planar_ex(mesh, patch_index, patch, &BTreeSet::new())
 }
 
-/// [`rebuild_patch_planar`] with the paper's d(T) bound: Yang §4.4.1 closes
-/// with "we recalculate d(T) to maintain controllable error" — the bound is
-/// the patch's d_ε (§4.1), not whatever the replaced triangles reached. A
-/// relocated mesh can certify far worse than d_ε (the corner-in-band band:
-/// old max 0.86 on a unit cylinder), and "no worse than the old" then admits
-/// a rebuild of secant triangles that shaves the surface (−7 % volume). The
-/// budget is therefore `min(old max, d_eps)` — never looser than the
-/// old-max rule, stricter exactly where the old triangulation already
-/// exceeds the paper's bound; the seeded retry is how it is met.
-pub(crate) fn rebuild_patch_planar_bounded(
-    mesh: &Mesh,
-    patch_index: usize,
-    patch: &SplicePatch,
-    d_eps: Option<f64>,
-) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_planar_bounded_ex(mesh, patch_index, patch, d_eps, &BTreeSet::new())
-}
-
-/// [`rebuild_patch_planar_bounded`] with an explicit `excluded_interiors` set
+/// [`rebuild_patch_planar`] with an explicit `excluded_interiors` set
 /// for boundary vertices removed by §4.4.1 curve-chain decimation (so curved
 /// Cylinder/Cone charts never re-carry a removed `SurfacePair` boundary sample
 /// as an interior Steiner vertex).
-pub(crate) fn rebuild_patch_planar_bounded_ex(
+pub(crate) fn rebuild_patch_planar_ex(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
-    d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
 ) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_planar_bounded_with_metric(
+    rebuild_patch_planar_ex_with_metric(
         mesh,
         patch_index,
         patch,
-        d_eps,
         excluded_interiors,
         ChartMetric::Isometric,
     )
@@ -522,7 +499,7 @@ pub(crate) fn rebuild_patch_planar_bounded_ex(
 type BoundedCdtOutput = (Vec<[u32; 3]>, Vec<Point3>, Vec<f64>);
 
 /// Chart metric used for the Delaunay criterion in
-/// [`rebuild_patch_planar_bounded_with_metric`].
+/// [`rebuild_patch_planar_ex_with_metric`].
 ///
 /// * [`ChartMetric::Parametric`]: Delaunay in the raw unwrapped `(θ, y)` chart
 ///   (`SurfaceChart::project`) — production until 2026-11-03, kept for the
@@ -604,30 +581,22 @@ pub(crate) fn rebuild_patch_planar_with_metric(
     patch: &SplicePatch,
     metric: ChartMetric,
 ) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_planar_bounded_with_metric(
-        mesh,
-        patch_index,
-        patch,
-        None,
-        &BTreeSet::new(),
-        metric,
-    )
+    rebuild_patch_planar_ex_with_metric(mesh, patch_index, patch, &BTreeSet::new(), metric)
 }
 
-/// [`rebuild_patch_planar_bounded_ex`] parameterized by [`ChartMetric`].
+/// [`rebuild_patch_planar_ex`] parameterized by [`ChartMetric`].
 /// Production passes [`ChartMetric::Isometric`] through
-/// [`rebuild_patch_planar_bounded_ex`]: the CDT's Delaunay criterion runs in
+/// [`rebuild_patch_planar_ex`]: the CDT's Delaunay criterion runs in
 /// `(r·θ, y)` on cylinders and in the developed circular-sector chart on cones
 /// without changing patch boundaries, constraints, 3D lifting, or
 /// `stage4_dt::d_of_t` certification. The `(θ, y)` chart builds
 /// circumferential slivers whose covering rectangle (Fig. 6) charges a
 /// diagonal sliver its full width — the first of the two pieces the 2026-10-31
 /// N106 trial needed before the d(T) refusal can go.
-pub(crate) fn rebuild_patch_planar_bounded_with_metric(
+pub(crate) fn rebuild_patch_planar_ex_with_metric(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
-    d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
     metric: ChartMetric,
 ) -> Result<PatchRebuild, ConstructError> {
@@ -635,7 +604,6 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
         mesh,
         patch_index,
         patch,
-        d_eps,
         excluded_interiors,
         metric,
         None,
@@ -659,7 +627,7 @@ pub(crate) struct CoincidentSplit {
     pub edges: Vec<(u32, u32)>,
 }
 
-/// [`rebuild_patch_planar_bounded_ex`] with the N106 increment-2 points: the
+/// [`rebuild_patch_planar_ex`] with the N106 increment-2 points: the
 /// patch CDT re-run with one interior surface point per coincident simplex
 /// (Fig. 11(c) generalized, `refs/text/yang2025_hybrid_boolean.txt:564-566`).
 /// The I2e retry does not run (the seeds are this pass's, not a grid);
@@ -669,7 +637,6 @@ pub(crate) fn rebuild_patch_separating(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
-    d_eps: Option<f64>,
     split: &CoincidentSplit,
     seeds_out: &mut Vec<Point2>,
 ) -> Result<PatchRebuild, ConstructError> {
@@ -677,7 +644,6 @@ pub(crate) fn rebuild_patch_separating(
         mesh,
         patch_index,
         patch,
-        d_eps,
         &BTreeSet::new(),
         ChartMetric::Isometric,
         Some(split),
@@ -690,7 +656,6 @@ fn rebuild_patch_inner(
     mesh: &Mesh,
     patch_index: usize,
     patch: &SplicePatch,
-    d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
     metric: ChartMetric,
     split: Option<&CoincidentSplit>,
@@ -812,75 +777,8 @@ fn rebuild_patch_inner(
 
     let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
 
-    // I2d budget — certify the OLD triangles once (cylinder only): the max
-    // certified d(T) over the triangles this rebuild replaces, plus the
-    // patch's own θ-arc sampling scale (the I2e seed-spacing basis).
-    // Projection-based uv with span containment — old-triangle vertices
-    // include the boundary-edge-filtered ones that are not in `pool`.
-    let mut old_max: Option<f64> = None;
-    let mut old_arc_span = 0.0f64;
-    let radius = match chart {
-        SurfaceChart::Cylinder { radius, .. } => radius,
-        // I13a: the θ↔arc-length reference for seed spacing / arc spans. The
-        // patch's LARGEST station gives the largest local radius — seeds are
-        // then never sparser than `spacing` anywhere on the patch.
-        SurfaceChart::Cone { tan_half, .. } => {
-            p2.verts.iter().fold(0.0f64, |m, p| m.max(p.y())) * tan_half
-        }
-        SurfaceChart::Plane { .. } => 0.0,
-        // inc-2c-3b-3: unreachable today — the wholesale path charts via
-        // `SurfaceChart::new`, which never builds a Torus (a whole patch may
-        // wrap a period; only fan-local holders use `new_local`). The value
-        // is the honest θ↔arc reference all the same: the outer equator.
-        SurfaceChart::Torus { major, minor, .. } => major + minor,
-    };
-    if let Some((theta_min, theta_max)) = theta_span {
-        let uv_of = |v: u32| -> Result<Point2, ConstructError> {
-            let uv = chart.project(mesh.verts[v as usize]);
-            let mid = 0.5 * (theta_min + theta_max);
-            let k = ((mid - uv.x()) / std::f64::consts::TAU).round();
-            let theta = uv.x() + k * std::f64::consts::TAU;
-            if theta < theta_min || theta > theta_max {
-                return Err(ConstructError::ChordCertify { patch: patch_index });
-            }
-            Ok(Point2::new(theta, uv.y()))
-        };
-        // A band's old triangle is read on one branch: its other two
-        // vertices unwrapped to the nearest copy of the first (d(T) is
-        // invariant under a 2π shift in θ).
-        let tri_uv = |t: &[u32; 3]| -> Result<[Point2; 3], ConstructError> {
-            if !band {
-                return Ok([uv_of(t[0])?, uv_of(t[1])?, uv_of(t[2])?]);
-            }
-            let p = t.map(|v| chart.project(mesh.verts[v as usize]));
-            let near = |q: Point2| {
-                let k = ((p[0].x() - q.x()) / std::f64::consts::TAU).round();
-                Point2::new(q.x() + k * std::f64::consts::TAU, q.y())
-            };
-            Ok([p[0], near(p[1]), near(p[2])])
-        };
-        let mut m = 0.0f64;
-        for t in &old {
-            let uv = tri_uv(t)?;
-            let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
-                .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
-            m = m.max(dt);
-            let (lo, hi) = uv
-                .iter()
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                    (lo.min(p.x()), hi.max(p.x()))
-                });
-            old_arc_span = old_arc_span.max((hi - lo) * radius);
-        }
-        old_max = Some(match d_eps {
-            Some(e) if e.is_finite() && e > 0.0 => m.min(e),
-            _ => m,
-        });
-    }
-
-    // One CDT attempt over `pool` extended with `seeds` (chart points, I2e).
-    // Attempt 0 runs seedless — the pre-I2e path, byte-identical when it
-    // passes the gate.
+    // One CDT over `pool` extended with `seeds` (chart points: the N106
+    // increment-2 separation points; none on a first plan).
     let n_pool = pool.len();
     let run_attempt = |seeds: &[Point2]| -> Result<BoundedCdtOutput, ConstructError> {
         let mut pool_ext = pool.clone();
@@ -979,25 +877,17 @@ fn rebuild_patch_inner(
             }
         }
 
-        // I2d gate — Yang §4.4.1's closing sentence ("we recalculate d(T)
-        // to maintain controllable error",
-        // refs/text/yang2025_hybrid_boolean.txt:568-571). Certified like for
-        // like, in the CDT's own frame: the pool coordinates ARE the
-        // unwrapped parametrization the new triangles were built in. The
-        // rebuild is accepted only if its certified max d(T) does not
-        // exceed the certified max of the triangles it replaces — the
-        // patch's own pre-rebuild bound as the budget, no external
-        // constant. Planar patches are exempt by identity (d(T) ≡ 0 for
-        // any triangulation of a plane polygon).
-        //
-        // Per-triangle bound (Yang 2025 §4.1.2 / §4.4.1, N106 D2.3): every
-        // curved triangle created in Stage 4/5 — boundary, carried-interior,
-        // or I2e-seeded — carries its own recomputed `d(T)` via `d_of_t`
-        // (`0.0` on exact planar patches; `d_ε` is reserved strictly for
-        // surviving unsplit Stage-1 inner triangles).
+        // Yang §4.4.1's closing sentence: "For the newly generated boundary
+        // triangles around the intersection curve, we recalculate d(T) to
+        // maintain controllable error" (refs/text/yang2025_hybrid_boolean.txt:566-571).
+        // Every new curved triangle carries its own certified d(T) as its
+        // bound d_ε(T) (§4.1.2 `:357-378`), computed in the CDT's own frame —
+        // the pool coordinates ARE the unwrapped parametrization the
+        // triangles were built in. Nothing is refused for its d(T) (N106:
+        // the 2026-10-16 I2d budget refusal and its I2e seed-grid retry are
+        // retired; a planar patch carries 0.0, d(T) ≡ 0 on a plane).
         let mut new_tri_bounds: Vec<f64> = Vec::with_capacity(tris2.len());
-        if let Some(budget) = old_max {
-            let mut new_max = 0.0f64;
+        if theta_span.is_some() {
             for t in &tris2 {
                 let uv = [
                     pool_ext[t[0] as usize],
@@ -1006,15 +896,7 @@ fn rebuild_patch_inner(
                 ];
                 let dt = crate::stage4_dt::d_of_t(&patch.surface, uv)
                     .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
-                new_max = new_max.max(dt);
                 new_tri_bounds.push(dt);
-            }
-            if new_max > budget {
-                return Err(ConstructError::ChordDegradation {
-                    patch: patch_index,
-                    old_max: budget,
-                    new_max,
-                });
             }
         } else {
             new_tri_bounds.resize(tris2.len(), 0.0);
@@ -1128,61 +1010,7 @@ fn rebuild_patch_inner(
         });
     }
 
-    let (new_tris, new_verts, new_tri_bounds) = match run_attempt(&[]) {
-        Ok(out) => out,
-        // I2e — a seedless curved rebuild that certifies coarser than what
-        // it replaces is retried with a deterministic interior seed grid at
-        // the patch's own pre-rebuild θ-arc sampling scale (halved once on
-        // a second failure). The banding a chart CDT cannot reproduce from
-        // cycle constraints alone is re-established as interior sampling —
-        // the §4.1.2/§4.3.4 tessellation discipline — and the I2d gate
-        // re-verifies every attempt; a rescue is never taken on faith.
-        Err(ConstructError::ChordDegradation {
-            patch: ep,
-            old_max: eo,
-            new_max: en,
-        }) if old_arc_span > 0.0 => {
-            let mut rescued = None;
-            let mut spacing = old_arc_span;
-            for _ in 0..2 {
-                let seeds = i2e_seed_grid(&pool, &p2.boundary, &p2.holes, radius, spacing);
-                if !seeds.is_empty() {
-                    match run_attempt(&seeds) {
-                        Ok(out) => {
-                            if crate::stage5_topology::c441_verbose() {
-                                eprintln!(
-                                    "[s4-construct] I2E SEEDED patch {patch_index}: {} seeds \
-                                     at arc spacing {spacing:.3e}",
-                                    out.1.len()
-                                );
-                            }
-                            rescued = Some(out);
-                            break;
-                        }
-                        Err(ConstructError::ChordDegradation { .. }) => {}
-                        Err(e) => return Err(e),
-                    }
-                } else if crate::stage5_topology::c441_verbose() {
-                    eprintln!(
-                        "[s4-construct] I2E patch {patch_index}: empty seed grid at arc \
-                         spacing {spacing:.3e} (degenerate span or seed cap)"
-                    );
-                }
-                spacing *= 0.5;
-            }
-            match rescued {
-                Some(out) => out,
-                None => {
-                    return Err(ConstructError::ChordDegradation {
-                        patch: ep,
-                        old_max: eo,
-                        new_max: en,
-                    })
-                }
-            }
-        }
-        Err(e) => return Err(e),
-    };
+    let (new_tris, new_verts, new_tri_bounds) = run_attempt(&[])?;
 
     let kept: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
     let dropped: BTreeSet<u32> = old
@@ -1202,108 +1030,6 @@ fn rebuild_patch_inner(
         plan_verts: mesh.verts.len() as u32,
         plan_tris: mesh.tris.len() as u32,
     })
-}
-
-/// I2e seed grid: deterministic interior points at `spacing` (arc-length
-/// units) over the unwrapped chart polygon — strictly inside the outer
-/// boundary, outside every hole, and at least `0.25·spacing` (arc metric)
-/// clear of every boundary edge. A seed ON a constraint would make spade
-/// split it one-sidedly (the F0059 hazard); the clearance choice is
-/// quality-only — it decides which OPTIONAL seeds to insert and cannot make
-/// an accepted rebuild wrong, because the d(T) gate re-verifies every
-/// attempt. Returns empty (→ the caller keeps the loud decline) for
-/// degenerate spans or when the grid would exceed the runaway backstop.
-fn i2e_seed_grid(
-    pool: &[Point2],
-    outer: &[u32],
-    holes: &[Vec<u32>],
-    radius: f64,
-    spacing: f64,
-) -> Vec<Point2> {
-    const MAX_SEEDS: usize = 4096;
-    if !spacing.is_finite() || spacing <= 0.0 || !radius.is_finite() || radius <= 0.0 {
-        return Vec::new();
-    }
-    let pt = |i: u32| pool[i as usize];
-    let (mut tlo, mut thi, mut zlo, mut zhi) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for &i in outer {
-        let p = pt(i);
-        tlo = tlo.min(p.x());
-        thi = thi.max(p.x());
-        zlo = zlo.min(p.y());
-        zhi = zhi.max(p.y());
-    }
-    let s_theta = spacing / radius;
-    let nt = ((thi - tlo) / s_theta).floor();
-    let nz = ((zhi - zlo) / spacing).floor();
-    if !nt.is_finite() || !nz.is_finite() || nt * nz > 4.0 * MAX_SEEDS as f64 {
-        return Vec::new();
-    }
-    let inside = |p: Point2, ring: &[u32]| -> bool {
-        let n = ring.len();
-        let mut inside = false;
-        for i in 0..n {
-            let a = pt(ring[i]);
-            let b = pt(ring[(i + 1) % n]);
-            if (a.y() > p.y()) != (b.y() > p.y()) {
-                let x = a.x() + (p.y() - a.y()) / (b.y() - a.y()) * (b.x() - a.x());
-                if p.x() < x {
-                    inside = !inside;
-                }
-            }
-        }
-        inside
-    };
-    let clear_of = |p: Point2, ring: &[u32]| -> bool {
-        let n = ring.len();
-        let (px, py) = (p.x() * radius, p.y());
-        let min_d2 = (0.25 * spacing) * (0.25 * spacing);
-        for i in 0..n {
-            let a = pt(ring[i]);
-            let b = pt(ring[(i + 1) % n]);
-            let (ax, ay) = (a.x() * radius, a.y());
-            let (bx, by) = (b.x() * radius, b.y());
-            let (dx, dy) = (bx - ax, by - ay);
-            let l2 = dx * dx + dy * dy;
-            let t = if l2 > 0.0 {
-                (((px - ax) * dx + (py - ay) * dy) / l2).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let (qx, qy) = (ax + t * dx, ay + t * dy);
-            let d2 = (px - qx) * (px - qx) + (py - qy) * (py - qy);
-            if d2 < min_d2 {
-                return false;
-            }
-        }
-        true
-    };
-    let mut seeds = Vec::new();
-    let mut theta = tlo + s_theta;
-    while theta < thi {
-        let mut z = zlo + spacing;
-        while z < zhi {
-            let p = Point2::new(theta, z);
-            if inside(p, outer)
-                && holes.iter().all(|h| !inside(p, h))
-                && clear_of(p, outer)
-                && holes.iter().all(|h| clear_of(p, h))
-            {
-                if seeds.len() >= MAX_SEEDS {
-                    return Vec::new();
-                }
-                seeds.push(p);
-            }
-            z += spacing;
-        }
-        theta += s_theta;
-    }
-    seeds
 }
 
 /// Chain a victim's link edges into every maximal run — the general form of the
@@ -3514,12 +3240,7 @@ pub(crate) fn update_census_with_side_labels(
                     let s = format!("{:?}", info.inherited);
                     format!("unsupported_{}", s.split([' ', '{']).next().unwrap_or("?"))
                 } else {
-                    match rebuild_patch_planar_bounded(
-                        mesh,
-                        pi,
-                        &patch,
-                        crate::stage4_correct::stage4_chord_band(a, b),
-                    ) {
+                    match rebuild_patch_planar(mesh, pi, &patch) {
                         Ok(plan) => {
                             let old: Vec<[u32; 3]> = plan
                                 .old_tris
@@ -3642,8 +3363,6 @@ pub(crate) fn update_patches(
 
 type Fig11aSeedMap = BTreeMap<(u32, u32), (Vec<(u32, f64)>, [bool; 2])>;
 type Fig11aSplitMap = BTreeMap<(u32, u32), (Vec<u32>, [bool; 2])>;
-type Fig11aLocalPlan = (Vec<PatchRebuild>, Vec<[u32; 3]>, BTreeSet<(u32, u32)>);
-type BoundarySplitJob = (u32, u32, Vec<(u32, u32)>);
 type PatchPlanEntry = (Vec<PatchRebuild>, Vec<[u32; 3]>);
 
 fn segment_param(verts: &[Point3], u: u32, v: u32, q: u32) -> Option<f64> {
@@ -4055,276 +3774,6 @@ fn surface_kind_name(s: &Surface) -> &'static str {
     }
 }
 
-/// The §4.4.1(a) unzip's local arms, KEPT ONLY for a patch the update refuses
-/// with `ChordDegradation` — the d(T) budget refusal that is not the paper's
-/// operation (ledger N106). Every other refusal class reaches the loud STOP.
-/// Retires with N106's remediation (accept the CDT, carry d(T) as the
-/// triangle's bound); measured customers R0059, P0005 (2026-10-31: both
-/// CORRECT → ERROR `DegenerateTriangle` without it). Emits per-slot `PatchRebuild`s (`old_tris: vec![ti]`)
-/// alongside the complete post-update patch triangle list `final_tris`.
-fn local_fig11a_patch_plans(
-    mesh: &Mesh,
-    patch_index: usize,
-    surface: Surface,
-    tri_indices: &[u32],
-    patch_ops: [bool; 2],
-    splits: &Fig11aSplitMap,
-    moved: &std::collections::HashSet<u32>,
-) -> Option<Fig11aLocalPlan> {
-    let is_moved_degen_tri = |t: [u32; 3]| -> bool {
-        t.iter().any(|v| moved.contains(v))
-            && crate::stage4_correct::tri_is_degenerate(
-                mesh.verts[t[0] as usize].as_array(),
-                mesh.verts[t[1] as usize].as_array(),
-                mesh.verts[t[2] as usize].as_array(),
-            )
-    };
-    let old_tris: Vec<[u32; 3]> = tri_indices
-        .iter()
-        .map(|&ti| mesh.tris[ti as usize])
-        .collect();
-    let mut used_splits = BTreeSet::new();
-    for (u, v) in directed_boundary(&old_tris) {
-        let _ = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
-    }
-    let mut cur: Vec<(usize, [u32; 3])> = old_tris.iter().copied().enumerate().collect();
-
-    // 1. Resolve intra-patch moved-degenerate triangles and peel boundary
-    //    moved-degenerate flaps whose split edge is in `splits`.
-    loop {
-        let mut progressed = false;
-        let mut dir_owner: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
-        for (idx, &(_, t)) in cur.iter().enumerate() {
-            for (u, v) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                dir_owner.entry((u, v)).or_default().push(idx);
-            }
-        }
-        for d_pos in 0..cur.len() {
-            let (_, dt) = cur[d_pos];
-            if !is_moved_degen_tri(dt) {
-                continue;
-            }
-            let Some((a, c, b, _)) = collinear_split_edge_and_off(&mesh.verts, dt) else {
-                continue;
-            };
-            let key_ac = (a, c);
-            let dir_ac = [(dt[0], dt[1]), (dt[1], dt[2]), (dt[2], dt[0])]
-                .into_iter()
-                .find(|&(x, y)| (x == a && y == c) || (x == c && y == a))
-                .unwrap_or((a, c));
-            let opp_owners = dir_owner
-                .get(&(dir_ac.1, dir_ac.0))
-                .cloned()
-                .unwrap_or_default();
-            if opp_owners.is_empty() {
-                let active = splits.get(&key_ac).is_some_and(|(_, s_ops)| {
-                    (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
-                });
-                if active {
-                    used_splits.insert(key_ac);
-                    cur.remove(d_pos);
-                    progressed = true;
-                    break;
-                }
-            } else if opp_owners.len() == 1 {
-                let n_pos = opp_owners[0];
-                let (n_src, nt) = cur[n_pos];
-                if !is_moved_degen_tri(nt) {
-                    if let Some((c1, c2)) = crate::stage4_correct::split_tri_at_edge(nt, a, c, b) {
-                        let hi = d_pos.max(n_pos);
-                        let lo = d_pos.min(n_pos);
-                        cur.remove(hi);
-                        cur.remove(lo);
-                        cur.push((n_src, c1));
-                        cur.push((n_src, c2));
-                        progressed = true;
-                        break;
-                    }
-                } else if let Some((na, nc, b2, _)) = collinear_split_edge_and_off(&mesh.verts, nt)
-                {
-                    if (na, nc) == key_ac && b2 != b {
-                        if let (Some(t1), Some(t2)) = (
-                            segment_param(&mesh.verts, a, c, b),
-                            segment_param(&mesh.verts, a, c, b2),
-                        ) {
-                            if t1 != t2
-                                && mesh.verts[b as usize].as_array()
-                                    != mesh.verts[b2 as usize].as_array()
-                            {
-                                let (bl, bh) = if t1 < t2 { (b, b2) } else { (b2, b) };
-                                let split_active = |u: u32, v: u32| -> bool {
-                                    let k = if u < v { (u, v) } else { (v, u) };
-                                    splits.get(&k).is_some_and(|(_, s_ops)| {
-                                        (patch_ops[0] && s_ops[0]) || (patch_ops[1] && s_ops[1])
-                                    })
-                                };
-                                enum SideAction {
-                                    Internal(usize, [u32; 3], [u32; 3]),
-                                    BoundarySplit((u32, u32)),
-                                }
-                                let classify_side =
-                                    |u: u32, v: u32, ins: u32| -> Option<SideAction> {
-                                        let mut hits = Vec::new();
-                                        for (k, &(_, kt)) in cur.iter().enumerate() {
-                                            if k == d_pos || k == n_pos {
-                                                continue;
-                                            }
-                                            if kt.contains(&u) && kt.contains(&v) {
-                                                hits.push(k);
-                                            }
-                                        }
-                                        if hits.is_empty() {
-                                            if split_active(u, v) {
-                                                let ek = if u < v { (u, v) } else { (v, u) };
-                                                Some(SideAction::BoundarySplit(ek))
-                                            } else {
-                                                None
-                                            }
-                                        } else if hits.len() == 1
-                                            && !is_moved_degen_tri(cur[hits[0]].1)
-                                        {
-                                            let pos = hits[0];
-                                            let (s1, s2) =
-                                                crate::stage4_correct::split_tri_at_edge(
-                                                    cur[pos].1, u, v, ins,
-                                                )?;
-                                            Some(SideAction::Internal(pos, s1, s2))
-                                        } else {
-                                            None
-                                        }
-                                    };
-                                if let (Some(act_h), Some(act_l)) =
-                                    (classify_side(a, bh, bl), classify_side(bl, c, bh))
-                                {
-                                    let same_internal = matches!(
-                                        (&act_h, &act_l),
-                                        (SideAction::Internal(ph, _, _), SideAction::Internal(pl, _, _))
-                                            if ph == pl
-                                    );
-                                    if !same_internal {
-                                        let mut rem = vec![d_pos, n_pos];
-                                        let mut add: Vec<(usize, [u32; 3])> = Vec::new();
-                                        used_splits.insert(key_ac);
-                                        for act in [act_h, act_l] {
-                                            match act {
-                                                SideAction::Internal(pos, s1, s2) => {
-                                                    let src = cur[pos].0;
-                                                    rem.push(pos);
-                                                    add.push((src, s1));
-                                                    add.push((src, s2));
-                                                }
-                                                SideAction::BoundarySplit(ek) => {
-                                                    used_splits.insert(ek);
-                                                }
-                                            }
-                                        }
-                                        rem.sort_unstable();
-                                        for &r in rem.iter().rev() {
-                                            cur.remove(r);
-                                        }
-                                        cur.extend(add);
-                                        progressed = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if !progressed {
-            break;
-        }
-    }
-
-    // 2. Subdivide any remaining unsplit boundary edge `(u, v)` of `cur` that
-    //    has an active split chain in `splits` (ordered by 3D endpoint coordinates
-    //    so multi-edge splits on a single triangle do not depend on `u32` IDs).
-    loop {
-        let cur_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
-        let mut bd = directed_boundary(&cur_tris);
-        bd.sort_by(|&(u1, v1), &(u2, v2)| {
-            crate::stage5_seam_merge::point_cmp(mesh.verts[u1 as usize], mesh.verts[u2 as usize])
-                .then_with(|| {
-                    crate::stage5_seam_merge::point_cmp(
-                        mesh.verts[v1 as usize],
-                        mesh.verts[v2 as usize],
-                    )
-                })
-                .then_with(|| (u1, v1).cmp(&(u2, v2)))
-        });
-        let mut split_job: Option<BoundarySplitJob> = None;
-        for (u, v) in bd {
-            let exp = expand_directed_edge(u, v, patch_ops, splits, &mut used_splits);
-            if exp.len() > 1 {
-                split_job = Some((u, v, exp));
-                break;
-            }
-        }
-        let Some((u, v, exp)) = split_job else {
-            break;
-        };
-        let pos = cur.iter().position(|&(_, t)| {
-            [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])]
-                .into_iter()
-                .any(|e| e == (u, v))
-        })?;
-        let (src_slot, parent) = cur.remove(pos);
-        let apex = parent.into_iter().find(|&x| x != u && x != v)?;
-        if exp.iter().any(|&(s, e)| s == apex || e == apex) {
-            return None;
-        }
-        for (s, e) in exp {
-            cur.push((src_slot, [s, e, apex]));
-        }
-    }
-
-    let final_tris: Vec<[u32; 3]> = cur.iter().map(|&(_, t)| t).collect();
-    if final_tris == old_tris || final_tris.iter().copied().any(is_moved_degen_tri) {
-        return None;
-    }
-    let want_bd = expected_boundary_after_splits(&old_tris, patch_ops, splits);
-    if !plan_matches_boundary(&final_tris, &want_bd) {
-        return None;
-    }
-
-    let mut by_slot: Vec<Vec<[u32; 3]>> = vec![Vec::new(); tri_indices.len()];
-    for (slot, t) in cur {
-        by_slot[slot].push(t);
-    }
-    let mut rebuilds = Vec::new();
-    for (slot, &ti) in tri_indices.iter().enumerate() {
-        if by_slot[slot].len() == 1 && by_slot[slot][0] == old_tris[slot] {
-            continue;
-        }
-        let new_tri_bounds: Vec<f64> = by_slot[slot]
-            .iter()
-            .map(|t| {
-                crate::brep::recompute_tri_bound_from_world(
-                    surface,
-                    [
-                        mesh.verts[t[0] as usize],
-                        mesh.verts[t[1] as usize],
-                        mesh.verts[t[2] as usize],
-                    ],
-                )
-            })
-            .collect();
-        rebuilds.push(PatchRebuild {
-            patch: patch_index,
-            old_tris: vec![ti],
-            new_tris: by_slot[slot].clone(),
-            new_tri_bounds,
-            new_verts: Vec::new(),
-            dropped: BTreeSet::new(),
-            plan_verts: mesh.verts.len() as u32,
-            plan_tris: mesh.tris.len() as u32,
-        });
-    }
-    (!rebuilds.is_empty()).then_some((rebuilds, final_tris, used_splits))
-}
-
 fn log_update_census(msg: &str) {
     if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
         use std::io::Write as _;
@@ -4474,7 +3923,6 @@ pub(crate) fn update_patches_ex_with_bounds(
     let mut patch_splices: Vec<Option<SplicePatch>> = vec![None; n_patches];
     let mut fig11a_cdt_patches = 0usize;
     let mut fig11a_declined_patches = 0usize;
-    let mut fig11a_n106_arm_patches = 0usize;
     let mut fig11a_declined_components = 0usize;
     let mut cdt_crossing_refused = 0usize;
     let mut cdt_other_refused = 0usize;
@@ -4527,7 +3975,6 @@ pub(crate) fn update_patches_ex_with_bounds(
         };
 
         let mut cdt_crossing_failed = false;
-        let mut chord_degradation = false;
         // Census: why the §4.4.1 CDT did not take this patch.
         let mut refusal: String = if !cycles_valid_for_cdt {
             "split-cycle<3".into()
@@ -4550,7 +3997,7 @@ pub(crate) fn update_patches_ex_with_bounds(
                 tris: p.tri_indices.clone(),
                 surface: info.inherited,
             };
-            match rebuild_patch_planar_bounded_ex(mesh, pi, &patch, chord_band, &BTreeSet::new()) {
+            match rebuild_patch_planar_ex(mesh, pi, &patch, &BTreeSet::new()) {
                 Ok(plan) => {
                     let want_bd = if has_split_bd {
                         expected_boundary_after_splits(old_tris, p_ops, &splits)
@@ -4598,7 +4045,6 @@ pub(crate) fn update_patches_ex_with_bounds(
                     cdt_crossing_failed = true;
                 }
                 Err(e) => {
-                    chord_degradation = matches!(e, ConstructError::ChordDegradation { .. });
                     let d = format!("{e:?}");
                     refusal = match &e {
                         ConstructError::ChordDegradation { old_max, new_max, .. } => format!(
@@ -4614,26 +4060,6 @@ pub(crate) fn update_patches_ex_with_bounds(
         // A Fig. 11(a) patch the update could not rebuild keeps its triangles:
         // its moved degenerate triangle reaches `validate_relocated_triangles`,
         // a loud STOP the §4.5.2 loop refines (there is no local repair arm).
-        if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) && chord_degradation {
-            if let Some((rebuilds, final_tris, used)) = local_fig11a_patch_plans(
-                mesh,
-                pi,
-                info.inherited,
-                &p.tri_indices,
-                p_ops,
-                &splits,
-                moved,
-            ) {
-                fig11a_n106_arm_patches += 1;
-                log_update_census(&format!(
-                    "FIG11A_N106_ARM patch={pi} surface={} tris={}",
-                    surface_kind_name(&info.inherited),
-                    p.tri_indices.len()
-                ));
-                patch_req_splits[pi].extend(used);
-                patch_plans[pi] = Some((rebuilds, final_tris));
-            }
-        }
         if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) {
             fig11a_declined_patches += 1;
             log_update_census(&format!(
@@ -4824,7 +4250,7 @@ pub(crate) fn update_patches_ex_with_bounds(
     }
 
     // N106 increment 2: an update chord the other operand already holds.
-    let separable: Vec<Option<(SplicePatch, Vec<(u32, u32)>)>> = (0..n_patches)
+    let separable: Vec<Option<SeparablePatch>> = (0..n_patches)
         .map(|pi| {
             if !patch_req_splits[pi].is_empty() {
                 return None;
@@ -4834,11 +4260,11 @@ pub(crate) fn update_patches_ex_with_bounds(
                 .map(|sp| (sp, directed_boundary(&patch_old_tris[pi])))
         })
         .collect();
-    separate_coincident_simplices(mesh, attribution, &mut plans, &separable, chord_band);
+    separate_coincident_simplices(mesh, attribution, &mut plans, &separable);
 
     if plans.is_empty() {
         log_update_census(&format!(
-            "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_n106_arm={fig11a_n106_arm_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+            "APPLIED patches=0 of_plans=0 batch_err=false fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
             splits.len()
         ));
         return 0;
@@ -4865,7 +4291,7 @@ pub(crate) fn update_patches_ex_with_bounds(
         }
     }
     log_update_census(&format!(
-        "APPLIED patches={n} of_plans={} batch_err={batch_err} fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_n106_arm={fig11a_n106_arm_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
+        "APPLIED patches={n} of_plans={} batch_err={batch_err} fig11a_seeds={} fig11a_cdt={fig11a_cdt_patches} fig11a_declined={fig11a_declined_patches} fig11a_declined_comp={fig11a_declined_components} cdt_crossing={cdt_crossing_refused} cdt_other={cdt_other_refused} cdt_bd={cdt_bd_refused}",
         plans.len(),
         splits.len()
     ));
@@ -4904,8 +4330,7 @@ fn separate_coincident_simplices(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
     plans: &mut [PatchRebuild],
-    separable: &[Option<(SplicePatch, Vec<(u32, u32)>)>],
-    chord_band: Option<f64>,
+    separable: &[Option<SeparablePatch>],
 ) {
     use crate::brep::InputId;
     let op_of = |t: u32| -> Option<InputId> {
@@ -5023,7 +4448,7 @@ fn separate_coincident_simplices(
                 continue;
             };
             let mut used = Vec::new();
-            match rebuild_patch_separating(mesh, pi, sp, chord_band, &split, &mut used) {
+            match rebuild_patch_separating(mesh, pi, sp, &split, &mut used) {
                 Ok(plan) if plan_matches_boundary(&plan.new_tris, want_bd) => {
                     log_update_census(&format!(
                         "SEPARATED round={round} patch={pi} tris={} edges={} points={}",
@@ -5050,6 +4475,10 @@ fn separate_coincident_simplices(
         }
     }
 }
+
+/// A wholesale-plan patch [`separate_coincident_simplices`] may re-plan: the
+/// SplicePatch it was built from and its old directed boundary.
+type SeparablePatch = (SplicePatch, Vec<(u32, u32)>);
 
 /// Rounds of [`separate_coincident_simplices`]: a re-plan can draw a new
 /// coincident simplex elsewhere in the patch, so the check repeats; each
@@ -5142,7 +4571,7 @@ mod tests {
         let want_bd = directed_boundary(&[mesh.tris[0]]);
         let mut plans = vec![plan];
         let separable = vec![Some((patch, want_bd.clone()))];
-        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable);
         let r = &plans[0];
         assert_eq!(r.new_verts.len(), 1, "one point for the one coincidence");
         let c = r.new_verts[0];
@@ -5197,7 +4626,7 @@ mod tests {
         let want_bd = directed_boundary(&mesh.tris[..2]);
         let mut plans = vec![rebuild_patch_planar(&mesh, 0, &patch).expect("rebuilds")];
         let separable = vec![Some((patch, want_bd.clone()))];
-        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable);
         let r = &plans[0];
         assert_eq!(r.new_verts.len(), 1);
         let c = r.new_verts[0];
@@ -5226,7 +4655,7 @@ mod tests {
         let mut plans = vec![rebuild_patch_planar(&mesh, 0, &patch).expect("rebuilds")];
         let before = plans.clone();
         let separable = vec![Some((patch, directed_boundary(&[mesh.tris[0]])))];
-        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable, None);
+        separate_coincident_simplices(&mesh, &attribution, &mut plans, &separable);
         assert_eq!(plans, before);
     }
 
@@ -6370,55 +5799,41 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_cylinder_chord_gate_seeds_wide_theta_rebuild() {
-        // I2d + I2e: the seedless rebuild of the notched drum certifies
-        // coarser than the banding it replaces (the kv6b secant class), so
-        // the escalation retries with an interior seed grid at the patch's
-        // own θ-arc sampling scale — and the seeded rebuild must PASS the
-        // d(T) gate, carrying chart-lifted (exactly on-surface) new
-        // vertices referenced as plan_verts + k.
+    fn rebuild_cylinder_wide_theta_rebuild_is_accepted_with_its_own_bounds() {
+        // N106 (2026-11-06): the seedless rebuild of the notched drum
+        // certifies coarser than the banding it replaces (the kv6b secant
+        // class). The paper refuses nothing for that — each new triangle
+        // carries its own d(T) as its bound (§4.1.2, §4.4.1 `:566-571`) — so
+        // the CDT is accepted seedless, and the bound it carries is the
+        // triangle's certified d(T), larger than the old banding's.
         let (mesh, patch) = notched_drum(3.0);
-        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("seeded rebuild passes the gate");
-        assert!(
-            !r.new_verts.is_empty(),
-            "the wide-θ rebuild is only certifiable WITH seeds"
-        );
-        for (k, p) in r.new_verts.iter().enumerate() {
-            let rad = (p.x() * p.x() + p.y() * p.y()).sqrt();
-            assert!(
-                (rad - 2.0).abs() <= 1e-12,
-                "seed {k} off the cylinder: r = {rad}"
-            );
-        }
-        let plan_verts = mesh.verts.len() as u32;
-        let seeds_referenced: BTreeSet<u32> = r
-            .new_tris
-            .iter()
-            .flatten()
-            .copied()
-            .filter(|&v| v >= plan_verts)
-            .collect();
-        assert_eq!(
-            seeds_referenced.len(),
-            r.new_verts.len(),
-            "every appended seed vertex is used by the new triangulation"
-        );
-        assert!(
-            seeds_referenced
-                .iter()
-                .all(|&v| ((v - plan_verts) as usize) < r.new_verts.len()),
-            "seed references stay inside the appended block"
-        );
+        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("the CDT is accepted");
+        assert!(r.new_verts.is_empty(), "no seed grid any more");
         assert!(r.dropped.is_empty(), "no boundary vertex may be lost");
+        assert_eq!(r.new_tri_bounds.len(), r.new_tris.len());
+        let chart = SurfaceChart::new(patch.surface).expect("cylinder chart");
+        let old_max = patch
+            .tris
+            .iter()
+            .map(|&t| {
+                let uv = mesh.tris[t as usize].map(|v| chart.project(mesh.verts[v as usize]));
+                crate::stage4_dt::d_of_t(&patch.surface, uv).expect("old d(T)")
+            })
+            .fold(0.0f64, f64::max);
+        let new_max = r.new_tri_bounds.iter().copied().fold(0.0f64, f64::max);
+        assert!(r.new_tri_bounds.iter().all(|&d| d.is_finite() && d > 0.0));
+        assert!(
+            new_max > old_max,
+            "the drum is the coarser-CDT witness: new {new_max} vs old {old_max}"
+        );
     }
 
     #[test]
     fn rebuild_cylinder_squashed_drum_passes_seedless() {
-        // The drum squashed to z ∈ [0, 0.01]: the chart aspect inverts —
-        // θ columns are now FAT relative to the height, so chart Delaunay
-        // ladders them naturally and the seedless rebuild certifies within
-        // the old budget. Attempt 0 must pass WITHOUT seeds (the pre-I2e
-        // path is byte-identical wherever it already passes the gate).
+        // The drum squashed to z ∈ [0, 0.01]: the chart aspect inverts — θ
+        // columns are FAT relative to the height, so chart Delaunay ladders
+        // them naturally. A rebuild mints a point only for an N106
+        // separation, never here.
         let (mesh, patch) = notched_drum(0.01);
         let r = rebuild_patch_planar(&mesh, 4, &patch).expect("squashed drum passes");
         assert!(
@@ -6428,66 +5843,17 @@ mod tests {
     }
 
     #[test]
-    fn i2e_seed_grid_populates_interior_with_clearance() {
-        // Chart rectangle θ ∈ [0, 1] × z ∈ [0, 2] on a radius-2 cylinder
-        // (arc width 2.0), spacing 0.5: seeds must be strictly interior
-        // with ≥ 0.125 arc-metric clearance from every edge.
-        let pool = vec![
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            Point2::new(1.0, 2.0),
-            Point2::new(0.0, 2.0),
-        ];
-        let outer = vec![0u32, 1, 2, 3];
-        let seeds = i2e_seed_grid(&pool, &outer, &[], 2.0, 0.5);
-        assert!(!seeds.is_empty(), "an open rectangle must seed");
-        for s in &seeds {
-            let arc = s.x() * 2.0;
-            assert!(arc >= 0.125 - 1e-12 && 2.0 - arc >= 0.125 - 1e-12);
-            assert!(s.y() >= 0.125 - 1e-12 && 2.0 - s.y() >= 0.125 - 1e-12);
-        }
-        // A hole swallowing the middle excludes its seeds.
-        let pool_h = [
-            pool.clone(),
-            vec![
-                Point2::new(0.2, 0.4),
-                Point2::new(0.8, 0.4),
-                Point2::new(0.8, 1.6),
-                Point2::new(0.2, 1.6),
-            ],
-        ]
-        .concat();
-        let hole = vec![4u32, 5, 6, 7];
-        let seeded = i2e_seed_grid(&pool_h, &outer, std::slice::from_ref(&hole), 2.0, 0.5);
-        for s in &seeded {
-            let in_hole = s.x() > 0.2 && s.x() < 0.8 && s.y() > 0.4 && s.y() < 1.6;
-            assert!(!in_hole, "seed {s:?} landed inside the hole");
-        }
-    }
-
-    #[test]
-    fn i2e_seed_grid_returns_empty_on_degenerate_input() {
-        let pool = vec![
-            Point2::new(0.0, 0.0),
-            Point2::new(1.0, 0.0),
-            Point2::new(1.0, 2.0),
-            Point2::new(0.0, 2.0),
-        ];
-        let outer = vec![0u32, 1, 2, 3];
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 0.0).is_empty());
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, f64::NAN).is_empty());
-        assert!(i2e_seed_grid(&pool, &outer, &[], 0.0, 0.5).is_empty());
-        // A spacing far below the runaway backstop's grid bound refuses
-        // loudly-by-decline instead of exploding.
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 1e-6).is_empty());
-    }
-
-    #[test]
     fn apply_rebuild_batch_appends_seed_vertices_and_remaps() {
         // The write-back appends new_verts and points plan_verts + k at the
         // appended block; attribution stays in lockstep with mesh.tris.
         let (mut mesh, patch) = notched_drum(3.0);
-        let r = rebuild_patch_planar(&mesh, 4, &patch).expect("seeded rebuild");
+        let seedless = rebuild_patch_planar(&mesh, 4, &patch).expect("rebuild");
+        let split = CoincidentSplit {
+            tris: seedless.new_tris.clone(),
+            ..Default::default()
+        };
+        let r = rebuild_patch_separating(&mesh, 4, &patch, &split, &mut Vec::new())
+            .expect("seeded rebuild");
         let n_verts_before = mesh.verts.len();
         let n_seeds = r.new_verts.len();
         assert!(n_seeds > 0);

@@ -13,7 +13,7 @@ use cherchi_rs::Mesh;
 
 use crate::geom::Surface;
 use crate::stage4_construct::{
-    isometric_cdt_pool, rebuild_patch_planar_bounded_ex, rebuild_patch_planar_bounded_with_metric,
+    isometric_cdt_pool, rebuild_patch_planar_ex, rebuild_patch_planar_ex_with_metric,
     rebuild_patch_planar_with_metric, ChartMetric,
 };
 use crate::stage4_dt::d_of_t;
@@ -132,8 +132,7 @@ fn n106_d3_cylinder_r50_long_axial_span_eliminates_circumferential_slivers_and_r
     assert_eq!(iso_plan.new_tris.len(), 2 * n_steps);
 
     // The production entry point runs the isometric chart (N106, 2026-11-03).
-    let prod_plan =
-        rebuild_patch_planar_bounded_ex(&mesh, 0, &patch, None, &BTreeSet::new()).unwrap();
+    let prod_plan = rebuild_patch_planar_ex(&mesh, 0, &patch, &BTreeSet::new()).unwrap();
     assert_eq!(prod_plan.new_tris, iso_plan.new_tris);
     assert_eq!(prod_plan.new_tri_bounds, iso_plan.new_tri_bounds);
 
@@ -319,20 +318,18 @@ fn n106_d3_cone_developed_chart_isometry_and_cdt_eliminates_circumferential_sliv
         surface,
     };
 
-    let param_plan = rebuild_patch_planar_bounded_with_metric(
+    let param_plan = rebuild_patch_planar_ex_with_metric(
         &mesh,
         0,
         &patch,
-        None,
         &BTreeSet::new(),
         ChartMetric::Parametric,
     )
     .expect("(θ, z) cone CDT should succeed");
-    let iso_plan = rebuild_patch_planar_bounded_with_metric(
+    let iso_plan = rebuild_patch_planar_ex_with_metric(
         &mesh,
         0,
         &patch,
-        None,
         &BTreeSet::new(),
         ChartMetric::Isometric,
     )
@@ -483,7 +480,7 @@ fn n106_d3_cone_developed_chart_triangles_not_inverted_in_theta_z_or_3d() {
         }
 
         // Reference `(θ, z)` triangulation carrying all interior vertices so
-        // `rebuild_patch_planar_bounded_with_metric` inherits the exact patch
+        // `rebuild_patch_planar_ex_with_metric` inherits the exact patch
         // boundary cycle AND carries all 15 interior cone vertices.
         let seed_tris = cherchi_rs::cdt_with_interior_constraints(
             &uv_pool,
@@ -502,11 +499,10 @@ fn n106_d3_cone_developed_chart_triangles_not_inverted_in_theta_z_or_3d() {
             surface,
         };
 
-        let iso_plan = rebuild_patch_planar_bounded_with_metric(
+        let iso_plan = rebuild_patch_planar_ex_with_metric(
             &mesh,
             0,
             &patch,
-            None,
             &BTreeSet::new(),
             ChartMetric::Isometric,
         )
