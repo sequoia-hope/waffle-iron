@@ -2780,15 +2780,28 @@ pub(crate) fn check_watertight_2manifold_per_operand(
 /// therefore names them directly. A same-winding duplicate is a different
 /// defect and is not reported here.
 pub(crate) fn doubled_membranes(mesh: &Mesh) -> Vec<(usize, usize)> {
+    doubled_membranes_scoped(mesh, None)
+}
+
+/// [`doubled_membranes`] within one patch: with `patch_labels` (the full
+/// Stage-4 arrangement, I3), two opposite-winding sheets of DIFFERENT
+/// `TriangleSideLabel` patches are distinct operand boundaries awaiting
+/// classification (§4.4.2 `:572-578`), not a fin.
+fn doubled_membranes_scoped(
+    mesh: &Mesh,
+    patch_labels: Option<&[crate::brep::TriangleSideLabel]>,
+) -> Vec<(usize, usize)> {
     use std::collections::BTreeMap;
-    let mut groups: BTreeMap<[u32; 3], (Vec<usize>, Vec<usize>)> = BTreeMap::new();
+    type Key = ([u32; 3], Option<crate::brep::TriangleSideLabel>);
+    let mut groups: BTreeMap<Key, (Vec<usize>, Vec<usize>)> = BTreeMap::new();
     for (ti, &tri) in mesh.tris.iter().enumerate() {
         let mut key = tri;
         key.sort_unstable();
         if key[0] == key[1] || key[1] == key[2] {
             continue;
         }
-        let g = groups.entry(key).or_default();
+        let scope = patch_labels.map(|l| l[ti]);
+        let g = groups.entry((key, scope)).or_default();
         if membrane_orientation_sign(tri, key) > 0 {
             g.0.push(ti);
         } else {
@@ -2855,7 +2868,7 @@ fn check_watertight_2manifold_with_patch_labels(
     }
     // A doubled membrane is NOT such a seam: two coincident opposite-winding
     // triangles bound no volume (N41; its cancellation retired 2026-11-06).
-    if let Some(&(i, j)) = doubled_membranes(mesh).first() {
+    if let Some(&(i, j)) = doubled_membranes_scoped(mesh, patch_labels).first() {
         return Err(non_manifold_at(
             "s4-doubled-membrane",
             format_args!(

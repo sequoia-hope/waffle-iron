@@ -3176,6 +3176,12 @@ repairs it subsumes, cheapest proof first").
   - The original removal units stay. `remove_doubled_membranes*` is now
     `#[cfg(test)]`, kept for them and for the I3 side-label pins in
     `s442_side_labels.rs`, the way `split_tri_at_edge` was kept.
+- **Scope on the full arrangement (I3):** with patch labels, the check counts
+  a membrane only inside one `TriangleSideLabel` patch, as the scoped
+  cancellation did. Two opposite sheets of different patches are operand
+  boundaries awaiting §4.4.2 classification. Pinned by the existing
+  `s442_side_labels.rs::per_operand_manifold_gate_distinguishes_cross_patch_interior_chord_from_fold`,
+  which caught the unscoped first version. Production passes no labels.
 - **Not touched:** `collapse_vertex`'s own opposite-winding pleat cancellation
   is a separate site, still open under N89 / F2.
 
