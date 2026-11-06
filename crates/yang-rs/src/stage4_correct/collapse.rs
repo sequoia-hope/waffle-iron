@@ -897,6 +897,7 @@ pub(crate) fn retriangulate_collapsed_fan_regions_ex_with_bounds(
                 full_arrangement,
             ) {
                 Some(()) => {
+                    crate::repair_census::log("n58_repair_fan_cluster", 1);
                     if probe {
                         eprintln!("[p3b-fanfix] cluster {sig:?} REPAIRED");
                     }

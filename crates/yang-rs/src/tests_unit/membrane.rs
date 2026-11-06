@@ -193,3 +193,89 @@ pub(crate) fn membrane_orientation_sign_is_parity() {
     assert_eq!(membrane_orientation_sign([9, 7, 5], key), -1);
     assert_eq!(membrane_orientation_sign([7, 5, 9], key), -1);
 }
+
+/// A 3×3 grid torus (V=9, E=27, F=18, χ=0): a valid genus-1 closed shell.
+/// Vertex `(i, j)` is `3j + i`, indices mod 3.
+fn grid_torus() -> Mesh {
+    let v = |i: u32, j: u32| 3 * (j % 3) + (i % 3);
+    let mut verts = Vec::new();
+    for j in 0..3 {
+        for i in 0..3 {
+            let (u, w) = (
+                f64::from(i) * std::f64::consts::TAU / 3.0,
+                f64::from(j) * std::f64::consts::TAU / 3.0,
+            );
+            let r = 2.0 + w.cos();
+            verts.push(p(r * u.cos(), r * u.sin(), w.sin()));
+        }
+    }
+    let mut tris = Vec::new();
+    for j in 0..3 {
+        for i in 0..3 {
+            tris.push([v(i, j), v(i + 1, j), v(i + 1, j + 1)]);
+            tris.push([v(i, j), v(i + 1, j + 1), v(i, j + 1)]);
+        }
+    }
+    Mesh::new(verts, tris)
+}
+
+/// N41 retirement (2026-11-06): the shell gate names a doubled membrane
+/// itself (`s4-doubled-membrane`) instead of relying on the odd χ a single
+/// fin happens to produce.
+#[test]
+pub(crate) fn the_gate_names_a_doubled_membrane() {
+    let mut verts = tetra_verts();
+    verts.push(p(0.4, 0.4, 0.02));
+    let mut tris = tetra_tris();
+    tris.push([1, 2, 4]);
+    tris.push([4, 2, 1]);
+    let mesh = Mesh::new(verts, tris);
+    assert_eq!(doubled_membranes(&mesh), vec![(4, 5)]);
+    assert!(check_watertight_2manifold(&mesh).is_err());
+    // A clean shell has none, and a same-winding duplicate is not one.
+    assert!(doubled_membranes(&Mesh::new(tetra_verts(), tetra_tris())).is_empty());
+    let mut same = tetra_tris();
+    same.push([1, 2, 3]);
+    assert!(doubled_membranes(&Mesh::new(tetra_verts(), same)).is_empty());
+}
+
+/// The silent hazard N41's own entry recorded: a membrane on three EXISTING
+/// edges adds two faces and no edge or vertex, so on a genus-1 shell it reads
+/// χ = 0 + 2 = 2 with every half-edge paired — exactly a sphere's numbers.
+/// Before the membrane check the gate passed this zero-volume fin; now it
+/// stops loud, and T4 names the fin's faces.
+#[test]
+pub(crate) fn a_membrane_that_evens_chi_still_stops_the_gate() {
+    let torus = grid_torus();
+    assert!(
+        check_watertight_2manifold(&torus).is_ok(),
+        "the grid torus is a valid genus-1 shell"
+    );
+    let mut tris = torus.tris.clone();
+    // (0,0) (1,0) (2,0): a cycle of three existing horizontal edges, not a face.
+    tris.push([0, 1, 2]);
+    tris.push([0, 2, 1]);
+    let n = tris.len();
+    let mesh = Mesh::new(torus.verts.clone(), tris);
+    assert_eq!(doubled_membranes(&mesh), vec![(n - 2, n - 1)]);
+    assert!(
+        check_watertight_2manifold(&mesh).is_err(),
+        "an even-χ membrane must not pass the shell gate"
+    );
+    let mut attr = TriangleAttributionMap::empty();
+    attr.attributions = vec![None; n];
+    attr.attributions[n - 2] = Some(TriangleAttribution {
+        input: crate::brep::InputId::A,
+        face: 7,
+    });
+    attr.attributions[n - 1] = Some(TriangleAttribution {
+        input: crate::brep::InputId::B,
+        face: 2,
+    });
+    let sites = crate::boolean::failures::membrane_sites(&mesh, &attr);
+    assert_eq!(sites.len(), 1);
+    assert_eq!(
+        sites[0].faces,
+        vec![(crate::brep::InputId::A, 7), (crate::brep::InputId::B, 2)]
+    );
+}

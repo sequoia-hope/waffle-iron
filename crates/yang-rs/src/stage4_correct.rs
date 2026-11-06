@@ -5835,30 +5835,12 @@ fn stage4_relocate_and_correct_inner(
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
     validate_relocated_triangles(mesh, attribution, &moved)?;
-    // (4a1) Doubled-membrane removal (spec `yang_doubled_membrane_removal.md`,
-    // task #146 χ=3 sub-layer): drop opposite-winding coincident-triangle fins
-    // (a zero-volume artifact of a backtrack-spike / near-tangent junction)
-    // BEFORE the shell gate reads χ. Volume- and edge-balance-preserving; it
-    // leaves the spur apex dangling for `compact_unreferenced_verts`, so it
-    // rides the same Phase-A recompute path as a §4.5.3 collapse. The
-    // attribution vector is filtered in lockstep with the triangles (spec
-    // I8 — R0051's Stage-6 nonplanar STOP was this pass dropping triangles
-    // from the mesh alone).
-    let membranes_removed = {
-        let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        let n = remove_doubled_membranes_scoped_with_bounds(
-            mesh,
-            &mut attr_vec,
-            &mut side_labels.labels,
-            &mut tri_bounds.bounds,
-            full_arrangement,
-        );
-        attribution.attributions = attr_vec;
-        n
-    };
-    if membranes_removed > 0 {
-        collapsed_any = true;
-    }
+    // (4a1) RETIRED 2026-11-06 (ledger N41, roadmap F2): the doubled-membrane
+    // CANCELLATION is gone. Its fins were the §4.4.1 update's chord landing on
+    // a triangle the other operand already holds, which the update now
+    // separates by a surface point (N106 increment 2); a membrane that still
+    // reaches the shell gate is a loud `s4-doubled-membrane` failure and a §4.5
+    // T4 site, never a silent repair.
     // (4a2) Tangency pinch-vertex split (spec `yang_tangency_pinch_split.md`):
     // uniform per-sheet representation of self-touching union boundaries
     // BEFORE the shell gate reads χ. Splitting appends vertices (a topology
@@ -5885,6 +5867,7 @@ fn stage4_relocate_and_correct_inner(
             false,
         )
     };
+    crate::repair_census::log("pinch_vertex_split", pinch_splits);
     if pinch_splits > 0 {
         collapsed_any = true;
     }
@@ -5956,6 +5939,7 @@ fn stage4_relocate_and_correct_inner(
             Some(tangential_verts),
         );
         attribution.attributions = attr_vec;
+        crate::repair_census::log("s194_subtauwork_collapse_s4", usize::from(c));
         collapsed_any |= c;
     }
 

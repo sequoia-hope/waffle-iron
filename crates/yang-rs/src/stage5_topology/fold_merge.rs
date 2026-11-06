@@ -352,6 +352,14 @@ pub(super) fn run_fold_merge_passes(
                 pass,
             ) {
                 Some((plan, absorbed, reloc)) => {
+                    crate::repair_census::log(
+                        if reloc.is_some() {
+                            "fold_merge_rehome"
+                        } else {
+                            "fold_merge_absorb"
+                        },
+                        absorbed.len(),
+                    );
                     rebuilds = plan;
                     run_merged = Some(absorbed);
                     rehome_reloc = reloc;

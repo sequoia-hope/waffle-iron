@@ -141,7 +141,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N38 | DELEGATED (B) | Stage-3 cone-owning-edge selection tol bound to the EDGE's OWN cone band |
 | N39 | DELEGATED (B) | Cone∩plane conic curve-distance amplification (the N38 follow-up) |
 | N40 | DELEGATED (B) | Backtrack-spike normalization of chained-boolean-drift operand loops |
-| N41 | DELEGATED (B) | Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class) |
+| N41 | **RESOLVED 2026-11-06** (cancellation RETIRED, roadmap F2: subsumed by the N106 inc-2 separation; a residual membrane is a loud `s4-doubled-membrane` gate failure + §4.5 T4 site) | Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class) |
 | N42 | DELEGATED (B) | Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane em… |
 | N43 | DELEGATED (B) | Stage-6 geometric attribution measures a `Plane` face by its triangle's WORST vertex, not the centroid (the… |
 | N44 | DELEGATED (B) | Mixed-orientation side-A faces in an n-ary coplanar plane group (M8 slice h, task #147) |
@@ -209,7 +209,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-10-31, F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-11-06, F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -3066,7 +3066,7 @@ primitive units. Deviation entry per P2 Yang-increment clarification.
 
 ### N41 — Doubled-membrane removal at the Stage-4 shell gate (the χ=3 sub-layer of the #146 non-2-manifold class)
 
-**State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
+**State:** **RESOLVED 2026-11-06: the cancellation is RETIRED** (amendment at the end of this entry). Before that: DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
 
 **Where:** `crates/yang-rs/src/stage4_relocate.rs` — `remove_doubled_membranes`
 (+ `membrane_orientation_sign`); wired at `crates/yang-rs/src/stage4_correct.rs`
@@ -3144,6 +3144,46 @@ advancing to its deeper pre-existing layer) and lights zero new cases
 
 **Sign-off:** solo-operator variant (P5), red/green via the mutation-killable
 `membrane.rs` units. Deviation entry per P2 Yang-increment clarification.
+
+**Amendment (2026-11-06): the cancellation is RETIRED** (roadmap F2, "retire the
+repairs it subsumes, cheapest proof first").
+- **Why it was a substitute.** §4.4.3 makes the updated mesh watertight and
+  2-manifold by construction, and §4.5 handles what is not. A cancelled fin is a
+  post-hoc repair of a §4.4.1 update defect, and it said nothing about where the
+  defect came from.
+- **Why nothing needs it now.** The fins were the update CDT's chord landing on a
+  triangle the other operand already held: the triangle form of N106's one root.
+  N106 increment 2's separation inserts a Fig. 11(c) surface point there (`:564-566`).
+  A print-only census (`YANG_REPAIR_CENSUS=<file>`, `repair_census.rs`) counted
+  the pass's removals:
+  - main: **0** on the canonical corpus (360C / 0W / 9E / 5EE / 0T) and **0**
+    on prospector seed 6 (187C / 0W / 10E / 3T at a 900 s budget);
+  - with the I2d refusal off (`census-trial` = `n106-inc2-trial` + census):
+    **0** on the corpus (360C / 0W / 9E). Before the separation, the same
+    refusal-off corpus had N41 cancelling membranes in seven cases.
+- **What replaces it.** The shell gate checks N41's own discriminant (same vertex
+  set, opposite winding, no tolerance) via `stage4_relocate::doubled_membranes`,
+  and fails loud as `s4-doubled-membrane`. `boolean::failures::membrane_sites` makes
+  it a §4.5 T4 site naming the fin's faces. This also closes the silent hazard
+  this entry recorded. A fin on three existing edges adds two faces and no edge,
+  so on a genus-1 shell it reads χ = 2 with every half-edge paired. The old gate
+  passed that.
+- **Pins** (`tests_unit/membrane.rs`):
+  - `a_membrane_that_evens_chi_still_stops_the_gate` (3×3 grid torus plus fin).
+    It fails with the gate's membrane check removed: mutation run, the other
+    10 units still pass.
+  - `the_gate_names_a_doubled_membrane`.
+  - The original removal units stay. `remove_doubled_membranes*` is now
+    `#[cfg(test)]`, kept for them and for the I3 side-label pins in
+    `s442_side_labels.rs`, the way `split_tri_at_edge` was kept.
+- **Scope on the full arrangement (I3):** with patch labels, the check counts
+  a membrane only inside one `TriangleSideLabel` patch, as the scoped
+  cancellation did. Two opposite sheets of different patches are operand
+  boundaries awaiting §4.4.2 classification. Pinned by the existing
+  `s442_side_labels.rs::per_operand_manifold_gate_distinguishes_cross_patch_interior_chord_from_fold`,
+  which caught the unscoped first version. Production passes no labels.
+- **Not touched:** `collapse_vertex`'s own opposite-winding pleat cancellation
+  is a separate site, still open under N89 / F2.
 
 ### N42 — Stage-6 planar-face GROSS-non-planarity self-check (producer-contract enforcement for the #146 off-plane emission class)
 

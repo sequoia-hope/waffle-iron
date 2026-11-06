@@ -2152,7 +2152,7 @@ pub(crate) fn membrane_orientation_sign(tri: [u32; 3], key: [u32; 3]) -> i8 {
 /// STOPped `s6-planar-loop-nonplanar` on a vertex 1.19e-3 off the plane
 /// (a third of the model). A silent relabel one slot wide is a topology
 /// defect minted by plumbing, not by geometry.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn remove_doubled_membranes(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2172,7 +2172,7 @@ pub(crate) fn remove_doubled_membranes(
 /// are distinct operand boundaries and must stay intact until post-keep
 /// classification. Post-keep (`scope_by_side_label = false`), opposite-winding
 /// membranes cancel across operands as well.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(crate) fn remove_doubled_membranes_scoped(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2189,6 +2189,7 @@ pub(crate) fn remove_doubled_membranes_scoped(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn remove_doubled_membranes_scoped_with_bounds(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2771,6 +2772,50 @@ pub(crate) fn check_watertight_2manifold_per_operand(
     Ok(())
 }
 
+/// Every DOUBLED MEMBRANE of `mesh`: a pair of triangles on the same vertex
+/// set with opposite winding (ledger N41), as `(i, j)` triangle indices in
+/// ascending order. Purely combinatorial, no tolerance. A zero-volume fin like
+/// this keeps every half-edge paired and raises χ by one per membrane, so two
+/// of them read an EVEN χ the Euler gate alone would pass; the shell gate
+/// therefore names them directly. A same-winding duplicate is a different
+/// defect and is not reported here.
+pub(crate) fn doubled_membranes(mesh: &Mesh) -> Vec<(usize, usize)> {
+    doubled_membranes_scoped(mesh, None)
+}
+
+/// [`doubled_membranes`] within one patch: with `patch_labels` (the full
+/// Stage-4 arrangement, I3), two opposite-winding sheets of DIFFERENT
+/// `TriangleSideLabel` patches are distinct operand boundaries awaiting
+/// classification (§4.4.2 `:572-578`), not a fin.
+fn doubled_membranes_scoped(
+    mesh: &Mesh,
+    patch_labels: Option<&[crate::brep::TriangleSideLabel]>,
+) -> Vec<(usize, usize)> {
+    use std::collections::BTreeMap;
+    type Key = ([u32; 3], Option<crate::brep::TriangleSideLabel>);
+    let mut groups: BTreeMap<Key, (Vec<usize>, Vec<usize>)> = BTreeMap::new();
+    for (ti, &tri) in mesh.tris.iter().enumerate() {
+        let mut key = tri;
+        key.sort_unstable();
+        if key[0] == key[1] || key[1] == key[2] {
+            continue;
+        }
+        let scope = patch_labels.map(|l| l[ti]);
+        let g = groups.entry((key, scope)).or_default();
+        if membrane_orientation_sign(tri, key) > 0 {
+            g.0.push(ti);
+        } else {
+            g.1.push(ti);
+        }
+    }
+    let mut out: Vec<(usize, usize)> = groups
+        .values()
+        .flat_map(|(pos, neg)| pos.iter().zip(neg).map(|(&i, &j)| (i.min(j), i.max(j))))
+        .collect();
+    out.sort_unstable();
+    out
+}
+
 pub(crate) fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     check_watertight_2manifold_with_patch_labels(mesh, None)
 }
@@ -2820,6 +2865,17 @@ fn check_watertight_2manifold_with_patch_labels(
         // CORRECT solid). This re-measures the standing
         // `yang_kept_mesh_manifold_gate` §2b record: no mesh-level
         // watertight/manifold invariant survives the kept set.
+    }
+    // A doubled membrane is NOT such a seam: two coincident opposite-winding
+    // triangles bound no volume (N41; its cancellation retired 2026-11-06).
+    if let Some(&(i, j)) = doubled_membranes_scoped(mesh, patch_labels).first() {
+        return Err(non_manifold_at(
+            "s4-doubled-membrane",
+            format_args!(
+                "triangles {i} {:?} and {j} {:?} share a vertex set with opposite winding",
+                mesh.tris[i], mesh.tris[j]
+            ),
+        ));
     }
 
     // Euler χ = 2 − 2g per connected shell (g ≥ 0). Connectivity via undirected
