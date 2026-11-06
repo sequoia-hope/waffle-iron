@@ -379,6 +379,13 @@ fn run_child(
         .stderr(Stdio::null());
     for (k, v) in envs {
         cmd.env(k, v);
+        if *k == "PROSPECT_CANDIDATE" {
+            // Key per-case census files (YANG_*_CENSUS) by candidate.
+            let id = std::path::Path::new(v)
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned());
+            cmd.env("ASSAY_CASE", id.unwrap_or_default());
+        }
     }
     let mut child = match cmd.spawn() {
         Ok(c) => c,

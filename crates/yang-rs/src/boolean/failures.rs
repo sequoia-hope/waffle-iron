@@ -368,13 +368,46 @@ pub(crate) fn record_domain_fires(fires: &[DomainFire]) {
 pub(crate) fn record_nonmanifold_mesh(mesh: &Mesh, attribution: &TriangleAttributionMap) {
     let seams = nonmanifold_sites(mesh, attribution);
     let sites = if seams.is_empty() {
-        euler_sites(mesh, attribution)
+        let mut s = euler_sites(mesh, attribution);
+        s.extend(membrane_sites(mesh, attribution));
+        s
     } else {
         seams
     };
     for site in sites {
         record(site);
     }
+}
+
+/// T4 on a doubled membrane (`stage4_relocate::doubled_membranes`, ledger
+/// N41): one site naming the faces of every membrane triangle. Its edges are
+/// all paired and its shell's χ may be even, so neither the seam nor the
+/// Euler condition names it.
+pub(crate) fn membrane_sites(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+) -> Vec<FailureSite> {
+    let pairs = crate::stage4_relocate::doubled_membranes(mesh);
+    let Some(&first) = pairs.first() else {
+        return Vec::new();
+    };
+    let faces: BTreeSet<(bool, u32)> = pairs
+        .iter()
+        .flat_map(|&(i, j)| [i, j])
+        .filter_map(|ti| attribution.attributions.get(ti).copied().flatten())
+        .map(|at| (matches!(at.input, InputId::B), at.face))
+        .collect();
+    vec![FailureSite {
+        trigger: FailureTrigger::NonManifoldMesh,
+        faces: faces
+            .into_iter()
+            .map(|(is_b, f)| (if is_b { InputId::B } else { InputId::A }, f))
+            .collect(),
+        detail: format!(
+            "{} doubled membrane(s), first triangles {first:?}",
+            pairs.len()
+        ),
+    }]
 }
 
 /// T4's second gate condition (§4.4.3, `check_watertight_2manifold`): a

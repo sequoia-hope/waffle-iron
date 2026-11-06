@@ -140,8 +140,15 @@ intersected patches.
       other declined component STOPs loudly into §4.5.2; `4.4-12 →
       PARTIAL` — its trigger is still a collapsed triangle, N2)*, `repair_fan_cluster` (N58),
       fold-merge / absorb / rehome, the construct pass's seam replacement,
-      `remove_doubled_membranes` (N41), `collapse_subtauwork_mesh_edges`
-      (N89 item 1).
+      ~~`remove_doubled_membranes` (N41)~~ *(retired 2026-11-06: the N106
+      inc-2 separation subsumes it, with 0 removals on the corpus, seed 6
+      and the refusal-off trial; a residual fin is a loud gate failure and a
+      T4 site)*, `collapse_subtauwork_mesh_edges` (N89 item 1; 0 fires too,
+      but its replacement is the Fig. 11(b) merge's threshold, the item
+      below). *(Census 2026-11-06, `YANG_REPAIR_CENSUS`, main corpus: the
+      construct pass fires in 230 cases, fold-merge in 6, rehome in 1
+      (R0003), `repair_fan_cluster` in 1 (P0020), the pinch split in 4,
+      absorb in 0; on seed 6 absorb fires once.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
