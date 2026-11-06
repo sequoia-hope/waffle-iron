@@ -5856,6 +5856,7 @@ fn stage4_relocate_and_correct_inner(
         attribution.attributions = attr_vec;
         n
     };
+    crate::repair_census::log("n41_doubled_membranes", membranes_removed);
     if membranes_removed > 0 {
         collapsed_any = true;
     }
@@ -5885,6 +5886,7 @@ fn stage4_relocate_and_correct_inner(
             false,
         )
     };
+    crate::repair_census::log("pinch_vertex_split", pinch_splits);
     if pinch_splits > 0 {
         collapsed_any = true;
     }
@@ -5956,6 +5958,7 @@ fn stage4_relocate_and_correct_inner(
             Some(tangential_verts),
         );
         attribution.attributions = attr_vec;
+        crate::repair_census::log("s194_subtauwork_collapse_s4", usize::from(c));
         collapsed_any |= c;
     }
 

@@ -893,6 +893,8 @@ pub(crate) fn reconstruct_topology_stage4(
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
             }
+            crate::repair_census::log("construct_seam_passes", c_applied);
+            crate::repair_census::log("fold_merge_passes", m_applied);
             let _ = c_applied; // consumed by this round's own fold-merge
             if m_applied == 0 {
                 // The merge runs LAST in a round, so only ITS changes can
@@ -1034,6 +1036,7 @@ pub(crate) fn reconstruct_topology_stage4(
             attribution.attributions = attr_vec;
             c
         };
+        crate::repair_census::log("s194_subtauwork_collapse_s5", usize::from(s194_collapsed));
         if s194_collapsed {
             let remap = compact_unreferenced_verts_with_bounds(
                 mesh,
