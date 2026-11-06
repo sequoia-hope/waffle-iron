@@ -8500,3 +8500,10 @@ pins are not the contract (the output B-Rep is analytic, and past Stage 5
 kernel-v2 reads the yang mesh only to find which side of a torus rim a band
 lies on, `kernel-v2/src/recover.rs:712`; inside the pipeline the §4.5
 triggers read it, and with the refusal off they held the corpus).
+
+**Owner ruling (2026-11-06): keep the refusal until F5 lands** ("keep the
+refusal until F5 lands"). The I2d refusal, the I2e seed grid and the
+`local_fig11a_patch_plans` arm stay in force as the stand-in for §4.1's
+interior sampling (`:357-378`); increment 3 (their retirement, branch
+`n106-inc2-land`) is re-run once F5 gives curved Stage-1 patches interior
+samples, and lands only with the three pins above green, not re-pinned.

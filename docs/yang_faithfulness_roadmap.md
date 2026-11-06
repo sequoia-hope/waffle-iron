@@ -130,7 +130,9 @@ intersected patches.
       it converts all eight cases the refusal hid, corpus held. The
       retirement itself is BLOCKED: two pipeline-mesh volume pins lose
       20–23 % because a Stage-1 cylinder has no interior samples — the
-      refusal stands in for F5's §4.1 interior sampling; ledger N106.)*
+      refusal stands in for F5's §4.1 interior sampling; ledger N106.
+      Owner ruling 2026-11-06: the refusal stays until F5 lands; the
+      retirement then re-runs from branch `n106-inc2-land`.)*
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
       first: ~~the §4.4.1(a) unzip~~ *(retired 2026-10-30/31: the split runs
       inside `update_patches_ex` by patch CDT; the unzip's local arms run
