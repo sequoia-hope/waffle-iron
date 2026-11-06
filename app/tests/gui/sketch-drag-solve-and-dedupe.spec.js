@@ -105,8 +105,23 @@ test.describe('sketch drag', () => {
 		await waitForEntityCount(page, 8, 5000);
 		await page.keyboard.press('Escape');
 
-		const target = await page.evaluate(() => {
+		// The burst must start with NO solve outstanding. The rectangle's own
+		// sends (entities, H/V constraints, and the one solve they request) go
+		// through the engine lock one at a time; on a slow CI runner that
+		// solve was still unanswered when the burst began (2026-11-05, run
+		// 42093818890: three of the rectangle's AddConstraints were posted
+		// after recording started). The burst then queued behind it, so the
+		// recorded log held ONE solve, the queued newest-sample one, which is
+		// the store working as designed but not the case this test pins. So
+		// wait, in the page, until nothing is in flight, and burst in the same
+		// task: there is no gap for another solve to start.
+		const target = await page.evaluate(async () => {
 			const w = window.__waffle;
+			const deadline = performance.now() + 10000;
+			while (w.isSolveInFlight()) {
+				if (performance.now() > deadline) throw new Error('a setup solve never answered');
+				await new Promise((r) => setTimeout(r, 10));
+			}
 			const pts = w.getEntities().filter((e) => e.type === 'Point');
 			const id = pts[0].id;
 			const p0 = w.getPositions().get(id);

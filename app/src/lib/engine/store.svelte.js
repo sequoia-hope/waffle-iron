@@ -2058,6 +2058,9 @@ export async function initEngine() {
 			replayEngineMessages: (entries) => replayEngineMessages(entries),
 			getEngineSendLog: () => bridge.getSendLog(),
 			getEngineLockHolder: () => engineLockHolder,
+			// A SolveSketch is outstanding: requested (possibly still waiting
+			// on the engine lock, so not yet in the send log) and unanswered.
+			isSolveInFlight: () => solveInFlight,
 			getUserBusyReason: () => getUserBusyReason(),
 			getAgentActivity: () => (agentActivity ? { ...agentActivity } : null),
 			forkLinkedDocument: () => forkLinkedDocument(),
