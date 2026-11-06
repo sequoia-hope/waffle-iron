@@ -125,6 +125,12 @@ intersected patches.
 - [ ] **The d(T) refusal becomes the paper's per-triangle bound (N106):**
       accept the patch CDT, carry d(T) as each boundary triangle's d_ε(T)
       (§4.1.2 `:357-378`) into the consumers that read d_ε, retire I2d / I2e.
+      *(2026-11-06: increment 2 LANDED — the owner-signed separation of an
+      update simplex the other operand already holds; with the refusal off
+      it converts all eight cases the refusal hid, corpus held. The
+      retirement itself is BLOCKED: two pipeline-mesh volume pins lose
+      20–23 % because a Stage-1 cylinder has no interior samples — the
+      refusal stands in for F5's §4.1 interior sampling; ledger N106.)*
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
       first: ~~the §4.4.1(a) unzip~~ *(retired 2026-10-30/31: the split runs
       inside `update_patches_ex` by patch CDT; the unzip's local arms run

@@ -171,3 +171,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-03 | step 0: corpus on HEAD + seed 6 | corpus 0W; seed 6 6W (0 kernel) | 65 / 132 | ERROR 6 % | seed 6: 4 T | 38190e9b |
 | 2026-11-03 | engine: cut direction + ThroughAll read the true extent | corpus 360C/0W (R0020 tie found and fixed); seed 6 5W, all oracle | 65 / 132 | — | — | 8dfcb8e8 |
 | 2026-11-05 | step 0: O5 promoted to a verdict (direction AND bounds from a certified per-step interval of the exact chain, not the authored meta) | corpus 360C/0W/9E/5EE/0T held, O5 0 violations; record-only oracles 1 (O2) | 65 / 132 | — | corpus 0 T | (this commit) |
+| 2026-11-06 | F2 / N106 increment 2: separate an update simplex the other operand holds (owner-signed); I2d retirement measured, blocked on two pipeline-mesh volume pins (needs F5 interior sampling) | corpus 360C/0W/9E/5EE/0T held (0 fires); refusal-off trial 360C/0W, 8 hidden cases convert | 65 / 132 | — | — | (this commit) |

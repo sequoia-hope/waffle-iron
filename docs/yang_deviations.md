@@ -8434,3 +8434,69 @@ re-sited §4.3.4 does not answer C0103; what does is an interior surface
 point where the update's triangle cannot carry the surface (Fig. 11(c)
 `:564-566` generalized, the re-read's remedy 2), which is the 2026-10-31
 refine-to-budget trial's operation in a narrower trigger.
+
+**Increment 2 (2026-11-06): owner sign-off, the separation built, the
+retirement measured — and blocked.** The owner signed remedy 2 ("go ahead
+with remedy 2", 2026-11-06): where an update triangle cannot carry its
+surface because the other operand already holds the same simplex, insert
+the surface point there and re-triangulate — Fig. 11(c)'s "we insert a
+point to ensure that the topology of the trimmed mesh patch aligns with the
+trimmed surface" (`:564-566`) generalized from an empty loop to a coincident
+simplex, the nearest paper class being §4.5.4's "new intersections that may
+arise during mesh updating" (`:752-757`). Built as
+`stage4_construct::separate_coincident_simplices`, run inside
+`update_patches_ex_with_bounds` on the batch's wholesale plans before the
+write-back: a curved plan's new triangle whose sorted vertex triple — or an
+interior edge whose vertex pair — is a simplex of the OTHER operand's
+post-update mesh gets the surface point at its chart centroid (edge: chart
+midpoint), lifted exactly onto the surface, and the patch is re-planned
+(`rebuild_patch_separating`); rounds repeat to `SEPARATE_ROUNDS = 8`; a
+refused or boundary-changing re-plan keeps the previous plan. **The trigger
+is narrower than the signed one:** the signed reading was "d(T) larger than
+its distance to the other operand"; what is built is that test's
+distance-zero instance (an identical simplex — exact, tolerance-free), the
+only one measured. A near-coincident pair (0 < distance < d(T)) is not
+separated; no case is known to need it. Pins:
+`stage4_construct::tests::a_coincident_cross_operand_triangle_gets_its_surface_centroid`,
+`::a_coincident_cross_operand_edge_gets_its_surface_midpoint`,
+`::a_planar_patch_is_not_separated`.
+
+Measured (loaf, 12 jobs, every oracle in force incl. O5):
+- **With I2d in force (what lands):** 0 separations over the corpus; all 374
+  categories identical to main (360C / 0W / 9E / 5EE / 0T). On today's mesh
+  the pass never fires — the refusal keeps the relocated triangles, which
+  never coincide.
+- **With the I2d refusal off (trial `n106-inc2-trial`, never lands):**
+  360C / 0W / 9E / 5EE / 0T, all 374 categories identical to main. 32
+  separations, 0 refused, in exactly the eight 2026-11-03 cases (F0058 R0046
+  R0063 C0052 C0054 P0057 F0060 C0103) plus C0053, P0008, P0009, P0027,
+  R0023 — **all eight CORRECT → ERROR cases convert.** So the single root
+  anchored 2026-11-04/05 was the whole of what the refusal hid from the
+  corpus.
+
+**The retirement does not land (branch `n106-inc2-land`, 04dc62b9:
+the I2d refusal, the I2e seed grid and the `local_fig11a_patch_plans` arm
+deleted, d_ε dropped from the rebuild API).** The rewrite tier fails two
+PIPELINE-MESH volume pins: `n2_rim_mint_adversary::corner_in_band_refines_membership_no_phantom_junction`
+(signed volume of the yang output mesh 24.01 against its measured band
+30–31) and `tangency_pinch_split::c0058_authored_geometry_union_mints_its_tangent_points`
+(1.606 against 2.082); the always-on test-harness suite adds one more,
+`si5_analytic::analytic_fixtures_match_the_exporter` (the drilled_block STEP
+fixture changes — exported geometry moves). The corpus cannot see this: its volume oracle reads
+kernel-v2's re-tessellation of the analytic output faces, and C0058 itself
+reads CORRECT. This is the 2026-10-16 regression the I2d budget was added
+for, now re-measured with the isometric chart as this entry asked — it is
+NOT the anisotropic chart's slivers. A Stage-1 cylinder carries vertices on
+its rims only (N5), so an accepted patch CDT of a sparse boundary joins far
+θ by secants (the C0103 chord's d(T) = 0.3 on r = 0.5 is the same shape), and
+the mesh carries d(T) far above d_ε. The paper does not reach this state:
+its §4.1 tessellation samples the surface interior at d_ε (`:357-378`), so
+the CDT "maintains the d_ε constraints" (`:548`) from its input, not by a
+check. The missing piece is therefore Stage-1 interior sampling (N5 / F5,
+"Stage 1 as §4.1"), not a Stage-4 refusal or refinement — the I2d refusal
+and I2e grid stand in for it until it lands. Increment 3 (retire I2d / I2e /
+the arm) waits on that, or on an owner ruling that the pipeline-mesh volume
+pins are not the contract (the output B-Rep is analytic, and past Stage 5
+kernel-v2 reads the yang mesh only to find which side of a torus rim a band
+lies on, `kernel-v2/src/recover.rs:712`; inside the pipeline the §4.5
+triggers read it, and with the refusal off they held the corpus).
