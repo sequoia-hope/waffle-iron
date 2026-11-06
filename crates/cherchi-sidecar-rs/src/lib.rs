@@ -4,7 +4,7 @@
 //! [`MeshBoolean`] implementation. The binary lives outside the
 //! repo (build it per `docs/sidecar/cherchi2022_build_guide.md`);
 //! this crate locates it via `CHERCHI2022_BIN` env var or a
-//! default path under `/home/claude/cherchi2022/...`.
+//! default path under `$CHERCHI2022_ROOT` (else `$HOME/cherchi2022`).
 //!
 //! ## NOT WASM-compatible
 //!
@@ -50,7 +50,7 @@ use cherchi_rs::{Mesh, MeshBoolean};
 // Re-export the frozen Stage-2 contract (defined in cherchi-rs) so consumers can
 // name it through this producer crate.
 pub use cherchi_rs::labeled_arrangement::{InputId, LabeledArrangement};
-pub use process::{DEFAULT_BIN_PATH, INPUTCHECK_DEFAULT_BIN_PATH};
+pub use process::{sidecar_root, DEFAULT_BIN_PATH, INPUTCHECK_DEFAULT_BIN_PATH};
 
 /// Default subprocess timeout: 30 seconds. Overridable via
 /// [`SidecarBoolean::new`].
@@ -141,7 +141,7 @@ impl InputCheckReport {
 /// for the Cherchi 2022 §3 input axioms over `mesh`.
 ///
 /// Resolves the binary via `CHERCHI2022_INPUTCHECK_BIN` env var or the
-/// default path ([`INPUTCHECK_DEFAULT_BIN_PATH`]); returns
+/// default path ([`INPUTCHECK_DEFAULT_BIN_PATH`] under [`sidecar_root`]); returns
 /// [`SidecarError::BinaryNotFound`] if neither exists.
 ///
 /// **Verdict parsing:** the binary prints a 5-line verdict to **stdout**

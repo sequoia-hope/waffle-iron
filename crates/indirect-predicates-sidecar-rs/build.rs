@@ -2,7 +2,7 @@
 //!
 //! 1. Locates the upstream `Indirect_Predicates` source directory via
 //!    the `INDIRECT_PREDICATES_SRC` env var (preferred) or a default
-//!    vendored path (`/home/claude/cherchi2022/...`).
+//!    vendored path under `$CHERCHI2022_ROOT` (else `$HOME/cherchi2022`).
 //! 2. If found: compiles `src/wrapper.cpp` against the library
 //!    headers using `cc::Build` (C++20, no GMP, no SIMD in v1).
 //! 3. If not found: compiles `src/stub.cpp` as a no-op fallback and
@@ -13,12 +13,24 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+/// Relative to the sidecar root `scripts/build_sidecars.sh` builds into.
 const DEFAULT_SRC: &str =
-    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/external/Indirect_Predicates";
+    "InteractiveAndRobustMeshBooleans/arrangements/external/Indirect_Predicates";
+
+/// `$CHERCHI2022_ROOT/DEFAULT_SRC`, else `$HOME/cherchi2022/DEFAULT_SRC`.
+fn default_src() -> PathBuf {
+    env::var_os("CHERCHI2022_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|h| PathBuf::from(h).join("cherchi2022")))
+        .unwrap_or_default()
+        .join(DEFAULT_SRC)
+}
 
 fn main() {
     // Re-run if the env var changes or our own shim files change.
     println!("cargo:rerun-if-env-changed=INDIRECT_PREDICATES_SRC");
+    println!("cargo:rerun-if-env-changed=CHERCHI2022_ROOT");
+    println!("cargo:rerun-if-env-changed=HOME");
     println!("cargo:rerun-if-changed=src/wrapper.h");
     println!("cargo:rerun-if-changed=src/wrapper.cpp");
     println!("cargo:rerun-if-changed=src/stub.cpp");
@@ -43,7 +55,7 @@ fn main() {
             // with baffling geometric errors until a manual `cargo clean`.
             let probe = env::var("INDIRECT_PREDICATES_SRC")
                 .map(PathBuf::from)
-                .unwrap_or_else(|_| PathBuf::from(DEFAULT_SRC));
+                .unwrap_or_else(|_| default_src());
             println!(
                 "cargo:rerun-if-changed={}",
                 probe
@@ -80,7 +92,7 @@ fn resolve_source_dir() -> Option<PathBuf> {
         );
         return None;
     }
-    let default = PathBuf::from(DEFAULT_SRC);
+    let default = default_src();
     if header_present(&default) {
         return Some(default);
     }
@@ -130,7 +142,7 @@ fn compile_stub() {
     println!(
         "cargo:warning=indirect-predicates-sidecar-rs: Indirect_Predicates source \
          not found (set INDIRECT_PREDICATES_SRC or place at {}); built no-op stub.",
-        DEFAULT_SRC
+        default_src().display()
     );
 }
 

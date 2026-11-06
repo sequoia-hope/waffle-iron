@@ -8,17 +8,26 @@
 //! Parameterizing the timeout (vs. a const) is the only behavioral change vs.
 //! PR-S1 — the reference-parity test still uses 30 s, the sweep uses 10 s.
 //!
-//! Refs: PR-S1 deliverables in `/home/claude/.claude/plans/reactive-juggling-sloth.md`,
+//! Refs: PR-S1 deliverables in `~/.claude/plans/reactive-juggling-sloth.md`,
 //! PR-S2 spec at `specs/cherchi_inputcheck_corpus_sweep.md`.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-/// Default location of the upstream `mesh_booleans` binary. The same
+/// The upstream `mesh_booleans` binary, relative to the sidecar root. The same
 /// directory contains `mesh_booleans_inputcheck`.
-pub const CHERCHI2022_BIN_DEFAULT: &str =
-    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans";
+pub const CHERCHI2022_BIN_DEFAULT: &str = "InteractiveAndRobustMeshBooleans/build/mesh_booleans";
+
+/// [`CHERCHI2022_BIN_DEFAULT`] under the root `scripts/build_sidecars.sh`
+/// builds into: `$CHERCHI2022_ROOT`, else `$HOME/cherchi2022`.
+pub fn cherchi_bin_default() -> PathBuf {
+    std::env::var_os("CHERCHI2022_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("cherchi2022")))
+        .unwrap_or_default()
+        .join(CHERCHI2022_BIN_DEFAULT)
+}
 
 /// Outcome of a timed subprocess invocation: completed (with the
 /// original `Output`), or `TimedOut` after the kill, or a spawn-time error.
@@ -33,9 +42,10 @@ pub enum TimedRun {
 /// callers should `return` cleanly so the test is treated as
 /// configuration-skipped rather than a failure.
 pub fn cherchi_bin() -> Option<PathBuf> {
-    let path =
-        std::env::var("CHERCHI2022_BIN").unwrap_or_else(|_| CHERCHI2022_BIN_DEFAULT.to_string());
-    let p = PathBuf::from(&path);
+    let p = std::env::var_os("CHERCHI2022_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(cherchi_bin_default);
+    let path = p.display();
     if !p.exists() {
         eprintln!(
             "[cherchi-sidecar] SKIP: Cherchi 2022 binary not found at `{}`. \

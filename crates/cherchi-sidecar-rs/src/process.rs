@@ -8,28 +8,42 @@ use std::time::Duration;
 
 use crate::SidecarError;
 
-/// Default location of the upstream `mesh_booleans` binary.
-/// Override via `CHERCHI2022_BIN` env var.
-pub const DEFAULT_BIN_PATH: &str =
-    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans";
+/// The upstream `mesh_booleans` binary, relative to the sidecar root
+/// ([`sidecar_root`]). Override the whole path via `CHERCHI2022_BIN`.
+pub const DEFAULT_BIN_PATH: &str = "InteractiveAndRobustMeshBooleans/build/mesh_booleans";
 
 const ENV_VAR: &str = "CHERCHI2022_BIN";
 
-/// Default location of the upstream `mesh_booleans_inputcheck` binary
-/// (the Cherchi 2022 §3 input-axiom reference oracle).
-/// Override via `CHERCHI2022_INPUTCHECK_BIN` env var.
+/// The upstream `mesh_booleans_inputcheck` binary (the Cherchi 2022 §3
+/// input-axiom reference oracle), relative to the sidecar root
+/// ([`sidecar_root`]). Override the whole path via
+/// `CHERCHI2022_INPUTCHECK_BIN`.
 pub const INPUTCHECK_DEFAULT_BIN_PATH: &str =
-    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck";
+    "InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck";
 
 const INPUTCHECK_ENV_VAR: &str = "CHERCHI2022_INPUTCHECK_BIN";
+
+/// Where `scripts/build_sidecars.sh` builds the reference:
+/// `$CHERCHI2022_ROOT`, else `$HOME/cherchi2022`. With neither set the
+/// root is empty, so the default path is relative and simply not found.
+pub fn sidecar_root() -> PathBuf {
+    std::env::var_os("CHERCHI2022_ROOT")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join("cherchi2022")))
+        .unwrap_or_default()
+}
+
+fn env_or_default(var: &str, rel: &str) -> PathBuf {
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| sidecar_root().join(rel))
+}
 
 /// Resolve the inputcheck binary path via env var or default. Returns
 /// `Err(SidecarError::BinaryNotFound)` if neither resolves to an
 /// existing file.
 pub(crate) fn resolve_inputcheck_bin_from_env() -> Result<PathBuf, SidecarError> {
-    let path_str = std::env::var(INPUTCHECK_ENV_VAR)
-        .unwrap_or_else(|_| INPUTCHECK_DEFAULT_BIN_PATH.to_string());
-    let path = PathBuf::from(&path_str);
+    let path = env_or_default(INPUTCHECK_ENV_VAR, INPUTCHECK_DEFAULT_BIN_PATH);
     if !path.exists() {
         return Err(SidecarError::BinaryNotFound { path });
     }
@@ -40,8 +54,7 @@ pub(crate) fn resolve_inputcheck_bin_from_env() -> Result<PathBuf, SidecarError>
 /// `Err(SidecarError::BinaryNotFound)` if neither resolves to an
 /// existing file.
 pub(crate) fn resolve_bin_from_env() -> Result<PathBuf, SidecarError> {
-    let path_str = std::env::var(ENV_VAR).unwrap_or_else(|_| DEFAULT_BIN_PATH.to_string());
-    let path = PathBuf::from(&path_str);
+    let path = env_or_default(ENV_VAR, DEFAULT_BIN_PATH);
     if !path.exists() {
         return Err(SidecarError::BinaryNotFound { path });
     }

@@ -1,4 +1,12 @@
 import { chromium } from 'playwright';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+// The dev server's port comes from the registry: $PORT, else `proj port`.
+const port = process.env.PORT || (() => {
+    try { return execFileSync('proj', ['port'], { encoding: 'utf8' }).trim(); }
+    catch { throw new Error('cut-debug: no $PORT and `proj port` failed; cannot find the dev server'); }
+})();
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -9,7 +17,7 @@ page.on('console', msg => {
         errors.push(`[${msg.type()}] ${msg.text()}`);
 });
 
-await page.goto('http://localhost:8083', { waitUntil: 'networkidle' });
+await page.goto(`http://localhost:${port}`, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__waffle?.getState()?.engineReady, { timeout: 15000 });
 console.log('Engine ready');
 
@@ -88,6 +96,6 @@ console.log('Toasts:', JSON.stringify(toasts));
 console.log('\nErrors/warnings:');
 for (const e of errors) console.log(' ', e);
 
-await page.screenshot({ path: '/home/claude/workspace/app/tests/cut-debug.png' });
+await page.screenshot({ path: fileURLToPath(new URL('cut-debug.png', import.meta.url)) });
 
 await browser.close();

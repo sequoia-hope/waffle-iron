@@ -4,8 +4,11 @@ use test_harness::ModelBuilder;
 #[test]
 #[ignore]
 fn replay_error_coplanar_waffle() {
-    let json = std::fs::read_to_string("/home/claude/workspace/error_coplanar.waffle")
-        .expect("read waffle");
+    let json = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../error_coplanar.waffle"
+    ))
+    .expect("read waffle");
     let mut b = ModelBuilder::kernel_v2();
     match b.load(&json) {
         Ok(_) => println!("load OK"),

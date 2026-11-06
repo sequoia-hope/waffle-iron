@@ -17,16 +17,16 @@
 #   container-create / first-test instead. It is idempotent — re-running when
 #   the binary already exists is a fast no-op.
 #
-# The default paths below match the crate defaults (cherchi-sidecar-rs
-# DEFAULT_BIN_PATH and indirect-predicates-sidecar-rs DEFAULT_SRC), so no env
-# vars are required. Override with CHERCHI2022_ROOT if you build elsewhere; then
-# also export CHERCHI2022_BIN and INDIRECT_PREDICATES_SRC for the crates.
+# The default root below matches the crate defaults (cherchi-sidecar-rs
+# DEFAULT_BIN_PATH and indirect-predicates-sidecar-rs DEFAULT_SRC, both under
+# $CHERCHI2022_ROOT, else $HOME/cherchi2022), so no env vars are required. If
+# you build elsewhere, export CHERCHI2022_ROOT for the crates too.
 #
 # Reference: docs/sidecar/cherchi2022_build_guide.md
 # Roadmap milestone: M0 (docs/yang_functional_roadmap.md §4)
 set -euo pipefail
 
-CHERCHI2022_ROOT="${CHERCHI2022_ROOT:-/home/claude/cherchi2022}"
+CHERCHI2022_ROOT="${CHERCHI2022_ROOT:-$HOME/cherchi2022}"
 REPO_DIR="${CHERCHI2022_ROOT}/InteractiveAndRobustMeshBooleans"
 BUILD_DIR="${REPO_DIR}/build"
 BIN="${BUILD_DIR}/mesh_booleans"

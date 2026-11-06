@@ -22,16 +22,7 @@ use test_harness::{oracle, ModelBuilder};
 /// `../../err.waffle`. When run inside a git worktree the repo root is the
 /// worktree root, which also has a copy.
 fn err_waffle_json() -> Option<String> {
-    let candidates = [
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../err.waffle").to_string(),
-        "/home/claude/workspace/err.waffle".to_string(),
-    ];
-    for c in candidates {
-        if let Ok(s) = std::fs::read_to_string(&c) {
-            return Some(s);
-        }
-    }
-    None
+    std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../err.waffle")).ok()
 }
 
 // QUARANTINED (RED) — progress across PR-5 and PR-6, gear still not clean:
