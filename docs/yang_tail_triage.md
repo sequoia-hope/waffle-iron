@@ -58,7 +58,7 @@ union / cut / intersect): red on main with exactly the matrix's error, green
 here. Corpus geometry hashes identical to main on all 374 cases; rewrite tier
 green.
 
-## 2026-11-03 (kernel 1.0 step 0) — **HEAD a1932058 holds 360C / 0W / 9E / 5EE / 0T over 374 (release, 12 jobs on sequoia-server, wall 761 s); prospector seed 6 (first seed with O1/O3 in force): 178 C / 6 W / 12 E / 4 T — all six WRONG rows are the HARNESS or the ENGINE, none the kernel**
+## 2026-11-03 (kernel 1.0 step 0) — **HEAD a1932058 holds 360C / 0W / 9E / 5EE / 0T over 374 (release, 12 jobs on the second build machine, wall 761 s); prospector seed 6 (first seed with O1/O3 in force): 178 C / 6 W / 12 E / 4 T — all six WRONG rows are the HARNESS or the ENGINE, none the kernel**
 
 Seed 6: `PROSPECT_SEED=6 PROSPECT_COUNT=200 PROSPECT_JOBS=8 PROSPECT_BUDGET_SECS=900`,
 1092 s. ERROR rate 6 % (seed 5: 5.5 %). Each WRONG row was judged one prefix

@@ -241,7 +241,7 @@ Blocks F2's first retirement (see §0 point 2).
   never reaches the harness (errors arrive as strings); carrying it needs a
   typed site on the kernel error — a kernel change, not done here.
 - **Not done in O4:** the cylinder lateral's inner-loop check.
-- Agents in isolated worktrees cannot use `reserve -m sequoia-server` (their
+- Agents in isolated worktrees cannot use `reserve -m <second-machine>` (their
   worktree guard refuses commands that run git in another checkout).
 
 **Policy note for the roadmap's scoreboard:** once O1 is a verdict,

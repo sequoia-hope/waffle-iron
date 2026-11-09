@@ -8501,7 +8501,7 @@ separated; no case is known to need it. Pins:
 `::a_coincident_cross_operand_edge_gets_its_surface_midpoint`,
 `::a_planar_patch_is_not_separated`.
 
-Measured (loaf, 12 jobs, every oracle in force incl. O5):
+Measured (main dev machine, 12 jobs, every oracle in force incl. O5):
 - **With I2d in force (what lands):** 0 separations over the corpus; all 374
   categories identical to main (360C / 0W / 9E / 5EE / 0T). On today's mesh
   the pass never fires — the refusal keeps the relocated triangles, which

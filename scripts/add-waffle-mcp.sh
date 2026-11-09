@@ -10,7 +10,11 @@
 #   --persistent-link  development: the pairing link is reusable and never
 #                      expires (its code lives on the host in
 #                      ~/.local/state/waffle-mcp-relay/link-<port>.code)
-# Env:   WAFFLE_HOST_SSH  ssh target (default: sequoia@<default gateway>)
+# Env:   WAFFLE_HOST_SSH   ssh target (default: $WAFFLE_HOST_USER@<default gateway>)
+#        WAFFLE_HOST_USER  host login used with the default gateway when
+#                          WAFFLE_HOST_SSH is unset (one of the two is required)
+#        WAFFLE_HOST_REPO  waffle-iron checkout on the host
+#                          (default: $HOME/Software/waffle-iron, expanded on the host)
 set -euo pipefail
 
 scope=local
@@ -28,7 +32,13 @@ done
 # Default gateway from /proc (the container has no `ip`): little-endian hex.
 g=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
 gateway=${g:+$((16#${g:6:2})).$((16#${g:4:2})).$((16#${g:2:2})).$((16#${g:0:2}))}
-host_ssh=${WAFFLE_HOST_SSH:-sequoia@${gateway:?no default gateway; set WAFFLE_HOST_SSH}}
+if [[ -z ${WAFFLE_HOST_SSH:-} ]]; then
+  : "${WAFFLE_HOST_USER:?set WAFFLE_HOST_SSH (user@host) or WAFFLE_HOST_USER (used with the default gateway)}"
+  : "${gateway:?no default gateway; set WAFFLE_HOST_SSH}"
+fi
+host_ssh=${WAFFLE_HOST_SSH:-$WAFFLE_HOST_USER@$gateway}
+# Expanded by the host's shell, not here.
+host_repo=${WAFFLE_HOST_REPO:-'$HOME/Software/waffle-iron'}
 ssh_opts=(-T -o BatchMode=yes -o UserKnownHostsFile="$HOME/.claude/host_known_hosts")
 
 serve_json=$(ssh "${ssh_opts[@]}" "$host_ssh" tailscale serve status --json)
@@ -49,9 +59,9 @@ else:
 
 args=(
   "${ssh_opts[@]}" "$host_ssh"
-  env UV_PROJECT_ENVIRONMENT=/home/sequoia/.cache/waffle-mcp-relay-venv
-  /home/sequoia/.local/bin/uv run --frozen --no-dev --no-sync
-  --project /home/sequoia/Software/waffle-iron/relay
+  env 'UV_PROJECT_ENVIRONMENT=$HOME/.cache/waffle-mcp-relay-venv'
+  '$HOME/.local/bin/uv' run --frozen --no-dev --no-sync
+  --project "$host_repo/relay"
   waffle-mcp-relay
   --port "$relay_port"
   --app-url "https://$public/"

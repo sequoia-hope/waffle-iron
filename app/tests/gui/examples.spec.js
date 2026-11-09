@@ -86,7 +86,7 @@ test.describe('Examples panel', () => {
 		// — baseline tier only, never Ion (read from the Juggler shipped in
 		// Playwright's firefox-1532 build; there is no switch to turn it off).
 		// The `OpenAssembly` that evaluates the bike is one synchronous wasm
-		// call (15 s in Chromium on loaf); on the
+		// call (15 s in Chromium on the dev machine); on the
 		// nightly runner Firefox took ~200 s on the one night it passed (3.9 min
 		// test, run 41510181039) and was still inside it at 240 s on three
 		// others (runs 41442091137, 41679827368, 41875087563: `Send:

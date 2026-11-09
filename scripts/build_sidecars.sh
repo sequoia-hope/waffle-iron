@@ -83,7 +83,7 @@ fi
 log "configuring + building (Release) — this is the ~22 min step ..."
 # CMake 4 removed compatibility with `cmake_minimum_required(< 3.5)`, which the
 # bundled oneTBB still declares; this is CMake's own escape for that, and older
-# CMake ignores it (sequoia-server, cmake 4.2.3, 2026-11-03).
+# CMake ignores it (second build machine, cmake 4.2.3, 2026-11-03).
 export CMAKE_POLICY_VERSION_MINIMUM="${CMAKE_POLICY_VERSION_MINIMUM:-3.5}"
 cmake -S "${REPO_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
 # Build ONLY the CLI targets we use. The upstream CMake also defines interactive

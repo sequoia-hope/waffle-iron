@@ -73,7 +73,7 @@ Defined `pub(crate) struct TriangleErrorBoundMap { pub(crate) bounds: Vec<f64> }
 
 ### 2.4 Measured Runtime Cost (`D2.5`, `YANG_STAGE_TIME_PROBE=1`)
 
-Measured under `reserve -c 6` on `loaf` (`ASSAY_JOBS=1 YANG_STAGE_TIME_PROBE=1 ASSAY_CASE=<ID> cargo test --release -p test-harness --test assay_kv2 single_case -- --ignored --exact --nocapture`, binaries pre-built with `--no-run --release`):
+Measured under `reserve -c 6` on the main dev machine (`ASSAY_JOBS=1 YANG_STAGE_TIME_PROBE=1 ASSAY_CASE=<ID> cargo test --release -p test-harness --test assay_kv2 single_case -- --ignored --exact --nocapture`, binaries pre-built with `--no-run --release`):
 
 | Case | Metric | Before (`a1932058`) | After (`5bc3abdb`, identical kernel code to `HEAD`) |
 | :--- | :--- | :--- | :--- |
