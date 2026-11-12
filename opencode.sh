@@ -1,125 +1,24 @@
 #!/usr/bin/env bash
-# Session manager for Waffle Iron opencode (runs in the same waffle-iron-claude
-# container as shell.sh, but targets the parallel "opencode" tmux session that
-# entrypoint.sh starts alongside the Claude session).
-# Presents a menu of tmux sessions; auto-launches "opencode" after 2s.
-set -e
+# opencode.sh — run opencode against this tree in a host tmux session
+# ("waffle-iron-opencode"), alongside launch.sh's Claude session. Reconnects if
+# the session already exists; -r forces a restart.
+set -euo pipefail
 
-CONTAINER="waffle-iron-claude"
-WORKSPACE="/home/claude/workspace"
-DEFAULT_SESSION="opencode"
-OPENCODE_CMD="opencode"
-AUTO_TIMEOUT=2
+SESSION="waffle-iron-opencode"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"
 
-# ── Helpers ──────────────────────────────────────────────────────────
+if [[ "${1:-}" == "-r" ]] && tmux has-session -t "=$SESSION" 2>/dev/null; then
+  tmux kill-session -t "=$SESSION"
+fi
 
-die() { echo "  $1" >&2; exit 1; }
+if ! tmux has-session -t "=$SESSION" 2>/dev/null; then
+  tmux new-session -d -s "$SESSION" -c "$DIR" "opencode; exec bash"
+  echo "Created tmux session '$SESSION' in $DIR"
+fi
 
-container_running() {
-    docker inspect -f '{{.State.Running}}' "$CONTAINER" 2>/dev/null | grep -q true
-}
-
-# List tmux sessions: name|windows|attached
-get_sessions() {
-    docker exec "$CONTAINER" \
-        tmux list-sessions -F '#{session_name}|#{session_windows}|#{session_attached}' \
-        2>/dev/null || true
-}
-
-attach_session() {
-    local name="$1"
-    echo "  → Attaching to '$name'"
-    docker exec -it "$CONTAINER" tmux attach-session -t "$name"
-}
-
-create_and_attach() {
-    local name="$1"
-    echo "  → Creating '$name'"
-    docker exec "$CONTAINER" \
-        tmux new-session -d -s "$name" -c "$WORKSPACE" "$OPENCODE_CMD; exec bash"
-    docker exec -it "$CONTAINER" tmux attach-session -t "$name"
-}
-
-launch_default() {
-    if docker exec "$CONTAINER" tmux has-session -t "$DEFAULT_SESSION" 2>/dev/null; then
-        attach_session "$DEFAULT_SESSION"
-    else
-        create_and_attach "$DEFAULT_SESSION"
-    fi
-}
-
-# ── Menu ─────────────────────────────────────────────────────────────
-
-show_menu() {
-    local sessions
-    sessions=$(get_sessions)
-
-    echo ""
-    echo "  Waffle Iron — opencode Sessions"
-    echo "  ─────────────────────────────────"
-
-    local -a names=()
-    local i=1
-
-    if [ -n "$sessions" ]; then
-        while IFS='|' read -r name windows attached; do
-            local label="$name"
-            [ "$name" = "$DEFAULT_SESSION" ] && label="$label *"
-            [ "$attached" -gt 0 ] 2>/dev/null && label="$label (attached)"
-            echo "  [$i] $label"
-            names+=("$name")
-            i=$((i + 1))
-        done <<< "$sessions"
-    fi
-
-    echo "  [n] New session"
-    echo "  [q] Exit"
-    echo ""
-    echo -n "  Select [default in ${AUTO_TIMEOUT}s]: "
-
-    local choice
-    if ! read -t "$AUTO_TIMEOUT" -r choice; then
-        echo ""
-        launch_default
-        return
-    fi
-
-    case "$choice" in
-        q|Q)
-            echo "  Bye."
-            exit 0
-            ;;
-        n|N)
-            echo -n "  Session name: "
-            read -r newname
-            [ -z "$newname" ] && die "No name given."
-            # Sanitise for tmux (letters, digits, hyphens, underscores)
-            newname="${newname//[^a-zA-Z0-9_-]/}"
-            [ -z "$newname" ] && die "Invalid name."
-            if docker exec "$CONTAINER" tmux has-session -t "$newname" 2>/dev/null; then
-                attach_session "$newname"
-            else
-                create_and_attach "$newname"
-            fi
-            ;;
-        "")
-            launch_default
-            ;;
-        *[0-9]*)
-            local idx=$((choice - 1))
-            if [ "$idx" -ge 0 ] && [ "$idx" -lt "${#names[@]}" ]; then
-                attach_session "${names[$idx]}"
-            else
-                die "Invalid selection."
-            fi
-            ;;
-        *)
-            die "Invalid selection."
-            ;;
-    esac
-}
-
-# ── Main ─────────────────────────────────────────────────────────────
-
-container_running || die "Container '$CONTAINER' not running. Start with: ./claude-remote/run.sh"
-show_menu
+if [[ -n "${TMUX:-}" ]]; then
+  exec tmux switch-client -t "=$SESSION"
+else
+  exec tmux attach-session -t "=$SESSION"
+fi
