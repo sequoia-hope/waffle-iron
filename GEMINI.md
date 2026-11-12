@@ -12,8 +12,9 @@ short on purpose; the authority is elsewhere.
 2. `AGENTS.md` (auto-loaded) — directory ownership and document precedence.
 3. For any `yang-rs` / `kernel-v2` boolean change, additionally:
    - `docs/yang_faithfulness_roadmap.md` — the STANDING PRIORITY (from
-     2026-10-27): milestones F0–F7 in order; take the first unchecked item
-     of the earliest open milestone. Tail cases are customers of a
+     2026-10-27): milestones in the order F5a → F2 → F1's flip → F3 → F4 →
+     F5b → F6 → F7; take the first unchecked item of the earliest open
+     milestone (F5a: the parameter-domain substrate). Tail cases are customers of a
      milestone, never work items of their own.
    - `specs/yang_faithful_cleanup.md` — the substitution table and method
      the roadmap's milestones follow. Read it BEFORE touching yang-rs.

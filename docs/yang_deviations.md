@@ -100,7 +100,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | D11 | HISTORICAL | `d_ε` computed from combined-AABB across both solids |
 | D12 | HISTORICAL | O(n²) broad-phase intersection detection vs octree |
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
-| D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5's generic parametric-surface interface + a first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives |
+| D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5a — the surface interface and carried parameter coordinates — and F5b's first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
 | N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open; apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
@@ -3918,6 +3918,18 @@ P&T Ch. 10) carried end to end. **State: OPEN** (was DELEGATED; the user has
 now decided it, so it is no longer a delegation). Matrix rows graded N/A "by
 D14" are re-graded as F5 lands; row 3-06 (NURBS faces as input) is MISSING
 from today.
+
+**Amendment (2026-11-12, plan revision; no code change).** Reopening D14
+also reopens the representation. Rows 4.2-24 (no parameter coordinates are
+formed) and 4.3-05 (the optimization is seeded from a 3D vertex) were
+recorded as moot "under N7 + D14" while every surface had an implicit form.
+A B-spline has none, so those rows are live debt, and the resolution path is
+split: roadmap **F5a** (ahead of F2) builds the surface interface — including
+the control-net distance and normal-cone bounds of Theorems A and 4.1, which
+pointwise evaluation cannot give — and carries (u, v) per vertex per face
+through Stages 1–5, result-neutral; roadmap **F5b** builds the one CDT per
+face and the first non-analytic instance. N7's closed-form SSI stays as the
+exact path where a solver exists.
 
 **Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); the live analog is the five-variant `Surface` enum, `crates/yang-rs/src/geom.rs:37` and `crates/kernel-v2/src/arena.rs:245`] `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
 
@@ -8547,3 +8559,8 @@ refusal until F5 lands"). The I2d refusal, the I2e seed grid and the
 interior sampling (`:357-378`); increment 3 (their retirement, branch
 `n106-inc2-land`) is re-run once F5 gives curved Stage-1 patches interior
 samples, and lands only with the three pins above green, not re-pinned.
+
+**Home moved (2026-11-12, plan revision; no code change).** Retiring the I2d
+refusal is now an item of roadmap **F5b**, next to the one CDT per face with
+interior sampling it waits on (owner ruling 2026-11-06), so F2 closes without
+it. The increments already landed here are unchanged.

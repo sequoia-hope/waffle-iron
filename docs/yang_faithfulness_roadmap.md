@@ -64,6 +64,35 @@ touched. That is when it gets re-adjudicated (A15.7): resolved, or argued
 for and sent to the user in prose for a signature. An entry whose home turns
 out to be wrong is moved, not skipped.
 
+**Order: F0 → F1 (I1, I3a) → F5a → F2 → F1's flip (I3b) → F3 → F4 → F5b →
+F6 → F7.** The sections below are in that order. F5a comes before F2 because
+§4.4.1 "can be totally operated in the parametric domain" (`:560-561`): the
+per-patch update, the §4.3 optimization and the B-spline instance all need
+the same substrate, and building F2 on charts derived from 3D positions
+means building it twice.
+
+**How the conversion is carried out.** The substitutes are tuned to each
+other. Each in-place change so far has regressed cases a substitute protects
+on the old substrate: the N85 trial lost four cases, the I3b flip stopped on
+three, and the N106 retirement lost two volume pins. A coupled system cannot
+be converted one mechanism at a time while the corpus is held at every
+commit. F5a therefore opens with one design session that chooses between:
+
+- **in place** — today's method, one wired increment at a time on the
+  production path, each holding the corpus; or
+- **a second path** — the paper's order assembled from the primitives that
+  already exist (`update_patches_ex`, `boolean::refine_loop`, the I3a
+  full-arrangement primitives, `d_of_t`, the F4 Newton and Gauss-map code)
+  behind one switch, with the production path as its differential oracle on
+  the corpus and the seeds. The corpus is required of the second path at the
+  flip, not at each commit; at the flip the old path and every substitute on
+  it are deleted together. This is how `cherchi-rs` replaced the C++
+  sidecar.
+
+The session's output is a spec (`specs/yang_paper_path.md`) with the choice,
+its reasons from the code, and the gate for the flip. Until it exists, no
+new increment is wired into the production Stage 4.
+
 ### F0 — Bookkeeping (no geometry change)
 
 - [x] This roadmap, and CLAUDE.md priority #1 pointing at it.
@@ -111,6 +140,52 @@ on the wrong substrate. Spec: `specs/yang_442_classify_after_update.md`.
   matrix §3(a)–(c) say the order changes the answer, with each such case
   anchored.
 
+### F5a — The parameter-domain substrate (D14 first half; matrix 4.2-24, 4.3-05, 4.4-09)
+
+The paper's hybrid representation lives in the parameter domain. Every mesh
+vertex has (u, v) on its surface (`:371-374`), every intersection point has
+(u, v) on both surfaces by barycentric coordinates (§4.2.3, `:510-519`), the
+optimization moves (u, v, s, t) (§4.3, Appendix C), and the update
+triangulates in the parametric domain (`:560-562`). The code holds 3D points
+and tests them against implicit surfaces (`stage4_relocate.rs`
+`relocate_onto_implicit_pair`); it forms no parameter coordinates, and its
+patch charts cover planes, cylinders and cones only. That was recorded as
+moot while surfaces were analytic-only (D14). With a B-spline instance in
+kernel 1.0 it is the first thing to build: a B-spline has no implicit form,
+and reaching it by closest-point projection from 3D is the slow, non-unique
+route the paper never takes.
+
+Every item here is result-neutral: the gate is the canonical geometry hash
+(`WAFFLE_GEOMETRY_HASH_OUT`) identical on all 374 corpus cases.
+
+- [ ] **Design session** — the choice in "How the conversion is carried
+      out" above, and the spec for the items below.
+- [ ] **The surface interface.** One trait every stage reaches a surface
+      through: evaluate s(u, v), first and second derivatives, normal, the
+      parameter domain with its periodicity and seams, and the two bounding
+      operations the paper's guarantees rest on — the control-net distance
+      of the sub-patch over a parameter rectangle (Theorem A, Fig. 6,
+      `:358-368`) and the normal cone of a sub-patch (Theorem 4.1,
+      `:453-460`). Both come from a rational Bézier net, so the interface
+      exposes a surface as rational Bézier sub-patches; `stage4_dt.rs`
+      already builds exact nets for the quadrics and the torus, and
+      `nurbs-rs` gives them for a B-spline by knot insertion. Pointwise
+      evaluation alone cannot give a conservative bound. Closest-point
+      projection is not part of the interface's required path.
+- [ ] **The five analytic surfaces are its instances.** No new code matches
+      on the surface type inside a general geometric rule. The existing
+      matches (686 uses of a `Surface::` variant in 47 non-test files of
+      yang-rs, 2026-11-12) are inventoried by rule, and each is either an
+      instance method or a recorded closed-form fast path under N7.
+- [ ] **Parameter coordinates carried.** Each mesh vertex holds (u, v) on
+      every face it lies on, assigned at Stage 1, interpolated at Stage 2
+      from the implicit points' barycentric coordinates (§4.2.3), and kept
+      in lockstep through every Stage-4/5 mutator, as the per-triangle
+      bound already is (N106 groundwork). Nothing reads them yet.
+- **Resolves:** matrix 4.2-24 (the barycentric map). **Unblocks:** F2's
+  charts, §4.3 seeded from parameter coordinates (4.3-05), F5b.
+- **Gate:** corpus byte-identical by canonical hash; the rewrite tier green.
+
 ### F2 — §4.4.1 as one per-patch update (N2, N81, N82, N86)
 
 Merge-with-retriangulation replaces relocate-then-repair. Specs:
@@ -122,17 +197,12 @@ intersected patches.
       §4.5.2 site (F-2 did the crossing class). *(2026-10-31: the hole-first
       chart fixed; open — the self-touching split cycle (P0040) and the d(T)
       budget refusal, which is not the paper's operation at all — N106.)*
-- [ ] **The d(T) refusal becomes the paper's per-triangle bound (N106):**
-      accept the patch CDT, carry d(T) as each boundary triangle's d_ε(T)
-      (§4.1.2 `:357-378`) into the consumers that read d_ε, retire I2d / I2e.
-      *(2026-11-06: increment 2 LANDED — the owner-signed separation of an
-      update simplex the other operand already holds; with the refusal off
-      it converts all eight cases the refusal hid, corpus held. The
-      retirement itself is BLOCKED: two pipeline-mesh volume pins lose
-      20–23 % because a Stage-1 cylinder has no interior samples — the
-      refusal stands in for F5's §4.1 interior sampling; ledger N106.
-      Owner ruling 2026-11-06: the refusal stays until F5 lands; the
-      retirement then re-runs from branch `n106-inc2-land`.)*
+- [ ] **The patch chart is the face's parameter domain** (F5a's interface),
+      for every surface: whole-patch sphere and torus charts exist, and a
+      cone apex is a point of the domain, not an `ApexInPatch` refusal
+      (matrix 4.4-09).
+- **Moved to F5b:** retiring the d(T) refusal (N106). It waits on Stage-1
+  interior sampling, which is F5b's one CDT per face; F2 closes without it.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
       first: ~~the §4.4.1(a) unzip~~ *(retired 2026-10-30/31: the split runs
       inside `update_patches_ex` by patch CDT; the unzip's local arms run
@@ -218,29 +288,30 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
 - **Re-adjudicate on touch:** N11, N38, N39, N45, N46 (Stage-3 membership
   bands), N29 (exact conic parameters versus the tangent-angle proxy).
 
-### F5 — Stage 1 as §4.1 on a generic surface (N5, N61, N85, N88, N93, D14)
+### F5b — Stage 1 as §4.1 on the interface (N5, N61, N85, N88, N93, N106, D14)
 
-One parameter-domain CDT per face at the Theorem-A chord bound. Cleanup
-Phase 3 and 2c. This goes last among the mechanism milestones because the
-cross-patch folds protect cases that F3's local loop must absorb first.
+One parameter-domain CDT per face at the Theorem-A chord bound, built on
+F5a's interface. Cleanup Phase 3 and 2c. This goes last among the mechanism
+milestones because the cross-patch folds protect cases that F3's local loop
+must absorb first.
 
 - [ ] d_ε from the B-Rep model's bounding box (`:391-395`, N85).
 - [ ] d(T) computed and d_ε certified at Stage 1 (`d_of_t`, N93).
-- [ ] **A generic parametric-surface interface first (user, 2026-10-27;
-      resolves D14 together with the item below).** Stage 1 and every later
-      stage reach a surface only through one interface — evaluate s(u, v),
-      first and second derivatives, normal, parameter domain with its
-      periodicity and seams, closest-point projection — which is all the
-      paper's pipeline needs (§4.1 parameter-domain discretization with the
-      Theorem-A bound `:304-395`, §4.2.2 Gauss map from normals, §4.3
-      Newton on s(u, v)). The five analytic surfaces become its instances.
-      No new code may match on the surface type inside a general geometric
-      rule; the existing matches are inventoried and retired with the item
-      below. Closed-form SSI (N7, A15.1) stays as the exact path where a
-      solver exists, the paper's Newton refinement is the general path.
-- [ ] One CDT per face, replacing the per-surface dispatch (tube, frustum,
-      chart, universal cover, azimuth zipper), with cones included (N61),
-      built on that interface.
+- [ ] One CDT per face with interior sampling, replacing the per-surface
+      dispatch (tube, frustum, chart, universal cover, azimuth zipper), with
+      cones included (N61), built on F5a's interface.
+- [ ] **The d(T) refusal becomes the paper's per-triangle bound (N106):**
+      accept the patch CDT, carry d(T) as each boundary triangle's d_ε(T)
+      (§4.1.2 `:357-378`) into the consumers that read d_ε, retire I2d / I2e.
+      *(2026-11-06: increment 2 LANDED — the owner-signed separation of an
+      update simplex the other operand already holds; with the refusal off
+      it converts all eight cases the refusal hid, corpus held. The
+      retirement itself is BLOCKED: two pipeline-mesh volume pins lose
+      20–23 % because a Stage-1 cylinder has no interior samples — the
+      refusal stands in for §4.1 interior sampling, the item above; ledger N106.
+      Owner ruling 2026-11-06: the refusal stays until the one CDT per
+      face above lands; the retirement then re-runs from branch
+      `n106-inc2-land`.)*
 - [ ] **A first non-analytic instance** (a ruled / B-spline surface, P&T
       Ch. 10) passes through the pipeline end to end — the proof the
       interface is general, and the substrate for loft booleans
@@ -248,7 +319,7 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 - [ ] Retire the cross-patch folds (N88) and the self-contact guard (its
       switches go with it, cleanup §4) into the certificate and the loop.
 - **Re-adjudicate on touch:** N5, N9, N27, N28, N34, N35.
-- **Resolves:** N5, N61, N85, N88, N93, D14.
+- **Resolves:** N5, N61, N85, N88, N93, N106, D14.
 
 ### F6 — Stage 0 and output emission (§4.5.5, §4.4.2 restoration)
 
@@ -267,8 +338,14 @@ cross-patch folds protect cases that F3's local loop must absorb first.
 
 ### F7 — Adjudicate what remains
 
-One prose sign-off request per entry, with a paper cite and one
-recommendation, never a menu (A15.7). Expected: N13–N24 (corrections of
+A sign-off request is prose, with a paper cite and one recommendation,
+never a menu (A15.7). One request may cover several entries when they share
+one paper passage and one rationale; it names every ledger entry and matrix
+row it covers, and each of them records the request it was signed under.
+The classes expected: the corrections of bugs in the Cherchi reference
+(N13–N24), and closed-form computation of an object the paper computes
+numerically (the N7 family). Requests are drafted as each milestone lands,
+so the signatures do not queue up behind F6. Expected: N13–N24 (corrections of
 bugs in the Cherchi reference, parity-tested) signed PERMANENT, N33
 (disjoint-sum passthrough, outside the paper's interacting-solid scope),
 N7 already on the A15.1 basis. (D14 is no longer a scope signature: the
@@ -297,9 +374,9 @@ the first known item.
   "when the tail empties, run the next seed" loop no longer sets the work
   order.
 - **Work order:** take the first unchecked item of the earliest open
-  milestone. A milestone may start before the previous one closes only
-  where this file says its items are independent. F0's items, F2's
-  refusal-class item and F4 do not depend on F1.
+  milestone in §3's order (F5a is the earliest open one). A milestone may
+  start before the previous one closes only where this file says its items
+  are independent. F0's items and F4 do not depend on F1.
 
 ## 5. Checkpoint log
 
@@ -323,3 +400,4 @@ the first known item.
 | 2026-10-30 | WRONG tail (not a milestone step): R0015 / R0026 / R0050 CONVERTED — Stage-5 output typing types every chord between two different surfaces (carried curve, else the surfaces' ssi intersection; twin candidates within band are one; pair chords certified by bisection). N60 amended; N104 ledgered OPEN (Stage 3 leaves the perpendicular torus×plane section and Stage-0 overlay A×B curves untyped) | 62 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-10-30 | F2 Step 1 + review fixes (N81; N58 reopened; N105 added): Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4, `DecimateStats` + loud `Stage4ChainDecimateFailed`; `Surface::Sphere` non-decimation stated), operand-anchored conic merge vertex-index-free (`0`-operand-vertex closed circle retains `min_by_key` index rule as open debt on `R0021`), Stage-1/`sphere.rs` unbundled, `developable.rs` hardened with `Result` + red-first pin (`curved_holed_lateral_reentry`), `4.4-23`/`4.4-28` updated (`stage5_topology.rs:1037`), class-(b) elision ledgered as N105 | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 524.8 s, 0 moved) | 3d98d89b, 41d3e61a |
 | 2026-10-31 | F2 Step 2 (Antigravity; reworked after independent review): Fig. 11(a) split inside `update_patches_ex` by patch CDT; the `(3d)` unzip deleted and its local arms (first moved into the update for every refusal) narrowed to the N106 d(T)-budget refusal — any other declined component STOPs loudly into §4.5.2; hole-first patch chart fixed; `4.4-12` DEVIATES → PARTIAL (first committed as FAITHFUL; trigger still a collapsed triangle); N106 ledgered (the d(T) refusal is not the paper's) | 65 | 133 | 360C / 0W / 9E / 5EE / 0T (O1+O3 in force, no case moved — see commit) | (this commit) |
+| 2026-11-12 | Plan revised after review (user: *"update the 1.0 plan and roadmap with those recommendations"*): F5 split into F5a (parameter-domain substrate: surface interface with the Theorem-A and Theorem-4.1 bounds, parameter coordinates carried, result-neutral) and F5b; order now F5a → F2 → I3b → F3 → F4 → F5b → F6 → F7; the N106 d(T) retirement moved from F2 to F5b; the conversion method (in place or a second path) is F5a's first item; class sign-offs in F7. No geometry changed | 64 | 132 | not re-run (no kernel change) | (this commit) |

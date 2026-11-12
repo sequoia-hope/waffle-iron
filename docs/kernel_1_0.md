@@ -31,6 +31,14 @@ number a script prints; none is a judgement made at the end.
    no-change steps).
 3. **The silent-wrong census is closed:** every N100 item is either fixed,
    made loud with a typed error and a pin, or shown unreachable with a test.
+4. **An independent B-Rep kernel agrees.** Every boolean the corpus and the
+   two gate seeds categorize CORRECT is also run through OCCT as a black box
+   (operands exported as STEP, the same policy as the Cherchi sidecar: a
+   dev-only oracle whose source we do not read). Volume, surface area and the
+   per-type face census agree within stated bands, and every disagreement is
+   adjudicated in writing. The harness's own oracles are authored by the
+   project; fresh seeds and the B-spline pairs have no authored expectation,
+   and this is the check that does not share our assumptions.
 
 ### Gate 2 — Faithful
 
@@ -44,6 +52,12 @@ number a script prints; none is a judgement made at the end.
    a finish line.
 3. Where the paper is silent, the choice is a SILENT row with a recorded
    rationale, signed in prose by the user (A15.7) — never DELEGATED.
+4. **Sign-offs are requested by class where one rationale covers several
+   entries** (roadmap F7). A request is still prose, with the paper cite and
+   one recommendation (A15.7 point 3); it names every ledger entry and matrix
+   row it covers. The gate needs every PARTIAL and DEVIATES row fixed or
+   PERMANENT-backed (122 rows and 38 DELEGATED entries at 2026-11-12), so
+   requests are drafted as their milestone lands, not saved for the end.
 
 ### Gate 3 — Capable
 
@@ -54,8 +68,11 @@ The supported envelope, each item with a corpus or pinned customer:
    (union, cut, intersect) that categorizes CORRECT. Built as a pair-matrix
    test in `crates/test-harness/` (new).
 2. **The generic parametric-surface interface and a B-spline instance end to
-   end** (roadmap F5; resolves D14). A B-spline face enters Stage 1, meets an
-   analytic face in a boolean, and leaves as an exact B-Rep face.
+   end** (roadmap F5a and F5b; resolves D14). A B-spline face enters Stage 1,
+   meets an analytic face in a boolean, and leaves as an exact B-Rep face.
+   The hybrid representation is the paper's: every mesh vertex carries
+   parameter coordinates on each face it lies on (§4.2.3), and no stage
+   reaches a surface except through the interface.
 3. **Profiles:** holed revolve profiles and arc/spline profiles without a
    chord polygon are supported, not `NotSupported`.
 4. **Coplanar inputs:** R0023's Stage-0 n-ary case (N25) converts; the
@@ -67,6 +84,16 @@ The supported envelope, each item with a corpus or pinned customer:
    reading text (remediation A1).
 6. **Out of scope for 1.0:** fillet, chamfer, shell (deferred indefinitely,
    CLAUDE.md). An attempt returns a typed `NotSupported`.
+7. **Every degenerate contact has a stated answer.** The paper's test sets
+   are randomly rotated pairs, so it covers general position, coplanar planes
+   (§4.5.5) and isolated tangent points (§4.3.3). Mechanical models are mostly
+   the other cases. A contact matrix in `crates/test-harness/` (new) crosses
+   each surface pair with each contact class that pair admits: coincident
+   surfaces, tangency along a curve, tangency at a point, an edge lying in a
+   face, a vertex lying on a face, a shared edge. Every cell categorizes
+   CORRECT or returns a typed refusal that names the contact class. No cell
+   is WRONG, untyped, or untested. A refusal the paper does not cover is a
+   SILENT row with a signed rationale (gate 2.3).
 
 ### Gate 4 — Bounded, not fast
 
@@ -94,11 +121,14 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 1 | record-only oracles | 2 (O2, O5) → **1 (O2)** — O5 a verdict 2026-11-05: 1171 corpus steps checked, 121 not covered, 0 violations | 0 |
 | 1 | exact-chain coverage (`assay_exact_coverage`) | corpus 355 / 374; seed 6 195 / 198 (main 592c813f) | no lower than baseline; every decline justified |
 | 1 | N100 items open | see ledger N100 | 0 |
+| 1 | independent-kernel (OCCT) disagreements not adjudicated | oracle not built (2026-11-12) | 0, over the corpus and two seeds |
 | 2 | ledger debt | 65 | 0 |
 | 2 | matrix not-faithful | 132 of 194 | 0 MISSING/ORDER; rest PERMANENT-backed |
 | 2 | consecutive clean audits | 0 | 2 |
 | 3 | surface pairs with a CORRECT customer | **15 of 21** (`assay_pair_matrix` on 75f2f1be, 3 seeds: 135 / 135 CORRECT, 0 WRONG, 0 ERROR, 132 with exact-volume agreement); the 6 B-spline pairs are not buildable (F5) | 21 of 21 |
 | 3 | B-spline end to end | no | yes |
+| 3 | parameter coordinates carried per vertex per face (F5a) | no: Stage 4 projects 3D points (matrix 4.2-24, 4.3-05) | yes |
+| 3 | degenerate-contact matrix cells CORRECT or typed | matrix not built (2026-11-12) | every cell |
 | 3 | fresh-seed ERROR rate | seed 6: 6 % (12/200; 2 are the empty-result harness verdict) | ≤ 5 %, all typed |
 | 4 | corpus + seed TIMEOUTs | corpus 0; seed 6: 4 | 0 |
 | 4 | undocumented panic sites in yang-rs (K7) | ~60 (review count; not yet gated) | 0 |
@@ -121,13 +151,48 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
     is a violation only when the kernel's exact change disagrees with it —
     which still catches a silently dropped cut. Waits on the
     `agy/oracle-extent` review (same file).
-- **Step 1 — the roadmap, in order.** F2 (one owner, D-2) → F3 → F4's open
-  items → F5 (the generic interface, one CDT per face, the B-spline instance)
-  → F6 → F7. Gate 3's pair matrix and gate 4's K7 / K10 are non-kernel-lane
-  work and run in parallel with any milestone.
+- **Step 1 — the roadmap, in order.** F5a (the parameter-domain substrate:
+  the surface interface and per-vertex parameter coordinates, result-neutral)
+  → F2 (§4.4.1 on that substrate) → F1's flip → F3 → F4's open items → F5b
+  (§4.1 Stage 1, one CDT per face, the B-spline instance) → F6 → F7. One
+  owner holds F5a, F2 and F1's flip (D-2). F5a opens with one design session
+  that decides whether these milestones convert the production path in place
+  or on a second, paper-ordered path behind a switch (roadmap §3, "How the
+  conversion is carried out").
+- **Step 1, in parallel (non-kernel lanes).** Gate 1.4's OCCT oracle, gate
+  3.1's pair matrix, gate 3.7's contact matrix, gate 4's K7 and K10, and the
+  consumer contract (§3a). None of these waits for a milestone.
 - **Step 2 — close the audit.** Two independent re-reads (gate 2.2).
 - **Step 3 — declare 1.0** on the first commit where the script prints every
   target met, with the corpus and two fresh seeds run on that commit.
+
+## 3a. The consumer contract — what the app, the MCP tools and Boardroom wait for
+
+The app, the agent tools and the Boardroom integration do not wait for 1.0.
+They need four things from the kernel, all in the remediation plan's lane A
+and none of them a faithfulness milestone:
+
+1. **Typed failures** (A1, the same work as gate 3.5): each Yang STOP class
+   is a distinct `engine_error.kind` with face ids in `details`. No consumer
+   parses error text.
+2. **Typed no-ops** (A2): a boolean that changes nothing, and one that
+   consumes its target, are typed outcomes, not successes with a warning.
+3. **A validity answer** (A3, A4): `body_measure.closed` is right for boolean
+   outputs, and `body_validate` reports closed, manifold, Euler and
+   self-intersection.
+4. **A stable trait**: `waffle_types::kernel::{Kernel, KernelIntrospect}` is
+   the only kernel surface a consumer touches, and a change to it is an
+   interface change (root `INTERFACES.md`).
+
+When these four hold, consumer work proceeds against the kernel as it is. A
+boolean the kernel cannot do yet is, to a consumer, a typed refusal it can
+show or route around; kernel 1.0 raises how often the answer is a solid, it
+does not change the contract.
+
+**Outside the repo (user):** ask the paper's authors for their code and for
+test sets A and B (the paper says both would be released; a search on
+2026-11-12 found neither). A reference implementation would be a parity
+oracle for the whole pipeline, as the Cherchi sidecar is for Stage 2.
 
 ## 4. Delegation to Antigravity (Gemini)
 
@@ -141,7 +206,7 @@ interface, the B-spline instance, BVHs); anchoring an ERROR to its
 un-minimized lineage with the timing probes and naming its milestone
 (report only); independent audit re-reads of one paper section at a time
 (gate 2.2 — a different model family is the point); test-harness oracles
-(gate 3's pair matrix).
+(gate 3's pair matrix and contact matrix, gate 1.4's OCCT sidecar).
 
 **Not delegated:** owning a kernel milestone, grading a matrix row or ledger
 entry FAITHFUL / RESOLVED, landing a kernel commit, running the canonical
@@ -173,3 +238,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-05 | step 0: O5 promoted to a verdict (direction AND bounds from a certified per-step interval of the exact chain, not the authored meta) | corpus 360C/0W/9E/5EE/0T held, O5 0 violations; record-only oracles 1 (O2) | 65 / 132 | — | corpus 0 T | (this commit) |
 | 2026-11-06 | F2 / N106 increment 2: separate an update simplex the other operand holds (owner-signed); I2d retirement measured, blocked on two pipeline-mesh volume pins (needs F5 interior sampling) | corpus 360C/0W/9E/5EE/0T held (0 fires); refusal-off trial 360C/0W, 8 hidden cases convert | 65 / 132 | — | — | (this commit) |
 | 2026-11-06 | F2: N41 doubled-membrane cancellation retired (0 fires on the corpus, seed 6 and the refusal-off trial, by the new `YANG_REPAIR_CENSUS`); a residual fin is a loud gate failure + T4 site, closing N41's even-χ silent hazard | corpus 360C/0W/9E/5EE/0T held; seed 6 187C/0W/10E/3T | 64 / 132 | seed 6 ERROR 5 % | seed 6: 3 T | (this commit) |
+| 2026-11-12 | plan revised after review (user: *"update the 1.0 plan and roadmap with those recommendations"*): F5 split, F5a (parameter-domain substrate) ahead of F2; gate 1.4 independent OCCT oracle; gate 3.7 degenerate-contact matrix; class sign-offs (gate 2.4); consumer contract §3a not gated on 1.0. No geometry changed | corpus not re-run | 64 / 132 | contact matrix and F5a not built | — | (this commit) |

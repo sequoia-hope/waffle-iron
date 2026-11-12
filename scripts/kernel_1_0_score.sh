@@ -106,10 +106,30 @@ missing = [
 if missing:
     print(f"   buildable pairs without a CORRECT customer ({len(missing)}): {', '.join(missing)}")
 PY
-elif ls crates/test-harness/tests/assay_pair_matrix*.rs crates/test-harness/tests/surface_pair_matrix*.rs >/dev/null 2>&1; then
+elif ls crates/test-harness/tests/assay_pair_matrix*.rs >/dev/null 2>&1 || ls crates/test-harness/tests/surface_pair_matrix*.rs >/dev/null 2>&1; then
   echo "   surface-pair matrix test: present (no target/pair-matrix/report.json — run assay_pair_matrix)"
 else
   echo "   surface-pair matrix test: not built (target 21/21)"
+fi
+echo
+# Gate 3.7 (contact matrix), gate 3.2 (F5a) and gate 1.4 (OCCT oracle): each
+# prints its report when one exists; until its harness is built it says so.
+if [ -f target/contact-matrix/report.json ]; then
+  echo "   degenerate-contact matrix: report at target/contact-matrix/report.json"
+else
+  echo "   degenerate-contact matrix: not built (target: every cell CORRECT or typed)"
+fi
+if grep -rqE "^pub trait ParametricSurface" crates/yang-rs/src 2>/dev/null; then
+  echo "   surface interface (F5a): trait present"
+else
+  echo "   surface interface (F5a): not built; $(grep -rE 'Surface::(Plane|Cylinder|Cone|Sphere|Torus)' crates/yang-rs/src --include='*.rs' | grep -v tests_unit | wc -l) surface-type matches in yang-rs"
+fi
+echo
+echo "Gate 1.4 — independent kernel (OCCT)"
+if [ -f target/occt-oracle/report.json ]; then
+  echo "   report at target/occt-oracle/report.json"
+else
+  echo "   oracle not built (target: 0 unadjudicated disagreements)"
 fi
 echo
 echo "Gate 4 — panics (K7)"

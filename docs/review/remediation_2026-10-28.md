@@ -49,9 +49,9 @@ was signed.
   recorded `test.sh rewrite` pass (≈490 s) on the branch. Recommendation: adopt
   both.
 - **D-2 One owner for F2 and a cap on parallel kernel milestones** until F2
-  lands (§4.3, §4.4 item 3). Parallel agents go to lanes A–H instead of F3, F5
-  or F6. Recommendation: adopt; the roadmap already says F1, F3 and F5 wait on
-  F2.
+  lands (§4.3, §4.4 item 3). Parallel agents go to lanes A–H instead of F3,
+  F5b or F6. The same owner holds F5a (the parameter-domain substrate, which
+  the roadmap puts ahead of F2) and F1's flip.
 - **D-3 The 18 MB WASM bundle in git** (809 of 3,456 commits, 512 MiB pack).
   Options are build-in-CI plus Pages deploy (changes the CLAUDE.md rule "include
   the WASM bundle in the same commit") or Git LFS. History rewrite is a
