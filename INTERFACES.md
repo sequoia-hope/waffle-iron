@@ -1,996 +1,804 @@
-# Waffle Iron — Cross-Project Interface Definitions
+# Waffle Iron — Cross-Crate Interfaces
 
-All cross-project Rust type contracts. These types will become actual Rust code — they are syntactically valid Rust. Every sub-project agent reads this file before starting work.
+The contracts between crates, and between the engine and its hosts. The Rust
+source is normative; each section names the file it describes. Code blocks are
+taken from the source with doc comments shortened. Where a type is too large to
+reproduce, the section lists its variants or fields by name and points at the
+file.
 
-**Serialization rules:**
-- All persisted types use `#[serde(tag = "type")]` for forward-compatible enum tagging.
-- Types containing `KernelSolidHandle` or `KernelId` are NEVER persisted — they exist only at runtime.
-- Features store `GeomRef` for geometry references, never kernel-internal IDs.
+| Section | Contract | Defined in |
+|---|---|---|
+| A | Geometry references | `crates/waffle-types/src/{geom_ref,topo,roles}.rs` |
+| B | Operation results | `crates/modeling-ops/src/types.rs` |
+| C | Sketch types | `crates/waffle-types/src/sketch.rs` |
+| D | Feature tree | `crates/feature-engine/src/types.rs` |
+| E | Bridge protocol | `crates/wasm-bridge/src/messages.rs` |
+| F | Render data | `crates/waffle-types/src/kernel/types.rs`, `crates/wasm-bridge/src/render_view.rs` |
+| G | Kernel contract | `crates/waffle-types/src/kernel/` |
+
+The persisted form of a document is specified separately in
+`docs/FILE_FORMAT.md`.
+
+**Conventions**
+
+- Lengths are meters.
+- Persisted enums are internally tagged with `#[serde(tag = "type")]`. The
+  exceptions are noted where they occur.
+- `KernelSolidHandle` and `KernelId` are valid for one kernel session only.
+  They are never written to a `.waffle` file. Anything persisted refers to
+  geometry through a `GeomRef`.
+- Persistent ids (`pid`, `root_pid`) are `u64` in Rust and decimal strings on
+  the wire, because they exceed the range JavaScript numbers hold exactly.
 
 ---
 
-## A) Geometry Reference System
+## A) Geometry references
 
-**Producer:** feature-engine, modeling-ops
-**Consumer:** feature-engine, modeling-ops, sketch-ui, ui-chrome, file-format
+**Defined in:** `waffle-types` (`geom_ref.rs`, `topo.rs`, `roles.rs`)
+**Used by:** feature-engine, modeling-ops, wasm-bridge, file-format, the app
 
-These types form the persistent naming system — the mechanism by which features reference geometry that survives parametric rebuilds.
+A `GeomRef` names one face, edge or vertex in a way that survives a parametric
+rebuild. It says which feature output holds the entity (`anchor`) and how to
+find the entity there (`selector`).
 
 ```rust
-use std::fmt;
+pub enum TopoKind { Vertex, Edge, Face, Shell, Solid }
 
-/// Opaque handle to a solid in the geometry kernel.
-/// NEVER persisted. Valid only for the current kernel session.
-/// Obtained from kernel operations, passed back to kernel for queries/mutations.
-///
-/// Producer: kernel
-/// Consumer: modeling-ops, feature-engine (runtime only)
-#[derive(Debug, Clone)]
-pub struct KernelSolidHandle(pub(crate) u64);
-
-/// Transient kernel-internal entity identifier.
-/// Kernel-internal entity identifier.
-/// Stable within a single kernel session but NOT across rebuilds or serialization.
-/// NEVER persisted — use GeomRef for persistent references.
-///
-/// Producer: kernel (via KernelIntrospect)
-/// Consumer: modeling-ops (for topology diffing), feature-engine (for resolution, runtime only)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct KernelId(pub u64);
-
-/// The kind of topological entity.
-///
-/// Producer: kernel
-/// Consumer: all crates that work with topology
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum TopoKind {
-    Vertex,
-    Edge,
-    Face,
-    Shell,
-    Solid,
-}
-
-/// Persistent geometry reference. The core of the persistent naming system.
-/// A GeomRef identifies a specific topological entity across parametric rebuilds.
-///
-/// Resolution algorithm:
-/// 1. Find the anchor feature's current OpResult.
-/// 2. Apply the selector to find matching KernelId(s).
-/// 3. If Role-based selector works → use it (fast, stable).
-/// 4. If Role fails → fall back to Signature matching.
-/// 5. Apply ResolvePolicy (Strict = fail on ambiguity, BestEffort = closest match + warn).
-///
-/// Producer: feature-engine (when user selects geometry for an operation)
-/// Consumer: feature-engine (during rebuild), modeling-ops (as operation inputs), file-format (persisted)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GeomRef {
-    /// What kind of topological entity this references.
     pub kind: TopoKind,
-    /// Which feature's output contains this entity.
     pub anchor: Anchor,
-    /// How to find the specific entity within the anchor's output.
     pub selector: Selector,
-    /// What to do when resolution is ambiguous or fails.
+    #[serde(default)]
     pub policy: ResolvePolicy,
+    /// Present when the anchor lives in another tab's assembly instance.
+    /// Absent means the current tab.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<RefScope>,
 }
 
-/// Identifies which feature output contains the target entity.
-///
-/// Producer: feature-engine
-/// Consumer: feature-engine (during rebuild)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
+pub struct RefScope {
+    pub source_id: Option<Uuid>,     // absent: this document
+    pub tab_id: Option<String>,      // absent: the current tab
+    pub instance_path: Vec<Uuid>,    // assembly-instance ids down to the part
+}
+
 pub enum Anchor {
-    /// References an output of a specific feature in the tree.
-    FeatureOutput {
-        /// UUID of the feature that produced this geometry.
-        feature_id: uuid::Uuid,
-        /// Which output of the feature (most features have one "Main" output).
-        output_key: OutputKey,
-    },
-    /// References a datum (construction plane, axis, or point).
-    Datum {
-        /// UUID of the datum.
-        datum_id: uuid::Uuid,
-    },
+    FeatureOutput { feature_id: Uuid, output_key: OutputKey },
+    Datum { datum_id: Uuid },
 }
 
-/// Identifies which output of a feature to look in.
-/// Most features produce a single "Main" body, but some produce multiple outputs.
-///
-/// Producer: modeling-ops (in OpResult)
-/// Consumer: feature-engine
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum OutputKey {
-    /// The primary solid body output.
     Main,
-    /// A secondary body (e.g., from boolean split).
     Body { index: usize },
-    /// A sketch profile (closed loop suitable for extrusion).
     Profile { index: usize },
-    /// A datum plane/axis/point output.
     Datum { name: String },
+    /// A body a custom feature script named in its return value.
+    Named { name: String },
 }
 
-/// How to find a specific entity within a feature's output.
-/// Tried in order: Role first (fast), then Signature (robust fallback), then Query.
-///
-/// Producer: feature-engine
-/// Consumer: feature-engine (during rebuild)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum Selector {
-    /// Select by semantic role assigned during the operation.
-    /// Fast and stable as long as the operation's topology doesn't change.
-    Role {
-        role: Role,
-        /// Index within entities sharing this role (e.g., SideFace index 2 of 4).
-        index: usize,
-    },
-
-    /// Select by geometric signature matching.
-    /// Used as fallback when role-based selection fails due to topology changes.
-    Signature {
-        signature: TopoSignature,
-    },
-
-    /// Select by user-specified geometric query.
-    /// For advanced selections like "face with largest area" or "face nearest point."
-    Query {
-        query: TopoQuery,
+    /// The semantic role a modeling operation assigned.
+    Role { role: Role, index: usize },
+    /// Geometric fingerprint matching.
+    Signature { signature: TopoSignature },
+    /// Filter-and-tie-break query.
+    Query { query: TopoQuery },
+    /// Nearest entity to a 3D position.
+    Position { x: f64, y: f64, z: f64 },
+    /// Persistent id. Never rebinds: if both ids are gone the reference
+    /// fails, under either policy.
+    Pid {
+        #[serde(with = "crate::pid_str")] pid: u64,
+        #[serde(with = "crate::pid_str")] root_pid: u64,
     },
 }
 
-/// What to do when GeomRef resolution is ambiguous or fails.
-///
-/// Producer: feature-engine
-/// Consumer: feature-engine (during rebuild)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum ResolvePolicy {
-    /// Fail the rebuild if the reference cannot be uniquely resolved.
+    /// Fail if the reference cannot be uniquely resolved.
     Strict,
-    /// Use the closest match and emit a warning. Prefer this for interactive use.
+    /// Use the closest match and emit a warning. The default.
     BestEffort,
 }
+```
 
-/// Semantic role assigned to topological entities by modeling operations.
-/// Roles provide stable, meaningful names for geometry that survive topology changes.
-///
-/// Producer: modeling-ops (in Provenance)
-/// Consumer: feature-engine (for role-based selection)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
+`OutputKey::tag()` gives the stable string (`"Main"`, `"Body:1"`, `"Named:hub"`)
+used to build a body id of the form `"{feature_id}/{tag}"`.
+
+```rust
 pub enum Role {
-    /// The face on the positive extrusion direction end.
     EndCapPositive,
-    /// The face on the negative extrusion direction end (original sketch plane face).
     EndCapNegative,
-    /// A lateral face created by sweeping a profile edge.
     SideFace { index: usize },
-    /// The face at the start of a revolution.
     RevStartFace,
-    /// The face at the end of a revolution (if not full 360).
     RevEndFace,
-    /// A face created by a fillet operation.
     FilletFace { index: usize },
-    /// A face created by a chamfer operation.
     ChamferFace { index: usize },
-    /// An inner face created by a shell operation.
     ShellInnerFace { index: usize },
-    /// The original profile face (sketch plane) of an extrude/revolve.
     ProfileFace,
-    /// An instance in a pattern operation.
     PatternInstance { index: usize },
-    /// A face from the first body in a boolean operation.
     BooleanBodyAFace { index: usize },
-    /// A face from the second body in a boolean operation.
     BooleanBodyBFace { index: usize },
+    /// A face or edge a custom feature script named in its return value.
+    Named { name: String },
 }
 
-/// Geometric signature of a topological entity.
-/// Used for signature-based matching when role-based resolution fails.
-/// All fields are optional — matching uses available fields with weighted scoring.
-///
-/// Producer: kernel (via KernelIntrospect::compute_signature)
-/// Consumer: feature-engine (for signature-based GeomRef resolution)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TopoSignature {
-    /// Surface type (planar, cylindrical, conical, spherical, toroidal, nurbs).
-    pub surface_type: Option<String>,
-    /// Surface area (for faces).
+    pub surface_type: Option<String>,  // planar, cylindrical, conical, spherical, toroidal, nurbs
     pub area: Option<f64>,
-    /// Centroid position [x, y, z].
     pub centroid: Option<[f64; 3]>,
-    /// Outward-pointing normal at centroid (for faces).
     pub normal: Option<[f64; 3]>,
-    /// Axis-aligned bounding box [min_x, min_y, min_z, max_x, max_y, max_z].
-    pub bbox: Option<[f64; 6]>,
-    /// Hash of the adjacency structure (which other entities are neighbors).
-    /// Provides topological context beyond pure geometry.
+    pub bbox: Option<[f64; 6]>,        // [min_x, min_y, min_z, max_x, max_y, max_z]
     pub adjacency_hash: Option<u64>,
-    /// Edge length (for edges).
-    pub length: Option<f64>,
+    pub length: Option<f64>,           // edges
+    #[serde(default)]
+    pub axis: Option<AxisDescriptor>,  // surfaces of revolution
 }
 
-/// User-specified geometric query for selecting entities.
-///
-/// Producer: feature-engine (from user interaction)
-/// Consumer: feature-engine (during rebuild)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// The rotation-invariant content of a face on a cylinder, cone, sphere or torus.
+pub struct AxisDescriptor {
+    pub direction: Option<[f64; 3]>,   // None for a sphere
+    pub radius: Option<f64>,           // cylinder radius, torus major radius, sphere radius
+    pub half_angle: Option<f64>,       // cone, radians
+    pub minor_radius: Option<f64>,     // torus tube radius
+    pub extent: Option<f64>,           // how far the face reaches along the axis
+}
+
 pub struct TopoQuery {
-    /// Filters to narrow down candidate entities.
     pub filters: Vec<Filter>,
-    /// How to break ties if multiple entities match.
     pub tie_break: Option<TieBreak>,
 }
 
-/// Filter predicate for TopoQuery.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum Filter {
-    /// Entity's surface/curve type must match.
     SurfaceType { surface_type: String },
-    /// Entity's normal must be within `tolerance` radians of `direction`.
-    NormalDirection { direction: [f64; 3], tolerance: f64 },
-    /// Entity must be within `distance` of `point`.
+    NormalDirection { direction: [f64; 3], tolerance: f64 },  // tolerance in radians
     NearPoint { point: [f64; 3], distance: f64 },
-    /// Entity's area must be in range [min, max].
     AreaRange { min: f64, max: f64 },
 }
 
-/// Tie-breaking strategy when multiple entities match a query.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum TieBreak {
-    /// Pick the entity with the largest area.
     LargestArea,
-    /// Pick the entity nearest to the given point.
     NearestTo { point: [f64; 3] },
-    /// Pick the entity with the smallest index (arbitrary but deterministic).
+    FarthestAlong { direction: [f64; 3] },
     SmallestIndex,
 }
 ```
 
+A face that goes all the way round its axis has its centroid on the axis and
+no `normal`; such a face is identified by its `axis` descriptor instead.
+
+Resolution is implemented in `feature_engine::resolve`
+(`resolve_geom_ref`, and `resolve_geom_ref_live` for selectors that need the
+live kernel, such as `Pid`). A reference that cannot be resolved is a typed
+`EngineError::ReferenceUnresolved`.
+
 ---
 
-## B) Operation Result Contract
+## B) Operation results
 
-**Producer:** modeling-ops
-**Consumer:** feature-engine
+**Defined in:** `modeling-ops` (`types.rs`, `kernel_ext.rs`)
+**Used by:** feature-engine, wasm-bridge
 
-Every modeling operation returns an `OpResult` containing the geometry output, complete provenance for persistent naming, and diagnostics.
+Every modeling operation returns an `OpResult`: the bodies it produced, the
+provenance that persistent naming is built on, and diagnostics.
 
 ```rust
-/// Complete result of a modeling operation.
-/// Contains everything feature-engine needs to update the model state
-/// and maintain persistent naming.
-///
-/// Producer: modeling-ops
-/// Consumer: feature-engine
-#[derive(Debug, Clone)]
 pub struct OpResult {
-    /// The output bodies produced by this operation.
     pub outputs: Vec<(OutputKey, BodyOutput)>,
-    /// Provenance: what entities were created, deleted, and modified.
-    /// This is the foundation of persistent naming.
     pub provenance: Provenance,
-    /// Non-fatal warnings and timing information.
     pub diagnostics: Diagnostics,
 }
 
-/// A body output from an operation, with optional pre-computed mesh.
-///
-/// Producer: modeling-ops
-/// Consumer: feature-engine, wasm-bridge (for mesh transfer)
-#[derive(Debug, Clone)]
 pub struct BodyOutput {
-    /// Handle to the solid in the kernel. Runtime-only, not persisted.
-    pub handle: KernelSolidHandle,
-    /// Pre-tessellated mesh, if available. Avoids redundant tessellation.
+    pub handle: KernelSolidHandle,        // runtime only
     pub mesh: Option<RenderMesh>,
+    pub edges: Option<EdgeRenderData>,
 }
 
-/// Provenance tracking: what happened to topology during an operation.
-/// This is the data that makes persistent naming work.
-///
-/// Producer: modeling-ops (by diffing before/after topology via KernelIntrospect)
-/// Consumer: feature-engine (for GeomRef resolution and role assignment)
-#[derive(Debug, Clone)]
 pub struct Provenance {
-    /// Entities that exist in the result but not in the input.
     pub created: Vec<EntityRecord>,
-    /// Entities that existed in the input but not in the result.
     pub deleted: Vec<EntityRecord>,
-    /// Entities that changed between input and result.
     pub modified: Vec<Rewrite>,
-    /// Semantic role assignments for created/surviving entities.
     pub role_assignments: Vec<(KernelId, Role)>,
 }
 
-/// Record of a topological entity with its kernel ID and signature.
-///
-/// Producer: modeling-ops
-/// Consumer: feature-engine
-#[derive(Debug, Clone)]
 pub struct EntityRecord {
-    /// The kernel-internal ID. Runtime-only.
     pub kernel_id: KernelId,
-    /// What kind of entity (Vertex, Edge, Face).
     pub kind: TopoKind,
-    /// Geometric signature for fallback matching.
     pub signature: TopoSignature,
 }
 
-/// Record of a topological entity that was modified by an operation.
-///
-/// Producer: modeling-ops
-/// Consumer: feature-engine (to update runtime ID mappings)
-#[derive(Debug, Clone)]
 pub struct Rewrite {
-    /// The entity's ID before the operation.
     pub before: KernelId,
-    /// The entity's ID after the operation.
     pub after: KernelId,
-    /// Why the entity was modified.
     pub reason: RewriteReason,
 }
 
-/// Why a topological entity was modified during an operation.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum RewriteReason {
-    /// Face/edge was trimmed by an intersecting operation.
-    Trimmed,
-    /// Edge was split into multiple edges.
-    Split,
-    /// Multiple entities were merged into one.
-    Merged,
-    /// Entity was moved/transformed but retains identity.
-    Moved,
-}
+pub enum RewriteReason { Trimmed, Split, Merged, Moved }
 
-/// Non-fatal diagnostics from an operation.
-///
-/// Producer: modeling-ops
-/// Consumer: feature-engine, ui-chrome (for display)
-#[derive(Debug, Clone, Default)]
 pub struct Diagnostics {
-    /// Warning messages (e.g., "boolean nearly failed, tolerance was loosened").
     pub warnings: Vec<String>,
-    /// Time taken for the kernel operation, in milliseconds.
     pub kernel_time_ms: f64,
-    /// Time taken for tessellation, in milliseconds.
     pub tessellation_time_ms: f64,
+    /// An auto-union failed and the tool was kept as a standalone body.
+    pub auto_union_fell_back: bool,
 }
+
+pub enum OpError {
+    Kernel(#[from] waffle_types::kernel::KernelError),
+    NoProfiles,
+    InvalidParameter { reason: String },
+}
+```
+
+Operations take the kernel as one object that is both mutable `Kernel` and
+readable `KernelIntrospect`:
+
+```rust
+pub trait KernelBundle: Kernel + KernelIntrospect + KernelProjection + KernelMeasure {
+    fn as_introspect(&self) -> &dyn KernelIntrospect;
+    fn as_measure(&self) -> &dyn KernelMeasure;
+}
+// Blanket-implemented for every type that implements the four traits.
+```
+
+The operation entry points are `execute_extrude`, `execute_symmetric_extrude`,
+`execute_revolve`, `execute_boolean`, `execute_pattern_instances`,
+`execute_pipe`, `execute_sweep`, `execute_import`, `execute_import_analytic`,
+`execute_fillet`, `execute_chamfer` and `execute_shell`. For example:
+
+```rust
+pub fn execute_extrude(
+    kb: &mut dyn KernelBundle,
+    face_id: KernelId,
+    direction: [f64; 3],
+    depth: f64,
+    before_snapshot: Option<&TopoSnapshot>,
+) -> Result<OpResult, OpError>;
+
+pub fn execute_boolean(
+    kb: &mut dyn KernelBundle,
+    body_a: &KernelSolidHandle,
+    body_b: &KernelSolidHandle,
+    kind: BooleanKind,          // Union | Subtract | Intersect
+) -> Result<OpResult, OpError>;
 ```
 
 ---
 
-## C) Sketch System Types
+## C) Sketch types
 
-**Producer:** sketch-solver, sketch-ui
-**Consumer:** sketch-solver, sketch-ui, feature-engine, wasm-bridge
+**Defined in:** `waffle-types` (`sketch.rs`)
+**Used by:** sketch-solver, feature-engine, wasm-bridge, the app
 
 ```rust
-/// A 2D sketch on a plane. Contains geometric entities and constraints.
-/// The sketch is the input to the constraint solver.
-///
-/// Producer: sketch-ui (user draws entities and adds constraints)
-/// Consumer: sketch-solver (solves), feature-engine (stores in feature tree)
-/// Serde: persisted as part of the Sketch operation in the feature tree.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Sketch {
-    /// Unique identifier for this sketch.
-    pub id: uuid::Uuid,
-    /// The plane this sketch lies on, referenced via GeomRef.
-    /// Can be a face of an existing solid or a datum plane.
+    pub id: Uuid,
     pub plane: GeomRef,
-    /// Geometric entities in this sketch.
+    pub plane_origin: [f64; 3],
+    pub plane_normal: [f64; 3],
+    /// World direction of the sketch's +u axis. Absent: derived from the normal.
+    pub plane_x_axis: Option<[f64; 3]>,
     pub entities: Vec<SketchEntity>,
-    /// Constraints between entities.
     pub constraints: Vec<SketchConstraint>,
-    /// Current solve status (updated after each solve).
     pub solve_status: SolveStatus,
+    /// Derived: solved point positions, keyed by point entity id.
+    pub solved_positions: HashMap<u32, (f64, f64)>,
+    /// Derived: closed profiles of the solved geometry.
+    pub solved_profiles: Vec<ClosedProfile>,
+    /// Points driven by external model geometry.
+    pub projected: Vec<ProjectedEntity>,
+    /// The local model face the sketch was drawn on, when it was drawn on one.
+    pub plane_face: Option<SketchFaceRef>,
 }
 
-/// A geometric entity in a sketch.
-/// Each entity has a unique ID (u32) for referencing in constraints.
-///
-/// Producer: sketch-ui
-/// Consumer: sketch-solver, feature-engine
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
 pub enum SketchEntity {
-    Point {
-        id: u32,
-        x: f64,
-        y: f64,
-        /// Construction geometry is not included in profiles.
-        construction: bool,
-    },
-    Line {
-        id: u32,
-        start_id: u32,
-        end_id: u32,
-        construction: bool,
-    },
-    Circle {
-        id: u32,
-        center_id: u32,
-        radius: f64,
-        construction: bool,
-    },
-    Arc {
-        id: u32,
-        center_id: u32,
-        start_id: u32,
-        end_id: u32,
-        construction: bool,
-    },
+    Point  { id: u32, x: f64, y: f64, construction: bool },
+    Line   { id: u32, start_id: u32, end_id: u32, construction: bool },
+    Circle { id: u32, center_id: u32, radius: f64, construction: bool },
+    Arc    { id: u32, center_id: u32, start_id: u32, end_id: u32, construction: bool },
+    Spline { id: u32, point_ids: Vec<u32>, construction: bool },
+    /// Parametric generators, stored compactly and expanded to primitives on demand.
+    Gear     { id: u32, params: GearParams, construction: bool },
+    Sprocket { id: u32, params: SprocketParams, construction: bool },
 }
+```
 
-/// A constraint between sketch entities.
-/// Consumed by the clean-room Rust constraint solver (Levenberg-Marquardt).
-///
-/// Producer: sketch-ui (user applies constraints)
-/// Consumer: sketch-solver (compiled to residual + Jacobian)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum SketchConstraint {
-    /// Two points occupy the same position.
-    Coincident { point_a: u32, point_b: u32 },
-    /// A line or two points are horizontal (parallel to sketch X axis).
-    Horizontal { entity: u32 },
-    /// A line or two points are vertical (parallel to sketch Y axis).
-    Vertical { entity: u32 },
-    /// Two lines are parallel.
-    Parallel { line_a: u32, line_b: u32 },
-    /// Two lines are perpendicular.
-    Perpendicular { line_a: u32, line_b: u32 },
-    /// A line is tangent to a curve (arc or circle).
-    Tangent { line: u32, curve: u32 },
-    /// Two entities have equal length/radius.
-    Equal { entity_a: u32, entity_b: u32 },
-    /// Two entities are symmetric about a line.
-    Symmetric { entity_a: u32, entity_b: u32, symmetry_line: u32 },
-    /// Two points are symmetric about the horizontal axis.
-    SymmetricH { point_a: u32, point_b: u32 },
-    /// Two points are symmetric about the vertical axis.
-    SymmetricV { point_a: u32, point_b: u32 },
-    /// A point lies at the midpoint of a line.
-    Midpoint { point: u32, line: u32 },
-    /// Distance between two points or a point and a line.
-    Distance { entity_a: u32, entity_b: u32, value: f64 },
-    /// Angle between two lines.
-    Angle { line_a: u32, line_b: u32, value_degrees: f64 },
-    /// Radius of a circle or arc.
-    Radius { entity: u32, value: f64 },
-    /// Diameter of a circle or arc.
-    Diameter { entity: u32, value: f64 },
-    /// A point lies on an entity (line, circle, or arc).
-    OnEntity { point: u32, entity: u32 },
-    /// Solver should keep this point as close to its current position as possible.
-    /// Used for interactive drag-to-constrain workflows.
-    Dragged { point: u32 },
-    /// Two angles are equal.
-    EqualAngle { line_a: u32, line_b: u32, line_c: u32, line_d: u32 },
-    /// Two lengths have a fixed ratio.
-    Ratio { entity_a: u32, entity_b: u32, value: f64 },
-    /// Distance from a point to a line equals distance between two other points.
-    EqualPointToLine { point_a: u32, point_b: u32, line: u32 },
-    /// Two normals/orientations are the same.
-    SameOrientation { entity_a: u32, entity_b: u32 },
-}
+`SketchConstraint` variants, by group (see `sketch.rs` for their fields):
 
-/// Result of running the constraint solver.
-///
-/// Producer: sketch-solver
-/// Consumer: sketch-ui (for visual feedback), feature-engine
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
+| Group | Variants |
+|---|---|
+| Geometric | `Coincident`, `Horizontal`, `Vertical`, `HorizontalPoints`, `VerticalPoints`, `Parallel`, `Perpendicular`, `Tangent`, `Equal`, `Symmetric`, `SymmetricH`, `SymmetricV`, `Midpoint`, `OnEntity`, `EqualAngle`, `Ratio`, `EqualPointToLine`, `SameOrientation` |
+| Dimensions | `Distance`, `PointLineDistance`, `HDistance`, `VDistance`, `Angle`, `Radius`, `Diameter`, `Offset` |
+| Position | `Dragged`, `Pinned` |
+
+Every dimension carries its `value` (`value_degrees` for `Angle`), an optional
+driving `expression: Option<String>`, and `reference: bool` (a reference
+dimension is displayed but does not drive the solve).
+
+```rust
 pub enum SolveStatus {
-    /// All constraints satisfied, zero degrees of freedom.
+    /// Never solved; the engine solves it on the next rebuild. The default.
+    Unsolved,
     FullyConstrained,
-    /// All constraints satisfied, but geometry can still move.
-    UnderConstrained {
-        /// Remaining degrees of freedom.
-        dof: u32,
-    },
-    /// Constraints are contradictory.
-    OverConstrained {
-        /// IDs of the conflicting constraints.
-        conflicts: Vec<u32>,
-    },
-    /// Solver failed to converge.
-    SolveFailed {
-        /// Human-readable reason.
-        reason: String,
-    },
+    UnderConstrained { dof: u32 },
+    /// `conflicts` are indices into the sketch's constraint list.
+    OverConstrained { conflicts: Vec<u32> },
+    SolveFailed { reason: String },
 }
 
-/// Output of the constraint solver: solved positions and extracted profiles.
-///
-/// Producer: sketch-solver
-/// Consumer: feature-engine (profiles for extrusion), sketch-ui (display positions)
-#[derive(Debug, Clone)]
 pub struct SolvedSketch {
-    /// Solved positions for all points. Key is point entity ID.
-    pub positions: std::collections::HashMap<u32, (f64, f64)>,
-    /// Closed profiles extracted from the solved geometry.
-    /// Each profile is a list of entity IDs forming a closed loop.
+    pub positions: HashMap<u32, (f64, f64)>,
+    pub radii: HashMap<u32, f64>,          // circles, keyed by entity id
     pub profiles: Vec<ClosedProfile>,
-    /// Solve status.
     pub status: SolveStatus,
+    pub report: SketchSolveReport,         // residuals, conflicts, redundancy, freedoms
 }
 
-/// A closed loop of sketch entities suitable for extrusion or revolution.
-///
-/// Producer: sketch-solver (profile extraction)
-/// Consumer: feature-engine (passed to modeling-ops for extrude/revolve)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ClosedProfile {
-    /// Ordered entity IDs forming the closed loop.
     pub entity_ids: Vec<u32>,
-    /// Whether the profile winds counter-clockwise (outward) or clockwise (hole).
-    pub is_outer: bool,
-    /// Ordered point IDs in geometric winding order for polygon construction.
-    /// When non-empty, the kernel uses these instead of entity_ids or sorted keys.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub vertex_ids: Vec<u32>,
+    pub is_outer: bool,                    // counter-clockwise outer loop, or a hole
+    pub vertex_ids: Vec<u32>,              // point ids in winding order
+    pub circle: Option<CircleProfile>,     // a standalone circle
+    pub spline_segments: Vec<SplineSegment>,
+    pub arc_segments: Vec<ArcSegment>,
 }
+
+pub struct CircleProfile { pub center_u: f64, pub center_v: f64, pub radius: f64 }
+```
+
+The solver's entry points (`sketch-solver`):
+
+```rust
+pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch;
+
+pub fn extract_profiles(
+    entities: &[SketchEntity],
+    positions: &HashMap<u32, (f64, f64)>,
+) -> Vec<ClosedProfile>;
 ```
 
 ---
 
-## D) Feature Tree Types
+## D) Feature tree
 
-**Producer:** feature-engine
-**Consumer:** feature-engine, ui-chrome, file-format
+**Defined in:** `feature-engine` (`types.rs`, `lib.rs`)
+**Used by:** wasm-bridge, file-format, the app
 
 ```rust
-/// The ordered list of modeling features. The core data structure of parametric CAD.
-/// Features are replayed in order during rebuild. The active_index controls rollback.
-///
-/// Producer: feature-engine
-/// Consumer: ui-chrome (display), file-format (persistence)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FeatureTree {
-    /// Ordered list of features. Index 0 is the first feature.
     pub features: Vec<Feature>,
-    /// Features after this index are suppressed during rebuild.
-    /// None means all features are active.
+    /// Features after this index are skipped during rebuild. None: all active.
     pub active_index: Option<usize>,
+    pub body_names: BodyNames,              // body id → user-assigned name
+    pub parameters: Vec<DesignParameter>,   // named design variables
+    pub provenance: ProvenanceTable,        // feature id → who created it
+    pub names: NameTable,                   // entity name → pinned reference
+    pub materials: Vec<Material>,
+    pub body_materials: BodyMaterials,      // body id → material name
+    /// Unknown keys, preserved across load and save.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-/// A single feature in the parametric feature tree.
-///
-/// Producer: feature-engine
-/// Consumer: ui-chrome, file-format
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Feature {
-    /// Unique identifier.
-    pub id: uuid::Uuid,
-    /// User-visible name (e.g., "Extrude 1", "Sketch 2").
+    pub id: Uuid,
     pub name: String,
-    /// The modeling operation this feature performs.
     pub operation: Operation,
-    /// Whether this feature is suppressed (skipped during rebuild).
     pub suppressed: bool,
-    /// GeomRefs to geometry that this feature depends on.
-    /// Used for rebuild dependency tracking.
     pub references: Vec<GeomRef>,
 }
 
-/// A parametric modeling operation with its parameters.
-/// Each variant stores all parameters needed to replay the operation.
-///
-/// Producer: feature-engine (from user actions)
-/// Consumer: modeling-ops (executes the operation), file-format (persistence)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 pub enum Operation {
-    /// A 2D sketch on a plane.
-    Sketch {
-        sketch: Sketch,
-    },
-
-    /// Linear extrusion of a sketch profile.
-    Extrude {
-        params: ExtrudeParams,
-    },
-
-    /// Revolution of a sketch profile around an axis.
-    Revolve {
-        params: RevolveParams,
-    },
-
-    /// Fillet (round) edges.
-    Fillet {
-        params: FilletParams,
-    },
-
-    /// Chamfer (bevel) edges.
-    Chamfer {
-        params: ChamferParams,
-    },
-
-    /// Shell (hollow out) a solid by removing faces.
-    Shell {
-        params: ShellParams,
-    },
-
-    /// Mirror geometry across a plane.
-    Mirror {
-        params: MirrorParams,
-    },
-
-    /// Linear pattern (repeat along a direction).
-    LinearPattern {
-        params: LinearPatternParams,
-    },
-
-    /// Circular pattern (repeat around an axis).
-    CircularPattern {
-        params: CircularPatternParams,
-    },
-
-    /// Boolean combination of two bodies.
-    BooleanCombine {
-        params: BooleanParams,
-    },
+    Sketch          { sketch: Sketch },
+    Sketch3d        { sketch: waffle_types::sketch3d::Sketch3d },
+    Extrude         { params: ExtrudeParams },
+    Revolve         { params: RevolveParams },
+    Fillet          { params: FilletParams },
+    Chamfer         { params: ChamferParams },
+    Shell           { params: ShellParams },
+    BooleanCombine  { params: BooleanParams },
+    DatumPlane      { params: DatumPlaneParams },
+    ImportedBody    { params: ImportedBodyParams },
+    MateConnector   { params: MateConnectorParams },
+    PatternCircular { params: PatternCircularParams },
+    PatternLinear   { params: PatternLinearParams },
+    PatternMirror   { params: PatternMirrorParams },
+    Pipe            { params: PipeParams },
+    Sweep           { params: SweepParams },
+    Script          { params: ScriptParams },
+    UnionAll        { params: UnionAllParams },
+    BoardShape      { params: BoardShapeParams },
+    /// An operation tag this build does not know. Kept verbatim and re-emitted
+    /// on save; rebuilding it is an `EngineError::UnsupportedOperation`.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
+```
 
-/// Parameters for an extrude operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+`OPERATION_TAGS` lists the tags this build can rebuild. `Fillet`, `Chamfer` and
+`Shell` are in the tree vocabulary, but the kernel answers them with
+`NotSupported`.
+
+The most-used parameter types:
+
+```rust
 pub struct ExtrudeParams {
-    /// The sketch containing the profile to extrude.
-    pub sketch_id: uuid::Uuid,
-    /// Index of the profile within the sketch's solved profiles.
+    pub sketch_id: Uuid,
     pub profile_index: usize,
-    /// Extrusion depth (positive = along face normal).
+    pub profile_entity_ids: Option<Vec<u32>>,
     pub depth: f64,
-    /// Direction override. None = face normal.
+    pub depth_expr: Option<String>,
     pub direction: Option<[f64; 3]>,
-    /// Extrude symmetrically in both directions.
     pub symmetric: bool,
-    /// Whether to subtract this extrusion from an existing body.
     pub cut: bool,
-    /// The body to cut from (if cut is true).
+    pub merge: bool,                        // serde default: true
     pub target_body: Option<GeomRef>,
+    pub depth_mode: DepthMode,              // serde default: Blind
+    pub second_direction: Option<SecondDirection>,
+    pub region: Option<waffle_types::Region>,
+    pub regions: Vec<waffle_types::Region>,
+    pub combine: Option<CombineMode>,
+    pub targets: Option<Vec<GeomRef>>,
 }
 
-/// Parameters for a revolve operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum DepthMode { Blind, ThroughAll, UpTo { reference: GeomRef } }
+
+pub enum SecondDirection {
+    Symmetric,
+    Blind { depth: f64, depth_expr: Option<String> },
+    ThroughAll,
+    UpTo { reference: GeomRef },
+}
+
+pub enum CombineMode { NewBody, Add, Cut, Intersect }
+
 pub struct RevolveParams {
-    /// The sketch containing the profile to revolve.
-    pub sketch_id: uuid::Uuid,
-    /// Index of the profile within the sketch's solved profiles.
+    pub sketch_id: Uuid,
     pub profile_index: usize,
-    /// Axis of revolution: origin point.
+    pub profile_entity_ids: Option<Vec<u32>>,
     pub axis_origin: [f64; 3],
-    /// Axis of revolution: direction vector (normalized).
+    pub axis_origin_expr: Option<[Option<String>; 3]>,
     pub axis_direction: [f64; 3],
-    /// Angle of revolution in radians. 2*PI = full revolution.
-    pub angle: f64,
+    pub angle: f64,                         // degrees
+    pub angle_expr: Option<String>,
+    pub cut: bool,
+    pub merge: bool,                        // serde default: true
+    pub combine: Option<CombineMode>,
+    pub targets: Option<Vec<GeomRef>>,
 }
 
-/// Parameters for a fillet operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct FilletParams {
-    /// Edges to fillet, referenced via GeomRef.
-    pub edges: Vec<GeomRef>,
-    /// Fillet radius.
-    pub radius: f64,
-}
-
-/// Parameters for a chamfer operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ChamferParams {
-    /// Edges to chamfer, referenced via GeomRef.
-    pub edges: Vec<GeomRef>,
-    /// Chamfer distance.
-    pub distance: f64,
-}
-
-/// Parameters for a shell operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ShellParams {
-    /// Faces to remove (openings), referenced via GeomRef.
-    pub faces_to_remove: Vec<GeomRef>,
-    /// Shell wall thickness.
-    pub thickness: f64,
-}
-
-/// Parameters for a mirror operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MirrorParams {
-    /// The body or features to mirror.
-    pub source: GeomRef,
-    /// The mirror plane, referenced via GeomRef.
-    pub mirror_plane: GeomRef,
-    /// Whether to keep the original (true) or only produce the mirror.
-    pub keep_original: bool,
-}
-
-/// Parameters for a linear pattern operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct LinearPatternParams {
-    /// The body or features to pattern.
-    pub source: GeomRef,
-    /// Pattern direction vector.
-    pub direction: [f64; 3],
-    /// Number of instances (including the original).
-    pub count: usize,
-    /// Spacing between instances.
-    pub spacing: f64,
-}
-
-/// Parameters for a circular pattern operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CircularPatternParams {
-    /// The body or features to pattern.
-    pub source: GeomRef,
-    /// Axis of rotation: origin point.
-    pub axis_origin: [f64; 3],
-    /// Axis of rotation: direction vector.
-    pub axis_direction: [f64; 3],
-    /// Number of instances (including the original).
-    pub count: usize,
-    /// Total angle span in radians. 2*PI = full circle.
-    pub total_angle: f64,
-}
-
-/// Parameters for a boolean combine operation.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BooleanParams {
-    /// The target body.
     pub body_a: GeomRef,
-    /// The tool body.
     pub body_b: GeomRef,
-    /// Boolean operation type.
     pub operation: BooleanOp,
 }
 
-/// Boolean operation type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum BooleanOp {
-    Union,
-    Subtract,
-    Intersect,
+pub enum BooleanOp { Union, Subtract, Intersect }
+
+pub struct DesignParameter {
+    pub id: Uuid,
+    pub name: String,
+    pub expression: String,
+    pub value: f64,                         // evaluated
+    pub error: Option<String>,
+    pub unit: Option<Dimension>,
+    pub comment: Option<String>,
 }
 ```
 
----
+`AxisRef` and `PlaneDefinition` are tagged with `#[serde(tag = "method")]`
+rather than `"type"`. The remaining parameter types are in `types.rs` and, for
+`BoardShapeParams`, `board_shape.rs`.
 
-## E) WASM Bridge Protocol
+### The engine
 
-**Producer:** ui-chrome, sketch-ui (UiToEngine); feature-engine, sketch-solver (EngineToUi)
-**Consumer:** wasm-bridge (serializes/deserializes both directions)
+`feature_engine::Engine` holds one part's tree, the cached `OpResult` of each
+feature, and the outcome of the last rebuild. A call that changes geometry
+takes the kernel and rebuilds from the point of change:
 
 ```rust
-/// Messages from the UI (JavaScript main thread) to the engine (WASM Worker).
-/// Serialized as JSON for postMessage transfer.
-///
-/// Producer: ui-chrome, sketch-ui (via JS)
-/// Consumer: wasm-bridge (dispatches to engine crates)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum UiToEngine {
-    // -- Sketch operations --
-    /// Enter sketch mode on a face or datum plane.
-    BeginSketch { plane: GeomRef },
-    /// Add a geometric entity to the active sketch.
-    AddSketchEntity { entity: SketchEntity },
-    /// Add a constraint to the active sketch.
-    AddConstraint { constraint: SketchConstraint },
-    /// Run the constraint solver on the active sketch.
-    SolveSketch,
-    /// Exit sketch mode and commit the sketch as a feature.
-    FinishSketch,
-
-    // -- Feature operations --
-    /// Add a new feature to the feature tree.
-    AddFeature { operation: Operation },
-    /// Edit an existing feature's parameters.
-    EditFeature { feature_id: uuid::Uuid, operation: Operation },
-    /// Delete a feature from the tree.
-    DeleteFeature { feature_id: uuid::Uuid },
-    /// Suppress/unsuppress a feature.
-    SuppressFeature { feature_id: uuid::Uuid, suppressed: bool },
-    /// Set the rollback index (features after this index are suppressed).
-    SetRollbackIndex { index: Option<usize> },
-
-    // -- History --
-    Undo,
-    Redo,
-
-    // -- Selection --
-    /// User selected an entity in the viewport.
-    SelectEntity { geom_ref: GeomRef },
-    /// User is hovering over an entity in the viewport.
-    HoverEntity { geom_ref: Option<GeomRef> },
-
-    // -- File operations --
-    SaveProject,
-    LoadProject { data: String },
-    ExportStep,
-}
-
-/// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
-/// ModelUpdated includes mesh data transferred as TypedArray views (not serialized as JSON).
-///
-/// Producer: feature-engine, sketch-solver (via wasm-bridge)
-/// Consumer: ui-chrome, sketch-ui, 3d-viewport (via JS)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type")]
-pub enum EngineToUi {
-    /// The model has been rebuilt. Includes updated meshes and feature tree state.
-    ModelUpdated {
-        /// Updated feature tree for display.
-        feature_tree: FeatureTree,
-        /// Meshes for each visible body. Transferred as TypedArray views.
-        meshes: Vec<RenderMesh>,
-        /// Edge overlay data for each visible body.
-        edges: Vec<EdgeRenderData>,
-    },
-
-    /// Sketch constraint solver completed.
-    SketchSolved {
-        /// Solved positions and profiles.
-        solved: SolvedSketch,
-    },
-
-    /// The hovered entity changed.
-    HoverChanged {
-        geom_ref: Option<GeomRef>,
-    },
-
-    /// The selection changed.
-    SelectionChanged {
-        geom_refs: Vec<GeomRef>,
-    },
-
-    /// An error occurred in the engine.
-    Error {
-        /// Human-readable error message.
-        message: String,
-        /// Which feature caused the error (if applicable).
-        feature_id: Option<uuid::Uuid>,
-    },
-
-    /// STEP export is ready.
-    ExportReady {
-        /// STEP file contents as a string.
-        step_data: String,
-    },
+impl Engine {
+    pub fn add_feature(&mut self, name: String, operation: Operation,
+                       kb: &mut dyn KernelBundle) -> Result<Uuid, EngineError>;
+    pub fn edit_feature(&mut self, id: Uuid, operation: Operation,
+                        kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn remove_feature(&mut self, id: Uuid,
+                          kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn set_suppressed(&mut self, id: Uuid, suppressed: bool,
+                          kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn reorder_feature(&mut self, id: Uuid, new_position: usize,
+                           kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn rename_feature(&mut self, id: Uuid, new_name: String) -> Result<(), EngineError>;
+    pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle);
+    pub fn undo(&mut self, kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn redo(&mut self, kb: &mut dyn KernelBundle) -> Result<(), EngineError>;
+    pub fn rebuild_from_scratch(&mut self, kb: &mut dyn KernelBundle);
+    pub fn get_result(&self, feature_id: Uuid) -> Option<&OpResult>;
 }
 ```
 
----
-
-## F) Render Mesh Types
-
-**Producer:** kernel (tessellation)
-**Consumer:** wasm-bridge (transfer), 3d-viewport (rendering), sketch-ui (picking)
+After a rebuild, the public fields carry the result: `feature_results`,
+`errors` and the typed `feature_errors`, `warnings` and `feature_warnings`,
+`consumed_features` (features whose body a later boolean consumed and which
+are therefore not rendered), and `connectors`.
 
 ```rust
-/// Tessellated triangle mesh for rendering in three.js.
-/// Vertex/normal/index data is transferred as TypedArray views into WASM memory
-/// for near-zero-copy performance.
-///
-/// Producer: kernel (tessellation)
-/// Consumer: wasm-bridge → 3d-viewport (three.js rendering)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FeatureError {
+    pub feature_id: Uuid,
+    pub kind: ErrorKind,       // machine-readable class; hosts branch on this
+    pub message: String,       // human text; nothing should parse it
+}
+```
+
+Assemblies (`assembly.rs`: `AssemblyTree`), drawings (`drawing.rs`: `Drawing`),
+entity names (`names.rs`) and scripts (`script/`) have their own modules in
+`feature-engine`; their persisted shapes are specified in `docs/FILE_FORMAT.md`.
+
+---
+
+## E) Bridge protocol
+
+**Defined in:** `wasm-bridge` (`messages.rs`, `dispatch.rs`, `process.rs`, `wasm_api.rs`, `tools/`)
+**Used by:** the app's worker, waffle-host
+
+A host sends one `UiToEngine` and receives one `EngineToUi`. Both are
+internally tagged enums (`#[serde(tag = "type")]`) carried as JSON.
+
+```rust
+// Any host:
+pub fn dispatch(state: &mut EngineState, msg: UiToEngine, kb: &mut dyn KernelBundle) -> EngineToUi;
+
+// The browser worker (wasm_api.rs):
+#[wasm_bindgen] pub fn init();
+#[wasm_bindgen] pub fn process_message(json_input: &str) -> String;
+#[wasm_bindgen] pub fn set_progress_sink(sink: js_sys::Function);
+```
+
+`EngineState` holds the engine of the active tab, the active sketch, selection
+and hover, and the `DocumentSession` (document metadata, the tab list, every
+inactive tab's tree, per-tab undo).
+
+### `UiToEngine` variants
+
+| Group | Variants |
+|---|---|
+| Sketching | `BeginSketch`, `AddSketchEntity`, `AddConstraint`, `SolveSketch`, `FinishSketch`, `ComputeRegions`, `ApplySketchOps`, `QuerySketch` |
+| Features | `AddFeature`, `EditFeature`, `DeleteFeature`, `SuppressFeature`, `ReorderFeature`, `RenameFeature`, `RenameBody`, `SetRollbackIndex` |
+| History | `Undo`, `Redo` |
+| Selection | `SelectEntity`, `HoverEntity` |
+| Entity names | `SetEntityName`, `ClearEntityName`, `QueryEntityNames` |
+| Parameters | `SetParameters`, `SetDocumentParameters`, `EvaluateExpression` |
+| Document and tabs | `NewDocument`, `SaveProject`, `LoadProject`, `SaveDocument`, `SetDocumentMeta`, `SetDisplaySettings`, `EditMaterials`, `SwitchTab`, `AddTab`, `CloseTab`, `RenameTab`, `MoveTab` |
+| Sources and scripts | `ProvideSource`, `UpdateSourceEntry`, `ListSources`, `ReadSource`, `RebaseSources`, `ListSourceTabs`, `AddScriptSource`, `SetScriptSource`, `CheckScript` |
+| Import | `ImportStep`, `ImportStepFromLocator`, `ImportKicad`, `LinkKicadFromLocator` |
+| Assemblies | `OpenAssembly`, `EditAssembly`, `OpenPartInContext`, `ProbeConnectorRef` |
+| Drawings | `OpenDrawing`, `EditDrawing`, `DrawingEdit`, `ProbeDrawingView` |
+| Inspection | `QueryEntityMeta`, `ListFaces`, `ListEntities` |
+| Measurement | `MeasureBody`, `MeasureDistance`, `MeasureInterference`, `MeasureMass`, `MeasureSection`, `MeasureThickness` |
+| Export | `ExportStep`, `ExportDxf`, `ExportStl`, `ExportBodyStl` |
+| Generators | `GenerateGearPreview`, `GenerateGearProfile`, `GenerateSprocketPreview`, `GenerateSprocketProfile`, `GeneratePlanetary`, `GeneratePlanetaryPreview` |
+| Agent tools | `Tool` |
+
+The core feature messages:
+
+```rust
+// `Provenance` here is `feature_engine::types::Provenance`: who or what
+// created the feature (user, agent, import, derived). Not section B's type.
+AddFeature  { operation: Operation, provenance: Option<Provenance> },
+EditFeature { feature_id: Uuid, operation: Operation, provenance: Option<Provenance> },
+DeleteFeature { feature_id: Uuid },
+
+FinishSketch {
+    solved_positions: HashMap<u32, (f64, f64)>,
+    solved_profiles: Vec<ClosedProfile>,
+    plane_origin: [f64; 3],
+    plane_normal: [f64; 3],
+    plane_x_axis: Option<[f64; 3]>,
+    entities: Vec<SketchEntity>,
+    constraints: Vec<SketchConstraint>,
+    projected: Vec<ProjectedEntity>,
+    provenance: Option<Provenance>,
+},
+```
+
+### `EngineToUi` variants
+
+| Group | Variants |
+|---|---|
+| Model | `ModelUpdated`, `ProjectLoaded`, `Error` |
+| Sketching | `SketchSolved`, `RegionsComputed`, `SketchOpsApplied`, `SketchQueried` |
+| Selection | `HoverChanged`, `SelectionChanged` |
+| Inspection | `EntityMeta`, `FacesListed`, `EntitiesListed`, `EntityNamesListed` |
+| Measurement | `BodyMeasured`, `DistanceMeasured`, `InterferenceMeasured`, `MassMeasured`, `SectionMeasured`, `ThicknessMeasured` |
+| Document and sources | `SaveReady`, `SourcesListed`, `SourceContent`, `SourceTabsListed`, `ScriptSourceAdded`, `ScriptChecked` |
+| Assemblies and drawings | `ConnectorRefProbed`, `DrawingViewProbed` |
+| Export | `ExportReady`, `DxfExportReady`, `StlExportReady` |
+| Generators | `GearPreviewGenerated`, `GearProfileGenerated`, `SprocketPreviewGenerated`, `SprocketProfileGenerated`, `PlanetaryGenerated`, `PlanetaryPreviewGenerated` |
+| Parameters | `ExpressionEvaluated` |
+| Agent tools | `ToolResult` |
+
+A command that changes the model answers `ModelUpdated`:
+
+```rust
+ModelUpdated {
+    feature_id: Option<Uuid>,                 // the feature the command created or edited
+    feature_tree: FeatureTree,
+    meshes: Vec<RenderMesh>,                  // always empty; see section F
+    edges: Vec<EdgeRenderData>,               // always empty; see section F
+    errors: Vec<(Uuid, String)>,
+    feature_errors: Vec<FeatureError>,
+    warnings: Vec<String>,
+    feature_warnings: Vec<(Uuid, String)>,
+    consumed_features: Vec<Uuid>,
+    preview_mesh: Option<PreviewMesh>,        // decimated thumbnail
+    sources: Vec<SourceStatus>,
+    assembly: Option<AssemblyStatus>,         // while an assembly tab is open
+    drawing: Option<DrawingStatus>,           // while a drawing tab is open
+    context: Option<ContextStatus>,           // while a part is open in an assembly's context
+    connectors: Vec<PartConnectorInfo>,       // the open part's mate connectors
+    document: Option<DocumentInfo>,
+},
+
+Error {
+    message: String,
+    feature_id: Option<Uuid>,
+    kind: Option<ErrorKind>,
+},
+```
+
+### Agent tools
+
+Agent tools are implemented once, in `wasm_bridge::tools`, and reached from any
+host:
+
+```rust
+// As a message:
+UiToEngine::Tool { name: String, arguments: serde_json::Value, context: Option<serde_json::Value> }
+EngineToUi::ToolResult { result: ToolResult, model: Option<Box<EngineToUi>> }
+
+// Directly:
+pub fn execute_tool(
+    state: &mut EngineState,
+    kb: &mut dyn KernelBundle,
+    name: &str,
+    arguments: &Value,
+    context: Option<&Value>,
+) -> ToolResult;
+
+/// Field names are the MCP wire names.
+pub struct ToolResult {
+    pub content: Vec<Value>,
+    #[serde(rename = "structuredContent")] pub structured_content: Value,
+    #[serde(rename = "isError")] pub is_error: bool,
+    /// A file the host must deliver to the user. Not part of the MCP result.
+    pub download: Option<ExportFile>,
+}
+```
+
+`tools::MIGRATED` lists the tool names `execute_tool` implements. A name it
+does not implement answers a `ToolUnavailable` error. Tools that belong to the
+host (the viewport, selection, document storage) are implemented by the host,
+not here.
+
+---
+
+## F) Render data
+
+**Produced by:** the kernel (`Kernel::tessellate`, `Kernel::extract_edges`)
+**Used by:** wasm-bridge, the app's viewport
+
+At the kernel boundary a mesh is keyed by `KernelId`:
+
+```rust
 pub struct RenderMesh {
-    /// Flat array of vertex positions [x0, y0, z0, x1, y1, z1, ...].
-    pub vertices: Vec<f32>,
-    /// Flat array of vertex normals [nx0, ny0, nz0, nx1, ny1, nz1, ...].
-    pub normals: Vec<f32>,
-    /// Triangle indices into the vertex array.
-    pub indices: Vec<u32>,
-    /// Mapping from triangle ranges to logical faces.
-    /// Enables GPU picking: given a triangle index from raycasting,
-    /// binary-search face_ranges to find the owning GeomRef.
+    pub vertices: Vec<f32>,       // [x0, y0, z0, x1, y1, z1, ...]
+    pub normals: Vec<f32>,        // parallel to vertices
+    pub indices: Vec<u32>,        // triangles
     pub face_ranges: Vec<FaceRange>,
 }
 
-/// Maps a contiguous range of triangles to a logical face.
-/// face_ranges are sorted by start_index and non-overlapping.
-///
-/// Producer: kernel (during tessellation)
-/// Consumer: 3d-viewport (for picking), feature-engine (for selection)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// A contiguous range of `indices` belonging to one face.
 pub struct FaceRange {
-    /// Persistent reference to the logical face this range belongs to.
-    pub geom_ref: GeomRef,
-    /// Start index in the indices array (inclusive).
+    pub face_id: KernelId,
     pub start_index: u32,
-    /// End index in the indices array (exclusive).
     pub end_index: u32,
 }
 
-/// Sharp edge data for rendering edge overlays in three.js.
-/// Displayed as line segments on top of the shaded mesh.
-///
-/// Producer: kernel (edge extraction)
-/// Consumer: wasm-bridge → 3d-viewport (three.js line rendering)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EdgeRenderData {
-    /// Flat array of edge vertex positions [x0, y0, z0, x1, y1, z1, ...].
-    /// Each pair of vertices forms one line segment.
-    pub vertices: Vec<f32>,
-    /// Mapping from vertex ranges to logical edges.
+    pub vertices: Vec<f32>,       // polyline points, [x0, y0, z0, ...]
     pub edge_ranges: Vec<EdgeRange>,
 }
 
-/// Maps a contiguous range of edge line-segment vertices to a logical edge.
-///
-/// Producer: kernel
-/// Consumer: 3d-viewport (for edge picking)
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EdgeRange {
-    /// Persistent reference to the logical edge.
-    pub geom_ref: GeomRef,
-    /// Start index in the vertices array (in floats, not vertices).
+    pub edge_id: KernelId,
     pub start_vertex: u32,
-    /// End index in the vertices array.
     pub end_vertex: u32,
+    /// Present for a circular edge, so a consumer can build a true arc.
+    pub curve: Option<EdgeCurve>,
 }
+
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EdgeCurve {
+    Circle { center: [f64; 3], normal: [f64; 3], radius: f64 },
+    Arc    { center: [f64; 3], normal: [f64; 3], radius: f64 },
+}
+```
+
+Meshes do not cross to JavaScript inside `ModelUpdated`. After a model update
+the worker reads each renderable body through accessors indexed by a flat body
+index (`wasm_api.rs`):
+
+| Accessor | Returns |
+|---|---|
+| `get_body_count()` | number of renderable bodies |
+| `get_body_metadata()` | JSON array, one entry per body |
+| `get_body_vertices(i)`, `get_body_normals(i)` | `Float32Array` |
+| `get_body_indices(i)` | `Uint32Array` |
+| `get_body_face_data(i)` | JSON array of face entries |
+| `get_body_edge_vertices(i)` | `Float32Array` |
+| `get_body_edge_data(i)` | JSON array of edge entries |
+
+A typed-array view points into WASM memory and is invalidated by any memory
+growth, so the worker copies or transfers it immediately.
+
+The bridge replaces kernel ids with persistent references before the data
+leaves it. A face entry is
+
+```json
+{ "geom_ref": GeomRef, "start_index": u32, "end_index": u32,
+  "created_by_feature": "uuid" | null,
+  "plane": { "origin": [x, y, z], "normal": [x, y, z] } }
+```
+
+where `plane` is present for planar faces and gives the exact (f64) plane a
+sketch on that face must use. An edge entry is
+
+```json
+{ "geom_ref": GeomRef, "start_index": u32, "end_index": u32, "curve": EdgeCurve | null }
 ```
 
 ---
 
-## G) Kernel Abstraction Traits
+## G) Kernel contract
 
-**Defined in:** `waffle_types::kernel` (`crates/waffle-types/src/kernel/traits.rs` + `types.rs`)
-**Implementor:** `kernel_v2::KernelV2Adapter` (production kernel since the Phase 6 migration, 2026-06-11) + `waffle_types::kernel::MockKernel` (deterministic test double, feature `mock-kernel`)
-**Consumer:** modeling-ops, feature-engine, wasm-bridge
+**Defined in:** `waffle_types::kernel` (`traits.rs`, `types.rs`, `measure.rs`, `projection.rs`, `import.rs`, `analytic.rs`, `units.rs`)
+**Implemented by:** `kernel_v2::KernelV2Adapter`; `waffle_types::kernel::MockKernel` (feature `mock-kernel`), a deterministic test double with synthetic topology
+**Used by:** modeling-ops, feature-engine, wasm-bridge, file-format, test-harness
 
-> **Regenerated 2026-07-12 from `waffle_types::kernel` (design review G9).** The
-> Rust source (`traits.rs` + `types.rs`) is normative; regenerate this section
-> when the trait changes. The per-method support status below mirrors the
-> capability map at the top of `crates/kernel-v2/src/adapter.rs` (the "current
-> truth"). MockKernel is a separate deterministic double and does not track the
-> same support boundaries.
+Four traits. `Kernel` constructs and modifies solids; `KernelIntrospect` reads
+topology and geometry; `KernelMeasure` answers distance, interference, mass
+and thickness questions; `KernelProjection` produces drawing views and
+sections. A method with a default body returns `KernelError::NotSupported`
+(or `None` / empty) unless the implementor overrides it.
 
-### Support status (in `KernelV2Adapter`)
-
-| Method | Trait requirement | Status in `KernelV2Adapter` |
-|---|---|---|
-| `extrude_face` | required | **SUPPORTED** — staged profile → `kernel_v2::extrude`; circle profiles → cylinders |
-| `revolve_face` | required | **SUPPORTED** — full/partial revolve incl. cones (KV6c), torus + sphere (KV6d), tilted non-alternating profiles (KV6a). Consecutive annular edges / holed profiles → typed error |
-| `boolean_union` / `_subtract` / `_intersect` | required | **SUPPORTED** (non-coplanar) via yang-rs native pipeline. Coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); some curved-partial-patch operands → `BooleanFailed` |
-| `boolean_union_multi` / `_subtract_multi` / `_intersect_multi` | trait-default (wraps single-body) | **SUPPORTED** — adapter overrides to return genuinely multi-body results (disjoint operands, KV7 multi-shell) |
-| `fillet_edges` / `chamfer_edges` / `shell` | required | **DEFERRED INDEFINITELY** → `NotSupported` (root `CLAUDE.md`; do not work on these) |
-| `tessellate` | required | **SUPPORTED** — exact-rational planar tessellation; the `tolerance` argument is IGNORED |
-| `extract_edges` | required | **SUPPORTED** — arena half-edge walk → polylines + analytic `EdgeCurve` for circular edges |
-| `import_body` | trait-default `NotSupported` | **SUPPORTED** — ingests a mesh-backed STEP body (task #138, SI1); booleans on it are not yet supported |
-| `export_step` | trait-default `NotSupported` | **NOT SUPPORTED** — trait default (STEP export unimplemented) |
-| `make_faces_from_profiles` | required | **SUPPORTED** — polygon + circle + exact arc + spline-via-polygon + holed regions |
-| `make_face_from_region` | trait-default `NotSupported` | **SUPPORTED** — builds one planar face from an explicit outer + hole region (minimal sub-region extrude) |
-| `list_faces` / `list_edges` / `list_vertices` | required (introspect) | **SUPPORTED** — arena walk |
-| `face_edges` / `edge_faces` / `edge_vertices` / `face_neighbors` | required (introspect) | **SUPPORTED** — arena adjacency |
-| `compute_signature` / `compute_all_signatures` | required (introspect) | **SUPPORTED** |
-| `face_provenance` | trait-default `None` | **SUPPORTED** — exposes persistent id + lineage root (KV13 F5) for feature resolution |
-
-`revolve_face` takes `angle` in **degrees** (the legacy trait convention;
-`modeling-ops` passes `RevolveParams.angle` through unchanged and the adapter
-converts to radians internally). MockKernel implements the required methods and
-returns `NotSupported`/`None` for the trait-default optional ones.
+### `Kernel`
 
 ```rust
-/// Core geometry kernel trait. Provides all shape construction and modification operations.
-/// Implemented by WaffleKernel (clean-sheet kernel) and MockKernel (deterministic test double).
-///
-/// (NOTE: the doc comment above is verbatim from traits.rs; the live production
-/// implementor is `kernel_v2::KernelV2Adapter`, not a type literally named
-/// `WaffleKernel`. See the support table above.)
 pub trait Kernel {
+    // --- construction ---
+
+    /// Create planar faces from closed sketch profiles. The returned ids are
+    /// staged profiles, consumed by `extrude_face` / `revolve_face`.
+    fn make_faces_from_profiles(
+        &mut self,
+        profiles: &[ClosedProfile],
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+        positions: &HashMap<u32, (f64, f64)>,
+    ) -> Result<Vec<KernelId>, KernelError>;
+
+    /// Create one planar face from an explicit region: an outer loop plus
+    /// hole loops in sketch (u, v) coordinates.
+    fn make_face_from_region(
+        &mut self,
+        region: &crate::Region,
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+    ) -> Result<KernelId, KernelError> { /* default: NotSupported */ }
+
     /// Extrude a planar face along a direction vector.
     fn extrude_face(
         &mut self,
@@ -999,8 +807,7 @@ pub trait Kernel {
         depth: f64,
     ) -> Result<KernelSolidHandle, KernelError>;
 
-    /// Revolve a planar face around an axis. `angle` is in DEGREES
-    /// (legacy trait convention; 360 for a full revolution).
+    /// Revolve a planar face around an axis. `angle` is in degrees.
     fn revolve_face(
         &mut self,
         face: KernelId,
@@ -1009,278 +816,351 @@ pub trait Kernel {
         angle: f64,
     ) -> Result<KernelSolidHandle, KernelError>;
 
-    /// Boolean union of two solids.
-    fn boolean_union(
+    /// Sweep a circle (hollow when `inner_radius` is `Some`) along an open,
+    /// tangent-continuous chain of lines and arcs in the sketch plane.
+    fn pipe(
         &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<KernelSolidHandle, KernelError>;
-
-    /// Boolean subtraction: a minus b.
-    fn boolean_subtract(
-        &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<KernelSolidHandle, KernelError>;
-
-    /// Boolean intersection of two solids.
-    fn boolean_intersect(
-        &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<KernelSolidHandle, KernelError>;
-
-    /// Boolean union that may produce multiple bodies (e.g., disjoint operands).
-    /// Default delegates to `boolean_union` and wraps in a single-element vec.
-    fn boolean_union_multi(
-        &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
-
-    /// Boolean subtract that may produce multiple bodies. Default wraps single.
-    fn boolean_subtract_multi(
-        &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
-
-    /// Boolean intersect that may produce multiple bodies. Default wraps single.
-    fn boolean_intersect_multi(
-        &mut self,
-        a: &KernelSolidHandle,
-        b: &KernelSolidHandle,
-    ) -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
-
-    /// Fillet (round) the specified edges with the given radius.
-    /// DEFERRED INDEFINITELY — always `NotSupported`.
-    fn fillet_edges(
-        &mut self,
-        solid: &KernelSolidHandle,
-        edges: &[KernelId],
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+        path: &[PipePathSegment],
         radius: f64,
-    ) -> Result<KernelSolidHandle, KernelError>;
+        inner_radius: Option<f64>,
+    ) -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
 
-    /// Chamfer (bevel) the specified edges with the given distance.
-    /// DEFERRED INDEFINITELY — always `NotSupported`.
-    fn chamfer_edges(
+    /// Sweep a planar polygon section along a chain of lines and arcs in
+    /// world coordinates.
+    fn sweep(
         &mut self,
-        solid: &KernelSolidHandle,
-        edges: &[KernelId],
-        distance: f64,
-    ) -> Result<KernelSolidHandle, KernelError>;
+        section: &SweepSection,
+        path: &crate::sketch3d::Chain3d,
+    ) -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
 
-    /// Shell a solid by removing faces and offsetting remaining faces inward.
-    /// DEFERRED INDEFINITELY — always `NotSupported`.
-    fn shell(
-        &mut self,
-        solid: &KernelSolidHandle,
-        faces_to_remove: &[KernelId],
-        thickness: f64,
-    ) -> Result<KernelSolidHandle, KernelError>;
+    // --- booleans ---
 
-    /// Tessellate a solid to a triangle mesh. (In `KernelV2Adapter` the
-    /// `tolerance` is ignored — planar tessellation is exact.)
-    fn tessellate(
-        &mut self,
-        solid: &KernelSolidHandle,
-        tolerance: f64,
-    ) -> Result<RenderMesh, KernelError>;
+    fn boolean_union(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<KernelSolidHandle, KernelError>;
+    fn boolean_subtract(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<KernelSolidHandle, KernelError>;
+    fn boolean_intersect(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<KernelSolidHandle, KernelError>;
 
-    /// Extract edge polylines for rendering edge overlays (+ analytic
-    /// `EdgeCurve` descriptors for circular edges).
-    fn extract_edges(
-        &mut self,
-        solid: &KernelSolidHandle,
-        tolerance: f64,
-    ) -> Result<EdgeRenderData, KernelError>;
+    /// The same operations, returning every disjoint body of the result.
+    /// Default: the single-body result wrapped in a one-element vec.
+    fn boolean_union_multi(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
+    fn boolean_subtract_multi(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
+    fn boolean_intersect_multi(&mut self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<Vec<KernelSolidHandle>, KernelError> { /* default */ }
 
-    /// Ingest an externally-imported mesh-backed body (STEP import, task #138).
-    /// Data is already placed in world coordinates (meters). Default
-    /// `NotSupported`; overridden in `KernelV2Adapter`.
+    // --- copies ---
+
+    /// Rigid copy: a new solid moved by `placement`. Exact on analytic geometry.
+    fn transform_body(&mut self, solid: &KernelSolidHandle, placement: &RigidPlacement)
+        -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
+
+    /// Mirrored copy: a new solid reflected through `plane`.
+    fn mirror_body(&mut self, solid: &KernelSolidHandle, plane: &MirrorPlane)
+        -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
+
+    // --- edge and face modification ---
+
+    fn fillet_edges(&mut self, solid: &KernelSolidHandle, edges: &[KernelId], radius: f64)
+        -> Result<KernelSolidHandle, KernelError>;
+    fn chamfer_edges(&mut self, solid: &KernelSolidHandle, edges: &[KernelId], distance: f64)
+        -> Result<KernelSolidHandle, KernelError>;
+    fn shell(&mut self, solid: &KernelSolidHandle, faces_to_remove: &[KernelId], thickness: f64)
+        -> Result<KernelSolidHandle, KernelError>;
+
+    // --- import and export ---
+
+    /// Ingest a mesh-backed imported body, already placed in world coordinates.
     fn import_body(&mut self, data: &ImportedBodyData)
         -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
 
-    /// Export a solid to a STEP AP203 format string. Default `NotSupported`
-    /// (not overridden — STEP export is unimplemented).
-    fn export_step(
-        &mut self,
-        solid: &KernelSolidHandle,
-        file_name: &str,
-    ) -> Result<String, KernelError> { /* default: NotSupported */ }
+    /// Ingest an exact analytic shell as a first-class solid. A shell the
+    /// kernel cannot carry exactly is refused with a typed error.
+    fn import_analytic_shell(&mut self, shell: &AnalyticShellData)
+        -> Result<KernelSolidHandle, KernelError> { /* default: NotSupported */ }
 
-    /// Create planar faces from closed sketch profiles.
-    fn make_faces_from_profiles(
-        &mut self,
-        profiles: &[ClosedProfile],
-        plane_origin: [f64; 3],
-        plane_normal: [f64; 3],
-        plane_x_axis: [f64; 3],
-        positions: &std::collections::HashMap<u32, (f64, f64)>,
-    ) -> Result<Vec<KernelId>, KernelError>;
+    /// Export one solid as ISO 10303-21 (STEP AP214) text.
+    fn export_step(&mut self, solid: &KernelSolidHandle, file_name: &str)
+        -> Result<String, KernelError> { /* default: NotSupported */ }
 
-    /// Create a single planar face from an explicit region boundary (outer
-    /// loop + zero or more hole loops, in sketch (u, v) coords). Used to
-    /// extrude minimal sub-regions of overlapping sketch shapes (annulus,
-    /// lens, crescent). Default `NotSupported`; overridden in `KernelV2Adapter`.
-    fn make_face_from_region(
-        &mut self,
-        region: &crate::Region,
-        plane_origin: [f64; 3],
-        plane_normal: [f64; 3],
-        plane_x_axis: [f64; 3],
-    ) -> Result<KernelId, KernelError> { /* default: NotSupported */ }
-}
+    /// Export several named, optionally placed solids into one STEP file.
+    fn export_step_bodies(&mut self, bodies: &[StepExportBody], file_name: &str)
+        -> Result<String, KernelError> { /* default: NotSupported */ }
 
-/// Topology introspection trait. Provides read-only queries on kernel geometry.
-///
-/// Implementor: kernel_v2::KernelV2Adapter, MockKernel
-/// Consumer: modeling-ops (topology diffing/provenance), feature-engine (GeomRef resolution)
-pub trait KernelIntrospect {
-    /// List all faces of a solid.
-    fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+    // --- rendering ---
 
-    /// List all edges of a solid.
-    fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+    fn tessellate(&mut self, solid: &KernelSolidHandle, tolerance: f64)
+        -> Result<RenderMesh, KernelError>;
+    fn extract_edges(&mut self, solid: &KernelSolidHandle, tolerance: f64)
+        -> Result<EdgeRenderData, KernelError>;
 
-    /// List all vertices of a solid.
-    fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+    // --- persistent identity ---
 
-    /// Get the edges bounding a face.
-    fn face_edges(&self, face: KernelId) -> Vec<KernelId>;
-
-    /// Get the faces adjacent to an edge.
-    fn edge_faces(&self, edge: KernelId) -> Vec<KernelId>;
-
-    /// Get the vertices at the ends of an edge.
-    fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId);
-
-    /// Get the faces sharing an edge or vertex with the given face.
-    fn face_neighbors(&self, face: KernelId) -> Vec<KernelId>;
-
-    /// Compute the geometric signature of a single entity.
-    fn compute_signature(&self, entity: KernelId, kind: TopoKind) -> TopoSignature;
-
-    /// Compute signatures for all entities of a given kind in a solid.
-    fn compute_all_signatures(
-        &self,
-        solid: &KernelSolidHandle,
-        kind: TopoKind,
-    ) -> Vec<(KernelId, TopoSignature)>;
-
-    /// The entity's analytic axis, when its geometry has one: a cylindrical,
-    /// conical, toroidal or spherical FACE, or a circular/elliptical EDGE.
-    /// `origin` is the entity's own reference point on that axis (the
-    /// cylinder's axis point, the cone's apex, the torus's/sphere's centre,
-    /// the circle's centre) — where a consumer puts a frame on the axis is
-    /// the consumer's policy (`feature_engine::connector`). `None` for a
-    /// planar face, a straight edge, a freeform/mesh-backed surface, and by
-    /// default (so it is additive for every implementor). The only door out
-    /// for an axis: `TopoSignature::normal` on a cylinder is radial.
-    fn entity_axis(&self, entity: KernelId, kind: TopoKind) -> Option<EntityAxis> { None }
-
-    /// Persistent-identity provenance of a face (KV13 F5): its persistent id
-    /// and its lineage root (where the geometry was introduced, through
-    /// chained booleans). Used by feature-engine (F6) to resolve the face's
-    /// creating feature. Default `None` (kernels without persistent identity,
-    /// e.g. MockKernel); overridden in `KernelV2Adapter`.
-    fn face_provenance(&self, face: KernelId) -> Option<FaceProvenance> { None }
+    /// Install the seed that subsequent construction calls stamp their new
+    /// faces' persistent ids from; returns the seed it replaced. The caller
+    /// sets it before one geometry-creating step and restores it afterwards.
+    fn set_construct_seed(&mut self, seed: Option<ConstructSeed>)
+        -> Option<ConstructSeed> { /* default: None */ }
 }
 ```
 
-### Key shared types (`waffle_types::kernel::types`)
+### `KernelIntrospect`
 
 ```rust
-/// Opaque handle to a solid in the geometry kernel. NEVER persisted; valid
-/// only for the current kernel session. `from_raw`/`raw` are the seam for
-/// external `Kernel` implementations (the kernel-v2 adapter).
+pub trait KernelIntrospect {
+    fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+    fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+    fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId>;
+
+    fn face_edges(&self, face: KernelId) -> Vec<KernelId>;
+    fn edge_faces(&self, edge: KernelId) -> Vec<KernelId>;
+    fn edge_vertices(&self, edge: KernelId) -> (KernelId, KernelId);
+    fn face_neighbors(&self, face: KernelId) -> Vec<KernelId>;
+
+    /// The edge as a 3D polyline from start vertex to end vertex. Default:
+    /// the two endpoints.
+    fn edge_polyline(&self, edge: KernelId) -> Vec<[f64; 3]> { /* default */ }
+
+    fn compute_signature(&self, entity: KernelId, kind: TopoKind) -> TopoSignature;
+    fn compute_all_signatures(&self, solid: &KernelSolidHandle, kind: TopoKind)
+        -> Vec<(KernelId, TopoSignature)>;
+
+    /// Whether the solid is exact (analytic surfaces) rather than a
+    /// mesh-backed imported body. Default: true.
+    fn solid_is_exact(&self, solid: &KernelSolidHandle) -> bool { /* default */ }
+
+    /// Volume in m³ and surface area in m², exactly from the B-Rep. A kernel
+    /// that cannot integrate a solid answers an error, never an approximation.
+    fn solid_volume(&self, solid: &KernelSolidHandle)
+        -> Result<f64, KernelError> { /* default: NotSupported */ }
+    fn solid_surface_area(&self, solid: &KernelSolidHandle)
+        -> Result<f64, KernelError> { /* default: NotSupported */ }
+
+    /// A conservative axis-aligned bounding box `(lo, hi)`. None when the
+    /// kernel cannot bound the solid; never a box that under-covers.
+    fn solid_aabb(&self, solid: &KernelSolidHandle)
+        -> Option<([f64; 3], [f64; 3])> { /* default: None */ }
+
+    /// `(min, max)` of the solid along `direction`. Default: from the vertices.
+    fn solid_extent_along(&self, solid: &KernelSolidHandle, direction: [f64; 3])
+        -> Option<(f64, f64)> { /* default */ }
+
+    /// Per face, the largest distance from its boundary to its own surface.
+    fn surface_conformance(&self, solid: &KernelSolidHandle)
+        -> Result<SurfaceConformance, KernelError> { /* default: NotSupported */ }
+
+    /// Per face, the largest distance from its render mesh to its surface.
+    fn mesh_conformance(&self, solid: &KernelSolidHandle)
+        -> Result<MeshConformance, KernelError> { /* default: NotSupported */ }
+
+    /// The analytic axis of a cylindrical, conical, toroidal or spherical
+    /// face, or of a circular or elliptical edge. None for anything else.
+    fn entity_axis(&self, entity: KernelId, kind: TopoKind)
+        -> Option<EntityAxis> { /* default: None */ }
+
+    /// A face's persistent id and its lineage root.
+    fn face_provenance(&self, face: KernelId)
+        -> Option<FaceProvenance> { /* default: None */ }
+
+    /// Persistent identity of a face, edge or vertex. None when the kernel
+    /// cannot derive one; it never invents an id.
+    fn entity_pid(&self, entity: KernelId, kind: TopoKind)
+        -> Option<EntityPid> { /* default: None */ }
+
+    /// Every entity of `kind` in `solid` with its persistent identity. An
+    /// empty answer means no identity is available, not that entities are gone.
+    fn all_entity_pids(&self, solid: &KernelSolidHandle, kind: TopoKind)
+        -> Vec<(KernelId, EntityPid)> { /* default: empty */ }
+}
+```
+
+### `KernelMeasure` and `KernelProjection`
+
+Every method defaults to `NotSupported`.
+
+```rust
+pub trait KernelMeasure {
+    fn distance(&self, a: &MeasureEntity, b: &MeasureEntity, opts: &DistanceOpts)
+        -> Result<Distance, KernelError>;
+    fn interference(&self, a: &KernelSolidHandle, b: &KernelSolidHandle)
+        -> Result<Interference, KernelError>;
+    fn mass_properties(&self, solid: &KernelSolidHandle, density: Option<f64>)
+        -> Result<MassProperties, KernelError>;
+    fn edge_length(&self, edge: KernelId) -> Result<EdgeLength, KernelError>;
+    fn thickness(&self, solid: &KernelSolidHandle, opts: &ThicknessOpts)
+        -> Result<Thickness, KernelError>;
+}
+
+pub trait KernelProjection {
+    fn project(&self, solid: &KernelSolidHandle, view: &ViewFrame, opts: &ProjectOpts)
+        -> Result<ViewGeometry, KernelError>;
+    fn project_bodies(&self, bodies: &[ProjectionBody], view: &ViewFrame, opts: &ProjectOpts)
+        -> Result<ViewGeometry, KernelError>;
+    fn section_with_plane(&mut self, solid: &KernelSolidHandle,
+                          plane_origin: [f64; 3], plane_normal: [f64; 3])
+        -> Result<SectionResult, KernelError>;
+    fn release_section_cut(&mut self, cut: &KernelSolidHandle) -> Result<(), KernelError>;
+    fn export_dxf_with_declines(&self, bodies: &[ProjectionBody], view: &ViewFrame,
+                                opts: &ProjectOpts)
+        -> Result<(String, ProjectionDeclines), KernelError>;
+    /// Default: `export_dxf_with_declines`, dropping the declines.
+    fn export_dxf(&self, bodies: &[ProjectionBody], view: &ViewFrame, opts: &ProjectOpts)
+        -> Result<String, KernelError>;
+}
+```
+
+### What `KernelV2Adapter` supports
+
+`KernelV2Adapter` implements all four traits in full; no method is left at a
+`NotSupported` default. The boundaries:
+
+| Method | Behaviour |
+|---|---|
+| `make_faces_from_profiles` | Polygons, circles, exact arcs, splines through their chord polygon, and holed regions. An arc or spline profile with no `vertex_ids` polygon is `NotSupported`. |
+| `extrude_face` | Supported. A circle profile becomes a cylinder. |
+| `revolve_face` | Full and partial turns, producing cylinders, cones, tori and spheres. A holed profile is `NotSupported`; an axis that touches or crosses the profile, or an out-of-range angle, is an error. |
+| `pipe` | Open tangent-continuous chains. A closed loop is `NotSupported`. |
+| `sweep` | Polygon sections. A holed or arc-bearing section, a section edge oblique to a bend's axis, and a twisted 3D ring are `NotSupported`. |
+| `boolean_*` | Solids bounded by planes, cylinders, cones, spheres and tori. Coplanar inputs that Stage 0 cannot resolve are `NotSupported`; an imported mesh-backed operand is `NotSupported`; a pipeline stage that cannot certify its result is `BooleanFailed` carrying the stage's message. |
+| `boolean_*_multi` | Split the result into its spatially disjoint bodies. |
+| `fillet_edges`, `chamfer_edges`, `shell` | Always `NotSupported`. |
+| `transform_body`, `mirror_body` | Supported; a placement that is not a proper rotation is an error. |
+| `import_body` | Mesh-backed body: renders, introspects and has signatures. |
+| `import_analytic_shell` | Exact solid, or a typed refusal. |
+| `export_step`, `export_step_bodies` | AP214 with exact surfaces and curves. A mesh-backed body is `NotSupported`. |
+| `tessellate`, `extract_edges` | Supported. The `tolerance` argument is ignored; the kernel uses its own chord bound. |
+
+Arguments are checked before any work: a NaN or infinite coordinate, distance
+or angle is `KernelError::InvalidInput`.
+
+### Shared types (`types.rs`)
+
+```rust
+/// Opaque handle to a solid. `from_raw` / `raw` are for `Kernel` implementors.
 pub struct KernelSolidHandle(/* u64 */);
 
-/// Transient kernel-internal entity identifier. Stable within a single kernel
-/// session but NOT across rebuilds. NEVER persisted — use GeomRef for
-/// persistent references. In `KernelV2Adapter` it is tag-encoded
-/// (`tag << 40 | index`): 1 = vertex, 2 = edge (canonical lower-id half-edge),
-/// 3 = face, 4 = staged profile.
+/// Session-scoped entity id. In `KernelV2Adapter` it is tag-encoded
+/// (`tag << 40 | index`): 1 vertex, 2 edge, 3 face, 4 staged profile,
+/// 5–7 the face, edge and vertex of an imported mesh-backed body.
 pub struct KernelId(pub u64);
 
-/// Persistent-identity provenance of a face (KV13 F5). Unlike KernelId (which
-/// churns every rebuild), these ids are stable through chained booleans.
+/// Persistent identity of a face: stable through chained booleans.
 pub struct FaceProvenance {
-    /// The face's own persistent id.
+    pub pid: u64,        // the face's own persistent id
+    pub root_pid: u64,   // where its geometry was introduced
+}
+
+/// Persistent identity of a face, edge or vertex. For edges and vertices
+/// `root_pid == pid`.
+pub struct EntityPid {
     pub pid: u64,
-    /// The persistent id where this face's geometry was introduced (lineage root).
     pub root_pid: u64,
 }
 
-/// Errors from kernel operations. `BooleanEmptyResult` is a distinct TYPED
-/// outcome (a correct boolean that leaves no material — e.g. a subtract whose
-/// tool engulfs the target), so the engine can apply body-lifetime policy
-/// instead of string-matching an error. `NotSupported { operation }` is the
-/// loud capability-boundary marker (coplanar inputs, export_step, fillet/…).
-#[derive(Debug, Clone, thiserror::Error)]
+/// The stable 128-bit name of the step about to create geometry (in practice
+/// a feature's `Uuid`). Opaque to the kernel.
+pub struct ConstructSeed {
+    pub origin: [u64; 2],
+}
+
 pub enum KernelError {
-    #[error("boolean operation failed: {reason}")]
     BooleanFailed { reason: String },
-    #[error("boolean produced an empty result (no material remains)")]
+    /// A correct boolean that leaves no material (for example a subtract
+    /// whose tool engulfs the target). A typed outcome, not a failure.
     BooleanEmptyResult,
-    #[error("fillet failed: {reason}")]
     FilletFailed { reason: String },
-    #[error("shell failed: {reason}")]
     ShellFailed { reason: String },
-    #[error("tessellation failed: {reason}")]
     TessellationFailed { reason: String },
-    #[error("entity not found: {id:?}")]
     EntityNotFound { id: KernelId },
-    #[error("operation not supported: {operation}")]
+    /// The capability-boundary marker.
     NotSupported { operation: String },
-    #[error("kernel error: {message}")]
+    /// A caller-supplied argument the kernel refuses before doing any work.
+    InvalidInput { argument: String, reason: String },
     Other { message: String },
 }
 
-/// Tessellated triangle mesh for rendering in three.js. Keyed on `KernelId`
-/// at this layer; wasm-bridge re-keys `face_ranges` onto persistent `GeomRef`
-/// before crossing to JS (see section F).
-pub struct RenderMesh {
-    pub vertices: Vec<f32>,       // [x0,y0,z0, x1,...]
-    pub normals: Vec<f32>,        // parallel to vertices
-    pub indices: Vec<u32>,        // triangle indices
-    pub face_ranges: Vec<FaceRange>,
-}
-pub struct FaceRange { pub face_id: KernelId, pub start_index: u32, pub end_index: u32 }
-
-/// Sharp-edge overlay data. `EdgeRange.curve` carries an analytic descriptor
-/// when the edge is a circle/arc, so consumers (sketch projection) can mint
-/// TRUE arcs instead of polyline approximations; `None` for straight edges and
-/// non-circular curves (ellipse/hyperbola/surface-pair render as polylines).
-pub struct EdgeRenderData { pub vertices: Vec<f32>, pub edge_ranges: Vec<EdgeRange> }
-pub struct EdgeRange {
-    pub edge_id: KernelId,
-    pub start_vertex: u32,
-    pub end_vertex: u32,
-    pub curve: Option<EdgeCurve>,
-}
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum EdgeCurve {
-    Circle { center: [f64; 3], normal: [f64; 3], radius: f64 },
-    Arc    { center: [f64; 3], normal: [f64; 3], radius: f64 },
+/// A rigid motion `p' = R·p + t`. `rotation` is row-major, orthonormal,
+/// determinant +1.
+pub struct RigidPlacement {
+    pub translation: [f64; 3],
+    pub rotation: [[f64; 3]; 3],
 }
 
-/// Options controlling the tolerance layering for boolean operations. Built
-/// via `default()`, `for_scale(extent)` (scale-adaptive), or
-/// `for_boolean_tol(tol)`; `validate()` enforces the hierarchy
-/// tau_work < tau_weld < tau_model and tau_mesh <= tau_model.
-pub struct BooleanOptions {
-    pub tau_model: f64,
-    pub tau_mesh: f64,
-    pub tau_weld: f64,
-    pub tau_work: f64,
-    pub tau_coplanar: f64,
-    pub min_feature_size: f64,
+/// Reflection through the plane through `point` with normal `normal`.
+pub struct MirrorPlane {
+    pub point: [f64; 3],
+    pub normal: [f64; 3],
+}
+
+pub struct StepExportBody {
+    pub handle: KernelSolidHandle,
+    pub name: String,
+    pub placement: Option<RigidPlacement>,   // None: identity
+}
+
+/// One segment of a pipe path in sketch (u, v) coordinates.
+pub enum PipePathSegment {
+    Line { a: (f64, f64), b: (f64, f64) },
+    Arc  { a: (f64, f64), b: (f64, f64), center: (f64, f64), radius: f64, ccw: bool },
+}
+
+/// The planar polygon a sweep carries along its path.
+pub struct SweepSection {
+    pub plane_origin: [f64; 3],
+    pub plane_normal: [f64; 3],
+    pub plane_x_axis: [f64; 3],
+    pub outer: Vec<(f64, f64)>,           // counter-clockwise, not closed
+    pub holes: Vec<Vec<(f64, f64)>>,
+}
+
+pub struct EntityAxis {
+    pub kind: AxisKind,          // Cylindrical | Conical | Toroidal | Spherical | Circular | Elliptical
+    pub origin: [f64; 3],        // a point on the axis
+    pub direction: [f64; 3],     // unit
+    pub radius: Option<f64>,
 }
 ```
 
-The neutral contract types for imported bodies
-(`ImportedBodyData`/`ImportedShellData`/`ImportedFaceData`/`ImportedEdgeData`/`ImportedSurface`,
-in `crates/waffle-types/src/kernel/import.rs`) are runtime-only (no serde) — the
-persisted artifact is the compressed STEP text re-parsed on rebuild. `TopoSignature`
-and `TopoKind` are defined in `crates/waffle-types/src/topo.rs` (section A/F).
+`RenderMesh`, `EdgeRenderData` and their ranges are in section F.
+
+### Imported bodies (`import.rs`, `analytic.rs`)
+
+Two tiers. Neither is serialized; the persisted artifact is the STEP text,
+re-parsed on rebuild.
+
+```rust
+// Mesh tier: Kernel::import_body
+pub struct ImportedBodyData  { pub source_name: String, pub shells: Vec<ImportedShellData> }
+pub struct ImportedShellData { pub faces: Vec<ImportedFaceData>, pub edges: Vec<ImportedEdgeData> }
+pub struct ImportedFaceData {
+    pub surface: ImportedSurface,   // Plane { origin, normal } | Cylindrical | Conical | Spherical | Toroidal | Freeform
+    pub positions: Vec<f64>,
+    pub normals: Vec<f64>,
+    pub indices: Vec<u32>,
+    pub edge_indices: Vec<u32>,
+}
+pub struct ImportedEdgeData  { pub polyline: Vec<[f64; 3]> }
+
+// Exact tier: Kernel::import_analytic_shell
+pub struct AnalyticShellData {
+    pub vertices: Vec<Point3>,
+    pub edges: Vec<AnalyticEdge>,
+    pub faces: Vec<AnalyticFace>,
+}
+```
+
+### Tolerances (`units.rs`)
+
+The canonical tolerances are defined once, in `cad-primitives`, and re-exported
+here:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `MIN_FEATURE_SIZE` | 1e-6 m | Degeneracy floor |
+| `TAU_MODEL` | 1e-7 m | Model coincidence |
+| `TAU_WORK` | 1e-12 m | Working precision floor |

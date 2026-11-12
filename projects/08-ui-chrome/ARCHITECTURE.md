@@ -1,134 +1,131 @@
 # 08 — UI Chrome: Architecture
 
-## Purpose
+The UI chrome is the Svelte 5 / SvelteKit application shell in `app/src/`:
+everything around the 3D viewport. It reads state from the store
+(`app/src/lib/engine/store.svelte.js`) and changes the model by calling store
+functions, which send `UiToEngine` messages through the bridge. It imports no
+Rust types.
 
-Application shell in Svelte/SvelteKit. The complete user interface surrounding the 3D viewport: feature tree panel, toolbar, property editor, status bar, and context menus. All communication with the WASM engine is via wasm-bridge messages.
+## Routes
 
-## Layout
+| Route | Page |
+|---|---|
+| `/` | The editor |
+| `/home` | Document grid: open, create, connect a git host |
+| `/doc/[id]` | Opens a stored document in the editor |
+| `/open` | Opens a document from a link |
+| `/view` | Read-only viewer |
+| `/agent` | Agent link page |
+| `/dev/icons` | Icon gallery |
+
+## Editor layout (`routes/+page.svelte`)
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  Toolbar (top)                                                  │
-│  [Select] [Line] [Rect] [Circle] [Arc] | [Extrude] [Revolve]  │
-│  [Fillet] [Chamfer] [Shell] | [Undo] [Redo]                   │
-├────────────┬───────────────────────────────┬───────────────────┤
-│            │                               │                   │
-│  Feature   │      3D Viewport              │  Property         │
-│  Tree      │      (04-3d-viewport)         │  Editor           │
-│  (left)    │                               │  (right)          │
-│            │                               │                   │
-│  Sketch 1  │                               │  Extrude 1        │
-│  Extrude 1 │                               │  ─────────        │
-│  Fillet 1  │                               │  Depth: 25mm      │
-│  > Sketch 2│                               │  Direction: +Z    │
-│    ...     │                               │  Symmetric: No    │
-│            │                               │  Cut: No          │
-│  ──────────│                               │                   │
-│  [Rollback │                               │                   │
-│   slider]  │                               │                   │
-├────────────┴───────────────────────────────┴───────────────────┤
-│  Status Bar (bottom)                                            │
-│  DOF: 0 | Selection: Face 3 of Extrude 1 | Rebuild: 45ms      │
-└────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│ Toolbar (Part/Sketch) or DrawingToolbar                      │
+├──────────────────────────────────────────────────────────────┤
+│ TabBar — one tab per Part, Assembly or Drawing               │
+├────────────┬──────────────────────────────┬──────────────────┤
+│ FeatureTree│  Viewport                    │ PropertyEditor   │
+│  or        │   or                         │                  │
+│ Assembly-  │  DrawingSheet                │                  │
+│ Panel /    │                              │                  │
+│ Drawing-   │                              │                  │
+│ Panel      │                              │                  │
+├────────────┴──────────────────────────────┴──────────────────┤
+│ StatusBar                                                    │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-## Components
+The active tab's kind decides the left panel, the main area and the toolbar. A
+Part tab shows the feature tree and the 3D viewport. An Assembly tab shows
+`AssemblyPanel` in place of the feature tree. A Drawing tab shows
+`DrawingPanel` and `DrawingSheet` in place of the tree and the viewport.
 
-### Feature Tree Panel (Left Sidebar)
+The side panels are resizable by dragging their dividers. Their widths are
+clamped, on drag and on window resize, so the viewport keeps at least 320 px.
+On phones the side panels are hidden; two buttons on the viewport open them
+as overlays.
 
-The primary navigation and manipulation UI for the parametric model.
+## Components (`app/src/lib/ui/`)
 
-**Display:**
-- Ordered list of features with type-specific icons.
-- Feature name (editable via double-click).
-- Suppressed features shown grayed out with strikethrough.
-- Currently selected feature highlighted.
-- Error indicator on features with failed GeomRef resolution.
+- **`Toolbar.svelte`** — modeling tools (Sketch, Extrude, Revolve, Pipe,
+  Script, Boolean, Plane, Connector, Import, …) and, in sketch mode, the
+  drawing and constraint tools. One tool is active at a time. It also owns
+  the keyboard shortcuts.
+- **`DrawingToolbar.svelte`** — the toolbar of a Drawing tab.
+- **`FeatureTree.svelte`** — the feature list with icons, error and warning
+  marks, suppressed and rolled-back styling; origin planes and axes; bodies.
+  Click selects, double-click renames or edits, drag reorders, right-click
+  opens a context menu. The rollback slider at the bottom sets the tree's
+  `active_index`.
+- **`AssemblyPanel.svelte`**, **`DrawingPanel.svelte`** — the left panel of
+  Assembly and Drawing tabs.
+- **`PropertyEditor.svelte`** — the selected feature's parameters. An edit is
+  debounced and sent as `EditFeature`. In sketch mode it also holds the
+  constraint list.
+- **`StatusBar.svelte`** — engine status, selection, sketch solve status and
+  degrees of freedom, rebuild time, errors.
+- **`TabBar.svelte`** — add, close, rename, reorder and switch tabs.
+- **Feature dialogs** — `ExtrudeDialog`, `RevolveDialog`, `PipeDialog`,
+  `BooleanDialog`, `ScriptDialog` / `ScriptEditor`, `MateConnectorDialog`,
+  `SketchPlaneDialog`, `GearDialog`, `SprocketDialog`,
+  `PlanetaryGearDialog`, `ImportStepDialog`, `ImportLinkDialog`,
+  `PlaceViewDialog`. `FilletDialog`, `ChamferDialog` and `ShellDialog` show a
+  warning and cannot be applied.
+- **Documents** — `DocumentGrid`, `DocumentCard`, `HomeHeader`,
+  `AutoRestoreDialog`, `DocumentConflictDialog`, `LinkedDocBanner`,
+  `GitHubConnectDialog`, `GitHostConnectDialog`. Storage providers are in
+  `app/src/lib/storage/` (IndexedDB locally, git hosts remotely).
+- **Other** — `SettingsModal`, `ThemeSwitcher`, `ToastContainer`,
+  `ContextBanner` (in-context editing), `ExamplesBrowser`, `AssayBrowser`,
+  `TestCaseBrowser`.
 
-**Interactions:**
-- **Click:** Select feature (shows properties in right panel, highlights in viewport).
-- **Double-click name:** Rename feature.
-- **Right-click:** Context menu (Edit, Delete, Suppress/Unsuppress, Move Up/Down).
-- **Drag-and-drop:** Reorder features in the tree.
-- **Rollback slider:** At the bottom of the tree. Drag to set `active_index` — features after the slider are grayed out and suppressed during rebuild. This lets users "go back in time."
+Context menus: the feature tree's (features, origin, bodies),
+`viewport/ViewportContextMenu.svelte`, and `sketch/ConstraintMenu.svelte`.
 
-**Messages produced:**
-- `EditFeature`, `DeleteFeature`, `SuppressFeature`, `SetRollbackIndex`
+## Nothing overflows the window
 
-### Toolbar (Top)
+The page cannot scroll, so anything that outgrows its box would be
+unreachable. Every region scrolls, collapses, or is sized relative to the
+window.
 
-Drawing and operation tools with active-tool state management.
+- The toolbar measures itself after every content or width change and walks a
+  collapse ladder (`collapseLevel` in `Toolbar.svelte`): the file group moves
+  into the ⋮ menu, then the view toggles, the brand, the project name and
+  Undo/Redo, then trailing tools one at a time into "More ▾".
+- Dialogs have a `max-height` and scroll. Overlay browsers are
+  `min(300px, 40vw)` wide.
+- `tests/gui/layout-overflow.spec.js` sweeps desktop widths and fails on any
+  interactive element outside the window.
 
-**Tool groups:**
-- **Drawing tools** (active during sketch mode): Select, Line, Rectangle, Circle, Arc, Construction toggle.
-- **Operations:** Extrude, Revolve, Fillet, Chamfer, Shell, Boolean.
-- **History:** Undo, Redo.
-- **View:** Fit All, Standard Views.
+## Icons
 
-**State:** Only one tool is active at a time. Active tool has visual indicator (pressed/highlighted state). Tool changes are communicated to sketch-ui and viewport.
+Every toolbar button, menu row and feature-tree row takes its icon from one
+registry, `app/src/lib/ui/icons/icons.js`. Each entry is the inner markup of a
+24×24 stroke SVG: Lucide (ISC) for generic actions, hand-drawn glyphs for CAD
+ones. `Icon.svelte` renders it inline with `currentColor`. Glyph parts use
+classes, not colors: `.c` construction, `.axis`, `.p` points, `.d` dimension
+strokes, `.a` arrowheads, `.f` shaded faces. `scripts/check-icons.mjs` rejects
+a color in the registry and any reference to an icon that does not exist.
 
-### Icons (M13, `specs/ui_toolbar_icons.md`)
+On desktop a button shows its icon and label. On phones
+(`iconOnly.svelte.js`) it shows the icon only. A feature-tree row uses the
+icon of the toolbar button that makes that feature. Spec:
+`specs/ui_toolbar_icons.md`.
 
-Every toolbar button, ⋮ / "More ▾" row, context-menu row and feature-tree row
-shows an icon from one registry, `app/src/lib/ui/icons/icons.js`. Each entry is
-the inner markup of a 24×24 stroke SVG: Lucide 1.54.0 (ISC) for generic actions,
-plus hand-drawn CAD glyphs. `Icon.svelte` renders it inline with
-`currentColor`. Glyph parts use classes, not colours: `.c` construction, `.axis`,
-`.p` points, `.d` dimension strokes, `.a` arrowheads, `.f` shaded faces.
-`scripts/check-icons.mjs` (gui-fast) rejects a colour in the registry and any
-`icon:` / `<Icon name=` that names no icon. `/dev/icons` shows them all.
-
-On desktop a button shows its icon and its label. On phones
-(`iconOnly.svelte.js`) it shows the icon only. Fillet / chamfer / shell are
-drawn muted, as not yet available. A feature-tree row uses the same icon as
-the toolbar button that makes that feature.
-
-### Property Editor (Right Sidebar)
-
-Display and edit parameters for the selected feature.
-
-**Display:**
-- Feature type header ("Extrude 1").
-- Parameter fields with labels and current values.
-- Fields are type-appropriate: numbers get spinners, booleans get checkboxes, references show entity names.
-
-**Editing:**
-- Change a value → produce `EditFeature` message with updated parameters → triggers rebuild.
-- Validate input before sending (e.g., depth must be positive).
-- Show rebuild errors inline if the edit causes a failure.
-
-### Status Bar (Bottom)
-
-- **Solve status:** "Fully Constrained" / "DOF: 3" / "Over-Constrained" during sketch mode.
-- **Selection info:** "Face 3 of Extrude 1" or "Edge 2 of Fillet 1" when entity is selected.
-- **Rebuild time:** "Rebuild: 45ms" after each rebuild.
-- **Error indicator:** Brief error message if last operation failed.
-
-### Context Menus
-
-Right-click context menus for:
-- **Feature tree items:** Edit, Delete, Suppress, Move Up/Down, Insert Before/After.
-- **Viewport entities:** Select Face/Edge, Begin Sketch on Face, Apply Fillet to Edge.
-- **Toolbar buttons:** (none, but tooltips on hover).
-
-## Keyboard Shortcuts (Onshape-inspired)
+## Keyboard shortcuts
 
 | Key | Action |
-|-----|--------|
-| S | Sketch mode (on selected face) |
-| E | Extrude |
-| Ctrl+Z | Undo |
-| Ctrl+Shift+Z | Redo |
-| Delete | Delete selected feature |
-| Escape | Cancel current operation / exit sketch mode |
-| F | Fit all in viewport |
-| N | Normal to selected face |
+|---|---|
+| `S` | Sketch |
+| `E` | Extrude |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
+| `Ctrl+S` / `Ctrl+O` | Save / Open |
+| `Delete`, `Backspace` | Delete the selection |
+| `Escape` | In a sketch: back to the Select tool, then clear the selection. It never leaves the sketch. |
+| `F` | Fit all |
 
-## Communication
-
-All communication with the engine is via wasm-bridge messages:
-- UI produces `UiToEngine` messages (AddFeature, EditFeature, DeleteFeature, etc.).
-- UI consumes `EngineToUi` messages (ModelUpdated, SketchSolved, Error, etc.).
-- The `ModelUpdated` message includes the current FeatureTree state for display.
-
-No Rust types are imported directly. The UI works with JSON-deserialized data from the bridge.
+In sketch mode: `L` line, `R` rectangle, `P` polyline, `C` circle, `A` arc,
+`T` slot, `F` sketch fillet (it also fits the view), `D` dimension,
+`X` toggle construction, `J` project, `O` offset, `G` gear, `K` sprocket.

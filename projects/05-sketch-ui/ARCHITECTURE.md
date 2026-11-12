@@ -1,127 +1,102 @@
 # 05 — Sketch UI: Architecture
 
-## Purpose
+The sketch UI is the JavaScript in `app/src/lib/sketch/`. It handles pointer
+input on the sketch plane, runs the drawing tools, proposes snaps, and draws
+sketch geometry, constraints and dimensions. The engine owns the sketch and
+solves it; the UI holds a working copy in the store
+(`app/src/lib/engine/store.svelte.js`) and resends it for every solve.
 
-2D sketch editing interface overlaid on the 3D viewport during sketch mode. This is where users draw geometry (lines, rectangles, circles, arcs) and apply constraints to define parametric 2D profiles for extrusion and revolution.
+Sketch coordinates are meters in the plane's 2D frame.
 
-## Sketch Mode Lifecycle
+## Sketch mode
 
-### Entering Sketch Mode
+1. The user picks a datum plane or a planar face and starts a sketch. The
+   store sends `BeginSketch` with the plane.
+2. The viewport draws solids at 20 % opacity, shows the sketch plane grid, and
+   aligns the camera to the plane.
+3. Each edit updates the store's entity and constraint lists and calls
+   `triggerSolve()`, which sends `SolveSketch` with the full lists. At most
+   one solve is in flight; while it is, only the newest request is kept.
+4. The reply carries solved positions, radii, profiles and the solve status.
+   The store applies it unless the solve failed or returned non-finite values.
+5. Finish Sketch sends `FinishSketch` with the profile payload built by
+   `finishProfiles.js`. Editing an existing sketch feature reopens the same
+   flow on its stored entities.
 
-1. User clicks a face in the 3D viewport (or selects a datum plane).
-2. Engine identifies the face's plane (origin, normal, X-axis).
-3. UI transitions to 2D mode:
-   - Solid mesh becomes transparent (ghosted).
-   - Sketch plane displayed as opaque grid.
-   - Camera aligns to face the sketch plane (smooth transition).
-   - Drawing tools become available in toolbar.
-   - 2D coordinate system overlaid on the plane.
+Cancelling a tool mid-gesture (Escape, switching tools, right-click) leaves
+nothing behind: no point, no constraint, no undo entry.
 
-### During Sketch Mode
+## Pointer path
 
-- User draws entities with drawing tools.
-- Constraints are applied (automatic + manual).
-- Solver runs after each change, positions updated in real-time.
-- Visual feedback shows constraint status.
-- User selects a closed profile for extrusion.
+`SketchInteraction.svelte` captures pointer events on the sketch plane,
+converts screen → world → sketch coordinates (`sketchCoords.js`), and calls
+`handleToolEvent` in `tools.js` with the active tool. Every drawing tool works
+both click-click and click-drag.
 
-### Exiting Sketch Mode
+## Tools (`tools.js`)
 
-1. User clicks "Finish Sketch" or presses Escape.
-2. Sketch entities and constraints are committed as a Sketch feature.
-3. Solid returns to full opacity.
-4. Camera returns to 3D view.
+| Tool | Result |
+|---|---|
+| `select` | Select, drag points, pick constraint badges, select profiles |
+| `point`, `line`, `polyline` | Points and lines; line and polyline chain |
+| `rectangle`, `rectangle-center` | Four lines with coincident, horizontal and vertical constraints |
+| `circle`, `arc`, `slot` | Circles, three-point-entity arcs, slots |
+| `gear`, `sprocket`, `planetary` | Generated profiles |
+| `dimension` | Places a driving dimension (`dimensionHeuristic.js` chooses what is measured) |
+| `constraint` | Constraint-first pick loop (`constraintModalEngine.js`, `ConstraintModal.svelte`) |
+| `project` | Projects body vertices, edges and faces onto the sketch plane (`projectGeometry.js`, `bodyChain.js`) |
+| `offset` | Offsets a chain of sketch or body edges |
+| `trim`, `sketch-fillet` | Trim at intersections; round a corner |
 
-## Drawing Tools
+Trim, fillet and offset do not compute geometry in JS. They send `QuerySketch`
+for a preview and `ApplySketchOps` to commit; the engine runs
+`sketch_solver::ops`. Agents reach the same operations through the
+`sketch_edit` tool.
 
-### Line Tool
-- Click first point → click second point → line created.
-- Two Point entities + one Line entity created.
-- Points at endpoints are reused if coincident with existing points (auto-snap).
-- Rubberband preview while drawing.
+## Snapping (`snap.js`)
 
-### Rectangle Tool
-- Click first corner → click opposite corner → rectangle created.
-- Creates: 4 Points, 4 Lines, 4 Coincident constraints (corners), 2 Horizontal constraints, 2 Vertical constraints.
-- Auto-constraining: rectangle always produces horizontal/vertical lines.
+While drawing, `snap.js` returns a snapped position, the constraints to add
+on commit, and an indicator to draw. Coincident with an existing point has the
+highest priority. The other kinds are the origin, reference points, midpoints,
+quadrants, on-entity, horizontal/vertical alignment, tangent and
+perpendicular. The snap thresholds (pixel distances and the
+horizontal/vertical angle) are settings in the store.
 
-### Circle Tool
-- Click center → drag/click to set radius → circle created.
-- Creates: 1 Center Point, 1 Circle entity.
-- Radius preview while dragging.
+Snaps to the origin or to a reference point add a pin (`WhereDragged` with a
+target) rather than a coincident constraint.
 
-### Arc Tool
-- Click center → click start point → click end point → arc created.
-- Creates: 3 Points (center, start, end), 1 Arc entity.
-- Arc direction determined by click order.
+## Constraints
 
-### Construction Geometry Toggle
-- Any entity can be toggled to "construction" mode.
-- Construction entities participate in constraint solving but are NOT included in profiles for extrusion.
-- Visual distinction: dashed lines for construction, solid for real geometry.
+- `constraintLogic.js` decides which constraints apply to the current
+  selection. The right-click menu (`ConstraintMenu.svelte`) and the toolbar
+  buttons both use it.
+- `bridgeConstraint.js` maps the UI's constraint spellings to the engine's
+  `SketchConstraint` variants. Every send goes through it: `SolveSketch`
+  resends the whole list, so one constraint the engine cannot parse fails
+  every later solve in the sketch.
+- A live drag sends the dragged point as `Dragged`. A persistent pin sends
+  `Pinned { point, x, y }`.
+- An exact duplicate of an existing constraint is refused.
+- `constraintBadges.js` places the badge glyphs; the renderer and the select
+  tool's hit test share it.
+- `SketchConstraintList.svelte` lists the active sketch's constraints in the
+  Properties panel. A row or a badge selects a constraint; Delete removes it.
+  When the solver reports `OverConstrained`, the conflicting constraints are
+  shown in the over-constrained color without user action.
 
-## Constraint Application
+## Rendering
 
-### Manual Constraints
-- Select one or two entities → right-click or toolbar shows applicable constraints.
-- Applicable constraints determined by selection type:
-  - Two points: Coincident, Horizontal, Vertical, Distance, Symmetric
-  - Two lines: Parallel, Perpendicular, Equal, Angle
-  - Point + line: OnEntity, Distance, Midpoint
-  - Line + arc: Tangent
-  - Single line: Horizontal, Vertical
-  - Single circle/arc: Radius, Diameter
-
-### Auto-Constraining (Snap Detection)
-As the user draws, automatically detect and apply constraints when close to trigger thresholds:
-
-- **Horizontal/Vertical snap:** If a line's angle is within threshold (~3°) of horizontal or vertical, snap and add constraint.
-- **Coincident snap:** If a new point is within threshold (~5px screen distance) of an existing point, snap to it and add Coincident constraint.
-- **Tangent snap:** If a line endpoint is near a circle/arc and the line direction is approximately tangent, snap and add Tangent constraint.
-- **On-entity snap:** If a point is near a line or circle, snap to it and add OnEntity constraint.
-
-Auto-constraining is critical for UX — Onshape does this aggressively and users expect it.
-
-### Dragged Constraint
-When the user drags a point in an under-constrained sketch:
-1. Set the point's position to the cursor location.
-2. Add a `Dragged` constraint on the point.
-3. Solve.
-4. Read the solved position (solver moves point as close to cursor as constraints allow).
-5. Remove the `Dragged` constraint.
-
-This enables interactive "rubber banding" of unconstrained geometry.
-
-## Visual Feedback
-
-### Color Coding
-| State | Color |
-|-------|-------|
-| Fully constrained | Green or Black |
-| Under-constrained | Blue |
-| Over-constrained (conflicting) | Red |
-| Construction geometry | Dashed, lighter color |
-| Selected entity | Highlight yellow |
-| Hovered entity | Lighter highlight |
-
-### Dimension Display
-- Dimensional constraints (Distance, Angle, Radius) displayed as labels near the constrained entities.
-- Labels are editable: click label → type new value → re-solve.
-- Leader lines connect label to constrained entities.
-
-### DOF Counter
-- Displayed in status bar: "DOF: 3" (3 degrees of freedom remaining).
-- "Fully Constrained" when DOF = 0.
-- "Over-Constrained" with conflict indicator when constraints conflict.
-
-### Failed Constraint Highlighting
-- When solver returns OverConstrained, highlight the conflicting constraints in red.
-- Conflict IDs come from solver's failed_constraints list.
-
-## Profile Selection
-
-After sketch is fully constrained (or user explicitly selects):
-1. User clicks inside a closed loop.
-2. System identifies which closed profile contains the click point (point-in-polygon test on solved geometry).
-3. Profile highlights.
-4. Profile is ready for extrusion/revolution (user picks the operation from toolbar).
+- `SketchRenderer.svelte` — the active sketch: entities, tool preview, snap
+  indicators, profiles and badges. Colors are CSS tokens (`--sketch-*`):
+  default, selected, hovered, construction, fully constrained,
+  over-constrained, profile hover and select.
+- `InactiveSketchRenderer.svelte` — finished sketches outside sketch mode,
+  including profile hit-testing for region selection.
+- `DimensionLabels.svelte`, `DimensionInput.svelte` — dimension labels as an
+  HTML overlay; click a label, type a value, Enter re-solves.
+- `profiles.js` — closed-loop extraction and point-in-region tests used for
+  drawing and hit-testing profiles.
+- `bspline.js` — B-spline evaluation and interpolation for sketch splines.
+- `axisUtils.js` — revolve axis from a sketch line or a body edge.
+- `sketchToolState.svelte.js` — reactive preview and snap state that
+  `tools.js` (a plain module) writes and the renderer reads.

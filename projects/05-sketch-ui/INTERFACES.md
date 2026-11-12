@@ -1,42 +1,33 @@
 # 05 — Sketch UI: Interfaces
 
-## Types This Crate CONSUMES
+## Messages sent (via the store)
 
-| Type | Source | Purpose |
-|------|--------|---------|
-| `SolvedSketch` | sketch-solver (via wasm-bridge) | Solved positions for display |
-| `SolveStatus` | sketch-solver (via wasm-bridge) | Constraint status for visual feedback |
-| `ClosedProfile` | sketch-solver (via wasm-bridge) | Profile identification for selection |
-| `GeomRef` | INTERFACES.md | Face reference for sketch plane |
-| `EngineToUi::SketchSolved` | wasm-bridge | Solver results message |
+| Message | Purpose |
+|---|---|
+| `BeginSketch { plane }` | Enter sketch mode on a plane or face |
+| `AddSketchEntity { entity }` | Add an entity to the engine's active sketch |
+| `SolveSketch { entities, constraints }` | Replace the engine's sketch state and solve |
+| `ApplySketchOps { ops }` | Apply `SketchOp` values (trim, fillet, offset, …) |
+| `QuerySketch { … }` | Read-only preview of an operation, chain discovery |
+| `FinishSketch { … }` | Commit the sketch as a feature, with solved profiles and positions |
 
-## Types/Events This Crate PRODUCES
+## Data received
 
-| Type | Consumer | Purpose |
-|-------|----------|---------|
-| `UiToEngine::BeginSketch` | wasm-bridge → engine | Enter sketch mode on a face |
-| `UiToEngine::AddSketchEntity` | wasm-bridge → engine | Add drawn entity to sketch |
-| `UiToEngine::AddConstraint` | wasm-bridge → engine | Apply constraint |
-| `UiToEngine::SolveSketch` | wasm-bridge → solver | Request re-solve |
-| `UiToEngine::FinishSketch` | wasm-bridge → engine | Commit sketch as feature |
-| Profile selection (GeomRef) | modeling-ops (via ui-chrome) | Selected profile for extrusion |
+`SolvedSketch`: `positions` (point id → `[x, y]`), `radii` (circle id →
+radius), `profiles`, `status` (`FullyConstrained`, `UnderConstrained { dof }`,
+`OverConstrained { conflicts }`, `SolveFailed { reason }`). `conflicts` index
+the constraint list that was sent.
 
-## Svelte Component API
+## Components
 
-```svelte
-<SketchEditor
-  solvedSketch={solvedSketch}
-  solveStatus={solveStatus}
-  activeTool={currentDrawingTool}
-  on:addEntity={handleAddEntity}
-  on:addConstraint={handleAddConstraint}
-  on:selectProfile={handleProfileSelection}
-  on:finishSketch={handleFinish}
-/>
-```
+`SketchInteraction`, `SketchRenderer`, `InactiveSketchRenderer` and
+`DimensionLabels` are mounted in the viewport's scene; `ConstraintMenu`,
+`ConstraintModal` and `DimensionInput` are HTML overlays on the viewport;
+`SketchConstraintList` is mounted by the Properties panel. All read the store
+directly.
 
-## Notes
+## Shared with the agent tools
 
-- This is a Svelte component overlaid on the 3d-viewport during sketch mode.
-- All communication with the solver is via wasm-bridge messages — never call solver directly.
-- Solved positions arrive as JSON objects (HashMap<u32, [f64, f64]>).
+`finishProfiles.js` builds the `FinishSketch` profile payload for the UI. The
+agent path builds the same payload in Rust
+(`waffle_types::profiles::build_finish_profiles`).

@@ -1,63 +1,60 @@
-# Sub-project 13: Agent Instructions
+# 13 — Development Infrastructure: Agent Instructions
 
-## Quick Start
+Read ARCHITECTURE.md in this directory and `docs/TESTING.md` first.
+
+## Scripting a model
 
 ```rust
 use test_harness::ModelBuilder;
 
-let mut m = ModelBuilder::mock();
-m.rect_sketch("sk", [0.,0.,0.], [0.,0.,1.], 0., 0., 10., 10.).unwrap();
-m.extrude("box", "sk", 10.0).unwrap();
+let mut m = ModelBuilder::kernel_v2();
+m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 0.01, 0.01).unwrap();
+m.extrude("box", "sk", 0.01).unwrap();
 m.assert_has_solid("box").unwrap();
 
 let report = m.report().unwrap();
 println!("{}", report.to_text());
 ```
 
-## Adding New Test Scenarios
+Units are meters.
 
-1. Create a test in `tests/scenarios_mock.rs` (or `scenarios_truck.rs`)
-2. Use `ModelBuilder::mock()` for deterministic tests, `ModelBuilder::kernel()` for real geometry
-3. Name every feature — this makes failures readable
-4. Call `m.assert_has_solid("name")` after operations that should produce solids
-5. Use `m.report()` to generate a full diagnostic report
-6. Run: `cargo test -p test-harness`
+## Adding a scenario
 
-## Oracle Usage
+1. Put it in a test binary under `crates/test-harness/tests/`. A new binary
+   must be assigned to a tier (`docs/TESTING.md`, "New test-harness Binary").
+2. Use `ModelBuilder::kernel_v2()` for real geometry and
+   `ModelBuilder::mock()` for engine logic that does not depend on geometry.
+3. Name every feature; failures are reported by name.
+4. Call `assert_has_solid` after operations that should produce a solid, and
+   `assert_no_errors` where the rebuild must be clean.
+5. For a custom profile use `begin_sketch()` + `add_point()` + `add_line()` +
+   `finish_sketch_manual()`.
+
+## Checking a model
 
 ```rust
-// Individual checks
-let verdicts = m.check_mesh("box").unwrap();  // Mesh quality oracles
-let verdicts = m.check_topology("box").unwrap();  // V/E/F oracles
+let verdicts = m.check_mesh("box").unwrap();      // mesh quality
+let verdicts = m.check_topology("box").unwrap();  // V/E/F, Euler
 
-// Or get everything in one report
-let report = m.report().unwrap();
-for v in &report.oracle_results {
-    println!("[{}] {}: {}", if v.passed {"PASS"} else {"FAIL"}, v.oracle_name, v.detail);
+for v in &m.report().unwrap().oracle_results {
+    println!("[{}] {}: {}", if v.passed { "PASS" } else { "FAIL" }, v.oracle_name, v.detail);
 }
 ```
 
-## Report Interpretation
-
-The report has these sections:
-- **Feature Tree**: name, type, parameters, topology (V/E/F), Euler check, roles
-- **Mesh Summary**: triangle/vertex/face-range counts per feature
-- **Bounding Box**: overall min/max coordinates
-- **Oracle Results**: [PASS]/[FAIL] for each check with detail
-- **Errors**: any engine rebuild errors
-
-## Important Patterns
-
-- Use `m.begin_sketch()` + `m.add_point()` + `m.add_line()` + `m.finish_sketch_manual()` for custom shapes
-- Use `edge_ref_best_effort(feature_id)` for fillet/chamfer targets (MockKernel re-IDs entities)
-- Use `body_ref(feature_id)` for boolean body references
-- MockKernel box: V=8 E=12 F=6, mesh: 12 triangles, 24 vertices (per-face), 6 face ranges
-- WaffleKernel: fillet/chamfer/shell return NotSupported; coplanar booleans fail
-
-## Running Tests
+## Running
 
 ```bash
-cargo test -p test-harness                    # All tests
-cargo test -p test-harness test_full_workflow -- --nocapture  # See report output
-cargo test -p test-harness --test scenarios_kernel -- --ignored  # Run ignored kernel tests
+cargo test -p test-harness --test <binary>                 # one binary
+cargo test -p test-harness --test <binary> -- --nocapture  # with report output
+./scripts/test.sh fast                                     # the fast tier
 ```
+
+## Rules
+
+- Never weaken a hook or a CI gate to get a change through. The overrides
+  exist for the cases their messages name, and each use is logged.
+- After changing Rust that feeds the WASM bundle, run `scripts/build-wasm.sh`
+  and commit the bundle with the sources. `git add` new source files before
+  building; the fingerprint hashes tracked files only.
+- A new shipping crate goes into `rust-lint.yml`, `rust-test.yml` and
+  `scripts/test.sh` in the commit that adds it.

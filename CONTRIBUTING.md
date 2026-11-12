@@ -1,50 +1,95 @@
 # Contributing to Waffle Iron
 
-## Branch Rules
+## Setup
 
-- **Never touch other people's branches.** No commits, merges, rebases, or file edits on branches you didn't create.
-- Create feature branches for your work. Name them descriptively.
-- Keep commits logical and atomic — one conceptual change per commit.
-
-## Code Quality
-
-All code must pass before merging:
+Enable the versioned git hooks once per clone:
 
 ```bash
-cargo test          # All tests pass
-cargo clippy        # No warnings
-cargo fmt --check   # Formatted correctly
+./scripts/setup-hooks.sh
 ```
 
-## Determinism Required
+The Rust toolchain version is pinned in `rust-toolchain.toml`; `rustup`
+installs it on first use.
 
-All outputs must be deterministic. Same inputs must always produce the same results. This means:
+## Before every commit
 
-- No random values in tests or production code
-- No system time dependencies in logic
-- No filesystem side effects in tests
-- Tessellation uses deterministic hashing — preserve this
+Run these for each crate you changed:
 
-## Interface Changes
+```bash
+cargo test -p <crate>
+cargo clippy --all-targets -p <crate> -- -D warnings
+cargo fmt --check -p <crate>
+```
 
-Cross-project interfaces are defined in the top-level `INTERFACES.md`. If you need to change an interface:
+`--all-targets` is required: CI lints test code too.
 
-1. Document the proposed change in your sub-project's `PLAN.md` under "Interface Change Requests"
-2. Do NOT modify `INTERFACES.md` directly
-3. Interface changes require review and must update all consuming crates
+If the change affects what ships to the browser (any crate `wasm-bridge`
+depends on), rebuild the WASM bundle and commit it with the Rust change:
 
-## Tests Are Permanent
+```bash
+./scripts/build-wasm.sh
+```
 
-The test suite only grows. Passing tests must never be deleted. If a test is wrong, fix the test — don't delete it.
+The pre-commit hook blocks two things:
 
-## Sub-Project Boundaries
+- a commit whose bundle in `app/static/pkg/` does not match the sources;
+- a commit that changes `yang-rs` or the boolean side of `kernel-v2` without
+  also recording it in `docs/yang_deviations.md` (or a "faithful, no
+  deviation" line in `docs/yang_tail_triage.md`).
 
-Each sub-project has its own directory under `projects/`. Agents and contributors work within their assigned sub-project. Cross-project changes go through the integration process.
+## Test tiers
 
-## Commit Messages
+`./scripts/test.sh <tier>` runs a whole tier. Pick the smallest one that covers
+your change.
 
-Write clear, descriptive commit messages. First line is a summary (imperative mood, ~50 chars). Body explains why, not what.
+| Tier | Covers |
+|---|---|
+| `rewrite` | The kernel-stack crates (about 8 minutes) |
+| `fast` | `rewrite` plus the engine crates and the fast `test-harness` binaries |
+| `full` | Every Rust test, including the complete `test-harness` suite (about 27 minutes) |
+| `gui-fast` | GUI smoke tests (Playwright) |
+| `gui-full` | Every GUI spec |
+| `all-fast` | `fast` + `gui-fast` + the agent-link relay tiers |
+| `all` | `full` + `gui-full` + relay — run before merging |
+
+All tiers are green. A red test is a regression. `docs/TESTING.md` describes
+each tier, how to add a test to one, and how to run the boolean assay.
+
+## Pushing to main
+
+The pre-push hook refuses a push to `main` when the latest completed CI run on
+`main` is not green, or when the pushed commits change a kernel-stack crate
+and no passing `./scripts/test.sh rewrite` (or `fast` / `full`) is recorded
+against exactly that kernel content. A passing run records itself. Never push
+on top of a red or timed-out `main`.
+
+## Rules
+
+- **Determinism.** The same input always produces the same output. No random
+  values, no system time in logic, no filesystem side effects in tests.
+- **Tests are permanent.** Never delete a passing test. If a test is wrong, fix
+  it.
+- **Fix it right or don't fix it.** If you cannot explain why a test fails, do
+  not change code to make it pass: no tolerance widening, no special-case
+  branches, no fallback paths. Write down what you found instead.
+- **Stay inside your crate.** Depend on another crate's public contract, never
+  its internals. The kernel is reached only through the traits in
+  `waffle_types::kernel`.
+- **Interface changes** touch every consumer. Propose a change to a
+  cross-crate contract in your sub-project's `PLAN.md` under "Interface Change
+  Requests"; it needs review, and it must update every consuming crate and
+  `INTERFACES.md` together.
+- **Other people's branches are theirs.** Do not commit to, merge, rebase or
+  edit a branch you did not create.
+
+## Commits
+
+One logical change per commit. The first line is an imperative summary of
+about 50 characters; the body explains why, not what.
 
 ## Documentation
 
-Update `PLAN.md` in your sub-project as you complete tasks or discover new ones. Keep architecture docs accurate.
+Documentation describes how the system works now. When you change behaviour,
+update the document that describes it in the same commit. Sub-projects with a
+dossier under `projects/` track their tasks in its `PLAN.md`; kernel-stack
+work is tracked in `docs/yang_faithfulness_roadmap.md`.

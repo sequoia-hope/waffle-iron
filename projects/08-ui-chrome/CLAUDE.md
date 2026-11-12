@@ -1,38 +1,38 @@
 # 08 — UI Chrome: Agent Instructions
 
-You are working on **ui-chrome**. Read ARCHITECTURE.md in this directory first.
+You are working on the application shell, `app/src/routes/` and
+`app/src/lib/ui/`. Read ARCHITECTURE.md in this directory first.
 
-## Your Job
+## Rules
 
-Build the Svelte application shell: feature tree panel, toolbar, property editor, status bar, and context menus. This is the entire UI surrounding the 3D viewport.
+1. **Go through the store.** Components call store functions; the store sends
+   `UiToEngine` messages. No WASM imports in components.
+2. **The engine is authoritative.** Tabs, document name and the feature tree
+   are mirrored from the engine's answers. Do not keep a second copy that can
+   diverge.
+3. **Chrome scrolls or collapses; it never overflows.** New regions need
+   `overflow-y: auto`, a `max-height`, or a size relative to the window.
+   `tests/gui/layout-overflow.spec.js` enforces this.
+4. **Icons come from the registry.** Add a glyph to `icons/icons.js`; no
+   inline SVG in components and no colors in the registry.
+5. **Show errors where they happen.** A failed feature is marked in the tree
+   and its message is shown in the property editor.
+6. **`$state` proxies cannot be posted to the worker.** Clone before
+   `bridge.send`.
+7. **Fillet, chamfer and shell stay disabled.**
 
-## Critical Rules
+## Tests
 
-1. **Communicate via wasm-bridge only.** Send UiToEngine messages. Receive EngineToUi messages. Never import Rust types directly.
-2. **The feature tree is the primary navigation UI.** It must show all features, support reorder via drag-and-drop, and feel responsive.
-3. **Property editor changes trigger rebuilds.** When the user edits a parameter (e.g., extrude depth), produce an EditFeature message with the updated Operation. Debounce rapid changes.
-4. **Show errors clearly.** Failed features should have visible error indicators in the tree and detailed error messages in the property editor.
-5. **Keyboard shortcuts matter.** CAD users rely on shortcuts. Implement the Onshape-inspired shortcut table.
+GUI tests are in `app/tests/gui/`. In a spec, reach a toolbar button with
+`clickTool()` / `clickToolbarAction()` from `helpers/toolbar.js`, never by raw
+test id: the button may be inline, in "More ▾" or in the ⋮ menu depending on
+width.
 
 ## Key Files
 
-Paths are under `app/`.
-
-- `src/routes/+page.svelte` — Main application layout
-- `src/lib/ui/FeatureTree.svelte` — Feature tree panel, with its feature, origin and body context menus
-- `src/lib/ui/Toolbar.svelte` — Part / Sketch toolbar: tool descriptors, collapse ladder
-- `src/lib/ui/DrawingToolbar.svelte` — Drawing-tab toolbar
-- `src/lib/ui/PropertyEditor.svelte` — Parameter editing (and the sketch constraint list)
-- `src/lib/ui/StatusBar.svelte` — Status information
-- `src/lib/viewport/ViewportContextMenu.svelte` — Viewport right-click menu
-- `src/lib/sketch/ConstraintMenu.svelte` — Sketch right-click constraint menu
-- `src/lib/ui/icons/` — Icon registry (`icons.js`) and `Icon.svelte`; see ARCHITECTURE.md "Icons"
-- `src/lib/ui/iconOnly.svelte.js` — Phone check: icons without labels
-
-## Dependencies
-
-- SvelteKit
-- 3d-viewport (embedded as viewport component)
-- sketch-ui (embedded during sketch mode)
-- wasm-bridge (communication)
-- No Rust/WASM dependencies
+- `src/routes/+page.svelte` — editor layout
+- `src/lib/ui/Toolbar.svelte`, `DrawingToolbar.svelte`
+- `src/lib/ui/FeatureTree.svelte`, `AssemblyPanel.svelte`, `DrawingPanel.svelte`
+- `src/lib/ui/PropertyEditor.svelte`, `StatusBar.svelte`, `TabBar.svelte`
+- `src/lib/ui/icons/` — `icons.js`, `Icon.svelte`
+- `src/lib/engine/store.svelte.js` — application state

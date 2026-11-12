@@ -1,281 +1,258 @@
 # Waffle Iron — System Architecture
 
-> **⚠ Kernel sections below describe the DELETED legacy kernel.** The Phase 6
-> migration (2026-06-11) removed `crates/kernel/` entirely; the app runs on
-> the layered kernel stack — `cad-primitives` → `nurbs-rs` / `cherchi-rs` /
-> `ssi-rs` (+ the two non-WASM C++ sidecar crates, dev-only oracles) →
-> `yang-rs` → `kernel-v2` — behind the `Kernel`/`KernelIntrospect` traits in
-> `waffle_types::kernel` (implemented by `kernel_v2::KernelV2Adapter`). See
-> root `CLAUDE.md` §"Kernel: kernel-v2" and `docs/yang_functional_roadmap.md`
-> (the plan of record). Historical references to `crates/kernel/`, its test
-> counts and assay targets below are retained as history; the non-kernel
-> layers (engine, bridge, presentation) remain accurate.
+Waffle Iron is an open-source (MIT) parametric CAD system that runs in the
+browser. The workflow is the one mechanical engineers use every day: sketch on
+a plane, constrain the sketch, extrude or revolve it, combine bodies with
+booleans, pattern them, assemble parts, and produce drawings.
 
-## Vision
+The geometry kernel, the parametric engine and the file format are Rust,
+compiled to WebAssembly. The user interface is Svelte with three.js. The same
+Rust engine also runs natively, headless, for agents.
 
-Waffle Iron is the "KiCad of mechanical CAD" — an open-source parametric CAD system that replaces Onshape for daily mechanical design work. MIT licensed, community-driven, built for the workflow engineers actually use: sketch on plane → constrain sketch → extrude/revolve → fillet/chamfer → pattern → assemble. The architecture prioritizes determinism, testability, and autonomous agent development.
-
-## Architecture Overview
-
-The system has four layers:
-
-### Kernel Layer (Rust, compiled to WASM)
-
-**The kernel is a layered Rust stack** (the monolithic `crates/kernel/` was deleted at the Phase-6 migration, 2026-06-11):
+## Layers
 
 ```
-cad-primitives  — shared geometry types & constants (Point3, Vector3, BoolOp, …)
-      │
-nurbs-rs        — shared Piegl & Tiller B-spline / NURBS math (deps cad-primitives)
-waffle-types    — public types + the Kernel/KernelIntrospect contract (traits, units, MockKernel)
-      │
-cherchi-rs      — Cherchi 2020+2022 exact mesh boolean (clean-room predicates, WASM-clean)
-ssi-rs          — analytical SSI solvers (Patrikalakis Ch.5)
-      │
-yang-rs         — Yang 2025 hybrid B-Rep/mesh boolean pipeline (deps cherchi-rs + ssi-rs)
-      │
-kernel-v2       — clean B-Rep + Euler ops + tessellation + the trait adapter (deps yang-rs)
+Presentation   Svelte 5 + three.js (Threlte)         main thread
+     │  postMessage (JSON) + typed-array mesh transfer
+Bridge         wasm-bridge                            Web Worker
+     │
+Engine         feature-engine, modeling-ops, sketch-solver, file-format
+     │  Kernel / KernelIntrospect / KernelMeasure / KernelProjection traits
+Kernel         kernel-v2 → yang-rs → cherchi-rs, ssi-rs
 ```
 
-The app, feature-engine, and all tests reach geometry through the `Kernel` /
-`KernelIntrospect` traits in `waffle_types::kernel`, implemented by
-`kernel_v2::KernelV2Adapter`. Dependency layering is compiler-enforced per
-`Cargo.toml`; no kernel internals leak to other layers. **Analytical primacy**:
-boolean operations on quadric surfaces (plane, cylinder, cone, sphere, torus)
-survive as exact analytical geometry through the hybrid pipeline [Ref #24: Yang
-et al. 2025] — the mesh path is an *exact computational tool* for deriving
-correct B-Rep topology, not a degradation (see
-governance/ARCHITECTURAL_INVARIANTS.md A15). The two non-WASM C++ sidecar
-crates (`cherchi-sidecar-rs`, `indirect-predicates-sidecar-rs`) are dev-only
-reference-parity oracles, never shipped. Progress is tracked via the
-categorized kernel-v2 assay; see "Current Kernel Status" below. The previous
-truck-based kernel and the clean-sheet `crates/kernel/` that replaced it both
-served historically (see git history).
+Each layer talks only to the one below it, through the contracts in
+`INTERFACES.md`.
 
-### Engine Layer (Rust, compiled to WASM, runs in Web Worker)
+### Kernel layer
 
-Three crates that implement the parametric modeling logic:
-
-- **feature-engine** — The parametric modeling brain. Manages the feature tree (ordered list of modeling operations), persistent naming (GeomRef system for stable geometry references across rebuilds), rebuild algorithm (replay features from change point), and undo/redo.
-- **modeling-ops** — Individual operation implementations (extrude, revolve, boolean combine). Each operation calls the Kernel trait, introspects the result, assigns semantic roles to created geometry, and returns a complete OpResult with provenance for persistent naming. (Fillet, chamfer, and shell operations exist experimentally but are deferred indefinitely pending boolean reliability.)
-- **sketch-solver** — Pure-Rust 2D geometric constraint solver (`crates/sketch-solver`) using Levenberg-Marquardt with analytical Jacobians, DOF analysis, and closed-profile extraction (replaced the earlier `slvs`/libslvs C wrapper).
-
-### Bridge Layer (Rust/WASM + JavaScript glue, runs in Web Worker)
-
-**wasm-bridge** — Protocol between the WASM engine and the JS presentation layer. Commands flow JS → WASM (postMessage to Worker → dispatch to engine). Tessellated mesh data flows WASM → JS as TypedArray views into WASM linear memory for near-zero-copy transfer. Only model changes trigger mesh transfer, not per-frame. BREP topology stays entirely in WASM — JS sees only opaque handles and tessellated output.
-
-### Presentation Layer (Svelte + three.js/Threlte, runs on main thread)
-
-- **3d-viewport** — three.js rendering via Threlte (declarative three.js for Svelte). Receives tessellated mesh data from wasm-bridge. Handles camera controls, entity picking via raycasting with face-range metadata, hover/selection highlighting, sketch-mode transparency.
-- **sketch-ui** — 2D sketch editing interface. Drawing tools, constraint application, dimension editing, auto-constraining, visual feedback for constraint status.
-- **ui-chrome** — Application shell. Feature tree panel, toolbar, property editor, status bar. All communication with the engine via wasm-bridge messages.
-
-## Data Flow
+The kernel is a stack of crates. Cargo dependencies enforce the layering: a
+crate may not import one above it.
 
 ```
-User Input
+cad-primitives   shared geometry types and tolerance constants (Point3, Vector3, BoolOp, …)
+   ├─ nurbs-rs       B-spline / NURBS math (Piegl & Tiller)
+   ├─ cherchi-rs     exact mesh arrangement and mesh boolean (Cherchi 2020 + 2022)
+   ├─ ssi-rs         closed-form surface–surface intersection (Patrikalakis ch. 5)
+   │
+waffle-types     shared types and the kernel contract (depends on cad-primitives, nurbs-rs)
+   │
+yang-rs          the Yang et al. 2025 hybrid B-Rep/mesh boolean pipeline
+   │             (depends on cherchi-rs, ssi-rs)
+kernel-v2        B-Rep, Euler operators, primitives, tessellation, STEP/DXF export,
+                 and KernelV2Adapter (depends on yang-rs, waffle-types)
+```
+
+- **kernel-v2** stores solids as a half-edge B-Rep in an arena and builds them
+  with Euler operators (`mvfs`, `mev`, `mef`, `kemr`, `kfmrh`), which keep the
+  topology 2-manifold at every step. It constructs extrusions, revolves, pipes
+  and sweeps directly; tessellates planar, cylindrical, conical, spherical and
+  toroidal faces for rendering; measures volume, area, mass properties,
+  distance, interference and wall thickness; projects views and sections for
+  drawings; and writes STEP (AP214) and DXF.
+- **yang-rs** performs booleans. Surfaces stay analytical throughout; the mesh
+  is an exact computational tool for deriving the result's topology. The
+  pipeline is: coplanar preprocessing (Stage 0) → tessellation with a bijective
+  face mapping (Stage 1) → exact mesh boolean in `cherchi-rs` (Stage 2) →
+  topology extraction (Stage 3) → refinement of intersection curves onto the
+  exact surface–surface intersections from `ssi-rs` (Stage 4) → B-Rep assembly
+  (Stage 5). See `governance/ARCHITECTURAL_INVARIANTS.md` A15.
+- **waffle-types** holds the types every crate shares and the kernel contract
+  in `waffle_types::kernel`: the `Kernel`, `KernelIntrospect`, `KernelMeasure`
+  and `KernelProjection` traits. `kernel_v2::KernelV2Adapter` implements them.
+  `MockKernel` (feature `mock-kernel`) is a deterministic test double.
+
+Nothing above the kernel layer names a kernel-internal type. Operations the
+kernel does not implement return a typed `KernelError::NotSupported`; they
+are never approximated.
+
+Two further crates, `cherchi-sidecar-rs` and `indirect-predicates-sidecar-rs`,
+wrap the reference C++ implementations of the Cherchi papers. They are
+development-only parity oracles and are not compiled to WASM.
+`predicate-gen` generates `cherchi-rs`'s indirect-predicate code.
+
+### Engine layer
+
+- **feature-engine** owns the parametric model. A part is a feature tree: an
+  ordered list of operations (sketch, extrude, revolve, boolean, pattern,
+  pipe, sweep, datum plane, imported body, script, …). The engine rebuilds the
+  tree from the point of change, resolves geometry references across rebuilds
+  (persistent naming), evaluates design parameters and expressions, keeps
+  undo/redo history, and also evaluates assemblies (instances, mate
+  connectors, a mate solver), drawings (sheets, views, annotations) and
+  custom feature scripts (Rhai).
+- **modeling-ops** executes one operation against the kernel traits. It
+  snapshots topology before and after, assigns semantic roles to the faces it
+  created, and returns an `OpResult` with the provenance that persistent
+  naming is built on.
+- **sketch-solver** is a 2D geometric constraint solver: Levenberg-Marquardt
+  with analytical Jacobians, degrees-of-freedom analysis, and sketch editing
+  operations (trim, extend, offset, fillet, mirror). Closed-profile and region
+  extraction live in `waffle-types`.
+- **file-format** reads and writes `.waffle` documents (JSON), including
+  migration from older format versions. `docs/FILE_FORMAT.md` is the
+  specification.
+- **step-import** converts STEP text into the neutral imported-body types of
+  the kernel contract. It parses with the git-pinned `truck-stepio` crates,
+  which do not appear in its public API.
+- **kicad-pcb** reads `.kicad_pcb` boards so a PCB can be linked into a
+  mechanical design.
+
+### Bridge layer
+
+**wasm-bridge** is the one door between the engine and any host.
+
+- The host sends a `UiToEngine` message as JSON; the bridge dispatches it and
+  answers with one `EngineToUi` message as JSON.
+- Render meshes do not travel as JSON. After a model update the worker reads
+  each body's vertices, normals and indices as typed-array views into WASM
+  memory, and the per-face and per-edge geometry references as JSON.
+- The bridge holds the open document: its tabs (parts, assemblies, drawings),
+  the active tab's engine, the active sketch, selection and hover.
+- Agent tools (model inspection, authoring, measurement, drawings, export)
+  are implemented once here and reached through `UiToEngine::Tool`.
+
+In the browser the bridge runs in a Web Worker (`app/src/lib/engine/worker.js`);
+`app/src/lib/engine/bridge.js` is the main-thread side. Natively,
+**waffle-host** wraps the same bridge over stdio as a headless engine for one
+document session.
+
+### Presentation layer
+
+The app (`app/`, SvelteKit) renders and edits; it holds no modeling logic.
+
+- `lib/viewport/` — three.js scene via Threlte: shaded bodies, edge overlays,
+  picking by raycast against face ranges, camera controls, section caps.
+- `lib/sketch/` — 2D sketch drawing tools, constraints, dimensions, snapping.
+- `lib/ui/` — toolbar, feature tree, assembly and drawing panels, dialogs,
+  tab bar, status bar.
+- `lib/drawings/` — drawing sheet layout, SVG and PDF output.
+- `lib/storage/` — document storage providers (IndexedDB, git hosts).
+- `lib/agent/` — the page side of the agent link.
+
+### Agent link
+
+An MCP client drives Waffle Iron through `relay/` (`waffle-mcp-relay`, Python):
+an MCP server on stdio that forwards each tool call either to a paired browser
+tab over WebSocket or to a `waffle-host` process. Both run the tool through the
+same bridge code, so a tool answers identically in either.
+
+## Data flow
+
+```
+User input
     │
     ▼
-┌─────────────────────────────────────────────────────────────┐
-│  PRESENTATION LAYER (Main Thread)                           │
-│                                                             │
-│  Svelte UI (ui-chrome)                                      │
-│    ├── Feature Tree Panel ──┐                               │
-│    ├── Toolbar              │                               │
-│    ├── Property Editor      ├── UiToEngine messages         │
-│    └── Status Bar           │                               │
-│                             ▼                               │
-│  sketch-ui ────────────► UiToEngine messages                │
-│                             │                               │
-│  3d-viewport (Threlte) ◄── EngineToUi (RenderMesh,         │
-│    ├── Shaded faces         │  selection, status)           │
-│    ├── Edge overlays        │                               │
-│    ├── Picking/selection    │                               │
-│    └── Camera controls      │                               │
-└─────────────────────────────┼───────────────────────────────┘
-                              │ postMessage
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  BRIDGE LAYER (Web Worker)                                  │
-│                                                             │
-│  wasm-bridge                                                │
-│    ├── Deserialize UiToEngine ──► dispatch to engine        │
-│    ├── Serialize EngineToUi ────► postMessage to main       │
-│    └── TypedArray mesh transfer (near-zero-copy)            │
-└─────────────────────────────┼───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  ENGINE LAYER (WASM in Web Worker)                          │
-│                                                             │
-│  feature-engine                                             │
-│    ├── Feature tree management                              │
-│    ├── Rebuild algorithm (replay from change point)         │
-│    ├── GeomRef resolution (persistent naming)               │
-│    └── Undo/redo                                            │
-│         │                                                   │
-│         ▼                                                   │
-│  modeling-ops                                               │
-│    ├── Extrude, Revolve, Boolean Combine                    │
-│    ├── Topology diff (before/after)                         │
-│    └── Provenance + role assignment → OpResult              │
-│         │                                                   │
-│         ▼                                                   │
-│  sketch-solver (pure-Rust Levenberg-Marquardt)              │
-│    ├── Constraint solving (LM + analytical Jacobians)       │
-│    ├── Solve status (fully/under/over-constrained)          │
-│    └── Profile extraction (closed loops for extrusion)      │
-└─────────────────────────────┼───────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│  KERNEL LAYER (WASM)                                        │
-│                                                             │
-│  kernel-v2 (via KernelV2Adapter → yang-rs → cherchi/ssi)    │
-│    ├── Topology: Euler operators (half-edge B-Rep)          │
-│    ├── Boolean operations (Yang hybrid B-Rep/mesh pipeline) │
-│    ├── Topology introspection (faces, edges, vertices)      │
-│    ├── Tessellation → RenderMesh with face-range metadata   │
-│    └── STEP import (`crates/step-import`, truck as parser   │
-│        only) & STEP export (`kernel_v2::step_export` AP214) │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│  PRESENTATION (main thread)                                  │
+│  UI chrome, sketch tools ──► UiToEngine (JSON)               │
+│  Viewport ◄── meshes (typed arrays) + face/edge references   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ postMessage
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  BRIDGE (Web Worker, or waffle-host natively)                │
+│  wasm-bridge: document session, dispatch, agent tools        │
+└──────────────────────────────┬───────────────────────────────┘
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  ENGINE                                                      │
+│  feature-engine: feature tree, rebuild, reference            │
+│                  resolution, parameters, undo/redo,          │
+│                  assemblies, drawings, scripts               │
+│  modeling-ops:   one operation → OpResult with provenance    │
+│  sketch-solver:  constraint solve                            │
+└──────────────────────────────┬───────────────────────────────┘
+                               │ kernel traits
+                               ▼
+┌──────────────────────────────────────────────────────────────┐
+│  KERNEL                                                      │
+│  kernel-v2 (KernelV2Adapter): B-Rep, construction,           │
+│     tessellation, introspection, measurement, projection,    │
+│     STEP / DXF export                                        │
+│  yang-rs → cherchi-rs + ssi-rs: booleans                     │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Sketch data flow (during sketch mode):
+During sketch editing the loop is shorter: the sketch tools send the entities
+and constraints, the bridge runs `sketch-solver`, and the solved positions,
+status and closed profiles come back for display.
 
-```
-sketch-ui (draw/constrain)
-    │ UiToEngine::AddSketchEntity / AddConstraint / SolveSketch
-    ▼
-wasm-bridge → sketch-solver
-    │ SolvedSketch (positions + status)
-    ▼
-wasm-bridge → sketch-ui (update display, color by status)
-```
+## Crate map
 
-## Sub-Project Map
+| Crate | Purpose |
+|---|---|
+| `cad-primitives` | Shared geometry types and tolerance constants |
+| `nurbs-rs` | B-spline / NURBS math |
+| `waffle-types` | Shared types; the kernel contract; `MockKernel` |
+| `cherchi-rs` | Exact mesh arrangement and mesh boolean |
+| `ssi-rs` | Closed-form surface–surface intersection |
+| `yang-rs` | Hybrid B-Rep/mesh boolean pipeline |
+| `kernel-v2` | B-Rep kernel and `KernelV2Adapter` |
+| `sketch-solver` | 2D constraint solver |
+| `modeling-ops` | Operation execution with provenance |
+| `feature-engine` | Feature tree, rebuild, persistent naming, assemblies, drawings, scripts |
+| `file-format` | `.waffle` save, load, migration |
+| `step-import` | STEP reader |
+| `kicad-pcb` | KiCad board reader |
+| `wasm-bridge` | Engine ↔ host protocol; agent tools |
+| `waffle-host` | Native headless host of the engine |
+| `test-harness` | Cross-crate integration tests and the boolean assay |
+| `cherchi-sidecar-rs`, `indirect-predicates-sidecar-rs` | Reference-parity oracles (development only) |
+| `predicate-gen` | Generator for `cherchi-rs` predicates (development only) |
 
-| # | Project | Purpose | Technology | Dependencies | Status |
-|---|---------|---------|------------|-------------|--------|
-| 01 | kernel-v2 stack | Layered B-Rep kernel: `cad-primitives` → `nurbs-rs` / `waffle-types` → `cherchi-rs` / `ssi-rs` → `yang-rs` → `kernel-v2` (adapter `KernelV2Adapter`) | Rust | None | Live (Yang M0–M2/M6/M7 + Phase-6 migration COMPLETE; assay 356/374 CORRECT, 0 WRONG as of 2026-10-22; see `docs/yang_tail_triage.md`) |
-| 02 | sketch-solver | Pure-Rust 2D constraint solving (Levenberg-Marquardt) | Rust | None | Complete |
-| 03 | wasm-bridge | WASM↔JS communication protocol | Rust + JS | 01 | Complete (M1-M8) |
-| 04 | 3d-viewport | three.js rendering via Threlte | Svelte + JS | 01 | Complete |
-| 05 | sketch-ui | 2D sketch editing interface | Svelte + JS | 02, 03, 04 | Complete |
-| 06 | feature-engine | Parametric feature tree + persistent naming | Rust | 01 | Complete (M1-M10; fillet/chamfer/shell deferred) |
-| 07 | modeling-ops | Operation implementations with provenance | Rust | 01 | Complete (M1-M10) |
-| 08 | ui-chrome | Application shell (panels, toolbar, tree) | Svelte | 05, 06, 07 | Complete |
-| 09 | file-format | Save/load/export | Rust | 06 | Complete (M1-M6) |
-| 10 | assemblies | Multi-part assembly (deferred) | Rust + Svelte | All | Deferred |
+Kernel-stack work is planned in `docs/kernel_1_0.md` and
+`docs/yang_faithfulness_roadmap.md`. The other sub-projects keep a dossier
+(architecture, plan, interfaces) under `projects/`.
 
-### Dependency Graph
+## Design principles
 
-```
-Phase 1 (parallel):  01-kernel + 02-sketch-solver
-Phase 2 (parallel):  03-wasm-bridge + 04-3d-viewport        (depend on 01)
-Phase 3:             05-sketch-ui                            (depends on 02, 03, 04)
-Phase 4 (parallel):  06-feature-engine + 07-modeling-ops     (depend on 01)
-Phase 5:             08-ui-chrome                            (depends on 05, 06, 07)
-Phase 6:             09-file-format                          (depends on 06)
-Phase 7:             10-assemblies                           (deferred)
-```
+**Interfaces first.** Crates depend on each other's contracts, not internals.
+`INTERFACES.md` describes the contracts; the Rust source is normative.
 
-## Key Design Principles
+**Deterministic output.** The same input produces the same result: no random
+values, no system-time dependence, no unordered iteration that reaches output.
 
-### Interfaces First
+**Analytical primacy.** Planes, cylinders, cones, spheres and tori stay exact
+through every operation, booleans included. Tessellation is an output, never
+the stored form.
 
-All cross-crate contracts are defined as Rust traits and types in `INTERFACES.md` before implementation begins. All cross-language contracts (WASM ↔ JS) are defined as message schemas before implementation. No crate may depend on another crate's internal types — only on shared interface types.
+**Loud failure.** An operation that cannot produce a correct result returns a
+typed error. There are no tolerance-widening retries and no fallback paths
+that produce a plausible wrong answer (Constitution P9, P10).
 
-### Deterministic Outputs
+**Mock-driven development.** Engine crates are unit-tested against
+`MockKernel`, so they can be developed without touching the real kernel;
+real-geometry tests use `KernelV2Adapter`.
 
-Same inputs must always produce the same results. This is critical for testing and for agent-driven development where reproducibility enables debugging. Tessellation uses deterministic hashing — this must be preserved. No random values, no system-time dependencies, no non-deterministic iteration orders.
+**Tests are permanent.** The suite only grows. A wrong test is fixed, not
+deleted.
 
-### Mock-Driven Development
+**Rust produces data; three.js renders.** Rust crates return meshes, entity
+lists and solve results. All drawing to the screen happens in the app.
 
-Every Rust crate can be tested against mock implementations of its dependencies. The `MockKernel` (which implements the `Kernel` and `KernelIntrospect` traits with deterministic synthetic topology, behind the `mock-kernel` feature) is as important as the real `KernelV2Adapter`. Agents can develop and test feature-engine and modeling-ops without a working kernel build.
+## Kernel capability boundaries
 
-### Session-Independent
+What the kernel builds and combines today: extrusions, revolves (including
+cones, spheres and tori), pipes, sweeps, rigid and mirrored copies, and
+union / subtract / intersect over solids bounded by planes, cylinders, cones,
+spheres and tori — including chained booleans and multi-body results. It
+imports STEP bodies either exactly (analytic shells) or as mesh-backed bodies,
+and exports STEP with exact surfaces.
 
-Every agent session starts from docs + code + tests. No implicit knowledge is required. An agent reading ARCHITECTURE.md, INTERFACES.md, and their sub-project's CLAUDE.md has everything needed to contribute.
+What it refuses, with a typed error:
 
-### Test as Ratchet
+- **Fillet, chamfer, shell** — not implemented; `NotSupported`.
+- **Coplanar boolean inputs the Stage-0 overlay cannot resolve.**
+- **Holed revolve profiles**, and arc or spline profiles that carry no chord
+  polygon.
+- **Booleans on mesh-backed imported bodies.**
+- Specific boolean geometries where a pipeline stage cannot certify its result
+  stop with a typed stage error rather than emit a doubtful solid.
 
-The test suite only grows. Passing tests must never be deleted. If a test is wrong, fix the test. Tests are the permanent record of what the system does.
-
-### three.js for Rendering
-
-All 3D rendering happens in JavaScript via three.js/Threlte on the main thread. Rust/WASM produces tessellated meshes with face-range metadata for picking. Rust does NOT render anything. This boundary is absolute.
-
-## Current Kernel Status
-
-The live kernel is the layered `kernel-v2` stack (see "Kernel Layer" above);
-the monolithic `crates/kernel/` was deleted at the Phase-6 migration
-(2026-06-11). The app, feature-engine, and every test run on this stack
-through the `Kernel` / `KernelIntrospect` traits on stable Rust with standard
-`wasm-pack`. The plan of record is **`docs/yang_functional_roadmap.md`**.
-
-The correctness oracle is the categorized kernel-v2 assay
-(`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`) plus
-reference parity against the Cherchi C++ sidecars. The assay corpus is
-**374 cases** with analytical ground truth and Euler-characteristic oracles,
-scored in five exhaustive buckets:
-
-**356 CORRECT · 0 WRONG · 13 ERROR · 5 EXPECTED_ERROR · 0 TIMEOUT** (2026-10-22; see `docs/yang_tail_triage.md`).
-
-### What exists (live):
-- Half-edge B-Rep topology (arena-based storage, tombstoned ids) with Euler
-  operators (mvfs, mev, mef, kemr, kfmrh) and whole-arena invariant validation
-  at every op exit (`kernel-v2`)
-- Yang 2025 hybrid B-Rep/mesh boolean pipeline (`yang-rs`): coplanar
-  preprocessing (Stage 0) → bijective tessellation → exact mesh boolean
-  (`cherchi-rs`: Cherchi 2020 indirect predicates + 2022 ray-cast in/out) →
-  topology extraction → SSI refinement → B-Rep assembly. **Milestones M0, M1,
-  M2, M6, M7 and the Phase-6 migration are COMPLETE**; the kernel is live in
-  the app
-- Analytical SSI solvers (`ssi-rs`, Ref: Patrikalakis Ch.5) for the non-torus
-  quadric pairs, feeding Stage-4 geometry refinement; closed-form conics + the
-  M5 procedural `SurfacePair` for general-position cyl×cyl / cyl×cone /
-  cone×cone. Torus-pair geometry is produced above `ssi-rs` (coaxial-rim
-  recovery + Stage-4 implicit relocation). See `/specs/ssi_solver_matrix.md`
-- Extrude, revolve (incl. sphere/torus profiles), and boolean union/subtract/
-  intersect over box/cyl/cone/sphere/torus operands
-- Geometry-driven tessellation for planar, cylindrical, conical, spherical,
-  and toroidal faces
-- Analytical AP214 STEP export (`kernel_v2::step_export`) and STEP import (`crates/step-import`, truck pinned as parser only)
-- `MockKernel` (deterministic test double, `waffle-types` `mock-kernel` feature)
-  for consumer-crate unit tests; `KernelV2Adapter` for real-geometry tests
-
-### Remaining capability walls (typed `NotSupported`/error, loud — ROADMAP, not bugs):
-- **N2 / N90 / N91 (§4.4.1 mesh updating & §4.5.1/§4.5.2 boundary/tangency handling)** — the dominant remaining ERROR class (13 corpus cases; tracked in `docs/yang_deviations.md` and `docs/yang_tail_triage.md`)
-- **M8 coplanar-boolean tail** — annular hole-rim crossings and ellipse-edged planar faces in Stage 0 (N89 item 4)
-
-The dominant remaining ERROR class is Stage-4 `LocalRefinementRequired` (the N2
-mesh-updating gap). When a milestone lands, its `#[ignore]`/`test.skip`
-quarantines are un-gated in the same PR (grep the milestone tag, e.g. `KV6`,
-`M8`, `M5`).
-
-### Deferred indefinitely:
-- Fillet, chamfer, shell operations
-- Assembly support
-
----
-
-### HISTORICAL (pre-2026-06-11, `crates/kernel/` — retained for context)
-
-The deleted clean-sheet kernel (`crates/kernel/`) tracked a **980-test** suite
-(28 ignored) against a **190-case** randomized assay corpus (seed 42) with a
-`WaffleKernel` implementation and an S-H clipping + tolerance-escalation
-boolean path. That path — and its failure mode of masking classification
-errors with tolerance widening and synthetic fill triangles — was deleted with
-the crate at the Phase-6 migration and is the cautionary tale behind
-Constitution P9/P10. The Yang "Phase 1–5 switchover" language that used to
-live here is superseded by the milestone roadmap above. Before it,
-`crates/kernel/` had itself replaced a truck-based kernel (through Sprint 67).
-
-## Architectural Precedent: CADmium
-
-[CADmium](https://github.com/CADmium-Co/CADmium) (archived September 2025, 1.6k GitHub stars) used exactly the stack we're targeting: truck (Rust) + SvelteKit + Tailwind + three.js via Threlte + Tauri + JSON feature storage. It validated the pattern of BREP kernel in WASM with three.js rendering, but did not reach production quality.
-
-CADmium was released under Elastic License 2.0 (incompatible with our MIT goals). A relicense conversation with the author may be pursued. Regardless of outcome, our architecture is self-sufficient — CADmium's code is reference material, not a dependency.
-
-The same pattern (BREP in WASM, tessellate in WASM, render in three.js) is used by OpenCascade.js-based tools, Replicad, and Chili3D. It is the industry-standard approach for browser-based CAD.
+Boolean correctness is measured by the categorized assay
+(`crates/test-harness/tests/assay_kv2.rs`, corpus in
+`app/tests/cases/assay/`) and by parity against the reference C++ sidecars.
+`docs/TESTING.md` explains how to run both. The latest per-case results are in
+`app/tests/cases/assay/results.json`; the failing cases are triaged in
+`docs/yang_tail_triage.md`.

@@ -1,101 +1,82 @@
 # Documentation Index
 
-All documentation files in `docs/`, categorized. Updated 2026-07-12.
+The documents that describe how Waffle Iron works and what is being built
+next. Paths are relative to the repository root.
 
-## Architecture
+## Start here
 
-| File | Description |
-|------|-------------|
-| `SYSTEM_DESIGN.md` | Research-annotated system architecture with `[#N]` reference citations per subsystem |
-| `ALGORITHM_DECISIONS.md` | Algorithm Decision Records (ADR-1 through ADR-9) with alternatives and rationale |
-| `CROSS_REFERENCE.md` | Algorithm → paper → code mapping for 30+ implementations |
-| `SYSTEM-INTERFACES.md` | Cross-crate data flows, dependency graph, interface type contracts |
-| `PERSISTENT-NAMING.md` | GeomRef persistent naming system for stable geometry references across rebuilds |
-| `test-tooling-design.md` | GUI architecture and testing infrastructure component hierarchy |
-| `NONDETERMINISM-REPORT.md` | HISTORICAL (pre-2026-06-11): determinism/stability analysis of the retired truck boolean operations |
-| `SKETCH-SYSTEM-PLAN.md` | Sketch system development plan with current capabilities and roadmap |
+| File | What it is |
+|------|------------|
+| `README.md` | Project overview |
+| `ARCHITECTURE.md` | The layers, the crates, and how data flows between them |
+| `INTERFACES.md` | The contracts between crates and between the engine and the UI |
+| `DEVELOPMENT.md` | Setting up a development environment |
+| `CONTRIBUTING.md` | Checks before a commit, test tiers, rules |
+| `CLAUDE.md` | Session guide for coding agents: priorities, routing, conventions |
+| `AGENTS.md` | Agent roles and which agent owns which directory |
 
 ## Governance
 
-Located in `/governance/`, not `docs/`. The four pillars, highest precedence
-first:
+Highest precedence first. These override every other document.
 
-| File | Description |
-|------|-------------|
-| `governance/ENGINEERING_CONSTITUTION.md` | Non-negotiable engineering rules (P1-P10, incl. P9 no-hack-to-green / P10 abort-on-wrong-diagnosis), test requirements, amendment process |
-| `governance/ARCHITECTURAL_INVARIANTS.md` | Architectural invariants (A0–A15), incl. A14 tolerance layering and A15 analytical-primacy / Yang hybrid boolean pipeline |
-| `governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` | Required workflow for modeling features: spec, test, implement, validate (roles, phases, oracles) |
-| `governance/DEFINITION_OF_DONE.md` | Definition of Done checklist gating a change as complete |
+| File | What it is |
+|------|------------|
+| `governance/ENGINEERING_CONSTITUTION.md` | The non-negotiable engineering rules |
+| `governance/ARCHITECTURAL_INVARIANTS.md` | Architectural invariants, including tolerance layering (A14) and the hybrid boolean pipeline (A15) |
+| `governance/FEATURE_IMPLEMENTATION_PROTOCOL.md` | The spec → test → implement → validate workflow |
+| `governance/DEFINITION_OF_DONE.md` | The checklist that gates a change as complete |
+| `agents/ORCHESTRATION.md` | How agent roles are dispatched within a feature cycle |
 
-## Kernel & Yang Boolean Pipeline
+## Kernel
 
-The live kernel is the layered `kernel-v2` stack (Phase-6 migration COMPLETE
-2026-06-11); these docs govern it. See root `CLAUDE.md` §"Kernel: kernel-v2".
+| File | What it is |
+|------|------------|
+| `docs/kernel_1_0.md` | What kernel 1.0 means and the gates to reach it |
+| `docs/yang_faithfulness_roadmap.md` | The work order: milestones F0–F7 toward a faithful implementation of Yang et al. 2025 |
+| `specs/yang_faithful_cleanup.md` | The cleanup plan: which code stands in for which paper mechanism, and the order of retirement |
+| `docs/yang_deviations.md` | The ledger of every divergence from the paper. A kernel change updates it in the same commit |
+| `docs/audits/yang_2025_audit.md` | Compliance matrix: one row per procedural statement of the paper, with code site and status |
+| `docs/yang_functional_roadmap.md` | Pipeline architecture, the `LabeledArrangement` interface, and reference-parity strategy |
+| `docs/yang_tail_triage.md` | Per-case ledger of the boolean assay's failing cases |
+| `docs/kernel_probe_registry.md` | The environment-variable probes in the kernel stack and which of them change output |
+| `docs/review/remediation_2026-10-28.md` | Open remediation items from the independent review: oracles, gates, robustness |
+| `docs/sidecar/cherchi2022_build_guide.md` | Building the reference C++ sidecars used as parity oracles |
 
-| File | Description |
-|------|-------------|
-| `yang_functional_roadmap.md` | **Plan of record** for the whole kernel stack: `LabeledArrangement` interface, milestones M0–M8, reference-parity strategy |
-| `yang_deviations.md` | Ledger of known divergences between the implementation and Yang 2025 / Cherchi 2022 — a per-increment entry is a **merge blocker** (Constitution P2 artifact for Yang increments) |
-| `audits/yang_2025_audit.md` | Paper-ordered compliance matrix (2026-10-16): one row per procedural statement of Yang §3–§4 with code site, status, ledger id and pin; pipeline order; ranked findings — read your section's rows before working on a stage |
-| `review/design_review_2026-07-12_kernel.md` | Multi-agent kernel design review (findings F1–F18, governance-doc issues G1–G11) driving current remediation |
+## Engine, file format and features
+
+| File | What it is |
+|------|------------|
+| `docs/FILE_FORMAT.md` | The `.waffle` file format specification |
+| `docs/schema/` | JSON Schemas generated from the persisted Rust types and pinned by tests |
+| `specs/waffle_v4_document_model.md` | The document model: identity, git-aware sources, scoped references |
+| `docs/CUSTOM_FEATURE_SCRIPTS.md` | Custom feature scripts (Rhai): language, API, tools |
+| `specs/custom_features_and_modeling_roadmap.md` | Design of custom feature scripts and patterns |
+| `specs/drawings_and_mbd.md` | Drawings, annotations, materials and model-based definition |
+| `specs/sketch3d.md` | 3D sketches |
+| `docs/step_import_roadmap.md` | STEP import |
+| `specs/step_import_si5_exact_analytic_ingestion.md` | Exact (analytic) STEP ingestion |
+| `specs/kicad_board_link.md`, `specs/board_shape_feature.md` | KiCad board link and the board-shape feature |
+
+## Agent link
+
+| File | What it is |
+|------|------------|
+| `specs/waffle_mcp_server.md` | The MCP agent link between a local agent and the app |
+| `specs/waffle_server_mode.md` | The headless engine host and viewer sync |
+| `specs/agent_mechanical_design.md` | The tool surface an agent uses to design parts: references, names, measurement, sketching |
+| `relay/README.md` | Running the MCP relay |
 
 ## Testing
 
-| File | Description |
-|------|-------------|
-| `TESTING.md` | Test tiers (`rewrite`, `parity`, `fast`, `full`, GUI fast/full, `all`) + the categorized kernel-v2 `assay_kv2` oracle, how to run, how to add tests |
-| `TESTING-STRATEGY.md` | Test pyramid, layer definitions, testing philosophy |
-| `gui-test-plan.md` | 5 core parametric CAD workflows with test matrices |
-| `gui-test-skeptic-report.md` | Adversarial quality review of all GUI tests (2026-02-11) |
-| `MANUAL-SNAP-CLICK-TEST.md` | Manual browser verification steps for snap-click behavior |
+| File | What it is |
+|------|------------|
+| `docs/TESTING.md` | Test tiers, how to add tests, and how to run the boolean assay, the prospector and the other oracles |
+| `specs/assay_prospector.md` | The prospector that searches for the assay's next failing case |
 
-## Plans
+## Other material
 
-| File | Description |
-|------|-------------|
-| `prototype_release_roadmap.md` | Cross-cutting epic: path to the planetary-gearbox / prototype-release demo (sequences kernel KV12/KV13 + app/UX + tooling) |
-| `SELECTION-ENHANCEMENT-PLAN.md` | Interactive viewport picking and face region selection |
-| `SKETCH-SYSTEM-PLAN.md` | Sketch system development roadmap (also listed under Architecture) |
-| `PROMPTING.md` | Recommendations for backlog management and agent workflow |
-| `CUSTOM_FEATURE_SCRIPTS.md` | Custom feature scripts (Rhai): the language, the API, the Script dialog/editor, the MCP `script_*` tools and the agent authoring loop |
-
-## References
-
-Academic papers and external specifications in `docs/references/`:
-
-| File | Description |
-|------|-------------|
-| `references/opencascade-boolean-operations.md` | OpenCascade boolean operations specification |
-| `references/edelsbrunner-mucke-sos.md` | "Simulation of Simplicity" (1990) — degenerate case handling |
-| `references/sugihara-iri-topology-oriented.md` | "Topology-Oriented Implementation" (Algorithmica 2000) |
-| `references/zhou-mesh-arrangements-2016.md` | "Mesh Arrangements for Solid Geometry" (SIGGRAPH 2016) |
-| `references/levy-exact-constructions-2025.md` | "Exact Predicates, Exact Constructions for Mesh CSG" (Inria 2025) |
-| `references/levy-exact-constructions-2025-tex.md` | TeX source of the Levy paper (arXiv 2405.12949) |
-| `references/hachenberger-nef-ewcg2005.md` | "Boolean Operations on 3D Selective Nef Complexes" (EWCG 2005) |
-| `references/barki-robust-booleans-2015.md` | "Exact, Robust, and Efficient Regularized Booleans" (2015) |
-| `references/astarlioglu-comparing-booleans-2023.md` | "Comparing Boolean Operation Methods" — Aalto MSc thesis (2023) |
-| `references/cherchi-indirect-predicates-2020.md` | "Fast and Robust Mesh Arrangements" (SIGGRAPH Asia 2020) |
-
-## Reviews
-
-Pipeline analysis reports in `docs/review/`:
-
-| File | Description |
-|------|-------------|
-| `review/phase1-intersection-division.md` | Intersection + face division + coplanar handling |
-| `review/phase2-classification-assembly.md` | Classification + shell assembly + robustness infrastructure |
-| `review/phase3-healing-perturbation.md` | Healing + perturbation analysis vs literature solutions |
-| `review/phase4-governance-gaps-roadmap.md` | Governance compliance, spec gaps, test coverage, improvement roadmap |
-
-## Specifications
-
-Spec files live in `/specs/`, not `docs/`. See [`specs/STATUS.md`](../specs/STATUS.md) for the full inventory with implementation status.
-
-## Top-Level Architecture Docs
-
-These live at the repo root, not in `docs/`:
-
-| File | Description |
-|------|-------------|
-| `ARCHITECTURE.md` | System architecture: 4 layers, data flow, sub-project map |
-| `INTERFACES.md` | Cross-crate type contracts and shared interface definitions |
+`specs/` holds one design spec per feature or mechanism; a spec is current when
+a document above or the code cites it. `REFERENCES.md` lists the reference
+papers and materials. Files under `docs/` that are not listed here are working
+notes and investigation records; they are not maintained as descriptions of the
+current system.

@@ -1,68 +1,20 @@
 # 10 — Assemblies: Plan
 
-## Status: ACTIVE (2026-09-08) — Phase 3 of `specs/waffle_v4_document_model.md`
+## Open tasks
 
-Plan of record: the v4 spec §9 Phase 3 row plus this file. Increments:
-
-- [x] **(2026-09-08)** 3a data model + file format: `feature_engine::assembly` (`AssemblyTree`, `Instance`, `PartRef`, `Transform`/`Frame` rigid-transform math, `MateConnector` with a one-level `instance_path` scope, `Mate` with `MateKind::Fastened` and opaque unknown kinds, `validate`, `solve_fastened` — placement by rigid-transform composition from grounded instances, over-constrained mates loud, ungrounded instances warned); `TabKind::Assembly { assembly }` in file-format (loader validation, schema branch, `load_project` refusal, `Tab::assembly`); bridge `LoadProject`/`SaveDocument` accept an active Assembly tab (empty live tree; content UI-owned). `docs/FILE_FORMAT.md` §5.3/§5.6.
-- [x] **(2026-09-08)** 3b evaluation + rendering: bridge `OpenAssembly { assembly, part_trees }` (`wasm-bridge/src/assembly_view.rs`) builds one `Engine` per distinct part (same-document tabs from the UI, linked-source tabs through the loader from the source store), derives connector frames from `geom_ref` faces (`rebuild::resolve_face_plane`, now public), solves placements (`solve_fastened`), and reports `ModelUpdated.assembly { placements, errors, warnings, parts }`; the per-body accessors enumerate every instance's bodies with `instanceId`/`instanceName`/`partTabId`/`transform` and instance-prefixed body ids; the worker passes them through and `CadModel` applies the placement (position + Euler from the quaternion); `SwitchTab`/`LoadProject`/`NewDocument` drop the view. Bridge tests `assembly_tests.rs` (3, real kernel).
-- [x] **(2026-09-08)** 3c UI: `+ Asm` tab button; `AssemblyPanel.svelte` replaces the feature tree for an Assembly tab (instances of this document's Part tabs: name, part, fixed, hide, translation in mm, delete, origin connector; connectors on the selected face of a clicked instance or at an instance origin; Fastened mates with flip/rotation/suppress; evaluation errors and warnings); store: `refreshAssembly` (`OpenAssembly` with all Part trees), placements written back into the tab as derived hints, editing API (`addInstance/updateInstance/removeInstance/addConnector/removeConnector/addMate/updateMate/removeMate`) mirrored on `window.__waffle`; the document reopens on its assembly tab. Spec `assembly.spec.js` (3 cases). Not yet: instances of linked-source tabs in the panel (API supports them), rotation editing in the panel, per-instance body naming overrides.
-- [x] **(2026-09-08)** 3d-1 numeric mate solver (M2/M3): `MateKind::{Revolute, Slider, Cylindrical, Planar, Ball}` (+`flip`), `feature_engine::assembly_solver::solve_mates` — Fastened chains by exact composition first, then damped Gauss-Newton (pure Levenberg λI, central-difference Jacobian, six pose increments per free instance) over all known mates from the instances' current poses; residuals in connector a's frame (see the module doc); unsatisfied mates are loud. The Levenberg choice is deliberate: Marquardt's diagonal scaling regularizes a free direction by almost nothing and a 3 mm hinge-origin error moved the hinge 15° (measured); λI gives the minimum-norm step, which keeps a free coordinate to within the lever coupling (≈ 6e-5 rad here). Panel: mate kind select on new and existing mates. Bridge uses `solve_mates`. Spec: hinge keeps its 30° opening and the axis; retargeting to Slider aligns the frames.
-- [x] **(2026-09-08)** 3d-2 sub-assemblies: an instance may be of an Assembly tab (same document — `OpenAssembly.assembly_trees` — or a linked source's); `assembly_view::evaluate` recurses (each part still built once; cycle and depth guards are loud), solves each level with its own mates, and flattens to `leaves` (`[instance, member, …]` paths with composed world placements) that the per-body accessors enumerate (`instancePath` in body metadata, path-prefixed body ids). A connector on a member (`instance_path` of length > 1) gets its frame composed with the member's relative placement, and the solver moves the top-level instance. Panel: Assemblies in the source chooser; connectors from the clicked member's path.
-- [x] **(2026-09-08)** 3d-3a panel rotation editing (XYZ Euler degrees ↔ quaternion, `app/src/lib/engine/rotation.js`, the viewport's convention)
-- [x] **(2026-09-08)** 3d-3b linked-source instances: bridge `ListSourceTabs { source_id }` → `SourceTabsListed { tabs: [{id, name, kind}] }` (through the loader); the store lists each available `Waffle` source's tabs after every evaluation; the panel's chooser has a Linked group (`source › tab`); such a part is built from the linked document (its own STEP sources must travel with it — the bridge test embeds them).
-- [x] **(2026-09-08)** 3d-4 in-context editing (M5): `GeomRef.scope` (`waffle_types::RefScope {source_id?, tab_id?, instance_path}`, spec §2.8; format **v5**, `MIN_READER_VERSION` 5; 106 literal sites swept) · `feature_engine::context` — `EditContext` (runtime snapshot: every other leaf's meshless feature results + `inv(P_edited) ∘ P_other`), `apply_context` (scoped sketch planes re-derived before each rebuild, face centroid + normal, rebuild widened when moved; loud warning without a context), scoped projected points and up-to depths through the context, `resolve::refuse_scoped` · bridge `OpenPartInContext {features, assembly_tab_id, instance_path, assembly, part_trees, assembly_trees}` → `ContextView` (ghost leaves relative to the edited instance) + `ModelUpdated.context`; per-body accessors bake ghost geometry into the edited frame, scope every ghost face/edge ref, report each planar ghost face's `plane`; linked/unrendered instances refused · app: "edit" per same-document Part instance (and "edit in context" for a selected sub-assembly member) in the panel, `ContextBanner` (Update context / Exit context), ghost material, `computeFacePlane` uses the ghost face's engine plane, `enterSketchMode` records a scoped face as the sketch plane, `getBodies` excludes ghosts, `__waffle.openPartInContext/updateEditContext/exitEditContext/getEditContext/enterSketchOnFace`. Tests: `feature-engine/tests/context_tests.rs` (MockKernel), bridge `assembly_tests.rs` (real kernel: plane at (−25, 5, 10) mm, follows A to y + 20 mm, extrude on it, standalone warning, propagation to both instances, refusals), spec `in-context-editing.spec.js`. Not yet: cross-document contexts (`scope.source_id`), in-plane rotation tracking of a scoped plane (the basis x-axis is derived from the normal, as for every sketch), an "edit in context" affordance from the viewport context menu.
-- [x] **(2026-09-09)** Mate connector frame resolver (`specs/assembly_connector_frame_resolver.md`): the connector path left `feature_engine::rebuild::resolve_face_plane` (the *datum-plane* resolver, planar faces only) for `feature_engine::connector::resolve_connector_frame`. Kernel contract: `KernelIntrospect::entity_axis` (+ `EntityAxis`/`AxisKind` in waffle-types, default `None`, additive) — the only door out for a rotational surface's axis, since `TopoSignature::normal` on a cylinder is radial and kernel-v2's `face_signature` reports nothing for a curved face; implemented in `KernelV2Adapter` off the arena's stored `Surface`/`Curve` (cylinder, cone, torus, sphere, circle, arc, ellipse), `None` for an imported body (`ImportedSurface` keeps no axis parameters). A pick now derives: planar face → centroid + outward normal (unchanged); cylindrical/conical/toroidal face → the axis at the middle of THAT face's axial extent (so a bore's connector sits at mid-depth and a Revolute mate centres the pin); spherical face → the centre; circular/elliptical edge → the centre, z out of its one planar neighbour face (a hole's rim points out of the top face) else the curve's normal; straight edge → midpoint along the edge; anything else a typed loud error. **The pick is judged at creation**: bridge `ProbeConnectorRef` → `ConnectorRefProbed{ok, kind, reason}` against the already-evaluated assembly, and the app's `addConnector` refuses instead of minting a connector that silently resolved to the default frame (origin 0,0,0 / z +Z) — the Phase-3 silent-wrong. **The frames are visible**: `ModelUpdated.assembly.connectors` reports each frame in world coordinates with what it came from; `ConnectorFrames.svelte` draws an R/G/B triad per connector; the panel takes a face OR an edge and labels each connector by its source. Tests: kernel-v2 `entity_axis` (2), `feature-engine/tests/connector_tests.rs` (8, fixture introspect), bridge `assembly_tests.rs` (+2 real kernel — a Ø6 bore and a Ø5 pin mated Revolute by their cylindrical faces; the probe accepts and refuses), `assembly.spec.js` (+2). Not yet: choosing WHICH point on an axis (rim vs mid vs apex) from the UI, vertex connectors, editing a connector after creation, quick-mate, and STEP import carrying analytic surface parameters (a linked STEP component's cylindrical face still has no axis).
-- [x] **(2026-09-10)** Mate connector adjustments — editing after creation (`specs/assembly_connector_adjustments.md`): four additive serde-defaulted fields on `MateConnector` (no reader-floor bump; older readers carry them opaquely): `anchor` (`AxialAnchor`: `middle` | `positive_end` | `negative_end` — where on a cylindrical/conical/toroidal face's axis the frame sits, the ends named by the connector's FINAL z so they read against the drawn triad; `derivation_anchor()` mirrors it under the flip; ignored by other picks), `flip_z` (a 180° turn about x), `rotation_deg` (about z, after the flip — the secondary axis), `offset_m` (along the connector's OWN axes, after the turn). `Frame::{flipped, rotated_about_z, offset_along_axes}`, `MateConnector::adjusted` (loud on a degenerate z); `resolve_connector_frame` takes the anchor; the bridge adjusts the derived or explicit frame before the member placement. App: `updateConnector(id, {name, anchor, flipZ, rotationDeg, offsetMm})` (+ `__waffle`), panel rows editable (name, anchor select for axial faces, flip z, turn, offset x/y/z mm). Tests: `connector_tests.rs` (+7), bridge `assembly_tests.rs` (+1 real kernel: the washer's bore anchored at a rim, flipped, offset; an explicit frame turned), `assembly.spec.js` (cylindrical case extended), schema golden regenerated. Not yet: a secondary-axis pick, vertex connectors, quick-mate, dragging a connector, STEP analytic import.
-- [x] **(2026-09-14)** Part mate connectors (`specs/part_mate_connectors.md`). A named connector is authored in the PART and used by every instance of that part.
-  - **Operation.** `Operation::MateConnector { MateConnectorParams { name, geom_ref?, frame, anchor, flip_z, rotation_deg, offset_m } }` is a new operation kind, so it needs no reader-floor bump. The connector's name is the feature's name.
-  - **Rebuild.** The rebuild derives the frame through `connector::part_connector_frame`, the same resolver and adjustments assembly connectors use, and fails the feature loudly on a pick with no frame. `Engine::connectors` holds the evaluated frames after every rebuild.
-  - **Assembly side.** `assembly::MateConnector.part_connector?` is additive. The frame is the part connector's, with the assembly connector's adjustments on top. A missing part connector is a loud evaluation error.
-  - **Bridge.** `ModelUpdated.connectors` reports the part's connectors, and `AssemblyStatus.part_connectors` reports every leaf's, in world coordinates with `instance_path`. A frame built from a part connector is labeled `part connector · …`.
-  - **App.** The toolbar's `Connector` button opens `MateConnectorDialog`, which places the connector on the selected face or edge or at the origin, with the adjustments. The dialog doubles as the edit dialog from the feature tree. Part frames are drawn as triads. The Assembly panel lists unused part connectors with `use`, and the mate pickers offer them directly.
-  - **MCP.** `feature_add`/`feature_edit` accept `MateConnector`, and `model_summary` returns `connectors`.
-  - **Tests.** `connector_tests.rs` (+3), bridge `assembly_tests.rs` (+2, real kernel), `part-connectors.spec.js` (2).
-  - **Not yet.** Vertex connectors, a secondary-axis pick, part connectors shown in in-context ghosts.
-- [x] **(2026-09-08)** STEP assembly export: kernel-v2 `step_export` (analytic AP214 — plane/cylinder/cone/sphere/torus, line/circle/ellipse/hyperbola, the M5 surface-pair curve as its certified sample polyline; millimetres; per-body `RigidPlacement`), `Kernel::export_step_bodies`; the bridge's `ExportStep` writes every live body of the part or, with an assembly open, every rendered leaf's bodies at their solved world placements named `instance / feature` (a flat multi-body file); mesh-backed imported bodies are reported in `ExportReady.warnings`, never faceted. Oracle: truck round trip (`wasm-bridge/tests/step_export_roundtrip.rs`). Not yet: a product-structure (NAUO) assembly tree in the file, linked-part sources' own STEP text re-emitted.
-
-## Original milestone sketch (kept for scope)
-
-## Future Milestones (Not Scheduled)
-
-### M1: Assembly Data Structure
-- [ ] Assembly tree (parts + sub-assemblies)
-- [ ] Part instances with transforms
-- [ ] Mate connector definitions
-
-### M2: Mate Types
-- [ ] Fastened mate
-- [ ] Revolute mate
-- [ ] Slider mate
-- [ ] Additional mates (cylindrical, ball, planar)
-
-### M3: Mate Solver
-- [ ] 3D constraint solving for mate positions
-- [ ] Evaluate libslvs for 3D mates vs custom solver
-
-### M4: Assembly UI
-- [ ] Assembly tree panel
-- [ ] Mate creation workflow
-- [ ] Multi-part viewport rendering
-
-### M5: In-Context Editing
-- [x] **(2026-09-08)** Edit part within assembly context (3d-4)
-- [x] **(2026-09-08)** Reference geometry from other parts (scoped `GeomRef`, 3d-4)
-- [x] **(2026-09-08)** Propagate changes to all instances (by recipe — every instance rebuilds from the part's tree)
-
-### M6: Assembly File Format
-- [x] **(2026-09-07)** Substrate landed as `.waffle` v4 — `specs/waffle_v4_document_model.md`: `document.id`, git-aware `sources` table (linked/pinned/packed part references), opaque preservation of the future `Assembly` tab kind (no reader-floor bump when it lands), `scope` on `GeomRef` reserved
-- [x] **(2026-09-08)** `Assembly` tab kind (instances `{id, name, source: {source_id?, tab_id}, transform, external_key?}`, mate connectors on scoped `GeomRef`s, mates; solved placements persisted as derived hints) — spec §9 Phase 3 (3a)
-- [x] **(2026-09-08)** STEP assembly export (flat multi-body, placed; see 3d above)
+- [ ] STEP export writes a flat multi-body file. Write the assembly's product
+      structure instead.
+- [ ] In-context editing across documents (`scope.source_id`) is refused.
+- [ ] A scoped sketch plane does not track in-plane rotation of the face it
+      sits on.
+- [ ] Part connectors are not shown on in-context ghosts.
+- [ ] No "edit in context" entry in the viewport context menu.
+- [ ] Vertex connectors.
+- [ ] Picking a connector's secondary axis from geometry.
+- [ ] Quick-mate; dragging a connector.
+- [ ] A cylindrical face of a mesh-backed imported body has no axis, so it
+      cannot carry a connector.
 
 ## Blockers
 
-- All other sub-projects must reach MVP first.
-
-## Interface Change Requests
-
-(None yet)
+None.

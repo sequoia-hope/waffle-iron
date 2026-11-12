@@ -1,57 +1,48 @@
-# Sub-project 14: Agent Link — Interfaces
-
-## Consumes
-
-- `wasm_bridge::messages::{UiToEngine, EngineToUi}` through the page's
-  `EngineBridge` (never direct WASM imports from UI components).
-- `docs/schema/waffle-v5.schema.json` — tool input schemas `$ref` its
-  definitions for `Operation`, `SketchEntity`, `SketchConstraint`, `GeomRef`,
-  `Parameter`, `TopoQuery`.
-- App store getters (`store.svelte.js`) and storage providers
-  (`app/src/lib/storage/index.js`).
+# 14 — Agent Link: Interfaces
 
 ## Provides
 
-- **MCP tools** to agents (spec §2.5).
-  - Relay: `waffle_connect`, `waffle_status`.
-  - Page, Phase 1 (2026-09-14):
-    - queries: `model_summary`, `feature_get`, `selection_get`,
-      `body_measure`, `face_list`, `sketch_regions`, `expression_evaluate`;
-    - commands: `sketch_create`, `feature_add`, `feature_edit`,
-      `feature_delete`, `feature_suppress`, `feature_reorder`,
-      `feature_rename`, `body_rename`, `rollback_set`, `parameters_set`,
-      `undo`, `redo`.
-    - documents and storage: `document_info`, `storage_list` (queries);
-      `document_open`, `document_new`, `document_save`, `tab_switch`
-      (commands, run through the store's own flows without the whole-call
-      lock).
-  - Still to come: `viewport_capture` and export (Phase 2).
-- **`waffle-agent-link/1`** WebSocket frames between relay and page: spec §2.3.
-- **Tool manifest** `agent-tools.manifest.json`, generated from
-  `app/src/lib/agent/tools/`, bundled by the relay. Engine-type inputs are
-  `#/$defs/<Name>` refs; each tool embeds its `$defs`, generated from the
-  golden into `tools/engineSchemas.generated.js`.
-- **App store surface** the agent layer uses (`store.svelte.js`):
-  - locking: `withEngineLock`, `EngineLockTimeout`, `getEngineLockHolder`;
-  - agent entry point: `sendAgentMessage`;
-  - page state: `getUserBusyReason`, `getAgentActivity`/`setAgentActivity`,
-    `isEngineCrashed`;
-  - shared with the app: `openDocumentRecord`, `saveDocumentOrThrow`,
-    `getDocumentInfo`, `hasPendingAutoSave`/`cancelPendingAutoSave`, and
-    `$lib/storage/newDocument.js` `newDocumentRecord`. (Until S3 the page
-    also shared `beginSketchPlaneRef`, `sketchRegionsRequest` and
-    `buildFinishProfiles` with the JS tool bodies; those bodies are gone and
-    the engine has its own — `crates/wasm-bridge/src/tools/`,
-    `waffle_types::profiles::build_finish_profiles`. `finishProfiles.js`
-    remains for the interactive Finish Sketch only.)
-  - test oracles: `__waffle.recordEngineSends` / `getEngineSendLog`.
+**MCP tools.** The authoritative list with schemas is
+`relay/src/waffle_mcp_relay/agent-tools.manifest.json`.
 
-## Interface change requests (owned by other sub-projects)
+| Group | Tools |
+|---|---|
+| Connection (relay) | `waffle_connect`, `waffle_status` |
+| Documents | `document_info`, `document_open`, `document_new`, `document_import`, `document_save`, `storage_list` |
+| Tabs | `tab_switch`, `tab_add`, `tab_move`, `tab_rename` |
+| Inspection | `model_summary`, `feature_get`, `selection_get`, `face_list`, `entity_list`, `names_list`, `sketch_regions`, `sketch_solve_state`, `sketch3d_get`, `parameters_get`, `expression_evaluate`, `entity_meta` |
+| Measurement | `body_measure`, `measure_distance`, `measure_interference`, `measure_mass`, `measure_section`, `measure_thickness` |
+| Authoring | `sketch_create`, `sketch_edit`, `feature_add`, `feature_edit`, `feature_delete`, `feature_suppress`, `feature_reorder`, `feature_rename`, `body_rename`, `rollback_set`, `parameters_set`, `undo`, `redo` |
+| Names and materials | `entity_name`, `entity_unname`, `material_list`, `material_set`, `body_material_set` |
+| Scripts | `script_run_check`, `script_source_add`, `script_source_get`, `script_source_update`, `script_feature_add` |
+| Import and export | `import_step`, `kicad_link`, `export_step`, `export_stl`, `export_dxf`, `export_svg`, `export_pdf` |
+| Assemblies | `assembly_get`, `instance_add/edit/delete`, `connector_add/edit/delete`, `mate_add/edit/delete` |
+| Drawings | `drawing_get`, `drawing_view_add/edit/delete`, `drawing_annotation_add/edit/delete`, `drawing_sheet_edit` |
+| Viewport | `viewport_view`, `viewport_capture` |
 
-| ICR | Owner | Change | Status |
-|---|---|---|---|
-| ICR-4 | feature-engine, wasm-bridge | `provenance` on `AddFeature`/`EditFeature`/`FinishSketch`; `ModelUpdated.feature_id` | landed 2026-09-14 |
-| ICR-2 | wasm-bridge, feature-engine | `EngineToUi::Error.kind`; `ModelUpdated.feature_errors` | landed 2026-09-14 (`KernelStop` kind still needs a kernel-v2 variant) |
-| ICR-1 | waffle-types, kernel-v2, wasm-bridge | `KernelIntrospect::solid_volume`/`solid_surface_area`; `MeasureBody` → `BodyMeasured` | landed 2026-09-14 |
-| ICR-3 | wasm-bridge (+ `feature_engine::resolve::passes_all_filters` made public) | `ListFaces` → `FacesListed` | landed 2026-09-14 |
-| ICR-5 | wasm-bridge, feature-engine | `name: Option<String>` on `AddFeature`/`FinishSketch`, in the same undo step | proposed 2026-09-14 |
+**Protocols.**
+
+- `waffle-agent-link/1` — WebSocket frames between the relay and a paired
+  page (`specs/waffle_mcp_server.md` §2.3).
+- `waffle-host/1` — stdio frames between the relay and `waffle-host`.
+- `waffle-viewer/1` — WebSocket frames between the relay and a viewer in
+  host mode (`specs/waffle_server_mode.md` §4).
+
+## Consumes
+
+- `wasm_bridge::tools::execute_tool` and the `Tool` / `ToolResult` messages.
+- The store's agent surface (`store.svelte.js`): `withEngineLock`,
+  `sendAgentMessage`, `getUserBusyReason`, `isEngineCrashed`,
+  `isEngineReady`, `isDocumentReadOnly`, `setAgentActivity`, and the
+  document flows the Home screen uses.
+- Storage providers (`app/src/lib/storage/index.js`).
+- `docs/schema/waffle-v5.schema.json` — tool input schemas reference its
+  definitions for engine types (`Operation`, `SketchEntity`,
+  `SketchConstraint`, `GeomRef`, …).
+
+## Errors
+
+A failed call is an `isError` result whose `structuredContent.error` is
+`{code, message, details}`. `code` comes from a closed set
+(`specs/waffle_mcp_server.md` §6.1); examples are `PageAway`,
+`EngineCrashed`, `HostCapability`, `ViewerUnavailable`, `Deferred`.

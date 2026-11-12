@@ -1,9 +1,5 @@
 # Waffle Iron — Testing Guide
 
-*(Tier list updated 2026-07-12 to match `scripts/test.sh` — the previous
-version predated the Phase 6 migration and described the deleted legacy
-`kernel` crate; design review G10.)*
-
 ## Test Tiers
 
 ### Kernel Rewrite (`rewrite`, ~490s)
@@ -217,13 +213,9 @@ These files are gitignored and not committed.
 
 ### The WASM build is panic=abort — `catch_unwind` does NOT catch kernel panics
 
-**(Updated 2026-07-12, design review G1. The section this replaces described
-the pre-Phase-6 nightly + `-Zbuild-std` + `panic=unwind` build, which was
-retired with the legacy kernel on 2026-06-11. Do not write tests assuming
-`catch_unwind` works in WASM — it does not.)**
+Do not write tests assuming `catch_unwind` works in WASM — it does not.
 
-Since the Phase 6 migration the WASM bundle is built with standard **stable**
-`wasm-pack` (see `rust-toolchain.toml` and the note in `.cargo/config.toml`).
+The WASM bundle is built with standard **stable** `wasm-pack` (see `rust-toolchain.toml` and the note in `.cargo/config.toml`).
 On `wasm32-unknown-unknown` this forces `panic="abort"`: a panic emits a WASM
 `unreachable` trap that kills the module, and `std::panic::catch_unwind` is a
 no-op. (`Cargo.toml`'s `panic = "unwind"` profile setting applies to NATIVE
@@ -281,45 +273,6 @@ limit):
 4. Worker calls `default(wasmBinaryUrl)` to instantiate new WASM module
 5. Worker calls `init()` to create fresh engine state
 6. Response includes `needsRestart: false` (recovery succeeded) or `true` (failed)
-
-## Measured Timings (2026-02-21) — HISTORICAL
-
-**This table predates the Phase 6 migration; the `kernel` rows refer to the
-deleted legacy crate.** Re-run `./scripts/test.sh profile` for current
-numbers; current tier ballparks are in the tier list above.
-
-Baseline timing data from `profile-rust.sh` run:
-
-| Target | Time | Notes |
-|--------|------|-------|
-| waffle-types | <1s | Pure types |
-| sketch-solver | <1s | Constraint math |
-| feature-engine | 1s | MockKernel-based |
-| file-format | 6s | Serialization |
-| kicad-pcb | <1s | `.kicad_pcb` reader, fixture goldens |
-| modeling-ops | 22s | MockKernel ops |
-| wasm-bridge | <1s | Needs `--no-default-features` |
-| kernel (full) | 407s | Dominated by boolean tests |
-| test-harness (all) | 1817s | See binary breakdown below |
-
-### test-harness binary breakdown
-
-| Binary | Time | Tier |
-|--------|------|------|
-| scenarios_mock | <1s | Fast |
-| workflow_tests | <1s | Fast |
-| oracle_tests | <1s | Fast |
-| report_tests | <1s | Fast |
-| scenarios_advanced | <1s | Fast |
-| stl_tests | <1s | Fast |
-| extrude_on_extrude | 1s | Full |
-| geomref_kernel | 1s | Full |
-| auto_union_detection | 2s | Full |
-| boolean_workflows | 26s | Full |
-| scenarios_kernel | 29s | Full |
-| size_probe | 33s | Full |
-| boolean_failures | 158s | Full |
-| **extrude_chains** | **1659s** | Full (96% of harness time) |
 
 ## Running the categorized assay (the kernel-v2 corpus score)
 

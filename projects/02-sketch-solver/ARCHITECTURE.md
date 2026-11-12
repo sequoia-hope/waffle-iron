@@ -1,109 +1,84 @@
 # 02 — Sketch Solver: Architecture
 
-> **SUPERSEDED.** The slvs/libslvs-based solver described below has been
-> replaced by a clean-room Rust implementation (Levenberg-Marquardt +
-> nalgebra). See `specs/clean_room_constraint_solver.md` and
-> `crates/sketch-solver/src/` for the current implementation. This document
-> is retained as a historical record.
+`crates/sketch-solver` is the 2D geometric constraint solver and the home of
+the sketch editing operations. It is pure Rust (Levenberg-Marquardt on
+`nalgebra`) and compiles to `wasm32-unknown-unknown` as part of the single
+WASM bundle. Its only workspace dependency is `waffle-types`, which defines
+every type it consumes and produces.
 
-## Purpose
+Design spec: `specs/clean_room_constraint_solver.md`. Drag behaviour:
+`specs/sketch_drag_stability.md`, `specs/pinned_constraint.md`.
 
-Integrate the [`slvs` crate](https://crates.io/crates/slvs) (v0.6.0) — type-safe Rust bindings for SolveSpace's libslvs — to provide 2D geometric constraint solving for Waffle Iron sketches.
+## Solving
 
-## The slvs Crate
+`solve_sketch(&Sketch) -> SolvedSketch` is stateless. Each call:
 
-The `slvs` crate provides:
-- **Complete Rust bindings** for libslvs with phantom-typed handles (`EntityHandle<T>`, `ConstraintHandle<T>`)
-- **cc + bindgen build** — compiles libslvs from vendored C source (git submodule)
-- **Serde serialization** for entity/constraint data
-- **All 26+ constraint types** from SolveSpace
+1. **Lays out parameters** (`entity_mapping.rs`, `ParamLayout`). A point is
+   two parameters (x, y); a circle adds one (radius). Lines and arcs add none —
+   they are defined by their point entities. Splines are skipped; gears and
+   sprockets are expanded to primitives before they reach the solver.
+2. **Compiles constraints** (`constraint_mapping.rs`). Each driving
+   `SketchConstraint` becomes a `CompiledConstraint` with entity ids resolved
+   to parameter indices. Each variant supplies its residual rows and an
+   analytic Jacobian. A constraint that names an unknown entity or an
+   unsupported entity combination fails the solve with `SolveFailed`.
+   Reference (driven) dimensions are filtered out here and nowhere else.
+3. **Minimizes** `Σ (wᵢ·rᵢ)²` with the `levenberg-marquardt` crate
+   (`solver.rs`). Every constraint has weight 1 except `Dragged`, which has
+   1/20: a drag is a hint, a `Pinned` point is a lock.
+4. **Regularizes.** Every solve appends rows `ε·(x − x₀)` (ε = 1e-5) that
+   anchor each parameter to its pre-solve value, so under-constrained geometry
+   stays where the user left it instead of drifting along free directions.
+   These rows are excluded from status classification.
+5. **Classifies** the result by rank-revealing QR on the constraint rows of
+   the final Jacobian:
 
-Build requirements: C compiler (clang/gcc), libclang (for bindgen), cmake.
+   | Residual | Rank | Status |
+   |---|---|---|
+   | below 1e-6 | dof = 0 | `FullyConstrained` |
+   | below 1e-6 | dof > 0 | `UnderConstrained { dof }` |
+   | above | rank < rows | `OverConstrained { conflicts }` |
+   | above | full rank | `SolveFailed { reason }` |
 
-## Integration Architecture
+   A failed solve returns the input positions unchanged.
+6. **Reports.** `SolvedSketch` carries solved point positions, solved radii,
+   closed profiles, the status, and a `SketchSolveReport` (per-constraint
+   residuals, conflicts, redundant constraints, moved points, the free
+   directions, and why the minimizer stopped). Every constraint index in the
+   result indexes the caller's own `sketch.constraints`, reference dimensions
+   included.
 
-Our job is to map Waffle Iron's `SketchEntity`/`SketchConstraint` types (defined in INTERFACES.md) to slvs API calls, run the solver, and produce `SolvedSketch` output.
+The solve path is deterministic: parameters, residuals and Jacobian rows are
+assembled in declaration order, and no `HashMap` is iterated.
 
-### Workflow
+## Profile extraction
 
-1. **Create** an `slvs::System`.
-2. **Add a Group** — all sketch entities and constraints go in one group.
-3. **Map SketchEntity** → slvs entities:
-   - `SketchEntity::Point` → `system.add_point_2d(group, x, y)` on the workplane
-   - `SketchEntity::Line` → `system.add_line_segment(group, point_a, point_b)`
-   - `SketchEntity::Circle` → `system.add_circle(group, center, radius, normal, workplane)`
-   - `SketchEntity::Arc` → `system.add_arc(group, center, start, end, normal, workplane)`
-4. **Map SketchConstraint** → slvs constraints:
-   - Each SketchConstraint variant maps to a specific `system.add_constraint_*()` call
-   - Dimensional constraints (Distance, Angle, Radius) pass the value parameter
-   - Geometric constraints (Coincident, Parallel, etc.) are value-free
-5. **Solve** — `system.solve(group)` runs Newton-Raphson with Gaussian elimination
-6. **Extract results:**
-   - Read solved positions from entity handles
-   - Determine SolveStatus from solve result (Ok{dof} → FullyConstrained/UnderConstrained, Fail → OverConstrained/SolveFailed)
-   - Extract closed profiles from solved geometry
+`extract_profiles` delegates to `waffle_types::profiles::extract_profiles`,
+the one implementation shared with the rest of the workspace.
 
-### Constraint Type Mapping
+## Sketch operations
 
-| SketchConstraint | slvs function |
-|-----------------|---------------|
-| Coincident | `coincident` |
-| Horizontal | `horizontal` |
-| Vertical | `vertical` |
-| Parallel | `parallel` |
-| Perpendicular | `perpendicular` |
-| Tangent | `tangent` |
-| Equal | `equal_length_lines` / `equal_radius` |
-| Symmetric | `symmetric` |
-| SymmetricH | `symmetric_horiz` |
-| SymmetricV | `symmetric_vert` |
-| Midpoint | `at_midpoint` |
-| Distance | `pt_pt_distance` / `pt_line_distance` |
-| Angle | `angle` |
-| Radius | `diameter` (value * 2) |
-| Diameter | `diameter` |
-| OnEntity | `pt_on_line` / `pt_on_circle` |
-| Dragged | `dragged` |
-| EqualAngle | `equal_angle` |
-| Ratio | `length_ratio` |
-| EqualPointToLine | `equal_pt_ln_distances` |
-| SameOrientation | `same_orientation` |
+`src/ops/` implements trim, extend, offset, fillet, mirror and projection as
+pure functions on a `Sketch`. Each returns a `SketchEdit` or a typed
+`SketchOpError`; nothing is a silent no-op. The sketch UI and the agent tools
+both call these through the bridge, so there is one implementation.
 
-### SolveStatus Detection
+- Operations reuse point ids wherever geometry survives, so constraints on the
+  kept geometry survive the edit.
+- Operations weld points only on exact coincidence (`POINT_WELD_TOL`, 1e-9).
+  Snapping is the UI's decision; the caller passes the position it chose.
+- `apply_ops` applies a list of `SketchOp` in order; `apply_edit` applies one
+  `SketchEdit`.
 
-- `SolveResult::Ok { dof: 0 }` → `SolveStatus::FullyConstrained`
-- `SolveResult::Ok { dof: n }` where n > 0 → `SolveStatus::UnderConstrained { dof: n }`
-- `SolveResult::Fail { reason: Inconsistent, failed_constraints }` → `SolveStatus::OverConstrained { conflicts }`
-- `SolveResult::Fail { reason: other, .. }` → `SolveStatus::SolveFailed { reason }`
+## Files
 
-### Profile Extraction
-
-After solving, analyze the sketch geometry to find closed loops:
-
-1. Build a graph of connected line/arc/circle segments (using coincident endpoints).
-2. Find all simple cycles in the graph (closed loops).
-3. Classify each loop as outer (counter-clockwise) or inner (clockwise, i.e., a hole).
-4. Return as `Vec<ClosedProfile>`.
-
-This is a graph algorithm problem, not a geometric one — the solver has already positioned everything.
-
-### Performance
-
-Sub-millisecond for typical sketches (10–300 constraints). Newton-Raphson with Gaussian elimination. The constraint solver is never a bottleneck.
-
-## WASM Compilation Strategy
-
-### Short-term: Two WASM Modules
-
-libslvs is C code compiled via Emscripten to its own WASM module. The Rust sketch-solver is compiled via wasm-bindgen to a separate WASM module. They are bridged via JavaScript in the Web Worker.
-
-Constraint solving is infrequent (user adds a constraint → solve → display result), so the bridge overhead is negligible.
-
-### Long-term Options
-
-1. **Port solver to pure Rust** (~5K LOC of numerical code). Eliminates the two-module problem.
-2. **Compile libslvs with `cc` crate for `wasm32-unknown-unknown`** — fragile but may work for pure-computation C code that doesn't use libc.
-
-### Precedent
-
-SolveSpace has been compiled to WASM via Emscripten (experimental web edition). `JacobStoren/SolveSpaceLib` provides isolated solver extraction.
+| File | Contents |
+|---|---|
+| `src/solver.rs` | `solve_sketch`, LM problem, status classification, solve report |
+| `src/entity_mapping.rs` | `ParamLayout` |
+| `src/constraint_mapping.rs` | `CompiledConstraint`: compile, residuals, Jacobian |
+| `src/profiles.rs` | `extract_profiles` (delegates to `waffle-types`) |
+| `src/ops/mod.rs` | trim, extend, offset, fillet, mirror, project, `apply_ops` |
+| `src/ops/chain.rs` | connected-chain discovery and ordering |
+| `src/ops/offset.rs` | chain offset geometry |
+| `src/ops/geom.rs` | 2D primitives and intersections |

@@ -1,74 +1,77 @@
 # 10 — Assemblies: Interfaces
 
-## Status: DEFERRED
-
-Placeholder types for future design. These will be refined when assembly work begins.
-
-## Planned Types
+Types are in `feature_engine::assembly` unless noted. All persisted types
+keep unknown keys in an `extra` map.
 
 ```rust
-/// An assembly containing parts and sub-assemblies.
-pub struct Assembly {
-    pub id: uuid::Uuid,
-    pub name: String,
-    pub nodes: Vec<AssemblyNode>,
+pub struct AssemblyTree {
+    pub instances: Vec<Instance>,
+    pub connectors: Vec<MateConnector>,
     pub mates: Vec<Mate>,
+    pub placements: BTreeMap<Uuid, Transform>,   // derived
 }
 
-/// A node in the assembly tree.
-pub enum AssemblyNode {
-    Part {
-        id: uuid::Uuid,
-        /// Path to the .waffle file or embedded feature tree.
-        source: PartSource,
-        /// Transform from part-local to assembly coordinates.
-        transform: [f64; 16],
-    },
-    SubAssembly {
-        id: uuid::Uuid,
-        assembly: Box<Assembly>,
-        transform: [f64; 16],
-    },
-}
+pub struct Transform { pub translation_m: [f64; 3], pub rotation_quat: [f64; 4] } // [x, y, z, w]
 
-/// Where a part's definition comes from.
-pub enum PartSource {
-    /// Reference to an external .waffle file.
-    FileReference { path: String },
-    /// Embedded feature tree (for standalone assembly files).
-    Embedded { tree: FeatureTree },
-}
+pub struct PartRef { pub source_id: Option<Uuid>, pub tab_id: String }
 
-/// A mate constraint between two mate connectors.
-pub struct Mate {
-    pub id: uuid::Uuid,
+pub struct Instance {
+    pub id: Uuid,
     pub name: String,
-    pub connector_a: MateConnector,
-    pub connector_b: MateConnector,
-    pub mate_type: MateType,
+    pub source: PartRef,
+    pub transform: Transform,
+    pub fixed: bool,
+    pub suppressed: bool,
+    pub external_key: Option<String>,
+    pub parameter_overrides: Option<BTreeMap<String, f64>>,
 }
 
-/// A coordinate frame attached to part geometry.
 pub struct MateConnector {
-    pub part_id: uuid::Uuid,
-    pub geom_ref: GeomRef,
-    pub origin: [f64; 3],
-    pub z_axis: [f64; 3],
-    pub x_axis: [f64; 3],
+    pub id: Uuid,
+    pub name: String,
+    pub instance_path: Vec<Uuid>,
+    pub geom_ref: Option<GeomRef>,
+    pub part_connector: Option<Uuid>,
+    pub frame: Frame,
+    pub anchor: AxialAnchor,
+    pub flip_z: bool,
+    pub rotation_deg: f64,
+    pub offset_m: [f64; 3],
 }
 
-/// Type of mate constraint.
-pub enum MateType {
-    Fastened,
-    Revolute,
-    Slider,
-    Cylindrical,
-    Ball,
-    Planar,
+pub struct Mate {
+    pub id: Uuid,
+    pub name: String,
+    pub kind: MateKind,          // Fastened | Revolute | Slider | Cylindrical | Planar | Ball | Unknown
+    pub connectors: [Uuid; 2],
+    pub suppressed: bool,
+}
+
+pub struct SolveResult {
+    pub placements: BTreeMap<Uuid, Transform>,
+    pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }
 ```
 
-## Notes
+## Functions
 
-- These types are preliminary. They will be refined based on implementation experience.
-- truck-assembly provides positional grouping only — we build our own mate system.
+```rust
+// feature_engine::assembly_solver
+pub fn solve_mates(tree: &AssemblyTree, frames: &HashMap<Uuid, Frame>, tol_m: f64) -> SolveResult;
+```
+
+`feature_engine::connector`: `resolve_connector_frame`,
+`part_connector_frame`, `part_connectors`.
+`feature_engine::context`: `EditContext`, `apply_context`.
+
+## Bridge messages
+
+`OpenAssembly`, `EditAssembly`, `ProbeConnectorRef`, `OpenPartInContext`,
+`ListSourceTabs`. `ModelUpdated.assembly` carries the evaluation;
+`ModelUpdated.context` carries the edit context.
+
+## File format
+
+`TabKind::Assembly { assembly }` in `file-format`; `GeomRef.scope`
+(`waffle_types::RefScope`) for in-context references.

@@ -44,12 +44,13 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 
 ### Sub-Project Agents (one per sub-project)
 
-- **Scope:** Single sub-project directory only.
+- **Scope:** Single sub-project only: its crate under `crates/` (or its part of `app/`) and its dossier under `projects/`.
 - **Reads:** Their project's ARCHITECTURE.md, PLAN.md, INTERFACES.md, CLAUDE.md, plus top-level INTERFACES.md.
+- **Kernel-stack work** (`cad-primitives`, `nurbs-rs`, `waffle-types`, `cherchi-rs`, `ssi-rs`, `yang-rs`, `kernel-v2`) has no dossier. It is routed by the crate table in root `CLAUDE.md` and sequenced by `docs/yang_faithfulness_roadmap.md`.
 - **Responsibilities:**
   - Implement code within their crate/directory.
   - Run their tests before every commit.
-  - Update their PLAN.md to mark completed tasks and add discovered tasks.
+  - Update their PLAN.md (kernel work: the roadmap) to mark completed tasks and add discovered tasks.
   - Document interface change requests (never modify top-level INTERFACES.md directly).
   - Assume feature-cycle roles as directed by Manager (respecting role separation).
 
@@ -58,7 +59,7 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 - **Scope:** Full workspace. Runs after sub-project milestones.
 - **Reads:** All documentation. All code.
 - **Responsibilities:**
-  - Full workspace `cargo build` and `cargo test`.
+  - Run the full test tier (`./scripts/test.sh full`; `./scripts/test.sh all` before a merge).
   - Cross-crate integration tests.
   - Verify interface compliance across crate boundaries.
   - File issues when interfaces are violated.
@@ -86,15 +87,15 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 ### Workflow Rules
 
 4. **Every agent reads INTERFACES.md before starting work.** Interface types are the contracts.
-5. **Every agent runs tests before committing.** `cargo test -p <crate>` for sub-project agents. Full `cargo test` for Integration Agent.
-6. **Every agent updates PLAN.md** to mark completed tasks and add discovered tasks.
+5. **Every agent runs tests before committing.** Sub-project agents run `cargo test -p <crate>`, `cargo clippy --all-targets -p <crate> -- -D warnings` and `cargo fmt --check -p <crate>`. The Integration Agent runs `./scripts/test.sh full`.
+6. **Every agent updates its plan** (PLAN.md, or the roadmap for kernel work) to mark completed tasks and add discovered tasks.
 7. **Prefer structural fixes over tolerance-band tuning — basically always.** A
    robust structural fix (mesh-updating, local refinement, conformal reassembly)
    legitimately spans many commits and sessions; that is expected, not a scoping
    failure. Break work down only when a *specific approach* is thrashing, not
-   merely because it is large or slow to a first commit. (Reason: the kernel tail
-   is missing-capability, not tolerances — see root `CLAUDE.md` "Structural Fixes
-   First".)
+   merely because it is large or slow to a first commit. The kernel's open
+   failures are missing capability, not tolerances — see root `CLAUDE.md`
+   "Structural Fixes First".
 
 ### Interface Change Process
 
@@ -107,5 +108,5 @@ In practice, a Sub-Project Agent may assume different feature-cycle roles across
 
 12. **Tests are permanent.** Passing tests must never be deleted.
 13. **Determinism is mandatory.** Same inputs → same outputs. No random values, no system time, no non-deterministic iteration.
-14. **Mock before real.** Test against MockKernel first, WaffleKernel second.
-15. **Document failures.** If a kernel operation fails in unexpected ways, document it in the kernel PLAN.md.
+14. **Mock before real.** Unit-test against `MockKernel` (`waffle-types`, feature `mock-kernel`); test real geometry against `kernel_v2::KernelV2Adapter`.
+15. **Document failures.** If a kernel operation fails in an unexpected way, record the case and what you found in `docs/yang_tail_triage.md`. Do not work around it in the calling crate.

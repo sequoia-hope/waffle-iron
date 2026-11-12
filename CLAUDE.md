@@ -12,12 +12,12 @@ When rules conflict, the following precedence applies (highest first):
 4. This file — Session workflow and coding conventions
 5. Sub-project `CLAUDE.md` files — Project-specific instructions
 
-## Kernel: kernel-v2 (migration COMPLETE 2026-06-11)
+## Kernel
 
-**The legacy `crates/kernel/` is DELETED.** The app, feature-engine, and all
-tests run on `kernel-v2` through the `Kernel`/`KernelIntrospect` traits in
-`waffle_types::kernel` (implemented by `kernel_v2::KernelV2Adapter`). The WASM
-bundle is built from this stack on **stable Rust** with standard `wasm-pack`.
+The app, feature-engine, and all tests run on `kernel-v2` through the
+`Kernel`/`KernelIntrospect` traits in `waffle_types::kernel` (implemented by
+`kernel_v2::KernelV2Adapter`). The WASM bundle is built from this stack on
+stable Rust with standard `wasm-pack`.
 
 ### Crate layout
 
@@ -50,33 +50,27 @@ higher in the stack may not be imported by one lower down.
 ### Known capability boundaries (NotSupported, loud)
 
 kernel-v2 returns typed `KernelError::NotSupported` (or typed yang errors) for
-operations it does not implement yet. These surface as error toasts in the app
+operations it does not implement. These surface as error toasts in the app
 and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
 They are ROADMAP ITEMS, not bugs:
 
 - **Coplanar boolean inputs** the §4.5.5 Stage-0 overlay cannot resolve —
-  the typed `coplanar input face pair` wall stays LOUD. Two different
-  refusals share that text (`map_yang_error`, `kernel-v2/src/boolean/mod.rs`):
-  cherchi-rs's coplanar deferral (N17, RESOLVED 2026-10-27 — nothing
-  constructs it any more) and Stage 0's n-ary refusals (N25). R0023's
-  2026-10-13 wall was Stage 0's `mixed-arc-lateral-unpaired` (N25, the named
-  M8 follow-up), NOT N17; R0023 now fails earlier, as kernel-v2
+  the typed `coplanar input face pair` wall stays LOUD. It is Stage 0's n-ary
+  refusal (N25; `map_yang_error`, `kernel-v2/src/boolean/mod.rs`). R0023 is
+  its corpus customer; it fails first as kernel-v2
   `TessellationFailed { FaceId(9), "outer loop has fewer than 3 vertices" }`
-  (a cap segment face)
+  (a cap segment face).
 - **Holed revolve profiles** and **arc/spline profiles without a chord
-  polygon** — typed `NotSupported` at profile staging (no corpus case)
-- **Fillet / chamfer / shell** — deferred indefinitely (see below)
+  polygon** — typed `NotSupported` at profile staging (no corpus case).
+- **Fillet / chamfer / shell** — deferred indefinitely (see below).
 
-Everything else the roadmap once listed here has LANDED and is no longer a
-`NotSupported` boundary — STEP export (2026-09-08, `kernel_v2::step_export`:
-analytic AP214, multi-body and placed assembly export, truck round-trip
-oracle in `wasm-bridge/tests/step_export_roundtrip.rs`), revolve (KV6, incl. cones, tori, spheres, on-axis
-lathe shapes and the apex cone as a boolean operand), cylinder×cylinder and
-other degree-4 SSI (M5 surface-pair curves, re-entering chained booleans
-since K11, 2026-09-04), gear/arc profiles. What remains for those families is
+Everything else is supported: STEP export (`kernel_v2::step_export`, analytic
+AP214, multi-body and placed assemblies), revolve (cones, tori, spheres,
+on-axis lathe shapes, the apex cone as a boolean operand), cylinder×cylinder
+and other degree-4 SSI, gear/arc profiles. What remains for those families is
 the loud ERROR tail (typed yang Stage-3/4/5 STOPs on specific geometry —
 `docs/yang_tail_triage.md`), which is kernel capability work, not a
-`NotSupported` marker. A stale `#[ignore = "KV6…"]` or `test.skip` quarantine
+`NotSupported` marker. A stale `#[ignore = "…"]` or `test.skip` quarantine
 is itself a defect: un-quarantine when the capability lands, in the same PR
 (grep the milestone tag, e.g. `M8`, in `#[ignore =` and `test.skip`).
 
@@ -84,7 +78,7 @@ is itself a defect: un-quarantine when the capability lands, in the same PR
 
 **Fillet, chamfer, and shell operations are DEFERRED INDEFINITELY. Do NOT work on them.**
 
-Experimental implementations exist (Sprint 18) and MockKernel tests pass, but these operations depend on boolean reliability which is itself under development. UI dialogs display warning banners with disabled Apply buttons.
+Experimental implementations exist and MockKernel tests pass, but these operations depend on boolean reliability which is itself under development. UI dialogs display warning banners with disabled Apply buttons.
 
 **Never suggest fillet, chamfer, or shell as "next steps" or "what to work on."** If a session plan includes fillet/chamfer/shell work, skip it and choose a different task.
 
@@ -92,63 +86,65 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 
 Track known divergences between the implementation and Yang 2025 / Cherchi 2022 in `docs/yang_deviations.md`. Before working on a Yang stage, compare the code against the paper section it claims to implement. A deviation discovered mid-investigation halts the cycle — the deviation is the bug; do not debug downstream symptoms. (Rule: `feedback_yang_only.md`.)
 
-**A delegation is not an approval (governance A15.7, 2026-10-14).** The
-2026-07-17 "no opinion on A B C" answer that made forty-three ledger entries
-PERMANENT was not a sign-off; those entries (plus N57, N62) are `DELEGATED` —
-open paper-compliance debt, re-adjudicated when their mechanism is next
-touched. Record any "no opinion" / "I don't care" as DELEGATED, never
-PERMANENT; ask for a sign-off in prose with a paper cite, never as a menu; a
-P5 self-sign proves a fix SAFE, not FAITHFUL. **The P2 same-commit ledger
-rule already existed and was skipped for 38 conversions (2026-10-05 →
-10-14)** — check `git log -1 -- docs/yang_deviations.md` against the kernel
-log at session start; the catch-up debt and its order (N5 curved Stage 1,
-N29 §4.5.3 victim rule, the N47/N55/N56 weld band, then the rest) is the
-ledger's 2026-10-14 directive. **The cleanup's plan of record is
-`specs/yang_faithful_cleanup.md`** — read it before any yang-rs change: it
-maps every Stage-1 sample arm and Stage-4 repair pass to the paper
-mechanism it stands in for (§4.5.2, §4.4.1) and fixes the order of
-retirement; a new arm or pass is not added, the paper mechanism is built.
-The pre-commit hook now blocks a kernel commit whose ledger did not move
+**A delegation is not an approval (governance A15.7).** A "no opinion" /
+"I don't care" answer from the user is recorded as `DELEGATED`, never
+PERMANENT: it is open paper-compliance debt, re-adjudicated when its
+mechanism is next touched. Ask for a sign-off in prose with a paper cite,
+never as a menu. A P5 self-sign proves a fix SAFE, not FAITHFUL.
+
+**The ledger moves in the same commit as the mechanism (P2).** Check
+`git log -1 -- docs/yang_deviations.md` against the kernel log at session
+start. The pre-commit hook blocks a kernel commit whose ledger did not move
 (`SKIP_LEDGER_CHECK=1` only for a mechanism-free refactor).
+
+**Read `specs/yang_faithful_cleanup.md` before any yang-rs change.** It maps
+every Stage-1 sample arm and Stage-4 repair pass to the paper mechanism it
+stands in for (§4.5.2, §4.4.1) and fixes the order of retirement. A new arm
+or pass is not added; the paper mechanism is built.
 
 ## Current Priorities
 
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
-**Review remediation (adopted 2026-10-29, `docs/review/remediation_2026-10-28.md`).**
-F2 has ONE owner, and no other kernel milestone (F3, F5, F6) starts until F2
-lands; parallel agents take the plan's non-kernel lanes (A, S, D, P, U, L, H)
-or its gate/oracle items instead. F2's repair-pass retirements wait for the
+**Review remediation (`docs/review/remediation_2026-10-28.md`).**
+F5a, F2 and F1's flip have ONE owner, and no other kernel milestone (F3, F5b,
+F6) starts until F2 lands; parallel agents take the plan's non-kernel lanes
+(A, S, D, P, U, L, H), its gate/oracle items, or the consumer contract
+(`docs/kernel_1_0.md` §3a) instead. F2's repair-pass retirements wait for the
 harness on-surface oracle (plan O1–O3), because today's corpus cannot see an
 off-surface vertex.
 
-1. **Faithfulness to Yang 2025 — the STANDING PRIORITY (2026-10-27).**
+1. **Faithfulness to Yang 2025 — the STANDING PRIORITY.**
    **`docs/yang_faithfulness_roadmap.md` sets the work order:** take the
-   first unchecked item of the earliest open milestone (F0 bookkeeping →
-   F1 classify-after-update N80 → F2 §4.4.1 one per-patch update → F3 §4.5
-   locality / collection / Case-IV rule-out / transits → F4 §4.3
-   tangency & Gauss map → F5 Stage 1 as §4.1 → F6 Stage 0 & emission → F7
-   adjudication). Progress is the roadmap's scoreboard (ledger debt 64,
-   matrix not-faithful rows 100 at adoption) **with the corpus held**, never
+   first unchecked item of the earliest open milestone (F5a the
+   parameter-domain substrate: surface interface + parameter coordinates,
+   result-neutral → F2 §4.4.1 one per-patch update → F1's flip,
+   classify-after-update N80 → F3 §4.5 locality / collection / Case-IV
+   rule-out / transits → F4 §4.3 → F5b Stage 1 as §4.1 and the B-spline
+   instance → F6 Stage 0 & emission → F7 adjudication). F5a opens with a
+   design session that decides in-place conversion versus a second,
+   paper-ordered path (roadmap §3); no new increment is wired into the
+   production Stage 4 before its spec exists. Progress is the roadmap's scoreboard **with the corpus held**, never
    the corpus score alone. Tail cases are *customers* of a milestone, not
    work items of their own (roadmap §4); a WRONG still preempts everything.
    - **Plans of record:**
+     - `docs/kernel_1_0.md` — what kernel 1.0 means (four measured gates) and the way there; the faithfulness roadmap is its gate 2.
      - `docs/yang_faithfulness_roadmap.md` — the sequence and the finish line (above).
-     - `docs/yang_functional_roadmap.md` — `LabeledArrangement` interface and milestones M0–M8 (M0, M1, M2, M6, M7 and Phase-6 migration COMPLETE; `cherchi-rs` is live in production).
-     - `specs/yang_faithful_cleanup.md` — ACTIVE cleanup plan (from 2026-10-14; governance A15.7: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*). Retires Stage-1 pre-emptive sample arms and Stage-4 post-hoc repair passes in favor of the paper's §4.5.2 local refinement loop (`boolean::refine_loop`) and §4.4.1 mesh updating (`stage4_construct::update_patches`).
-     - `docs/audits/yang_2025_audit.md` — 194-row paper-ordered compliance matrix (rebuilt 2026-10-16) mapping every procedural statement of §3–§4 to its code site, status, ledger ID, and pin. Read the rows for your section before changing a stage, and update them in the same commit as `docs/yang_deviations.md`.
+     - `docs/yang_functional_roadmap.md` — `LabeledArrangement` interface and milestones M0–M8.
+     - `specs/yang_faithful_cleanup.md` — the cleanup plan (governance A15.7: *"ad hoc patches will destroy a kernel like this. the fixes must be principled. the principles are the paper"*). Retires Stage-1 pre-emptive sample arms and Stage-4 post-hoc repair passes in favor of the paper's §4.5.2 local refinement loop (`boolean::refine_loop`) and §4.4.1 mesh updating (`stage4_construct::update_patches`).
+     - `docs/audits/yang_2025_audit.md` — 194-row paper-ordered compliance matrix mapping every procedural statement of §3–§4 to its code site, status, ledger ID, and pin. Read the rows for your section before changing a stage, and update them in the same commit as `docs/yang_deviations.md`.
      - `docs/yang_tail_triage.md` — Full chronological conversion log (P0001–P0062, seeds 1–5) and per-case triage ledger.
-   - **Current canonical corpus status (2026-10-30):** **360C / 0W / 9E / 5EE / 0T over 374** (release; 12 jobs on the main dev machine, wall 491 s), with the on-surface oracle in force. The three 2026-10-29 WRONG rows (R0015, R0026, R0050 — `LineSegment` chords on torus/cylinder faces, N100 item 3) CONVERTED by typing every output chord between two different surfaces at Stage-5 emission (N60 amendment): Stage 3's untyped perpendicular torus×plane section and Stage-0 overlay A×B curves (N104, OPEN — the type belongs at Stage 3), bit-twin rim circles, and a pair-chord certificate by bisection. Exactly those three moved; worst on-surface reading 3.5e-10 of scale. "Corpus held" includes on-surface geometry. 2026-10-29: 357C / 3W.
-     - **Open actionable ERROR tail (1 row):** **F0064** (2026-10-25: P0045 CONVERTED, the torus band seam bridge crossed a window loop, N5 amendment; F0067 / P0056 / P0061 CONVERTED, the §4.5.2 loop no longer stops on a repeated failure set and its ceiling is density 16, N67 amendment).
-     - **Loud-by-design / adjudicated ERROR rows (8 rows):** six C-series walls (`C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`), `P0026` (adjudicated minimizer-minted exact tangency), and `R0023` (refined cap segment face / M8 follow-up).
-     - **Key permanent lessons from recent conversions:**
-       - *Never enumerate surface types or curve maps inside a general geometric rule:* Stage-4 triple-corner gate admits by incidence count (three distinct surfaces, Yang §4.5.1), and fan-rebuild winding uses `surface_normal_at` for all surface types.
+   - **Canonical corpus status:** **360C / 0W / 9E / 5EE / 0T over 374** (release, 900 s budget), with the on-surface and render-mesh oracles in force. "Corpus held" includes on-surface geometry. The checkpoint logs in `docs/kernel_1_0.md` §5 and the roadmap §5 hold the current figure; update them, not this line, when it moves.
+     - **Open actionable ERROR tail (1 row):** **F0064**.
+     - **Loud-by-design / adjudicated ERROR rows (8 rows):** six C-series walls (`C0046`, `C0107`, `C0108`, `C0109`, `C0111`, `C0113`), `P0026` (adjudicated minimizer-minted exact tangency), and `R0023` (refined cap segment face).
+     - **Standing rules:**
+       - *Never enumerate surface types or curve maps inside a general geometric rule:* the Stage-4 triple-corner gate admits by incidence count (three distinct surfaces, Yang §4.5.1), and fan-rebuild winding uses `surface_normal_at` for all surface types.
        - *Loud ceiling (N66):* `boolean::refine_loop` adopts only an EMPTY failure set; surviving failures STOP loudly as `YangError::RefinementExhausted`.
-       - *Slow and correct first (N67 amendment, user-signed 2026-10-25):* the loop never stops on a repeated failure set, because a failure set is a STEP function of density (P0056 reads 9/9/9 through ×8 and clears at ×16). Speedups come later as recorded deviations measured against the correct loop, never as early-stop guesses.
-       - *Crease arc extent (N96):* Anchor a T2 fire's position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`) before reading it as a mechanism.
-       - *A relocation is §4.3.2's closest point, never an azimuth slide (N97):* the cone ∩ plane generator slide slipped vertices ALONG their section (R0049 / P0015 / P0029). A step that leaves its face is a recorded FAILURE, repaired after optimization from the midpoint of its converged bounds (`s451_plan_repairs`, N90) — never continued from the failing point itself: P0005's "Fig. 12" fires were overshoots past a triple point its own neighbour already sat on. Continuation on S1 + q1/q2 are unwired (no customer measured). The cylinder twin `project_onto_ellipse_via_cylinder` still slides, behind a band ladder.
-       - *Timing slow cases:* Time with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1` (`ASSAY_JOBS=1 … single_case`) before designing for cost.
+       - *Slow and correct first (N67):* the loop never stops on a repeated failure set, because a failure set is a STEP function of density; its ceiling is density 16. Speedups come later as recorded deviations measured against the correct loop, never as early-stop guesses.
+       - *Crease arc extent (N96):* anchor a T2 fire's position against its crease's ARC (`YANG_S45_BOUNDARY_DOMAIN=census`) before reading it as a mechanism.
+       - *A relocation is §4.3.2's closest point, never an azimuth slide (N97).* A step that leaves its face is a recorded FAILURE, repaired after optimization from the midpoint of its converged bounds (`s451_plan_repairs`, N90) — never continued from the failing point itself. Continuation on S1 and q1/q2 are unwired (no customer measured). The cylinder twin `project_onto_ellipse_via_cylinder` still slides, behind a band ladder.
+       - *Timing slow cases:* time with `YANG_STAGE_TIME_PROBE=1` / `CHERCHI_TIME_PROBE=1` (`ASSAY_JOBS=1 … single_case`) before designing for cost.
    - **Working the tail & assay prospector (subordinate to the roadmap, §4 there):**
      - Anchor each open tail item against its un-minimized lineage first (`target/prospect/seed-{4,5}/candidates/` and `findings/`, or `WAFFLE_PATH=… user_case_probe replay_waffle_env` — minimizer rounding can mint contacts or shift sites).
      - Attach it to the roadmap milestone whose mechanism answers it; build no case-specific fix that no milestone names.
@@ -219,18 +215,14 @@ off-surface vertex.
 6. **Identify your sub-project and route accordingly:**
    - **Kernel-stack work** (`cad-primitives`, `nurbs-rs`, `waffle-types`, `cherchi-rs`,
      `ssi-rs`, `yang-rs`, `kernel-v2`, and the two sidecar crates) is routed by
-     **`docs/yang_functional_roadmap.md`** (the plan of record) plus the crate
-     routing table under "Kernel: kernel-v2" above — **not** by any
-     `projects/NN-*/` dossier. Those kernel dossiers (`projects/01-kernel-fork`)
-     describe the retired truck/`crates/kernel` code and are ARCHIVED; do not
-     follow them. Pick the next uncompleted milestone (M0–M8) in the roadmap.
+     `docs/kernel_1_0.md` and `docs/yang_faithfulness_roadmap.md` plus the crate
+     routing table under "Kernel" above. The kernel has no `projects/NN-*/`
+     dossier.
    - **Non-kernel sub-projects** (sketch-solver, wasm-bridge, 3d-viewport,
      sketch-ui, feature-engine, modeling-ops, ui-chrome, file-format,
-     test-harness, dev-infrastructure) still use their `projects/NN-*/`
+     test-harness, dev-infrastructure, agent-link) use their `projects/NN-*/`
      dossier: read that sub-project's `CLAUDE.md`, then its `PLAN.md` and pick
-     the highest-priority uncompleted task. Sanity-check any dossier against
-     the live tree first — some list truck-era history in completed-milestone
-     notes.
+     the highest-priority uncompleted task.
 
 ## While Coding
 
@@ -244,8 +236,7 @@ off-surface vertex.
 1. Run `cargo test -p <your-crate>` — all tests pass.
 2. Run `cargo clippy --all-targets -p <your-crate> -- -D warnings` — no
    warnings. (`--all-targets` is REQUIRED: the CI lint job lints test code
-   too; a plain `cargo clippy` misses test-only lints and goes red in CI —
-   measured 2026-08-15.)
+   too; a plain `cargo clippy` misses test-only lints and goes red in CI.)
 3. Run `cargo fmt --check -p <your-crate>` — properly formatted.
 4. Update PLAN.md — mark completed tasks, add discovered tasks. (For the new
    kernel crates, update milestones/notes in `docs/yang_functional_roadmap.md`
@@ -265,29 +256,28 @@ top of a red or timed-out main.
 
 Run the appropriate test tier for your workflow:
 
-- `./scripts/test.sh rewrite` — Kernel-stack inner loop: the seven kernel
-  crates + the FFI-feature cherchi-rs suite (~490s).
+- `./scripts/test.sh rewrite` — Kernel-stack inner loop: the kernel crates,
+  the sidecar crates and predicate-gen (~490s).
 - `./scripts/test.sh fast` — Rewrite tier + consumer crates (waffle-types with
   `mock-kernel`, feature-engine, modeling-ops, file-format, wasm-bridge) +
   test-harness fast binaries (~500s).
 - `./scripts/test.sh full` — Everything: fast + the complete test-harness
-  suite (~27min). **All tiers are green** as of 2026-07-28; a red test is a
-  regression, not legacy noise.
-
-  These timings were re-measured on 2026-07-28 and are much larger than the
-  ~70s/~80s/~2min previously documented. The old figures were not wrong so much
-  as they timed TRUNCATED runs: without `--no-fail-fast`, cargo aborted a crate
-  at its first failing test binary, so the tier "finished" early while silently
-  skipping the rest. It is what hid `assay_kv2` for eleven days. The tiers now
-  run everything, and cost what they actually cost.
-- `./scripts/test.sh gui-fast` — Quick GUI smoke tests (~2min)
-- `./scripts/test.sh gui-full` — All ~55 GUI spec files (~5min)
+  suite (~27min).
+- `./scripts/test.sh relay` — the agent-link relay's pytest and lint (~30s)
+- `./scripts/test.sh gui-fast` — the GUI specs CI gates (~15min at 8 workers)
+- `./scripts/test.sh gui-relay` — the agent-link specs against the real relay (~3min)
+- `./scripts/test.sh gui-full` — All GUI spec files (~45min at 8 workers). CI
+  does not run this tier, so it rots unless someone runs it: run it before
+  merging app changes.
 - `./scripts/test.sh all-fast` — Rust fast + GUI fast combined
 - `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
 
+A red test is a regression. The tiers run every binary (`--no-fail-fast`),
+so a tier that finishes early has skipped something.
+
 Capability-pending tests are `#[ignore]`-tagged (Rust) or `test.skip`
-quarantined (GUI) with milestone reasons (M8; M5 K11 inc-2) — un-quarantine
-them when their milestone lands. Anything else red is a real regression.
+quarantined (GUI) with milestone reasons — un-quarantine them when their
+milestone lands.
 
 See `docs/TESTING.md` for tier definitions and how to add tests.
 
@@ -368,11 +358,9 @@ and #168 (`specs/yang_n2_stage4_cdt_mesh_updating.md`) are structured.
 - **SSI solvers** (A15.1): Quadric SSI solvers remain essential — they provide
   the geometry refinement in stage 4 of the hybrid pipeline. Continue implementing
   missing solvers (see A15.4 matrix).
-- **The legacy S-H clipping + tolerance-escalation pipeline was DELETED with
-  `crates/kernel/` at the Phase 6 migration (2026-06-11).** Its failure mode
-  (masking classification errors with tolerance widening and synthetic fill
-  triangles) is the cautionary tale behind P9/P10 — never reintroduce that
-  pattern in the new stack.
+- **Never mask a classification error** with tolerance widening, tolerance
+  escalation or synthetic fill triangles (P9/P10). A boolean that cannot be
+  computed correctly returns a typed error.
 - See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant.
 
 ## GUI Test Rules
@@ -391,7 +379,7 @@ and #168 (`specs/yang_n2_stage4_cdt_mesh_updating.md`) are structured.
   sketch code.** It's the canary — if it fails, drawing is broken.
 - **WASM crash detection**: Use `collectCrashErrors(page)` + `expectNoAnyCrash()` from helpers/state.js.
   NEVER use `getState().engineReady` as a crash oracle — it is not reliably reset on crash.
-  With panic=unwind enabled (nightly + -Zbuild-std), catch_unwind catches kernel panics gracefully.
+  The kernel is Result-based; a panic on wasm32 traps the worker and nothing catches it.
   Use `expectNoAnyCrash` (strict, zero crashes) for new tests.
 - **Chrome must scroll or collapse, never overflow.** The page cannot scroll
   (`html, body { overflow: hidden }`), so anything that outgrows its box is
@@ -408,25 +396,21 @@ and #168 (`specs/yang_n2_stage4_cdt_mesh_updating.md`) are structured.
 
 ## WASM Rebuild Workflow
 
-Standard stable-Rust `wasm-pack` since the Phase 6 migration (the nightly +
-`-Zbuild-std` two-step died with the legacy kernel's panic=unwind machinery).
-
 After any Rust crate changes that affect the WASM bridge:
 
-1. Build:
-   ```
-   wasm-pack build crates/wasm-bridge --release --target web --no-default-features
-   ```
-2. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
-3. Verify dev server still works: `npm run dev`
+1. Build and copy into the app: `./scripts/build-wasm.sh` (stable Rust,
+   standard `wasm-pack`:
+   `wasm-pack build crates/wasm-bridge --release --target web --no-default-features`,
+   then `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`).
+2. Verify the dev server still works (`./serve.sh`).
 
 Notes:
 - The sketch solver is pure Rust (Levenberg-Marquardt + nalgebra) and compiles
-  to wasm32-unknown-unknown natively — no Emscripten, no separate WASM module.
+  to wasm32-unknown-unknown natively.
 - wasm-bindgen CLI version must match the crate version in Cargo.lock
   (wasm-pack downloads the right one automatically).
 - The wasm32 rustflags in `.cargo/config.toml` keep an enlarged 4MB stack for
-  the exact-arithmetic recursion depth. Do not reintroduce `panic=unwind`.
+  the exact-arithmetic recursion depth. Do not add `panic=unwind`.
 
 Include the updated WASM bundle in the same commit as the Rust changes so the app stays in sync.
 
@@ -437,15 +421,3 @@ Each sub-project under `projects/` contains:
 - `PLAN.md` — Task list with milestones, status, blockers, and interface change requests
 - `INTERFACES.md` — Types this sub-project implements and consumes
 - `CLAUDE.md` — Agent-specific instructions for this sub-project
-
-## Dependency Graph
-
-```
-Phase 1 (parallel):  01-kernel + 02-sketch-solver
-Phase 2 (parallel):  03-wasm-bridge + 04-3d-viewport
-Phase 3:             05-sketch-ui
-Phase 4 (parallel):  06-feature-engine + 07-modeling-ops
-Phase 5:             08-ui-chrome
-Phase 6:             09-file-format
-Phase 7:             10-assemblies (deferred)
-```

@@ -1,100 +1,89 @@
 # 03 — WASM Bridge: Architecture
 
-> **NOTE:** The libslvs WASM module section below is historical. The sketch
-> solver is now pure Rust (Levenberg-Marquardt) and compiles to
-> wasm32-unknown-unknown natively — no Emscripten, no separate WASM module.
-> The bridge architecture otherwise remains accurate.
+`crates/wasm-bridge` is the engine's message layer. It owns the engine state,
+dispatches every command, and produces the render data the UI draws. In the
+browser it is compiled to one WASM module that runs in a Web Worker; the
+native host (`crates/waffle-host`) links the same crate as an ordinary Rust
+library.
 
-## Purpose
-
-Communication layer between the Rust/WASM engine (running in a Web Worker) and the JavaScript presentation layer (running on the main thread). All cross-language communication flows through this bridge.
-
-## Communication Architecture
-
-### Two Channels
-
-1. **Commands (JS → WASM):** User actions in the UI produce `UiToEngine` messages. These are serialized as JSON, sent via `postMessage` to the Web Worker, deserialized, and dispatched to the appropriate engine crate (feature-engine, sketch-solver).
-
-2. **Results (WASM → JS):** Engine operations produce `EngineToUi` messages. Metadata (feature tree state, solve status, errors) is serialized as JSON. Mesh data (vertices, normals, indices) is transferred as TypedArray views into WASM linear memory for near-zero-copy performance.
-
-### Web Worker Setup
+## Layers
 
 ```
-Main Thread                          Web Worker
-┌─────────────┐                    ┌─────────────────────────┐
-│  Svelte UI  │   postMessage      │  wasm-bridge            │
-│  + Threlte  │ ───────────────►   │  ├── deserialize cmd    │
-│  + sketch   │                    │  ├── dispatch to engine  │
-│             │   postMessage      │  ├── engine processes    │
-│             │ ◄───────────────   │  ├── serialize result    │
-│             │   (+ Transferable) │  └── mesh as TypedArray  │
-└─────────────┘                    │                         │
-                                   │  WASM modules:          │
-                                   │  ├── Rust engine (.wasm) │
-                                   │  └── libslvs (.wasm)    │
-                                   └─────────────────────────┘
+Main thread                      Web Worker
+┌──────────────────┐  {id, msg}  ┌───────────────────────────────┐
+│ Svelte UI        │ ──────────► │ worker.js                     │
+│ store.svelte.js  │             │   wasm_api::process_message   │
+│ bridge.js        │ ◄────────── │   process → dispatch → engine │
+└──────────────────┘  {id, msg}  │   mesh buffers (Transferable) │
+                     + meshes    └───────────────────────────────┘
 ```
 
-## Message Serialization
+- **`app/src/lib/engine/bridge.js`** (main thread) — `EngineBridge`. `send()`
+  posts `{id, msg}` and returns a promise; the worker echoes the id on the
+  answer. Answers are paired to callers by id, never by arrival order.
+- **`app/src/lib/engine/worker.js`** — loads the WASM module, forwards each
+  message to `process_message`, and attaches mesh buffers to any answer that
+  carries a model.
+- **`src/wasm_api.rs`** — the `#[wasm_bindgen]` shim and the only
+  browser-coupled file in the crate. It is compiled for `wasm32` only.
+- **`src/process.rs`** — the pipeline every host runs: parse a `UiToEngine`,
+  dispatch it, tessellate new bodies, attach the decimated preview, serialize
+  the `EngineToUi`. The clock and logger are injected.
+- **`src/dispatch.rs`** — the single entry point for `UiToEngine` messages.
 
-### Commands (UiToEngine)
-- Serialized as JSON using serde_json.
-- JSON is well-supported by postMessage and human-readable for debugging.
-- Command frequency is low (user actions), so JSON overhead is negligible.
+Everything below `wasm_api.rs` is target-independent and is tested natively.
 
-### Results (EngineToUi)
-- **Metadata** (feature tree, solve status, errors): JSON via serde_json.
-- **Mesh data** (vertices, normals, indices): TypedArray views into WASM linear memory.
-  - `Float32Array` for vertices and normals
-  - `Uint32Array` for indices
-  - Transferred as `Transferable` objects in postMessage for zero-copy semantics
-  - A 1MB mesh buffer transfers in ~1ms
+## State
 
-### Why Not Binary Everywhere?
-JSON for metadata is fine — these messages are small (kilobytes) and infrequent. Binary (bincode) would save ~50% size but adds complexity and hurts debuggability. The performance-critical path is mesh data, which uses TypedArray views regardless.
+- **`EngineState`** (`engine_state.rs`) — the feature `Engine`, the active
+  sketch, selection and hover, the open assembly view, and the document
+  session.
+- **`DocumentSession`** (`session.rs`) — tabs, the trees of inactive tabs,
+  assembly trees, document metadata, per-tab undo history, and the revision.
+  The UI store mirrors the session from each `ModelUpdated`; it does not keep
+  its own copy of the tab list or document name.
 
-## Mesh Transfer Protocol
+## Messages
 
-When the model changes and new meshes are produced:
+Commands (`UiToEngine`) and answers (`EngineToUi`) are JSON via `serde_json`
+(`messages.rs`). They are small and infrequent.
 
-1. Engine tessellates the solid → `RenderMesh` (Vec<f32>, Vec<f32>, Vec<u32>).
-2. Bridge exposes these Vecs as TypedArray views via wasm-bindgen:
-   ```rust
-   #[wasm_bindgen]
-   pub fn get_vertices() -> js_sys::Float32Array {
-       // Create a view into WASM memory — no copy
-       unsafe { js_sys::Float32Array::view(&self.mesh.vertices) }
-   }
-   ```
-3. Worker sends to main thread via `postMessage` with Transferable.
-4. Main thread receives `Float32Array`/`Uint32Array`, passes directly to three.js `BufferGeometry`.
+Mesh data never travels as JSON. After an answer that carries a model, the
+worker reads each body's vertices, normals, indices and edge vertices through
+the `get_body_*` typed-array accessors, copies them out of WASM memory (views
+are invalidated when memory grows), and posts the buffers as `Transferable`
+objects.
 
-This is the universal pattern used by every WASM CAD tool surveyed.
+## Render view
 
-## libslvs WASM Module
+`render_view.rs` decides which bodies are renderable, names them, builds the
+per-face and per-edge entries used for picking, and bakes ghost bodies.
+`tessellation_runner.rs` tessellates bodies that have no mesh yet.
+`assembly_view.rs` and `drawing_view.rs` do the same for assembly and drawing
+tabs.
 
-The constraint solver (libslvs) is C code compiled to WASM via Emscripten as a separate module. Both WASM modules (Rust engine + libslvs) run in the same Web Worker.
+## Agent tools
 
-Bridge flow for sketch solving:
-1. Rust engine receives `SolveSketch` command.
-2. Rust engine maps sketch entities/constraints to a data structure.
-3. JS glue code passes data to the libslvs WASM module.
-4. libslvs solves, returns results.
-5. JS glue code passes results back to Rust engine.
-6. Rust engine produces `SketchSolved` response.
+`src/tools/` implements the agent tools: `execute_tool(state, kernel, name,
+args, ctx) -> ToolResult`. The page and the native host both route a tool call
+here, so a tool behaves the same in either. `MIGRATED` lists the tool names
+this crate answers.
 
-Constraint solving is infrequent, so the JS bridge overhead between the two WASM modules is negligible.
+| File | Tools |
+|---|---|
+| `summary.rs`, `inspect.rs`, `names.rs` | read-only queries, measurement, entity names |
+| `author.rs` | feature authoring (`apply_step`) |
+| `sketch.rs`, `sketch3d.rs` | sketch creation and editing |
+| `assembly.rs` | assembly authoring |
+| `drawing.rs` | drawings |
+| `script.rs` | Rhai feature scripts |
+| `tabs.rs` | document tabs |
+| `export.rs` | STEP / STL export |
 
-## Error Propagation
+## Errors
 
-- Rust panics are caught by `console_error_panic_hook` and converted to structured error messages.
-- `KernelError` and solver errors are converted to `EngineToUi::Error` messages with human-readable messages and (when applicable) the feature ID that caused the error.
-- Worker errors (WASM instantiation failure, memory issues) are caught by the Worker's `onerror` handler and forwarded to the main thread.
-
-## Performance Characteristics
-
-- **JS → WASM call overhead:** ~2.5 nanoseconds per call (Mozilla benchmarks). Not a bottleneck.
-- **Data marshalling:** Primitives (i32, f64) are free. Strings are expensive. Avoid string-heavy protocols.
-- **TypedArray views:** Near-zero cost (creates a view, no copy).
-- **postMessage:** Structured clone for JSON data. Transferable for TypedArray buffers.
-- **Heavy operations** (boolean, tessellation) run in the Worker and don't block the UI thread.
+The engine stack is `Result`-based. `KernelError`, solver and engine errors
+become `EngineToUi::Error` with a message and, where known, the feature id. A
+panic hook prints the panic message to the console. On a fatal engine error
+the worker re-instantiates the WASM module and reports that the engine was
+restarted.

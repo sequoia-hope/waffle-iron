@@ -1,154 +1,131 @@
 # 06 — Feature Engine: Architecture
 
-## Purpose
+`crates/feature-engine` is the parametric modeling engine. It owns the feature
+tree, rebuilds geometry from it, resolves persistent geometry references,
+evaluates design parameters, and provides undo/redo. It also holds the
+document-level models built on top of parts: assemblies, drawings, custom
+feature scripts and linked KiCad boards.
 
-THE MOST CRITICAL SUB-PROJECT. The parametric modeling brain of Waffle Iron. Manages the feature tree, implements persistent naming via the GeomRef system, executes the rebuild algorithm, and provides undo/redo.
+The engine never talks to a kernel type directly. It executes operations
+through `modeling-ops` on a `KernelBundle` (the `Kernel` + `KernelIntrospect`
+traits from `waffle-types`).
 
-## Feature Tree
+## Feature tree
 
-An ordered list of `Feature`s. Each Feature contains:
-- An `Operation` (with parameters) — what to do.
-- `GeomRef` references — to what geometry.
-- Metadata (name, suppressed flag, UUID).
+`FeatureTree` (`types.rs`, `tree.rs`) is an ordered list of `Feature`s plus
+the part's parameters, body names, entity names, materials and provenance
+table. A `Feature` is an id, a name, a suppressed flag, an `Operation` and
+the references it holds.
+`active_index` is the rollback point: features after it are not built.
 
-The `active_index` controls rollback: features after this index are suppressed during rebuild, allowing users to "roll back" the model to an earlier state.
+The tree stores the recipe, not geometry. Geometry is rebuilt from it.
 
-### Feature Operations
+`Operation` variants: `Sketch`, `Sketch3d`, `Extrude`, `Revolve`, `Pipe`,
+`Sweep`, `BooleanCombine`, `UnionAll`, `DatumPlane`, `MateConnector`,
+`PatternCircular`, `PatternLinear`, `PatternMirror`, `ImportedBody`, `Script`,
+`BoardShape`, and `Fillet`, `Chamfer`, `Shell` (deferred — see root
+`CLAUDE.md`). An operation this build does not know is kept as `Unknown` and
+written back unchanged.
 
-Operations modify the model by calling modeling-ops, which calls the kernel. The feature tree stores the recipe (parameters + references), not the geometry. Geometry is recomputed on every rebuild.
+## Rebuild
 
-This is the correct design for parametric CAD (matches Onshape's approach): the file format stores the recipe, and the model is rebuilt from it on load.
+`Engine::rebuild` (`lib.rs`) drives `rebuild::rebuild` (`rebuild.rs`,
+`rebuild/`). It replays features in tree order: resolve the operation's
+references, evaluate its expressions, execute it through `modeling-ops`, and
+store the `OpResult` in `feature_results`.
 
-## Rebuild Algorithm
+- **Incremental.** A rebuild is given a start index and a `Changed` set. A
+  feature re-executes only if it changed, names a feature that re-executed, or
+  finds an input by tree position after one. Every other feature keeps its
+  last result. `Changed::All` re-executes everything from the start index.
+- **Errors are per feature.** A feature that fails records a typed
+  `FeatureError` and the rebuild goes on to the next feature. Warnings are
+  recorded per feature as well.
+- **Consumption.** A boolean, or an extrude that adds to or cuts a body,
+  consumes its targets. `consumed_features` lists features whose bodies are no
+  longer rendered; a consumed body is never picked again as a combine target.
+- **Combine targets** (`rebuild/combine.rs`). An extrude or revolve combines
+  as `NewBody`, `Add`, `Cut` or `Intersect` against explicit target
+  references, the bodies sharing a face with the profile, or the most recent
+  solid.
+- **Measurement passes.** An expression may measure the model
+  (`distance(a, b) / 2`). Such a rebuild runs build → measure → build again
+  from the affected feature. A measurement may read only geometry earlier in
+  the tree than the expression it drives, so the passes terminate; exceeding
+  the budget is a typed error.
+- **Progress.** Long rebuilds emit progress frames (`progress.rs`).
 
-When a parameter changes (e.g., user edits a sketch dimension or changes an extrude depth):
+Tessellation is not the engine's job; the bridge tessellates bodies that have
+no mesh after a rebuild.
 
-1. **Identify the earliest affected feature.** If feature #3 changed, everything from #3 onward is dirty.
-2. **Replay features from the change point forward.** For each non-suppressed feature from the change point:
-   a. Resolve all GeomRefs in the operation's parameters (find the current KernelIds for referenced geometry).
-   b. Call the appropriate modeling-ops function (extrude, revolve, fillet, etc.) with the resolved parameters and the current model state.
-   c. Receive OpResult (outputs + provenance).
-   d. Store the OpResult for this feature (used by downstream features for GeomRef resolution).
-3. **If any GeomRef fails to resolve:**
-   - With `ResolvePolicy::Strict`: fail the rebuild, mark the feature as errored.
-   - With `ResolvePolicy::BestEffort`: use closest match, emit a warning, continue.
-4. **After rebuild:** tessellate the final solid(s), send updated meshes to the UI.
+## Persistent references
 
-### Performance Considerations
+Kernel ids change on every rebuild. Anything that refers to geometry stores a
+`GeomRef` (`waffle-types`): an `Anchor`, a `Selector`, a `ResolvePolicy`, and
+the kind of entity wanted.
 
-Each feature replay involves a kernel operation + tessellation. For a 50-feature tree, this could mean 50 kernel operations. With the kernel's boolean performance characteristics, this could be slow.
+**Anchor** — where to look: `FeatureOutput { feature_id, output_key }` (output
+keys are `Main`, `Body { index }`, `Profile { index }`, `Datum { name }`) or
+`Datum { datum_id }`.
 
-Mitigation strategies:
-- **Lazy tessellation:** Only tessellate the final state, not intermediate states.
-- **Incremental rebuild:** Only replay from the change point, not from scratch.
-- **Operation caching:** Cache OpResults for unchanged features (skip re-execution if parameters and input geometry haven't changed).
-- **Background rebuild:** Run rebuild in the Web Worker, don't block the UI.
+**Selector** — which entity:
 
-## Persistent Naming Strategy
+| Selector | Meaning |
+|---|---|
+| `Pid { pid, root_pid }` | The kernel's persistent id. Preferred for anything that must stay on one entity. If `pid` is gone, `root_pid` finds the entity its geometry descended to. Never rebinds by geometry. |
+| `Role { role, index }` | The semantic role the operation assigned (end cap, side face, pattern instance, …). |
+| `Signature { signature }` | Best match on geometric fingerprint (surface type, area, centroid, normal, bounding box, adjacency). |
+| `Query { query }` | Filters plus a tie-break ("largest planar face"). |
+| `Position { x, y, z }` | Nearest entity to a point. |
 
-This is the core algorithm that makes parametric CAD work. When a fillet references "the top edge of Extrude 1," the system must find that edge even after the user changes the sketch that drives Extrude 1 (which may change the topology).
+**Policy** — `Strict` refuses when the reference does not identify exactly one
+entity. `BestEffort` rebinds to the closest match, records how
+(`ResolvedVia`), and emits a warning naming what it bound.
 
-### The Problem
+Resolution is in `resolve.rs`. `resolve_with_fallback` tries the selector and,
+for a failed role, falls back to matching among entities of the same kind.
+`pin_identity` runs at authoring time: it resolves the authored reference
+strictly, stores a `Pid` selector as the target, and keeps the authored
+reference as the fallback. `resolve_pinned` uses the pid first and the
+fallback only if the policy allows. Every refusal is a typed
+`ReferenceRefusal` with a reason (ambiguous, missing, scope missing, …).
 
-After a rebuild, kernel-internal IDs (KernelId) may change:
-- Booleans create new objects with new IDs.
-- Topology changes (adding/removing faces/edges) shift IDs.
-- The kernel provides NO old→new mapping.
+`Engine::created_by_feature` maps a face to the feature that introduced its
+geometry, through chained booleans, using the kernel's face provenance.
 
-### The Solution: GeomRef
+`names.rs` stores user- and agent-assigned names for entities; a name is a
+pinned reference.
 
-Every geometry reference uses `GeomRef = Anchor + Selector + ResolvePolicy`:
+## Parameters and expressions
 
-**Anchor:** Which feature's output to look in.
-- `FeatureOutput { feature_id, output_key }` — look in the output of a specific feature.
-- `Datum { datum_id }` — look at a datum plane/axis.
+`params.rs` evaluates design parameters and applies expressions to operation
+fields. `expr/` is the expression language: a lexer, a recursive-descent
+parser, and an evaluator that tracks dimensions and unit literals. Parameters
+have part scope and document scope. Measurement functions are in
+`expr/measure.rs` and `measure.rs`. Spec: `specs/parameterized_designs.md`.
 
-**Selector:** How to find the specific entity.
+## Undo/redo
 
-Three strategies, tried in order:
+`undo.rs` is a command stack. Commands: `AddFeature`, `RemoveFeature`,
+`EditFeature`, `ReorderFeature`, `SuppressFeature`, `RenameFeature`,
+`RenameBody`, `SetEntityName`, `SetMaterials`, `SetParameters`. Each records
+what it needs to invert itself, including a feature's provenance record. A new
+command clears the redo stack. Undo and redo rebuild from the affected
+feature. The bridge keeps one history per document tab
+(`take_history` / `set_history`).
 
-1. **Role-based selection** (fast, stable):
-   - Each modeling operation assigns semantic roles to created geometry.
-   - Example: an extrude creates `EndCapPositive`, `EndCapNegative`, and `SideFace` roles.
-   - To reference "the top face of Extrude 1": `GeomRef { anchor: Extrude1/Main, selector: Role(EndCapPositive, 0) }`.
-   - Roles are stable as long as the operation type and parameter structure don't change.
-   - Resolution: look up role assignments in the feature's current OpResult.
+## Other modules
 
-2. **Signature-based selection** (robust fallback):
-   - When role-based resolution fails (topology changed, roles shifted), fall back to matching by geometric properties.
-   - `TopoSignature` includes: surface type, area, centroid, normal, bbox, adjacency hash.
-   - Resolution: compute signatures for all entities in the anchor's output, find the best match to the stored signature.
-   - Uses weighted scoring across multiple signature fields for robustness.
-
-3. **Query-based selection** (user-specified):
-   - For advanced selections: "the face with the largest area," "the face nearest point (x,y,z)."
-   - `TopoQuery` with `Filter`s and `TieBreak` strategy.
-   - Used when role and signature are insufficient.
-
-**ResolvePolicy:** What to do on ambiguity/failure.
-- `Strict`: fail the rebuild. Used for critical references.
-- `BestEffort`: use closest match + emit warning. Used for interactive modeling.
-
-### Resolution Algorithm (Detailed)
-
-```
-resolve(geom_ref: &GeomRef, feature_results: &FeatureResults) -> Result<KernelId, ResolveError>:
-    1. Find the anchor feature's current OpResult.
-       - If anchor feature doesn't exist → error.
-       - If anchor feature is suppressed → error.
-    2. Get the output identified by output_key.
-    3. Apply selector:
-       a. Role { role, index }:
-          - Look up role_assignments in the OpResult's provenance.
-          - Find all entities with the matching role.
-          - Return the one at the specified index.
-          - If role not found → fall through to Signature.
-       b. Signature { signature }:
-          - Get all entities of the target kind in the output.
-          - Compute similarity score between each entity's current signature and the stored signature.
-          - Return the best match above a threshold.
-          - If no match above threshold → error or BestEffort.
-       c. Query { query }:
-          - Get all entities of the target kind in the output.
-          - Apply filters to narrow candidates.
-          - Apply tie_break to select one.
-    4. Apply policy:
-       - Strict: return error if no exact match.
-       - BestEffort: return closest match + warning.
-```
-
-### Known Limitations
-
-This is a simplified version of commercial persistent naming. Cases that may break:
-- **Massive topology changes** where the entire solid is restructured.
-- **Operations that completely reshape** the solid (e.g., boolean that removes most faces).
-- **Multiple similar faces** (e.g., all side faces of a cylinder have the same signature).
-- **Pattern instances** where multiple copies of the same geometry exist.
-
-For the majority of practical modifications to a linear feature tree, this system works.
-
-## Undo/Redo
-
-Command pattern on feature tree mutations:
-
-| Action | Undo |
-|--------|------|
-| AddFeature | RemoveFeature |
-| RemoveFeature | AddFeature (at original position) |
-| EditFeature | EditFeature (restore old parameters) |
-| ReorderFeature | ReorderFeature (restore old position) |
-| SuppressFeature | UnsuppressFeature |
-
-Each command is invertible. Undo stack + redo stack. Redo stack is cleared when a new command is executed.
-
-After each undo/redo, rebuild from the earliest affected feature.
-
-## Parameter Propagation
-
-When a sketch dimension changes:
-1. The Sketch feature's Operation is updated with new constraint values.
-2. The sketch is re-solved (via sketch-solver).
-3. The Sketch feature is marked dirty.
-4. Rebuild from the Sketch feature forward.
-5. All downstream features (extrude referencing this sketch's profile, fillet referencing an edge from the extrude, etc.) are replayed.
-6. All GeomRefs in downstream features are re-resolved.
+| Module | Contents |
+|---|---|
+| `pattern.rs` | Circular, linear and mirror patterns |
+| `union_all.rs` | Many-body union as one feature |
+| `script/` | Custom feature scripts in Rhai: sandboxed interpreter, the recorded host API, interface headers, the built-in library. Docs: `docs/CUSTOM_FEATURE_SCRIPTS.md` |
+| `sketch3d.rs` | 3D sketch evaluation (paths for pipe and sweep) |
+| `share_a_face.rs` | Predicates for the extrude auto-target default |
+| `assembly.rs`, `assembly_solver.rs`, `connector.rs`, `context.rs` | Assemblies, the mate solver, mate-connector frames, in-context editing (see `projects/10-assemblies`) |
+| `drawing.rs`, `drawing/` | Drawing tabs: views, dimensions, annotations |
+| `kicad.rs`, `board_shape.rs` | Bodies derived from a linked `.kicad_pcb`; board outline authored on a face |
+| `import_tiers.rs`, `sources.rs` | STEP import tiers; document-level source content |
+| `preview_mesh.rs` | Decimated preview mesh for document thumbnails |
+| `opaque.rs` | Round-trips tagged objects this build does not know |

@@ -1,25 +1,93 @@
-# Sub-project 14: Agent Link — Architecture
+# 14 — Agent Link: Architecture
 
-Authoritative design: `specs/waffle_mcp_server.md`. This page is the map.
+The agent link lets a local AI agent (any MCP client) work on a Waffle Iron
+document through the same engine the UI uses. Design:
+`specs/waffle_mcp_server.md` (the link) and `specs/waffle_server_mode.md`
+(the native host). Relay usage: `relay/README.md`.
+
+## Two ways to run
+
+**Page mode** (the relay's default, `--kernel page`). The agent works in the
+browser tab the user has open.
 
 ```
- agent (Claude Code / Desktop / any MCP client)
+ agent (MCP client)
    │  MCP over stdio
- waffle-mcp-relay  (local Python process, --port chosen by the user)
-   ▲  WebSocket, waffle-agent-link/1 — the PAGE dials out, after consent
-───┼──────────────────────────── browser tab (main thread) ───
- agent link      app/src/lib/agent/link.js       module singleton; survives navigation
- agent host      app/src/lib/agent/executor.js   gates · engine lock · rollback · provenance
-   ├─ queries → store state (tree, meshes, selection, errors)
-   ├─ save    → storage/index.js active provider
-   └─ commands → store (non-swallowing send) → EngineBridge → Worker
-───┼──────────────────────────── Web Worker ───
- worker.js → wasm_bridge::dispatch → feature-engine → kernel-v2
+ waffle-mcp-relay         relay/  (Python)
+   ▲  WebSocket, waffle-agent-link/1 — the page dials out, after consent
+───┼─────────────────────── browser tab, main thread ──
+ link.js       socket singleton; survives navigation
+ executor.js   state gates · engine lock · rollback on cancel
+   ├─ engine tools → one `Tool` message → worker → wasm_bridge::tools
+   └─ page tools   → store, storage providers, viewport
 ```
 
-- The relay relays; it never models (spec I1).
-- The agent is another client of the same `UiToEngine` protocol the toolbar
-  uses; the bridge and worker are unchanged except for the ICRs.
-- The engine lock serializes whole agent calls against user actions (I6),
-  because `bridge.js` pairs responses FIFO without request ids.
-- GitHub Pages stays a static host; nothing of ours runs server-side.
+**Host mode** (`--kernel host`). The relay spawns `waffle-host`
+(`crates/waffle-host`), a native process that holds one document session on
+the real kernel and runs each tool through the same
+`wasm_bridge::process::process_message` pipeline as the browser worker.
+Documents are `.waffle` files in a directory; exports are written beside
+them. A browser can attach as a viewer (`/view`): it draws the host's
+snapshots and serves the viewport tools, and runs no engine. A host that
+crashes is restarted on the next call and reopens the document from its
+autosave.
+
+## Where a tool runs
+
+Tool semantics have one implementation.
+
+- **Engine tools** — modeling, sketching, inspection, measurement, scripts,
+  assemblies, drawings, tabs, export. Implemented in Rust in
+  `crates/wasm-bridge/src/tools/` (`execute_tool`). The page forwards the
+  call as a `Tool` message; the host calls the same function.
+- **Host-state tools** — things only the host environment has. In the page:
+  `document_*` and `storage_list` (the store's own open/save flows and the
+  storage providers), `selection_get`, `viewport_view`, `viewport_capture`,
+  `export_svg`, and delivering a download. In host mode: `waffle-host` for
+  documents and files, the attached viewer for the viewport.
+- **Relay tools** — `waffle_connect` and `waffle_status` only. The relay
+  validates arguments against each tool's schema and forwards; it holds no
+  modeling logic.
+
+## Page mode mechanics
+
+- **Consent.** The page never opens the WebSocket from a URL alone. The
+  `/agent` route shows the pairing request and connects on the user's click.
+  A blocked local-network permission is detected and explained there.
+- **Admission.** The relay checks the handshake `Origin` against its allow
+  list, then requires a `hello` frame with a single-use pairing code or a
+  resumable session token. A tab that loses its socket resumes the session
+  by itself within the resume window.
+- **Engine lock.** A command holds the engine lock as `agent` for the whole
+  call (`withEngineLock` in the store). User sends wait for it, and modeling
+  UI is refused while the agent works. Document, tab and assembly commands
+  are queued in the executor so concurrent calls cannot overwrite each other.
+- **Gates.** Before a command runs, the executor checks page state: engine
+  ready and not crashed, document loaded and writable, no user gesture in
+  progress.
+- **Results.** A mutating tool's answer carries the model update and a delta
+  of what changed (features, bodies, new errors). A cancelled call is undone
+  when the tool is an engine undo step.
+- **Progress.** Rebuild progress frames are forwarded as MCP progress
+  notifications when the client sent a progress token.
+- **Provenance.** Features an agent creates or edits record the agent in the
+  same undo step.
+
+## Tool manifest
+
+`relay/src/waffle_mcp_relay/agent-tools.manifest.json` lists every tool with
+its input schema. It is generated by `node app/scripts/gen-agent-manifest.mjs`
+from `app/src/lib/agent/tools/`; engine-type inputs reference definitions
+generated from the Rust types (`tools/engineSchemas.generated.js`). The relay
+and the page each hash the manifest and compare at connection. A test in each
+suite fails when the committed manifest is stale. In host mode the relay
+lists exactly the tools the host's `ready` frame names.
+
+## Files
+
+| Part | Where |
+|---|---|
+| Relay | `relay/src/waffle_mcp_relay/` — `server.py` (MCP), `link.py` (page socket), `pairing.py`, `backend.py`, `host.py` (host child), `viewer.py`, `manifest.py`, `config.py`, `cli.py` |
+| Page | `app/src/lib/agent/` — `link.js`, `executor.js`, `documents.js`, `viewport.js`, `queries.js`, `export.js`, `drawings.js`, `delta.js`, `results.js`, `tools/`; `AgentBar.svelte`; `app/src/routes/agent/` |
+| Engine | `crates/wasm-bridge/src/tools/` |
+| Native host | `crates/waffle-host/src/` — `host.rs`, `frames.rs`, `documents.rs`, `viewer.rs`, `mq.rs` |

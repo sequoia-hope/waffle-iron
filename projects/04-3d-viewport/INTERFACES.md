@@ -1,39 +1,27 @@
 # 04 — 3D Viewport: Interfaces
 
-## Types This Crate CONSUMES
+The viewport is JavaScript. It imports no Rust types; it reads data the bridge
+has already deserialized.
 
-| Type | Source | Purpose |
-|------|--------|---------|
-| `RenderMesh` | INTERFACES.md (kernel-fork via wasm-bridge) | Triangle mesh for rendering |
-| `EdgeRenderData` | INTERFACES.md (kernel-fork via wasm-bridge) | Edge lines for overlay |
-| `FaceRange` | INTERFACES.md | Maps triangles to logical faces for picking |
-| `EdgeRange` | INTERFACES.md | Maps edge segments to logical edges for picking |
-| `GeomRef` | INTERFACES.md | Identifies picked entities |
+## Consumes (from the store)
 
-## Events This Crate PRODUCES
+| Data | Shape | Use |
+|---|---|---|
+| Body mesh | `vertices`, `normals` (`Float32Array`), `indices` (`Uint32Array`) | Face geometry |
+| `face_ranges` | `[{ geom_ref, start_index, end_index }]`, sorted by `start_index` | Triangle → face |
+| Edge data | Edge polyline vertices plus a ref per edge | Edge overlay and picking |
+| `transform` | Instance placement (Assembly tabs) | `placement.js` |
+| Selection, hover, sketch mode, section plane, camera projection | Store state | Highlighting and modes |
 
-| Event | Consumer | Purpose |
-|-------|----------|---------|
-| `SelectEntity { geom_ref }` | wasm-bridge → feature-engine | User clicked a face/edge |
-| `HoverEntity { geom_ref }` | wasm-bridge → feature-engine | User hovering over entity |
+## Produces
 
-## Svelte Component API
+- Hover proposals and selections, written to the store, which forwards them
+  to the engine.
+- Camera snapshots for sketch undo (`waffle-save-camera` /
+  `waffle-restore-camera`).
+- PNG captures for the agent's `viewport_capture` tool.
 
-```svelte
-<!-- Main viewport component -->
-<Viewport
-  meshes={renderMeshes}
-  edges={edgeRenderData}
-  selectedRefs={selectedGeomRefs}
-  hoveredRef={hoveredGeomRef}
-  sketchMode={isInSketchMode}
-  on:select={handleSelect}
-  on:hover={handleHover}
-/>
-```
+## Component
 
-## Notes
-
-- This is a Svelte/JS component. It does not import Rust types directly — it receives data that has already been deserialized by wasm-bridge.
-- GeomRef objects arrive as plain JS objects (deserialized from JSON).
-- Mesh data arrives as TypedArray views (Float32Array, Uint32Array).
+`Viewport.svelte` takes no mesh props; it and its children read the store
+directly.

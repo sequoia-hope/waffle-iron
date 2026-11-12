@@ -1,32 +1,25 @@
 # 08 — UI Chrome: Interfaces
 
-## Types This Crate CONSUMES
+The chrome works with JSON the bridge has already deserialized. Message types
+are defined in `crates/wasm-bridge/src/messages.rs`.
 
-| Type | Source | Purpose |
-|------|--------|---------|
-| `EngineToUi::ModelUpdated` | wasm-bridge | Feature tree + meshes after rebuild |
-| `EngineToUi::SketchSolved` | wasm-bridge | Solve status for status bar |
-| `EngineToUi::Error` | wasm-bridge | Error display |
-| `EngineToUi::SelectionChanged` | wasm-bridge | Selection info for status bar |
-| `FeatureTree` | INTERFACES.md (via JSON) | Feature list for tree display |
-| `Feature` | INTERFACES.md (via JSON) | Individual feature data |
-| `Operation` (all variants) | INTERFACES.md (via JSON) | Parameter display/editing |
+## Reads (from the store)
 
-## Types/Events This Crate PRODUCES
+| Data | Source message |
+|---|---|
+| Feature tree, bodies, errors, warnings, document and tab list | `ModelUpdated` |
+| Sketch solve status | `SketchSolved` |
+| Selection and hover | Store state |
+| Errors | `Error` |
 
-| Type | Consumer | Purpose |
-|-------|----------|---------|
-| `UiToEngine::AddFeature` | wasm-bridge | Add new feature |
-| `UiToEngine::EditFeature` | wasm-bridge | Edit feature parameters |
-| `UiToEngine::DeleteFeature` | wasm-bridge | Remove feature |
-| `UiToEngine::SuppressFeature` | wasm-bridge | Suppress/unsuppress |
-| `UiToEngine::SetRollbackIndex` | wasm-bridge | Rollback slider |
-| `UiToEngine::Undo` | wasm-bridge | Undo |
-| `UiToEngine::Redo` | wasm-bridge | Redo |
-| `UiToEngine::SelectEntity` | wasm-bridge | Entity selection from tree |
+## Sends (through store functions)
 
-## Notes
-
-- All data arrives as JSON-deserialized objects from wasm-bridge.
-- This crate never imports Rust types directly.
-- The FeatureTree in ModelUpdated drives the entire feature tree display.
+| Message | Trigger |
+|---|---|
+| `AddFeature`, `EditFeature`, `DeleteFeature` | Dialogs, property editor, tree |
+| `SuppressFeature`, `ReorderFeature`, `RenameFeature`, `RenameBody` | Feature tree |
+| `SetRollbackIndex` | Rollback slider |
+| `Undo`, `Redo` | Toolbar, shortcuts |
+| `SwitchTab`, `AddTab`, `CloseTab`, `RenameTab`, `MoveTab` | Tab bar |
+| `SetParameters`, `SetDocumentParameters` | Variables |
+| `SaveDocument`, `LoadProject`, `NewDocument`, `ImportStep`, `ExportStep`, `ExportStl` | File actions |

@@ -1,67 +1,67 @@
 # 07 — Modeling Ops: Interfaces
 
-## Types This Crate IMPLEMENTS
-
-| Type | Role |
-|------|------|
-| `OpResult` | Complete operation result with outputs + provenance + diagnostics |
-| `Provenance` | Created/deleted/modified entity tracking with roles |
-| `EntityRecord` | Entity with KernelId + kind + signature |
-| `Rewrite` | Modified entity record (before/after) |
-| `Diagnostics` | Warnings and timing |
-| Topology diff utility | Before/after → Provenance |
-
-## Types This Crate CONSUMES
-
-| Type | Source | Purpose |
-|------|--------|---------|
-| `ExtrudeParams` | INTERFACES.md | Extrude operation parameters |
-| `RevolveParams` | INTERFACES.md | Revolve operation parameters |
-| `FilletParams` | INTERFACES.md | Fillet operation parameters |
-| `ChamferParams` | INTERFACES.md | Chamfer operation parameters |
-| `ShellParams` | INTERFACES.md | Shell operation parameters |
-| `BooleanParams` | INTERFACES.md | Boolean combine parameters |
-| `Kernel` trait | kernel | Geometry operations |
-| `KernelIntrospect` trait | kernel | Topology queries |
-| `KernelSolidHandle` | kernel | Solid handle |
-| `KernelId` | kernel | Entity identifier |
-| `TopoKind` | INTERFACES.md | Entity kind |
-| `TopoSignature` | INTERFACES.md | Geometric signature |
-| `Role` | INTERFACES.md | Semantic role for entities |
-| `GeomRef` | INTERFACES.md | Geometry references (in params) |
-
-## Public API
+## Defines
 
 ```rust
-/// Execute an extrude operation and return full OpResult.
-pub fn execute_extrude(
-    params: &ExtrudeParams,
-    kernel: &mut dyn Kernel,
-    introspect: &dyn KernelIntrospect,
-    input_solid: Option<&KernelSolidHandle>,
-) -> Result<OpResult, OpError>;
+pub struct OpResult {
+    pub outputs: Vec<(OutputKey, BodyOutput)>,
+    pub provenance: Provenance,
+    pub diagnostics: Diagnostics,
+}
 
-/// Execute a revolve operation.
-pub fn execute_revolve(
-    params: &RevolveParams,
-    kernel: &mut dyn Kernel,
-    introspect: &dyn KernelIntrospect,
-    input_solid: Option<&KernelSolidHandle>,
-) -> Result<OpResult, OpError>;
+pub struct BodyOutput {
+    pub handle: KernelSolidHandle,      // runtime only
+    pub mesh: Option<RenderMesh>,
+    pub edges: Option<EdgeRenderData>,
+}
 
-/// Execute a fillet operation.
-pub fn execute_fillet(
-    params: &FilletParams,
-    kernel: &mut dyn Kernel,
-    introspect: &dyn KernelIntrospect,
-    solid: &KernelSolidHandle,
-) -> Result<OpResult, OpError>;
+pub struct Provenance {
+    pub created: Vec<EntityRecord>,     // { kernel_id, kind, signature }
+    pub deleted: Vec<EntityRecord>,
+    pub modified: Vec<Rewrite>,         // { before, after, reason }
+    pub role_assignments: Vec<(KernelId, Role)>,
+}
 
-/// ... similar for chamfer, shell, boolean_combine
+pub struct Diagnostics {
+    pub warnings: Vec<String>,
+    pub kernel_time_ms: f64,
+    pub tessellation_time_ms: f64,
+    pub auto_union_fell_back: bool,
+}
+
+pub enum OpError { Kernel(KernelError), NoProfiles, InvalidParameter { reason } }
 ```
 
-## Notes
+Also `KernelBundle`, `TopoSnapshot`, `DiffResult`, `BooleanKind`,
+`PatternSeed`, `Instance`.
 
-- Every operation function follows the same pattern: snapshot → execute → diff → assign roles → return OpResult.
-- The diff utility is shared across all operations.
-- Operations are stateless — they receive all needed context as parameters.
+## Public functions
+
+```rust
+pub fn execute_extrude(kb: &mut dyn KernelBundle, face_id: KernelId,
+    direction: [f64; 3], depth: f64,
+    before_snapshot: Option<&TopoSnapshot>) -> Result<OpResult, OpError>;
+
+pub fn execute_revolve(kb: &mut dyn KernelBundle, face_id: KernelId,
+    axis_origin: [f64; 3], axis_direction: [f64; 3], angle: f64,
+    before_snapshot: Option<&TopoSnapshot>) -> Result<OpResult, OpError>;
+
+pub fn execute_boolean(kb: &mut dyn KernelBundle,
+    body_a: &KernelSolidHandle, body_b: &KernelSolidHandle,
+    kind: BooleanKind) -> Result<OpResult, OpError>;
+
+pub fn execute_pattern_instances(kb: &mut dyn KernelBundle,
+    seeds: &[PatternSeed], instances: &[Instance],
+    skip: &[u32]) -> Result<OpResult, OpError>;
+```
+
+`execute_symmetric_extrude`, `execute_pipe`, `execute_sweep`,
+`execute_import`, `execute_import_analytic`, `merge_import_results`,
+`snapshot`, `signature_similarity` and `signature_match` are exported from
+`src/lib.rs`.
+
+## Consumes
+
+`Kernel`, `KernelIntrospect`, `KernelProjection`, `KernelMeasure`,
+`KernelId`, `KernelSolidHandle`, `RenderMesh`, `EdgeRenderData`, `OutputKey`,
+`Role`, `TopoKind`, `TopoSignature` — all from `waffle-types`.

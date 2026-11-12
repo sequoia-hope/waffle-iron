@@ -1,50 +1,38 @@
 # 09 — File Format: Interfaces
 
-## Types This Crate IMPLEMENTS
-
-| Type | Role |
-|------|------|
-| Save logic | FeatureTree → JSON serialization |
-| Load logic | JSON → FeatureTree deserialization + rebuild trigger |
-| STEP export | FeatureTree → rebuild → STEP file via ruststep |
-| Version migration | Old format → current format |
-
-## Types This Crate CONSUMES
-
-| Type | Source | Purpose |
-|------|--------|---------|
-| `FeatureTree` | INTERFACES.md (feature-engine) | The data to serialize/deserialize |
-| `Feature` | INTERFACES.md | Individual features |
-| `Operation` (all variants) | INTERFACES.md | Operation parameters |
-| `GeomRef` | INTERFACES.md | Geometry references |
-| `Sketch` | INTERFACES.md | Sketch data |
-| `SketchEntity` | INTERFACES.md | Sketch entities |
-| `SketchConstraint` | INTERFACES.md | Sketch constraints |
-
 ## Public API
 
 ```rust
-/// Save a project to JSON string.
+pub fn load_document(json: &str) -> Result<LoadedDocument, LoadError>;
+pub fn save_document(doc: &WaffleDocument) -> String;
+pub fn save_document_verified(doc: &WaffleDocument) -> Result<String, LoadError>;
+
+// Single-part convenience forms
+pub fn load_project(json: &str) -> Result<(FeatureTree, ProjectMetadata), LoadError>;
 pub fn save_project(tree: &FeatureTree, metadata: &ProjectMetadata) -> String;
 
-/// Load a project from JSON string.
-pub fn load_project(json: &str) -> Result<(FeatureTree, ProjectMetadata), LoadError>;
+pub fn export_step(tree: &FeatureTree, kb: &mut dyn KernelBundle) -> Result<String, ExportError>;
 
-/// Export the current model to STEP format.
-pub fn export_step(
-    tree: &FeatureTree,
-    engine: &mut Engine,
-) -> Result<String, ExportError>;
+pub const FORMAT_VERSION: u32;
+pub const MIN_READER_VERSION: u32;
 ```
 
-## File Format
+Also exported: `WaffleDocument`, `LoadedDocument { document, warnings }`,
+`DocumentMetadata`, `Tab`, `TabKind`, `PreviewMesh`, `SaveVerifier`,
+`SourceEntry`, `SourceKind`, `Locator`, `GitRef`, `GitHost`, `Embed`,
+`git_blob_sha1`, `check_content_hash`, `rebase_relative_sources`,
+`join_repo_path`.
 
-- Extension: `.waffle`
-- Format: JSON (pretty-printed)
-- Encoding: UTF-8
-- Version field for migration support
+## Consumes
 
-## Notes
+| Type | Source |
+|---|---|
+| `FeatureTree`, `Feature`, `Operation`, `AssemblyTree`, `Drawing` | `feature-engine` |
+| `GeomRef`, `Sketch`, `SketchEntity`, `SketchConstraint` | `waffle-types` |
+| `KernelBundle` | `modeling-ops` |
 
-- All persisted types must use `#[serde(tag = "type")]` for forward-compatible enums.
-- Unknown fields are preserved via `#[serde(flatten)]` for forward compatibility.
+## File
+
+Extension `.waffle`. UTF-8 JSON. Whitespace is not significant. The full
+field-by-field definition is `docs/FILE_FORMAT.md`; the machine-readable
+schema is `docs/schema/waffle-v5.schema.json`.

@@ -1,40 +1,35 @@
 # 07 — Modeling Ops: Agent Instructions
 
-You are working on **modeling-ops**. Read ARCHITECTURE.md in this directory first.
+You are working on `crates/modeling-ops`. Read ARCHITECTURE.md in this
+directory first.
 
-## Your Job
+## Rules
 
-Implement modeling operations (extrude, revolve, fillet, chamfer, shell, boolean combine). Every operation MUST return a complete OpResult with provenance — created/deleted/modified entities and role assignments. This provenance is what makes persistent naming work in feature-engine.
-
-## Critical Rules
-
-1. **Every operation returns complete provenance.** This is non-negotiable. Feature-engine depends on it.
-2. **Assign semantic roles to created entities.** EndCapPositive, SideFace, FilletFace, etc. These are how downstream features reference geometry stably.
-3. **The topology diff utility is foundational.** Build it first. All operations use it.
-4. **Test against MockKernel first, then WaffleKernel.** MockKernel gives deterministic, predictable results.
-5. **Operations are stateless.** Each operation receives all context as parameters. No hidden state.
-6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** MockKernel implementations and tests exist, but WaffleKernel support is not production-ready. Do not work on these operations.
+1. **Every operation returns provenance.** `feature-engine` resolves
+   references from it.
+2. **Assign roles to created faces.** Roles are how downstream features name
+   geometry.
+3. **Operations are stateless.** Everything arrives as an argument.
+4. **Use only the kernel traits.** No kernel-v2 types here.
+5. **Validate parameters before calling the kernel** and return
+   `OpError::InvalidParameter`.
+6. **Fillet, chamfer and shell are deferred indefinitely.** Do not work on
+   them.
 
 ## Build & Test
 
 ```bash
 cargo test -p modeling-ops
-cargo clippy -p modeling-ops
+cargo clippy --all-targets -p modeling-ops -- -D warnings
+cargo fmt --check -p modeling-ops
 ```
+
+Tests here use `MockKernel`. Real-geometry tests are in `crates/test-harness`.
 
 ## Key Files
 
-- `src/lib.rs` — Public API (execute_extrude, execute_revolve, etc.)
-- `src/diff.rs` — Topology diff utility
-- `src/extrude.rs` — Extrude operation
-- `src/revolve.rs` — Revolve operation
-- `src/fillet.rs` — Fillet operation
-- `src/chamfer.rs` — Chamfer operation
-- `src/shell.rs` — Shell operation
-- `src/boolean.rs` — Boolean combine operation
-- `src/roles.rs` — Role assignment logic
-
-## Dependencies
-
-- kernel (Kernel + KernelIntrospect traits)
-- No dependencies on feature-engine or sketch-solver (this crate is called BY feature-engine)
+- `src/types.rs` — `OpResult`, `BodyOutput`, `Provenance`, `Diagnostics`, `OpError`
+- `src/kernel_ext.rs` — `KernelBundle`
+- `src/diff.rs` — snapshot, diff, signature similarity
+- `src/extrude.rs`, `src/revolve.rs`, `src/boolean.rs`, `src/pipe.rs`,
+  `src/sweep.rs`, `src/pattern.rs`, `src/import.rs`

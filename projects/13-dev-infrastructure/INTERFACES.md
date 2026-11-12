@@ -1,78 +1,73 @@
-# Sub-project 13: Type Contracts
+# 13 — Development Infrastructure: Interfaces
 
-## Types Exported by test-harness
+Types exported by `crates/test-harness` for scripting and checking models.
+`Result<T>` below is `Result<T, HarnessError>`.
 
-### `ModelBuilder` (workflow.rs)
+## `ModelBuilder` (`src/workflow.rs`)
+
 ```rust
-pub struct ModelBuilder {
-    pub state: EngineState,
-    // kernel: Box<dyn KernelBundle> (pub(crate))
-}
+pub struct ModelBuilder { pub state: EngineState, /* kernel, names, history */ }
 
 // Constructors
 ModelBuilder::mock() -> Self
-ModelBuilder::kernel() -> Self
-ModelBuilder::with_auto_check(self) -> Self
+ModelBuilder::kernel_v2() -> Self
+with_auto_check(self) -> Self          // assert no engine errors after every operation
 
 // Sketch shortcuts
-rect_sketch(&mut self, name, origin, normal, x, y, w, h) -> Result<Uuid>
-circle_sketch(&mut self, name, origin, normal, cx, cy, r) -> Result<Uuid>
+rect_sketch(name, origin, normal, x, y, w, h) -> Result<Uuid>
+circle_sketch(name, origin, normal, cx, cy, r) -> Result<Uuid>
+polygon_sketch(..) -> Result<Uuid>
 
 // Manual sketch
-begin_sketch(&mut self, origin, normal) -> &mut Self
-add_point(&mut self, id, x, y) -> &mut Self
-add_line(&mut self, id, start, end) -> &mut Self
-add_circle_entity(&mut self, id, center, radius) -> &mut Self
-add_arc(&mut self, id, center, start, end) -> &mut Self
-finish_sketch_manual(&mut self, name, positions, profiles, origin, normal) -> Result<Uuid>
+begin_sketch(origin, normal) -> &mut Self
+add_point(id, x, y) / add_line(id, start, end)
+add_circle_entity(id, center, radius) / add_arc(id, center, start, end)
+add_sketch_entity(entity)
+finish_sketch_manual(name, positions, profiles, origin, normal) -> Result<Uuid>
 
-// Feature operations
-extrude(&mut self, name, sketch_name, depth) -> Result<Uuid>
-extrude_cut(&mut self, name, sketch_name, depth) -> Result<Uuid>
-extrude_on_face(&mut self, name, sketch_name, depth, direction) -> Result<Uuid>
-revolve(&mut self, name, sketch_name, axis_origin, axis_dir, angle_deg) -> Result<Uuid>
-fillet(&mut self, name, target, radius) -> Result<Uuid>
-chamfer(&mut self, name, target, distance) -> Result<Uuid>
-shell(&mut self, name, target, thickness) -> Result<Uuid>
-boolean_union(&mut self, name, a, b) -> Result<Uuid>
-boolean_subtract(&mut self, name, a, b) -> Result<Uuid>
-boolean_intersect(&mut self, name, a, b) -> Result<Uuid>
+// Features
+extrude(name, sketch, depth) / extrude_no_merge / extrude_cut / extrude_on_face
+extrude_through_all / extrude_up_to / extrude_directed / extrude_bidirectional
+extrude_symmetric / extrude_advanced
+revolve(name, sketch, axis_origin, axis_dir, angle_deg) / revolve_cut
+pipe(..) / board_shape(..)
+boolean_union(name, a, b) / boolean_subtract / boolean_intersect
+add_operation(..)                      // any Operation
+edit_extrude_depth(name, depth)
 
-// History
-undo(&mut self) -> Result<&mut Self>
-redo(&mut self) -> Result<&mut Self>
-
-// Feature management
-suppress(&mut self, name) -> Result<&mut Self>
-unsuppress(&mut self, name) -> Result<&mut Self>
-delete_feature(&mut self, name) -> Result<&mut Self>
-reorder(&mut self, name, position) -> Result<&mut Self>
+// History and feature management
+undo() / redo()
+suppress(name) / unsuppress(name) / delete_feature(name) / reorder(name, position)
 
 // Queries
-feature_id(&self, name) -> Result<Uuid>
-feature_count(&self) -> usize
-solid_handle(&self, name) -> Result<KernelSolidHandle>
-tessellate(&mut self, name) -> Result<RenderMesh>
-topology_counts(&self, name) -> Result<(usize, usize, usize)>
-kernel(&self) -> &dyn KernelBundle
-engine_errors(&self) -> &[(Uuid, String)]
+feature_id(name) -> Result<Uuid>
+feature_count() -> usize
+solid_handle(name) / solid_handles(name) / live_solid_handles()
+tessellate(name) / tessellate_all(name) / tessellate_combined(name) / tessellate_last()
+topology_counts(name) -> Result<(usize, usize, usize)>
+face_signatures(..) / select_face_by_role(..) / select_face_by_normal(..)
+op_result(name) -> Result<&OpResult>
+engine_errors() / engine_warnings() / consumed_features()
+kernel_ref() -> &dyn KernelBundle
+
+// Raw access
+dispatch(msg: UiToEngine) -> EngineToUi
+agent_tool(..)                         // run an agent tool by name
+rebuild_from_scratch()
 
 // File I/O
-save(&mut self) -> Result<String>
-load(&mut self, json) -> Result<&mut Self>
-export_stl(&mut self, name) -> Result<Vec<u8>>
+save() -> Result<String>
+load(json) -> Result<&mut Self>
+export_stl(name) -> Result<Vec<u8>>
 
-// Report
-report(&mut self) -> Result<ModelReport>
-
-// Assertions
-assert_feature_count(&self, expected) -> Result<&Self>
-assert_has_solid(&self, name) -> Result<&Self>
-assert_no_errors(&self) -> Result<&Self>
-assert_has_errors(&self) -> Result<&Self>
+// Checks
+check_mesh(name) / check_topology(name) -> Result<Vec<OracleVerdict>>
+report() -> Result<ModelReport>
+assert_feature_count(n) / assert_has_solid(name) / assert_no_errors() / assert_has_errors()
 ```
 
-### `OracleVerdict` (oracle.rs)
+## `OracleVerdict` (`src/oracle.rs`)
+
 ```rust
 pub struct OracleVerdict {
     pub oracle_name: String,
@@ -82,7 +77,8 @@ pub struct OracleVerdict {
 }
 ```
 
-### `HarnessError` (helpers.rs)
+## `HarnessError` (`src/helpers.rs`)
+
 ```rust
 pub enum HarnessError {
     FeatureNotFound { name },
@@ -96,7 +92,8 @@ pub enum HarnessError {
 }
 ```
 
-### `ModelReport` (report.rs)
+## `ModelReport` (`src/report.rs`)
+
 ```rust
 pub struct ModelReport {
     pub feature_entries: Vec<FeatureEntry>,
@@ -105,22 +102,15 @@ pub struct ModelReport {
     pub oracle_results: Vec<OracleVerdict>,
     pub errors: Vec<(String, String)>,
 }
-
-ModelReport::to_text(&self) -> String
+// to_text(&self) -> String
 ```
 
-## Types Consumed (from other crates)
+## Consumes
 
-| Type | From | Usage |
-|------|------|-------|
-| `EngineState` | wasm-bridge | Owned by ModelBuilder |
-| `dispatch()` | wasm-bridge | Core message handler |
-| `UiToEngine/EngineToUi` | wasm-bridge | Message protocol |
-| `KernelBundle` | modeling-ops | Trait object for kernel |
-| `MockKernel/WaffleKernel` | kernel | Kernel implementations |
-| `RenderMesh/FaceRange` | kernel | Tessellated mesh data |
-| `KernelSolidHandle/KernelId` | kernel | Entity handles |
-| `OpResult/Role/Provenance` | modeling-ops | Operation results |
-| `GeomRef/Anchor/Selector` | waffle-types | Persistent naming |
-| `SketchEntity/ClosedProfile` | waffle-types | Sketch data |
-| `Feature/Operation/*Params` | feature-engine | Feature tree types |
+| Type | From |
+|---|---|
+| `EngineState`, `dispatch`, `UiToEngine`, `EngineToUi`, `execute_tool` | `wasm-bridge` |
+| `KernelBundle`, `OpResult` | `modeling-ops` |
+| `Feature`, `Operation` and parameter structs | `feature-engine` |
+| `MockKernel`, `RenderMesh`, `KernelSolidHandle`, `GeomRef`, `SketchEntity`, `ClosedProfile` | `waffle-types` |
+| `KernelV2Adapter` | `kernel-v2` |

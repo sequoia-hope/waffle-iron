@@ -31,8 +31,6 @@ v3→v4 migration — pinned by `crates/file-format/tests/corpus_backcompat.rs`)
 > rewrite non-UUID tab ids (the historical `"default"`) to UUIDs, lift STEP
 > blobs into sources. `MIN_READER_VERSION` is 4.
 
-**Supersedes** `projects/09-file-format/ARCHITECTURE.md`, which describes format v1
-and contains claims that are no longer (or never were) true — see §14.
 
 ---
 
@@ -1027,15 +1025,7 @@ Numbered for reference. Items 2, 3, 4, 10, and 11 were **FIXED on 2026-08-28**
 `app/tests/gui/document-format-seam.spec.js` and the new format_tests) — their
 original text is kept for the record with a status line.
 
-1. **Stale dossier.** `projects/09-file-format/ARCHITECTURE.md`/`PLAN.md`/
-   `INTERFACES.md` describe v1, claim `#[serde(flatten)]` unknown-field
-   preservation (never implemented), claim solved positions "are NOT stored"
-   (they are — §10), claim STEP export works via ruststep/truck (the truck kernel
-   is deleted; since 2026-09-08 kernel-v2 writes STEP itself —
-   `kernel_v2::step_export`, analytic AP214 — and a kernel without it surfaces
-   `NotSupported` as `ExportError::StepExportFailed`,
-   `crates/file-format/src/step_export.rs`).
-   Last substantive update: initial commit `c2b6cb9d`.
+1. *(Closed.)*
 2. **`created` is destroyed on every save.** `buildDocumentJson` stamped
    `created: now` on every save. The storage envelope kept its own honest
    `created`, but the file's was wrong.

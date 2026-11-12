@@ -1,37 +1,43 @@
 # 09 — File Format: Agent Instructions
 
-You are working on **file-format**. Read ARCHITECTURE.md in this directory first.
+You are working on `crates/file-format`. Read `docs/FILE_FORMAT.md` (the
+format spec) and ARCHITECTURE.md in this directory first.
 
-## Your Job
+## Rules
 
-Implement save, load, and STEP export for Waffle Iron projects. The native format is JSON containing the feature tree — NOT geometry. On load, the entire model rebuilds from the recipe.
-
-## Critical Rules
-
-1. **Store the recipe, not geometry.** The JSON file contains Operations, parameters, and GeomRefs. No BREP, no meshes, no solved positions.
-2. **Test round-trips obsessively.** Save → load → rebuild → verify the resulting topology matches the original.
-3. **Version the format.** Include a version number. Write migration functions for future format changes.
-4. **Handle STEP export failures gracefully.** STEP export has known limitations. Return clear error messages.
-5. **All enums use `#[serde(tag = "type")]`.** Forward-compatible tagging.
+1. **Store the recipe, not geometry.**
+2. **Update `docs/FILE_FORMAT.md` in the same commit** as any format change.
+3. **Additive changes are serde-defaulted.** A new optional field must parse
+   when absent. Bump `FORMAT_VERSION`, and `MIN_READER_VERSION` only when an
+   older reader would misread the file; mirror both in
+   `app/src/lib/engine/format.js`.
+4. **Preserve what you do not understand.** Unknown keys and unknown tagged
+   kinds are written back unchanged.
+5. **Persisted enums are internally tagged** (`#[serde(tag = "type")]`).
+6. **Old files keep loading.** `tests/corpus_backcompat.rs` must stay green; a
+   breaking shape change needs a migration in `migrate.rs`.
+7. **Regenerate the schema golden** when a persisted type changes.
 
 ## Build & Test
 
 ```bash
 cargo test -p file-format
-cargo clippy -p file-format
+cargo test -p file-format --features json-schema --test schema_golden
+cargo clippy --all-targets -p file-format -- -D warnings
 ```
 
 ## Key Files
 
-- `src/lib.rs` — Public API (save, load, export)
-- `src/save.rs` — Serialization logic
-- `src/load.rs` — Deserialization + validation
-- `src/migrate.rs` — Version migration
-- `src/step_export.rs` — STEP export via ruststep
-- `src/metadata.rs` — ProjectMetadata type
+- `src/document.rs` — `WaffleDocument`, `LoadedDocument`, validation
+- `src/metadata.rs` — `DocumentMetadata`, `Tab`, `TabKind`, `PreviewMesh`
+- `src/save.rs` — writers, `SaveVerifier`, version constants
+- `src/load.rs`, `src/migrate.rs` — readers and migrations
+- `src/sources.rs`, `src/hash.rs` — sources table, locators, content hashes
+- `src/schema.rs` — JSON Schema generation
+- `src/step_export.rs` — single-tree STEP export
+- `src/errors.rs` — `LoadError`, `ExportError`
 
 ## Dependencies
 
-- feature-engine (FeatureTree, Engine for rebuild on load)
-- kernel (for STEP export via ruststep)
-- serde, serde_json
+`feature-engine`, `modeling-ops`, `waffle-types`, `step-import`, `serde`,
+`serde_json`, `chrono`, `uuid`, `sha1`.

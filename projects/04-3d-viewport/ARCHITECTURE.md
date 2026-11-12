@@ -1,83 +1,101 @@
 # 04 — 3D Viewport: Architecture
 
-## Purpose
+The viewport is the Svelte/three.js code in `app/src/lib/viewport/`. It draws
+the meshes the engine produces, moves the camera, and turns pointer events
+into selections. It uses [Threlte](https://threlte.xyz/) (declarative three.js
+for Svelte 5). Rust produces data only; all rendering is here.
 
-Render 3D geometry using three.js via [Threlte](https://threlte.xyz/) (declarative three.js for Svelte). Receives tessellated mesh data from the WASM engine via wasm-bridge. Handles camera controls, entity picking, hover/selection highlighting, and sketch-mode transitions.
+## Data in
 
-## Technology
+The store (`app/src/lib/engine/store.svelte.js`) holds the meshes from the
+latest model update. Each body's mesh has `Float32Array` vertices and normals,
+a `Uint32Array` of indices, `face_ranges` (triangle ranges, each with the
+`GeomRef` of the face that owns it), edge polylines with their refs, and, in
+an Assembly tab, the solved `transform` of the owning instance.
 
-- **three.js** — Industry-standard browser 3D rendering. Mature ecosystem with selection, transparency, post-processing.
-- **Threlte** — Declarative three.js components for Svelte. Used successfully by CADmium.
-- **No Rust rendering.** All 3D rendering is JavaScript/three.js. Rust/WASM produces data only.
+## Rendering
 
-## Rendering Pipeline
+- **Faces** (`CadModel.svelte`) — one `BufferGeometry` per body with a group
+  per face range, so each face can take its own material (default, hovered,
+  selected, ghost). Colors come from CSS custom properties so they follow the
+  theme. In sketch mode solids are drawn at 20 % opacity.
+- **Edges** (`EdgeOverlay.svelte`) — line segments over the faces, with a
+  screen-constant depth bias (`edgeDepthBias.js`) so they do not z-fight the
+  faces they bound.
+- **Vertices** (`VertexOverlay.svelte`, `bodyVertices.js`) — topological
+  vertices as points.
+- **Assembly placement** (`placement.js`) — every layer that draws a mesh's
+  data applies that mesh's instance transform.
+- **Datums** (`DatumVis.svelte`) — the three origin planes, axes and origin.
+- **Sketch plane** (`SketchPlane.svelte`) — grid and border on the active
+  sketch plane.
+- **Ghosts** (`GhostPreview.svelte`, `faceGeometry.js`) — preview of a pending
+  operation.
+- **Section view** (`SectionCap.svelte`, `sectionPlane.js`) — clipping plane
+  with a stencil-buffer cap.
+- **Mate connectors** (`ConnectorFrames.svelte`) — a triad at each connector
+  frame.
+- **Lighting** (`Lighting.svelte`) — lights are aimed in camera space.
+- **KiCad board data** (`KicadHoverCard.svelte`, `KicadDetailPanel.svelte`) —
+  component and board records for bodies derived from a linked board.
 
-### Solid Face Rendering
-- Receive `RenderMesh` from wasm-bridge (Float32Array vertices, normals; Uint32Array indices).
-- Create `three.js BufferGeometry` from the TypedArrays.
-- Apply `MeshStandardMaterial` with appropriate CAD colors (gray metallic default).
-- Flat shading for planar faces, smooth for curved.
+## Picking
 
-### Sharp Edge Overlay
-- Receive `EdgeRenderData` from wasm-bridge.
-- Render as `LineSegments` with `LineBasicMaterial` (dark lines over shaded faces).
-- Edges are rendered on top of faces for CAD-style visualization.
+Picking uses the three.js raycaster through Threlte's interactivity plugin.
 
-### Entity Picking
+- A face hit gives a triangle index; a binary search of `face_ranges` gives
+  the owning `GeomRef`.
+- Edge pick distance is 6 screen pixels, converted to world units each frame
+  (`picking.js`, `worldPerPixel`), so picking behaves the same at any part
+  scale or zoom.
+- A face suppresses an edge only when it is strictly closer by more than 1.5
+  pixels of depth (`faceOccludes`).
+- Hover is arbitrated per pixel with priority Vertex, then Edge, then Face
+  (`proposeHoverRef` in the store). A click uses the hovered ref only if it
+  was arbitrated at the click pixel (`getFreshHoveredRef`).
+- `BoxSelect.svelte` does drag-rectangle selection.
 
-Two approaches (evaluate both):
+## Camera
 
-**Option A: three.js Raycaster + face-range metadata**
-- Use three.js `Raycaster` to find the intersected triangle.
-- Look up the triangle's index in `face_ranges` (binary search) to find the owning `GeomRef`.
-- Pros: Simple, uses built-in three.js. Cons: Raycaster performance with large meshes.
-
-**Option B: GPU color-coding**
-- Render entity IDs to an offscreen `WebGLRenderTarget`.
-- Encode each face-range with a unique color (R,G,B channels = entity index).
-- Read pixel at cursor position → decode entity ID.
-- Pros: O(1) regardless of mesh complexity. Cons: Extra render pass, precision limits.
-
-**Recommended: Start with Option A** (Raycaster). Switch to Option B if performance is insufficient.
-
-### Hover Highlighting
-- On mousemove: raycast → identify face GeomRef → change material color/emissive for that face range.
-- Use `BufferGeometry` groups to separate face ranges for independent material assignment.
-- Or: use a custom shader that reads a hover mask uniform.
-
-### Click Selection
-- On click: identify face GeomRef → send `SelectEntity` message via wasm-bridge.
-- Persistent highlight (different color from hover).
-- Multi-select with Shift+click.
-
-### Sketch-Mode Transparency
-- When entering sketch mode:
-  - Set solid mesh material to transparent (opacity ~0.2).
-  - Display the sketch plane as an opaque grid/surface.
-  - Sketch-ui overlays 2D drawing on the sketch plane.
-- When exiting sketch mode:
-  - Restore solid mesh to full opacity.
-
-### Datum Visualization
-- Datum planes: semi-transparent rectangles with border.
-- Datum axes: line segments with arrowheads.
-- Origin indicator: X/Y/Z axis triad at the origin.
-
-## Camera Controls
-
-Onshape-style controls (users expect these):
+`CameraControls.svelte` wraps `OrbitControls` and replaces its update with a
+quaternion rotation so the camera can orbit past the poles.
 
 | Action | Input |
-|--------|-------|
-| Orbit | Middle mouse drag |
-| Pan | Shift + middle mouse drag |
-| Zoom | Scroll wheel |
-| Fit all | Double-click middle mouse (or keyboard shortcut) |
-| Rotate to face | Click face in the view cube |
+|---|---|
+| Orbit | Right mouse drag; one-finger drag |
+| Pan | Middle mouse drag |
+| Zoom | Scroll wheel (to the point under the cursor); two-finger pinch |
+| Select / sketch tools | Left mouse |
+| Fit all | `F` |
 
-Starting point: Threlte/three.js `OrbitControls` with customization for Onshape-style behavior.
+The mapping is the same in modeling and sketch modes. Perspective and
+orthographic cameras are both supported. Wheel deltas are normalized across
+browsers in `wheel.js`. Other components drive the camera through window
+events: `waffle-snap-view`, `waffle-snap-view-and-fit`, `waffle-fit-all`,
+`waffle-align-to-plane`, `waffle-zoom-to-face`, `waffle-save-camera`,
+`waffle-restore-camera`.
 
-### Coordinate Gizmo
-- Small axis triad in a corner of the viewport (like Onshape's view cube).
-- Shows current camera orientation.
-- Clickable to snap to standard views (Front, Back, Top, Bottom, Left, Right, Iso).
+`framing.js` holds the standard views and the fit math. `ViewCube.svelte` is
+the orientation cube: click to snap to a standard view, drag to orbit.
+
+## Agent capture
+
+`AgentCapture.svelte` and `capture.js` answer the agent's `viewport_capture`
+tool: they render a frame off the live view at a requested size, view and
+style, and return a PNG with a legend. They reuse `framing.js`, so a captured
+view is framed exactly as the View Cube and `F` frame it.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `Viewport.svelte` | Canvas and HTML overlays |
+| `Scene.svelte` | Scene root; enables interactivity |
+| `CadModel.svelte` | Faces, face picking, selection |
+| `EdgeOverlay.svelte`, `VertexOverlay.svelte` | Edge and vertex layers and their picking |
+| `CameraControls.svelte` | Camera, navigation, fit, snap |
+| `ViewCube.svelte` | Orientation cube |
+| `BoxSelect.svelte` | Box selection |
+| `ViewportContextMenu.svelte` | Right-click menu |
+| `RotationCenter.svelte` | Debug marker for the orbit pivot |
+| `picking.js`, `framing.js`, `placement.js`, `wheel.js` | Shared math |

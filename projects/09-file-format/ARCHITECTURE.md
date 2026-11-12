@@ -1,144 +1,83 @@
 # 09 — File Format: Architecture
 
-> **⚠️ STALE — superseded by [`docs/FILE_FORMAT.md`](../../docs/FILE_FORMAT.md)
-> (2026-08-28).** This dossier describes format **v1**; the current format is
-> **v3** (multi-tab documents, meters, `combine`/`targets` booleans, regions,
-> ImportedBody STEP blobs, body names, projected geometry). Known-wrong claims
-> below: unknown fields are **not** preserved (no `#[serde(flatten)]` exists —
-> they are dropped on resave); solved sketch positions/profiles **are** stored
-> (recomputed only when absent); STEP export goes through the `Kernel` trait and
-> kernel-v2 currently returns `NotSupported` (ruststep/truck is gone). The
-> production document writer is `buildDocumentJson` in
-> `app/src/lib/engine/store.svelte.js`, not this crate alone. Read the new spec
-> first; use this file only for v1 historical context.
+`crates/file-format` reads and writes `.waffle` documents. **The format itself
+is specified in [`docs/FILE_FORMAT.md`](../../docs/FILE_FORMAT.md)**; this
+dossier describes the crate. Change the spec in the same commit as the code.
 
-## Purpose
+## What a file is
 
-Save, load, and export Waffle Iron projects. The native format stores the parametric recipe (feature tree), not geometry. The model rebuilds from the recipe on load. STEP export produces standard geometry files for interchange.
+A `.waffle` file is a UTF-8 JSON document holding the parametric recipe of a
+model, not its geometry. One file is one document with one or more tabs. A tab
+is a Part (a feature tree), an Assembly or a Drawing. On load, every part is
+rebuilt from its feature tree.
 
-## Native Format: JSON Feature Tree
+- **Stored:** features and their parameters, sketches and constraints,
+  geometry references, design parameters and expressions, materials, entity
+  names, the tab list, document metadata, and the `sources` table.
+- **Stored as hints:** sketch solve status, solved positions and profiles,
+  region boundaries inside extrude parameters, and an optional small preview
+  mesh per tab. The engine recomputes them when they are absent.
+- **Never stored:** B-Rep solids, kernel ids, render meshes, undo history.
 
-The native file format is a JSON serialization of the `FeatureTree`. It stores:
-- All features in order (UUID, name, operation with parameters, suppressed flag).
-- All GeomRefs (anchored to features by UUID, using selectors for specific entities).
-- All sketch data (entities, constraints, solved positions are NOT stored — sketches re-solve on load).
-- Project metadata (name, version, creation date, last modified).
+Lengths are meters and angles are degrees. `display_unit` is a UI preference.
 
-### What Is Stored
+## Writing
 
-- Feature list with all Operation parameters.
-- GeomRef references between features.
-- Sketch entity and constraint definitions.
-- Project metadata.
+There is one writer. The app assembles the document and sends
+`SaveDocument`; the bridge calls `save_document_verified`, which serializes
+and then loads its own output, so a document that would not load again (a
+non-finite float, for example) is refused at save time. `SaveVerifier` caches
+tab payloads it has already verified.
 
-### What Is NOT Stored
+Every file carries `version` (`FORMAT_VERSION`) and `min_reader_version`
+(`MIN_READER_VERSION`). A reader older than `min_reader_version` refuses the
+file with `LoadError::FutureVersion`. The same two constants are mirrored in
+`app/src/lib/engine/format.js`; `tests/js_format_mirror.rs` keeps them equal.
 
-- Kernel geometry (BREP solids, faces, edges). Rebuilt from recipe.
-- KernelSolidHandles or KernelIds (runtime-only).
-- Tessellated meshes. Recomputed on load.
-- Solved sketch positions. Re-solved on load.
+## Reading
 
-### Why This Design?
+`load_document` parses the current shape directly and migrates older versions
+on the way in (`migrate.rs`). It returns the document and a list of warnings.
 
-This matches Onshape's approach and is the correct design for parametric CAD:
-1. **Files are small.** A 50-feature model is kilobytes of JSON, not megabytes of BREP.
-2. **Full parametric history.** Every parameter is editable after load. Changing a sketch dimension rebuilds the entire model.
-3. **Format independence.** Not tied to any specific kernel version. If the kernel's BREP representation changes, old files still load (the recipe is kernel-agnostic).
-4. **Deterministic.** Same recipe always produces the same geometry.
+Forward compatibility:
 
-## File Format Versioning
+- Unknown keys are preserved across load → save at the envelope, document,
+  tab, source and feature-tree levels.
+- Unknown tab kinds, source kinds, locator kinds and operation kinds are kept
+  as opaque values and written back unchanged. An unknown operation is a
+  per-feature rebuild error; later features still build.
+- Floats parse exactly (`serde_json` `float_roundtrip`), so load → save never
+  drifts a coordinate.
 
-```json
-{
-  "format": "waffle-iron",
-  "version": 1,
-  "project": {
-    "name": "My Part",
-    "created": "2025-01-15T10:30:00Z",
-    "modified": "2025-01-15T14:22:00Z"
-  },
-  "features": [...]
-}
-```
+## Sources
 
-- `version` is incremented when the format changes.
-- Loaders handle older versions via migration functions.
-- Forward compatibility: unknown fields are preserved (serde `#[serde(flatten)]` with `HashMap<String, Value>`).
+`sources.rs` is the document's table of external content (STEP files, KiCad
+boards, scripts). A `SourceEntry` has a kind, a `Locator` (`Git` pinned to a
+commit or floating on a branch or tag, `Relative`, `Url`, `Local`,
+`Embedded`), a `git-blob-sha1` content hash (`hash.rs`), and optionally a
+packed copy of the content so the file is self-contained.
+`rebase_relative_sources` turns `Relative` locators into absolute `Git`
+locators when a linked document is forked.
 
-## STEP Export
+## Schema
 
-1. Rebuild the model from the feature tree (full rebuild to get final solid).
-2. Export the final solid via ruststep (AP203).
-3. Known limitations:
-   - AP203 only (no colors, layers, or modern AP242).
-   - Boolean-result solids may fail to export.
-   - Assembly structure not supported.
-4. Future: AP214/AP242 support as ruststep improves.
+With the `json-schema` feature, `schema.rs` generates the JSON Schema of the
+file from the Rust types. `tests/schema_golden.rs` pins it to
+`docs/schema/waffle-v5.schema.json` and validates every `.waffle` file in the
+repository against it.
 
-## File Extension
+## STEP export
 
-`.waffle` — Waffle Iron project file.
+`export_step(tree, kb)` rebuilds a feature tree and exports the last
+feature's main body through `Kernel::export_step` (kernel-v2 writes analytic
+AP214). The app's whole-model export, including placed assembly instances, is
+the bridge's `ExportStep`.
 
-## Example File Structure
+## Tests
 
-```json
-{
-  "format": "waffle-iron",
-  "version": 1,
-  "project": {
-    "name": "Simple Box",
-    "created": "2025-01-15T10:30:00Z",
-    "modified": "2025-01-15T10:35:00Z"
-  },
-  "features": [
-    {
-      "id": "a1b2c3d4-...",
-      "name": "Sketch 1",
-      "operation": {
-        "type": "Sketch",
-        "sketch": {
-          "id": "e5f6g7h8-...",
-          "plane": { "type": "Datum", "datum_id": "origin-xy" },
-          "entities": [
-            { "type": "Point", "id": 1, "x": 0, "y": 0, "construction": false },
-            { "type": "Point", "id": 2, "x": 100, "y": 0, "construction": false },
-            ...
-          ],
-          "constraints": [
-            { "type": "Horizontal", "entity": 5 },
-            { "type": "Distance", "entity_a": 1, "entity_b": 2, "value": 100 },
-            ...
-          ]
-        }
-      },
-      "suppressed": false,
-      "references": []
-    },
-    {
-      "id": "i9j0k1l2-...",
-      "name": "Extrude 1",
-      "operation": {
-        "type": "Extrude",
-        "params": {
-          "sketch_id": "e5f6g7h8-...",
-          "profile_index": 0,
-          "depth": 50,
-          "direction": null,
-          "symmetric": false,
-          "cut": false,
-          "target_body": null
-        }
-      },
-      "suppressed": false,
-      "references": [
-        {
-          "kind": "Face",
-          "anchor": { "type": "FeatureOutput", "feature_id": "a1b2c3d4-...", "output_key": { "type": "Profile", "index": 0 } },
-          "selector": { "type": "Role", "role": { "type": "ProfileFace" }, "index": 0 },
-          "policy": { "type": "BestEffort" }
-        }
-      ]
-    }
-  ]
-}
-```
+| Test | Pins |
+|---|---|
+| `tests/corpus_backcompat.rs` | Every `.waffle` in the repository (assay corpus, fixtures, examples) still loads. Adding a `.waffle` to the repo adds it to this corpus. |
+| `tests/schema_golden.rs` | The generated schema, and every repo file against it |
+| `tests/js_format_mirror.rs` | JS and Rust version constants agree |
+| `tests/format_tests.rs`, `tests/v4_document_tests.rs` | Round trips, migrations, refusals |

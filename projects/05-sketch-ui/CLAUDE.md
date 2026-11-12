@@ -1,33 +1,37 @@
 # 05 — Sketch UI: Agent Instructions
 
-You are working on **sketch-ui**. Read ARCHITECTURE.md in this directory first.
+You are working on the sketch UI, `app/src/lib/sketch/`. Read ARCHITECTURE.md
+in this directory first.
 
-## Your Job
+## Rules
 
-Build the 2D sketch editing interface as a Svelte component. This overlays on the 3D viewport during sketch mode. Users draw geometry (lines, rectangles, circles, arcs), apply constraints, and select profiles for extrusion.
+1. **Talk to the engine through the store and the bridge.** The UI never
+   solves; it sends `SolveSketch`, `ApplySketchOps` and `QuerySketch`.
+2. **Geometry decisions belong in Rust.** Trim, extend, offset, fillet,
+   mirror and projection are `sketch_solver::ops`. The UI handles pointer
+   input, snapping and drawing.
+3. **Every constraint goes through `mapConstraintForBridge`.** An unmapped
+   UI-only spelling breaks every later solve in the sketch.
+4. **A cancelled gesture leaves nothing behind.**
+5. **Units are meters.** A 100 px line is about 0.005. Assert relative
+   tolerances in tests.
+6. **`tools.js` is a plain module.** Reactive state it shares with components
+   lives in `sketchToolState.svelte.js`.
 
-## Critical Rules
+## Tests
 
-1. **Communicate via wasm-bridge only.** Send UiToEngine messages to add entities/constraints and trigger re-solves. Receive SolvedSketch results. Never call the sketch solver directly.
-2. **Auto-constraining is critical for UX.** Onshape does this aggressively — snap to horizontal/vertical/coincident/tangent when the user draws near these conditions. Without this, sketching is painful.
-3. **The Dragged constraint enables interactive drag.** When user drags a point: set position → add Dragged constraint → solve → read result → remove Dragged constraint. This is how unconstrained geometry moves.
-4. **Color by constraint status.** Green = fully constrained, blue = under-constrained, red = over-constrained. Users rely on this visual feedback.
-5. **Dimension labels are editable.** Click a distance label → type new value → re-solve. This is core to parametric design.
+GUI tests are in `app/tests/gui/`. The rules in the root `CLAUDE.md` ("GUI
+Test Rules") apply; the ones that matter most here:
 
-## Key Files
-
-- `src/lib/SketchEditor.svelte` — Main sketch editing component
-- `src/lib/tools/LineTool.svelte` — Line drawing tool
-- `src/lib/tools/RectangleTool.svelte` — Rectangle drawing tool
-- `src/lib/tools/CircleTool.svelte` — Circle drawing tool
-- `src/lib/tools/ArcTool.svelte` — Arc drawing tool
-- `src/lib/constraints/ConstraintMenu.svelte` — Constraint application UI
-- `src/lib/constraints/DimensionLabel.svelte` — Editable dimension display
-- `src/lib/SnapDetector.ts` — Auto-constraining logic
-- `src/lib/ProfileSelector.svelte` — Closed loop selection
+- Drawing tests use real pointer events (`drawLine()`, `dragLine()`), never
+  `__waffle.addSketchEntity()`.
+- Every drawing mode has both a click-click and a click-drag test.
+- Assert that geometry satisfies a constraint, not only that the constraint
+  was recorded.
+- Run `sketch-drawing-regression.spec.js` before every commit that touches
+  sketch code.
 
 ## Dependencies
 
-- 3d-viewport (sketch mode transitions, plane overlay)
-- wasm-bridge (communication with solver)
-- No direct Rust/WASM dependencies
+The store and bridge (`app/src/lib/engine/`), the viewport
+(`app/src/lib/viewport/`), `three`.

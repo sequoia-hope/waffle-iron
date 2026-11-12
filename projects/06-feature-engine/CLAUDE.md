@@ -1,48 +1,50 @@
 # 06 — Feature Engine: Agent Instructions
 
-You are working on **feature-engine**. This is the hardest and most important sub-project. Read ARCHITECTURE.md in this directory thoroughly — especially the persistent naming strategy.
+You are working on `crates/feature-engine`. Read ARCHITECTURE.md in this
+directory first, especially "Persistent references".
 
-## Your Job
+## Rules
 
-Build the parametric modeling engine: feature tree management, the GeomRef resolution algorithm (persistent naming), the rebuild algorithm, and undo/redo.
-
-## Critical Rules
-
-1. **GeomRef resolution is the core algorithm.** Test it obsessively. Create a feature tree, modify an early feature, verify all downstream references resolve correctly.
-2. **The MockKernel from kernel is your primary testing tool.** Do not wait for WaffleKernel. Build and test everything against MockKernel's deterministic output.
-3. **Rebuild must be correct before it's fast.** Get the algorithm right first. Optimize later.
-4. **Role-based resolution first, signature fallback second.** Roles are fast and stable. Signatures are the safety net for when topology changes invalidate roles.
-5. **Document persistent naming failures.** When you find cases that break, add them to PLAN.md under Notes. This helps future work.
-6. **Fillet/chamfer/shell are DEFERRED INDEFINITELY.** The engine pipeline for these operations works, but WaffleKernel support is not production-ready. Do not prioritize these operations.
+1. **Reference resolution is the core algorithm.** Test it by building a tree,
+   changing an early feature, and checking that every downstream reference
+   still resolves to the entity it named.
+2. **Nothing rebinds silently.** A `Strict` reference that no longer
+   identifies one entity is a typed refusal. A `BestEffort` rebind carries a
+   warning and a `ResolvedVia` that says it rebound.
+3. **Prefer `Selector::Pid`** for references that must stay on one entity.
+   Pin at authoring time with `pin_identity`.
+4. **Keep rebuilds incremental.** A feature that did not change and whose
+   inputs did not re-execute keeps its result. State a re-executed feature
+   needs from the last rebuild goes in `Carried`.
+5. **A consumed body is not live.** Never pick it as a combine target or
+   render it.
+6. **Correct before fast.**
+7. **Fillet, chamfer and shell are deferred indefinitely.** Do not work on
+   them.
 
 ## Build & Test
 
 ```bash
 cargo test -p feature-engine
-cargo clippy -p feature-engine
+cargo clippy --all-targets -p feature-engine -- -D warnings
+cargo fmt --check -p feature-engine
 ```
 
-## Test Scenarios (Priority Order)
-
-1. Add sketch → extrude → verify GeomRef to extrude face resolves.
-2. Edit sketch dimension → rebuild → verify extrude updates correctly.
-3. Add fillet referencing extrude edge → verify fillet's GeomRef resolves.
-4. Edit sketch dimension → rebuild → verify fillet's GeomRef still resolves (role-based).
-5. Add feature in middle of tree → verify downstream refs survive.
-6. Remove feature → verify dependent features error appropriately.
-7. Undo/redo cycle → verify state consistency.
+Unit tests use `waffle_types::kernel::MockKernel` (feature `mock-kernel`).
+Real-geometry tests run on kernel-v2 and live in `crates/test-harness`.
 
 ## Key Files
 
-- `src/lib.rs` — Engine struct, public API
-- `src/tree.rs` — FeatureTree data structure and mutations
-- `src/resolve.rs` — GeomRef resolution algorithm
-- `src/rebuild.rs` — Rebuild algorithm (replay from change point)
-- `src/undo.rs` — Command pattern undo/redo
-- `src/commands.rs` — Command types (AddFeature, EditFeature, etc.)
+- `src/lib.rs` — `Engine` and its public API
+- `src/types.rs` — `Feature`, `FeatureTree`, `Operation`, errors, parameters
+- `src/tree.rs` — tree mutations
+- `src/rebuild.rs`, `src/rebuild/` — rebuild, combine targets, depth and
+  plane resolution
+- `src/resolve.rs` — reference resolution
+- `src/undo.rs` — commands and the undo stack
+- `src/params.rs`, `src/expr/` — parameters and expressions
 
 ## Dependencies
 
-- kernel (MockKernel for testing, Kernel/KernelIntrospect traits)
-- modeling-ops (OpResult production)
-- sketch-solver (SolvedSketch for Sketch features)
+`modeling-ops`, `sketch-solver`, `step-import`, `kicad-pcb`, `waffle-types`,
+`rhai`, `nalgebra`.

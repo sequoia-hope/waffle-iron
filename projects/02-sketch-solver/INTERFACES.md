@@ -1,39 +1,32 @@
 # 02 — Sketch Solver: Interfaces
 
-## Types This Crate IMPLEMENTS
-
-| Type | Role |
-|------|------|
-| Solving logic | Maps SketchEntity/SketchConstraint to slvs calls, runs solver |
-| `SolvedSketch` | Output: solved positions + profiles + status |
-| `ClosedProfile` | Extracted closed loops from solved geometry |
-| `SolveStatus` | Solver result classification |
-
-## Types This Crate CONSUMES
-
-| Type | Source | Purpose |
-|------|--------|---------|
-| `Sketch` | INTERFACES.md (feature-engine) | Input sketch to solve |
-| `SketchEntity` | INTERFACES.md | Geometric entities to map to slvs |
-| `SketchConstraint` | INTERFACES.md | Constraints to map to slvs |
-| `GeomRef` | INTERFACES.md | Sketch plane reference |
+All sketch types (`Sketch`, `SketchEntity`, `SketchConstraint`, `SolvedSketch`,
+`SolveStatus`, `ClosedProfile`, `SketchSolveReport`, `SketchOp`, `SketchEdit`,
+`SketchOpError`) are defined in `crates/waffle-types` and re-exported here.
 
 ## Public API
 
 ```rust
-/// Solve a sketch: map entities/constraints to slvs, run solver, extract results.
+// Solving
 pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch;
 
-/// Extract closed profiles from a solved sketch.
-/// Called automatically by solve_sketch, but also available standalone.
 pub fn extract_profiles(
     entities: &[SketchEntity],
     positions: &HashMap<u32, (f64, f64)>,
 ) -> Vec<ClosedProfile>;
 ```
 
-## Notes
+Sketch operations live in `sketch_solver::ops`: `trim`, `trim_preview`,
+`extend`, `offset`, `resolve_offset_chain`, `fillet`, `fillet_geometry`,
+`fillet_default_radius`, `mirror`, `project`, `remove_entities`, `apply_edit`
+and `apply_ops`. See `src/ops/mod.rs` for signatures.
 
-- This crate does NOT depend on kernel-fork. It operates purely in 2D sketch space.
-- The solver is stateless — each `solve_sketch` call creates a fresh slvs System.
-- Profile extraction is a graph algorithm on solved positions, not a geometric computation.
+## Contract
+
+- `solve_sketch` is stateless and deterministic.
+- `SolvedSketch.positions` is keyed by point entity id; `radii` by circle
+  entity id. An arc's radius is its center-to-start distance.
+- `OverConstrained.conflicts` holds indices into `sketch.constraints`,
+  deduplicated, ordered by largest residual first.
+- Reference dimensions do not drive the solve; their measured values are in
+  `report.residuals`.
