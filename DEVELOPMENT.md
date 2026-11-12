@@ -1,6 +1,7 @@
 # Waffle Iron — Development Environment
 
-Docker-based development environment for autonomous agent and human development.
+Development runs directly on the host (no container since 2026-11-12;
+`HOST-MOVE-CHECKLIST.md` records the move).
 
 ## Governance and Workflow
 
@@ -14,61 +15,25 @@ Agent workflow, role separation, and quality gates are defined in:
 
 See `CLAUDE.md` for session start checklist and `AGENTS.md` for team structure.
 
-## Container Setup
+## Host Setup
 
-### Base Image
-
-Ubuntu-based container with:
-
-- **Rust toolchain** — latest stable via rustup, plus `wasm32-unknown-unknown` target
-- **wasm-pack** — for building Rust to WASM
-- **Node.js** (LTS) — for Svelte/SvelteKit/three.js development
-- **clang + libclang** — required by cherchi-sidecar-rs (LGPL predicate FFI)
-- **git** — version control
-- **Claude Code CLI** — for autonomous agent sessions
-
-### Dockerfile Outline
-
-```dockerfile
-FROM ubuntu:24.04
-
-RUN apt-get update && apt-get install -y \
-    curl git build-essential pkg-config \
-    clang libclang-dev cmake \
-    && rm -rf /var/lib/apt/lists/*
-
-# Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
-RUN rustup target add wasm32-unknown-unknown
-RUN cargo install wasm-pack
-
-# Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs
-
-# Claude Code CLI (installed by user/team)
-# RUN npm install -g @anthropic-ai/claude-code
-
-WORKDIR /workspace
-```
-
-### Volumes
-
-```yaml
-volumes:
-  - ./:/workspace                    # Repo from host
-  - ~/.gitconfig:/root/.gitconfig:ro # Git credentials (read-only)
-  - ~/.ssh:/root/.ssh:ro             # SSH keys (read-only)
-```
+- **Rust** — `rust-toolchain.toml` pins the version, with clippy, rustfmt and
+  `wasm32-unknown-unknown`; rustup installs it on the first `cargo` in the repo
+- **wasm-pack 0.13.1** — the version the committed `app/static/pkg/` bundles
+  are built with (`cargo install wasm-pack --version 0.13.1 --locked`)
+- **Node.js** (20 or 22) — for the SvelteKit app
+- **Playwright browsers** — `cd app && npx playwright install chromium firefox webkit`
+- **clang + libclang, cmake** — for the Cherchi reference sidecars, built by
+  `scripts/build_sidecars.sh` into `$CHERCHI2022_ROOT`, else `~/cherchi2022`
 
 ## Lifecycle
 
-1. **Human starts container** manually (`docker compose up -d`).
-2. **Agent sessions** run inside the container, following `/agents/ORCHESTRATION.md`.
+1. **Agent sessions** run in host tmux: `./launch.sh` (Claude, or `./launch.sh agy`)
+   and `./opencode.sh`, following `/agents/ORCHESTRATION.md`.
+2. **The GUI dev server** runs from `./serve.sh` on the port the machine's
+   project registry assigns (`proj up waffle-iron`). Playwright starts its own
+   dev server for test runs.
 3. **Human monitors** progress via git log, PLAN.md updates.
-4. **Human stops container** when done (`docker compose down`).
-5. **Claude never starts or stops containers.** Agents work within their session only.
 
 ## Session Recovery
 

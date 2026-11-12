@@ -58,4 +58,3 @@ __pycache__/
 *.pyc
 
 # Machine-local compose additions (status hooks mount)
-docker-compose.override.yml

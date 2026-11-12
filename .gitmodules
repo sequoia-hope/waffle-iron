@@ -1,3 +1,0 @@
-[submodule "claude-remote"]
-	path = claude-remote
-	url = https://github.com/sequoia-hope/claude-remote.git
