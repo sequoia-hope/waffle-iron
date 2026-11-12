@@ -46,9 +46,13 @@ function referencePoints() {
  * @param {boolean} [armOnHover=false] - When true (a hover/pointermove), a
  *   coincident hit on a real point arms it as an alignment-inference source.
  *   False for pointerdown/up so placing a new point does not self-arm.
+ * @param {number | null} [movingPointId=null] - An EXISTING point being
+ *   dragged. The lines, circles and arcs it defines are not on-entity
+ *   targets: the point is on its own line wherever it goes, and constraining
+ *   it there only removes a degree of freedom.
  * @returns {SnapResult}
  */
-export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = false) {
+export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = false, movingPointId = null) {
 	const settings = getSnapSettings();
 	const coincidentThreshold = (settings.coincidentPx ?? COINCIDENT_SNAP_PX) * screenPixelSize;
 	const onEntityThreshold = (settings.onEntityPx ?? ON_ENTITY_SNAP_PX) * screenPixelSize;
@@ -190,7 +194,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 	// 2. On-entity snap — snap to nearest point on a line or circle. Moved ABOVE
 	//    segment-H/V (was priority 3): being on an entity is a more specific
 	//    intent than a free-direction axis alignment (Invariant I1).
-	const nearLine = findLineNear(x, y, onEntityThreshold);
+	const nearLine = findLineNear(x, y, onEntityThreshold, movingPointId);
 	if (nearLine) {
 		const entities = getSketchEntities();
 		const line = entities.find(e => e.type === 'Line' && e.id === nearLine.id);
@@ -210,7 +214,7 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = fal
 		}
 	}
 
-	const nearCircle = findCircleNear(x, y, onEntityThreshold);
+	const nearCircle = findCircleNear(x, y, onEntityThreshold, movingPointId);
 	if (nearCircle) {
 		const entities = getSketchEntities();
 		const circle = entities.find(e => e.type === 'Circle' && e.id === nearCircle.id);

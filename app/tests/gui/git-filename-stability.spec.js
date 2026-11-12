@@ -9,7 +9,7 @@
  *    entry still references (on rename or on delete).
  */
 import { test as rawTest, expect } from '@playwright/test';
-import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { collectCrashErrors, expectNoAnyCrash, gotoHome } from './helpers/state.js';
 
 function v4Doc(id, name, unit = 'mm') {
 	const tabId = '44444444-5555-4666-8777-888888888888';
@@ -105,7 +105,7 @@ rawTest.describe('GitProvider filename stability and shared-path safety', () => 
 				return route.fulfill({ status: 405, body: '' });
 			});
 
-			await page.goto('/home');
+			await gotoHome(page);
 			await page.evaluate(() => {
 				localStorage.setItem(
 					'waffle-host-tokens',

@@ -2,7 +2,7 @@
  * Viewport pan + zoom limit tests — middle-click drag panning, wheel zoom with distance limits.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { zoom, getCanvasBounds, orbitDrag } from './helpers/canvas.js';
+import { zoom, getCanvasBounds, orbitDrag, viewExtent } from './helpers/canvas.js';
 import { createExtrudedBox } from './helpers/geometry.js';
 
 /**
@@ -63,12 +63,18 @@ test.describe('viewport pan', () => {
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(after).not.toBeNull();
 
-		// Camera target should have changed (pan moves the focal point)
+		// The pan carries the focal point with the cursor: in the default
+		// orthographic view a 160 px drag moves the target by 160 px of world.
+		expect(before.projection).toBe('orthographic');
+		const bounds = await getCanvasBounds(page);
+		const worldPerPx = (2 * viewExtent(before)) / bounds.height;
+		const expected = 160 * worldPerPx;
 		const dx = after.target[0] - before.target[0];
 		const dy = after.target[1] - before.target[1];
 		const dz = after.target[2] - before.target[2];
 		const targetDist = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2);
-		expect(targetDist).toBeGreaterThan(0.1);
+		expect(targetDist).toBeGreaterThan(0.9 * expected);
+		expect(targetDist).toBeLessThan(1.1 * expected);
 	});
 
 	test('pan preserves camera distance from target', async ({ waffle }) => {
@@ -129,96 +135,98 @@ test.describe('viewport pan', () => {
 });
 
 test.describe('zoom limits', () => {
-	test('zoom in reduces camera distance', async ({ waffle }) => {
+	test('zoom in shows less of the model', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
 		const before = await page.evaluate(() => window.__waffle.getCameraState());
-		const distBefore = cameraDistance(before.position, before.target);
 
 		await zoom(page, -300);
 		await page.waitForTimeout(300);
 
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
-		const distAfter = cameraDistance(after.position, after.target);
 
-		expect(distAfter).toBeLessThan(distBefore);
+		expect(viewExtent(after)).toBeLessThan(viewExtent(before));
 	});
 
-	test('zoom out increases camera distance', async ({ waffle }) => {
+	test('zoom out shows more of the model', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
 		const before = await page.evaluate(() => window.__waffle.getCameraState());
-		const distBefore = cameraDistance(before.position, before.target);
 
 		await zoom(page, 300);
 		await page.waitForTimeout(300);
 
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
-		const distAfter = cameraDistance(after.position, after.target);
 
-		expect(distAfter).toBeGreaterThan(distBefore);
+		expect(viewExtent(after)).toBeGreaterThan(viewExtent(before));
 	});
 
-	test('zoom does not exceed MAX_DISTANCE of 2000', async ({ waffle }) => {
+	test('zoom out stops at a limit', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
+		const start = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
 
-		// Zoom out aggressively — many large wheel events
+		// Zoom out aggressively — many large wheel events. Unclamped, twenty
+		// of them would widen the view about a thousand times.
 		for (let i = 0; i < 20; i++) {
 			await zoom(page, 500);
 		}
 		await page.waitForTimeout(500);
+		const atLimit = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
+		expect(atLimit).toBeGreaterThan(start);
+		expect(atLimit).toBeLessThan(start * 500);
 
-		const state = await page.evaluate(() => window.__waffle.getCameraState());
-		expect(state).not.toBeNull();
-		const dist = cameraDistance(state.position, state.target);
-
-		// Distance should be clamped at or below MAX_DISTANCE=2000
-		expect(dist).toBeLessThanOrEqual(2050); // small tolerance for floating point
+		// At the limit, more zooming out changes nothing.
+		for (let i = 0; i < 5; i++) {
+			await zoom(page, 500);
+		}
+		await page.waitForTimeout(300);
+		const beyond = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
+		expect(beyond).toBeCloseTo(atLimit, 9);
 	});
 
-	test('multiple zoom-in steps progressively reduce distance', async ({ waffle }) => {
+	test('multiple zoom-in steps progressively show less', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
-		const distances = [];
+		const extents = [];
 
 		for (let i = 0; i < 5; i++) {
 			const state = await page.evaluate(() => window.__waffle.getCameraState());
-			distances.push(cameraDistance(state.position, state.target));
+			extents.push(viewExtent(state));
 			await zoom(page, -200);
 			await page.waitForTimeout(200);
 		}
 
-		// Each subsequent distance should be less than or equal to the previous
-		for (let i = 1; i < distances.length; i++) {
-			expect(distances[i]).toBeLessThanOrEqual(distances[i - 1] + 0.01);
+		// Each step shows strictly less than the one before.
+		for (let i = 1; i < extents.length; i++) {
+			expect(extents[i]).toBeLessThan(extents[i - 1]);
 		}
 	});
 
-	test('zoom in then zoom out returns camera near original distance', async ({ waffle }) => {
+	test('zoom in then zoom out returns the view near its original extent', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
-		const before = await page.evaluate(() => window.__waffle.getCameraState());
-		const distBefore = cameraDistance(before.position, before.target);
+		const before = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
 
 		// Zoom in
 		await zoom(page, -300);
 		await page.waitForTimeout(200);
+		const zoomedIn = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
+		expect(zoomedIn).toBeLessThan(before);
 
 		// Zoom back out
 		await zoom(page, 300);
 		await page.waitForTimeout(300);
 
-		const after = await page.evaluate(() => window.__waffle.getCameraState());
-		const distAfter = cameraDistance(after.position, after.target);
+		const after = viewExtent(await page.evaluate(() => window.__waffle.getCameraState()));
 
-		// Should be roughly the same distance (within 20%)
-		expect(Math.abs(distAfter - distBefore) / distBefore).toBeLessThan(0.2);
+		// Should be roughly the same extent (within 20%)
+		expect(Math.abs(after - before) / before).toBeLessThan(0.2);
 	});
 });
 

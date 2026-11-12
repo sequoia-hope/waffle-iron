@@ -8,7 +8,7 @@
  *    rejection to `{ conflict: { theirs_rev } }` instead of overwriting or failing raw.
  */
 import { test as rawTest, expect } from '@playwright/test';
-import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { collectCrashErrors, expectNoAnyCrash, gotoHome } from './helpers/state.js';
 
 const PROJECT = '/api/v4/projects/acme%2Fcas-repo';
 
@@ -169,7 +169,7 @@ rawTest.describe('GitLab compare-and-swap via last_commit_id', () => {
 				return route.fulfill({ status: 405, body: '' });
 			});
 
-			await page.goto('/home');
+			await gotoHome(page);
 			await page.evaluate(() => {
 				localStorage.setItem(
 					'waffle-host-tokens',

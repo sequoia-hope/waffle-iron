@@ -325,3 +325,21 @@ export async function waitForMeshWithGeometry(page, timeout = 10000) {
 		{ timeout }
 	);
 }
+
+/**
+ * Open the home page and wait until the app has booted.
+ *
+ * `page.goto` resolves at the load event, but the page boots SvelteKit from a
+ * dynamic `import()` the load event does not wait for. Until that graph has
+ * run `/@vite/client`, Vite's dev `define` globals do not exist —
+ * `__SVELTEKIT_PAYLOAD__` among them, which `$app/paths` reads at module
+ * scope. A spec that imports an app module (`/src/lib/storage/...`) straight
+ * after `goto` can lose that race with a ReferenceError that poisons the
+ * module for the life of the page. The header is client-rendered
+ * (`ssr = false`), so seeing it proves the app's own graph has evaluated.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function gotoHome(page) {
+	await page.goto('/home');
+	await page.locator('[data-testid="home-header"]').waitFor({ state: 'visible' });
+}

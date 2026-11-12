@@ -17,12 +17,13 @@ const marker = (page) => page.evaluate(() => window.__waffle.getRotationCenter()
 /** Press, move a little, and read the marker mid-drag; then release. */
 async function duringRotate(page, fn) {
 	const b = await getCanvasBounds(page);
+	// The RIGHT button rotates.
 	await page.mouse.move(b.centerX, b.centerY);
-	await page.mouse.down();
+	await page.mouse.down({ button: 'right' });
 	await page.mouse.move(b.centerX + 30, b.centerY + 20, { steps: 5 });
 	await page.waitForTimeout(150);
 	const out = await fn();
-	await page.mouse.up();
+	await page.mouse.up({ button: 'right' });
 	await page.waitForTimeout(150);
 	return out;
 }

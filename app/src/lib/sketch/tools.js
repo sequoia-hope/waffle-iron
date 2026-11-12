@@ -1170,7 +1170,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	if (eventType === 'pointermove') {
 		// Handle active drag-to-reposition
 		if (dragPointId != null) {
-			const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
+			const snap = detectSnaps(x, y, dragPointId, screenPixelSize, false, dragPointId);
 			setSnapIndicator(snap.indicator);
 			lastDragSnap = snap;
 			dragSketchPoint(dragPointId, snap.x, snap.y);
@@ -1217,7 +1217,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 					const entity = entities.find(e => e.id === hitId);
 					if (entity && entity.type === 'Point') {
 						dragPointId = hitId;
-						const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
+						const snap = detectSnaps(x, y, dragPointId, screenPixelSize, false, dragPointId);
 						setSnapIndicator(snap.indicator);
 						lastDragSnap = snap;
 						dragSketchPoint(dragPointId, snap.x, snap.y);

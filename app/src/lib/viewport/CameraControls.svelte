@@ -625,12 +625,26 @@
 	}
 
 	/**
-	 * A mouse drag that will rotate (OrbitControls maps the left button to
-	 * ORBIT): pivot on what is under the cursor.
+	 * The `PointerEvent.button` OrbitControls rotates with, read from the
+	 * mapping the controls actually hold so this cannot disagree with it.
+	 * @returns {number} 0 left, 1 middle, 2 right; -1 when no button rotates
+	 */
+	function rotateButton() {
+		const m = controlsRef?.mouseButtons;
+		if (!m) return -1;
+		if (m.LEFT === THREE.MOUSE.ROTATE) return 0;
+		if (m.MIDDLE === THREE.MOUSE.ROTATE) return 1;
+		if (m.RIGHT === THREE.MOUSE.ROTATE) return 2;
+		return -1;
+	}
+
+	/**
+	 * A mouse drag that will rotate (the button OrbitControls maps to
+	 * ROTATE): pivot on what is under the cursor.
 	 * @param {PointerEvent} e
 	 */
 	function onMousePointerDown(e) {
-		if (e.pointerType === 'touch' || e.button !== 0) return;
+		if (e.pointerType === 'touch' || e.button !== rotateButton()) return;
 		const canvas = renderer?.domElement;
 		if (!canvas) return;
 		const rect = canvas.getBoundingClientRect();

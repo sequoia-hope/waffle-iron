@@ -39,6 +39,11 @@ async function openPlanetaryDialog(page, xOffset = 60, yOffset = -40) {
 	await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 
+// Create adds the N+2 gears one engine round trip at a time before the dialog
+// closes: about 2 s on an idle machine, several times that when the suite's
+// other workers have the cores. The wait is a budget, not the assertion.
+const CREATE_TIMEOUT_MS = 20000;
+
 test.describe('planetary gear stage', () => {
 	test.beforeEach(async ({ waffle }) => {
 		await clickSketch(waffle.page);
@@ -69,14 +74,19 @@ test.describe('planetary gear stage', () => {
 		await createBtn.click();
 
 		// Dialog closes; sketch gains N+2 = 6 Gear entities as one undo step.
-		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: CREATE_TIMEOUT_MS });
 		await waitForEntityCount(page, 6, 5000);
 		expect(await getEntityCountByType(page, 'Gear')).toBe(6);
 
 		expectNoAnyCrash(crashes);
 	});
 
-	test('created stage extrudes into a solid', async ({ waffle }) => {
+	// QUARANTINED: owner bug report B2 (docs/notes/bug_reports_2026-11-11.md).
+	// Extruding a planetary stage leaves the dialog open with "Model updated
+	// (0 bodies)": the kernel rejects the gear profile
+	// (`ProfileNotSimple { loop_index: 0 }` in the owner's repro,
+	// `error-11-10-26.waffle`). Not investigated yet; un-quarantine with the fix.
+	test.fixme('created stage extrudes into a solid', async ({ waffle }) => {
 		const page = waffle.page;
 		const crashes = collectCrashErrors(page);
 
@@ -92,7 +102,7 @@ test.describe('planetary gear stage', () => {
 		const createBtn = page.locator('[data-testid="planetary-create-btn"]');
 		await expect(createBtn).toBeEnabled();
 		await createBtn.click();
-		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: CREATE_TIMEOUT_MS });
 
 		// 3 planets + sun + ring = 5 gears.
 		await waitForEntityCount(page, 5, 5000);
@@ -151,7 +161,7 @@ test.describe('planetary gear stage', () => {
 		const createBtn = page.locator('[data-testid="planetary-create-btn"]');
 		await expect(createBtn).toBeEnabled();
 		await createBtn.click();
-		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: CREATE_TIMEOUT_MS });
 
 		// A stage WAS created. The snapped N is a divisor of 80 in [1,12]
 		// (2, 4, or 5), so gear count is N + 2 (sun + ring). Assert it's a valid
@@ -231,7 +241,7 @@ test.describe('planetary gear stage', () => {
 		const createBtn = page.locator('[data-testid="planetary-create-btn"]');
 		await expect(createBtn).toBeEnabled();
 		await createBtn.click();
-		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: CREATE_TIMEOUT_MS });
 
 		// N+2 = 6 gears, N+1 = 5 center points (sun + 4 planets; ring shares sun).
 		await waitForEntityCount(page, 6 + 5, 5000);

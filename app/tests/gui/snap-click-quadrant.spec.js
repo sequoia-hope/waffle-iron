@@ -10,12 +10,24 @@ import { clickSketch, clickCircle, pressKey } from './helpers/toolbar.js';
 import { clickAt, moveTo } from './helpers/canvas.js';
 import { waitForEntityCount, getEntities } from './helpers/state.js';
 
-/** Quadrant points for a circle at (0,0) with radius 5 */
+/**
+ * Reference circle radius, in METRES (sketch coordinates are metres since the
+ * true-meters unit system, 579ca306). 50 mm is ~78 px at the default sketch
+ * view (orthographic, 0.4 m tall), so every quadrant is on screen.
+ *
+ * It was `5` — written when the default camera sat 30 "units" out. In metres
+ * that is a 10 m circle whose quadrants project ~7850 px off the canvas, and a
+ * lone circle has a single solved position, so the sketch auto-fit (which needs
+ * two) never brought it into view: every click landed outside the window.
+ */
+const R = 0.05;
+
+/** Quadrant points for a circle at (0,0) with radius R */
 const QUADRANTS = [
-	{ label: '0° (right)',   sx: 5,  sy: 0 },
-	{ label: '90° (top)',    sx: 0,  sy: 5 },
-	{ label: '180° (left)',  sx: -5, sy: 0 },
-	{ label: '270° (bottom)', sx: 0,  sy: -5 },
+	{ label: '0° (right)',   sx: R,  sy: 0 },
+	{ label: '90° (top)',    sx: 0,  sy: R },
+	{ label: '180° (left)',  sx: -R, sy: 0 },
+	{ label: '270° (bottom)', sx: 0,  sy: -R },
 ];
 
 /**
@@ -49,12 +61,12 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		// 1. Enter sketch on front plane (XY, normal=[0,0,1])
 		await clickSketch(page);
 
-		// 2. Create a reference circle via API: center=(0,0), radius=5
-		await page.evaluate(() => {
+		// 2. Create a reference circle via API: center=(0,0), radius=R
+		await page.evaluate((radius) => {
 			const w = window.__waffle;
 			w.addSketchEntity({ type: 'Point', id: 9001, x: 0, y: 0, construction: false });
-			w.addSketchEntity({ type: 'Circle', id: 9002, center_id: 9001, radius: 5, construction: false });
-		});
+			w.addSketchEntity({ type: 'Circle', id: 9002, center_id: 9001, radius, construction: false });
+		}, R);
 		await waitForEntityCount(page, 2, 3000);
 
 		// Verify the reference circle exists
@@ -64,7 +76,9 @@ test.describe('quadrant snap click — 10x repetition', () => {
 
 		// 3. Run 10 iterations, cycling through 4 quadrants
 		const failures = [];
-		const TOLERANCE = 0.15; // sketch units — generous for screen→sketch round-trip
+		// 3 % of the radius, as before (0.15 on a radius of 5): 1.5 mm, ~2.4 px
+		// at the default view — generous for the screen→sketch round-trip.
+		const TOLERANCE = 0.03 * R;
 
 		for (let i = 0; i < 10; i++) {
 			const q = QUADRANTS[i % 4];
@@ -144,7 +158,7 @@ test.describe('quadrant snap click — 10x repetition', () => {
 				failures.push({
 					iter: i,
 					label: iterLabel,
-					error: `Center at (${centerPos.x.toFixed(3)}, ${centerPos.y.toFixed(3)}) — expected (${q.sx}, ${q.sy}), dist=${dist.toFixed(4)}`,
+					error: `Center at (${centerPos.x.toFixed(5)}, ${centerPos.y.toFixed(5)}) — expected (${q.sx}, ${q.sy}), dist=${dist.toFixed(6)}`,
 					snapDetected,
 					snapBefore,
 					offset,
@@ -171,12 +185,12 @@ test.describe('quadrant snap click — 10x repetition', () => {
 
 		await clickSketch(page);
 
-		// Create reference circle at origin with radius 5
-		await page.evaluate(() => {
+		// Create reference circle at origin with radius R
+		await page.evaluate((radius) => {
 			const w = window.__waffle;
 			w.addSketchEntity({ type: 'Point', id: 8001, x: 0, y: 0, construction: false });
-			w.addSketchEntity({ type: 'Circle', id: 8002, center_id: 8001, radius: 5, construction: false });
-		});
+			w.addSketchEntity({ type: 'Circle', id: 8002, center_id: 8001, radius, construction: false });
+		}, R);
 		await waitForEntityCount(page, 2, 3000);
 
 		// Activate circle tool so snap detection runs on pointermove
@@ -192,8 +206,11 @@ test.describe('quadrant snap click — 10x repetition', () => {
 			const snap = await page.evaluate(() => window.__waffle?.getSnapIndicator());
 			expect(snap, `No snap indicator for ${q.label} at offset (${offset.x.toFixed(1)}, ${offset.y.toFixed(1)})`).not.toBeNull();
 			expect(snap.type, `Snap type for ${q.label} should be 'quadrant'`).toBe('quadrant');
-			expect(snap.x).toBeCloseTo(q.sx, 1);
-			expect(snap.y).toBeCloseTo(q.sy, 1);
+			// The indicator sits ON the quadrant (computed, not picked): within
+			// 0.05 mm. The old precision of 1 (±0.05) was 1 % of a radius of 5
+			// and would be the whole radius here.
+			expect(snap.x).toBeCloseTo(q.sx, 4);
+			expect(snap.y).toBeCloseTo(q.sy, 4);
 		}
 	});
 
@@ -202,16 +219,16 @@ test.describe('quadrant snap click — 10x repetition', () => {
 
 		await clickSketch(page);
 
-		// Create reference circle at origin with radius 5
-		await page.evaluate(() => {
+		// Create reference circle at origin with radius R
+		await page.evaluate((radius) => {
 			const w = window.__waffle;
 			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0, construction: false });
-			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius: 5, construction: false });
-		});
+			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius, construction: false });
+		}, R);
 		await waitForEntityCount(page, 2, 3000);
 
-		// Use line tool: draw a line starting from the right quadrant (5, 0)
-		const offset = await sketchToOffset(page, 5, 0);
+		// Use line tool: draw a line starting from the right quadrant (R, 0)
+		const offset = await sketchToOffset(page, R, 0);
 		expect(offset).not.toBeNull();
 
 		await page.evaluate(() => window.__waffle?.setTool('line'));
@@ -234,7 +251,7 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		await clickAt(page, offset.x + 50, offset.y);
 		await waitForEntityCount(page, 5, 5000); // 2 original + 2 points + 1 line
 
-		// Verify the start point of the new line is at (5, 0)
+		// Verify the start point of the new line is at (R, 0)
 		const positions = await getPositions(page);
 		const entities = await getEntities(page);
 		const lines = entities.filter(e => e.type === 'Line');
@@ -243,7 +260,9 @@ test.describe('quadrant snap click — 10x repetition', () => {
 		const newLine = lines[lines.length - 1];
 		const startPos = positions[newLine.start_id];
 		expect(startPos).toBeDefined();
-		expect(startPos.x).toBeCloseTo(5, 0);
-		expect(startPos.y).toBeCloseTo(0, 0);
+		// Precision 3 (±0.5 mm) is 1 % of R; the old precision 0 (±0.5) was
+		// 10 % of a radius of 5.
+		expect(startPos.x).toBeCloseTo(R, 3);
+		expect(startPos.y).toBeCloseTo(0, 3);
 	});
 });

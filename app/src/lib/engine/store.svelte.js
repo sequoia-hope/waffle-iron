@@ -2345,6 +2345,25 @@ export function proposeHoverRef(ref, clientX, clientY) {
 	setHoveredRef(ref);
 }
 
+/**
+ * Withdraw a mesh's Face hover when the pointer leaves the mesh.
+ *
+ * The mesh's pointer-out arrives a frame after the DOM pointer move (Threlte
+ * raycasts on rAF). By then the edge and vertex overlays have already proposed
+ * for the pixel the pointer moved TO, so if any pixel has been arbitrated
+ * since the mesh's own last proposal, the hover belongs to that newer pixel
+ * and stays: the pointer left the face by landing on its corner, its
+ * silhouette edge, or another body. If nothing has been proposed since, the
+ * pointer is over nothing and the hover is cleared.
+ * @param {number | null} faceX - pixel of the mesh's last Face proposal
+ * @param {number | null} faceY
+ */
+export function retractFaceHover(faceX, faceY) {
+	if (faceX != null && (faceX !== _hoverArb.x || faceY !== _hoverArb.y)) return;
+	_hoverArb.priority = 0;
+	setHoveredRef(null);
+}
+
 // Last pointer pixel seen by the sketch interaction layer. Used to tell whether
 // `hoveredRef` was arbitrated at the pixel a click is happening on, or is stale.
 let _lastPointerClient = { x: null, y: null };
@@ -3740,13 +3759,16 @@ export function findPointNear(x, y, threshold) {
  * @param {number} x
  * @param {number} y
  * @param {number} threshold
+ * @param {number | null} [excludePointId] - skip lines this point is an
+ *   endpoint of: a point being moved is trivially "near" its own line
  * @returns {{ id: number, dist: number } | null}
  */
-export function findLineNear(x, y, threshold) {
+export function findLineNear(x, y, threshold, excludePointId = null) {
 	let closest = null;
 	let closestDist = threshold;
 	for (const entity of sketchEntities) {
 		if (entity.type !== 'Line') continue;
+		if (excludePointId != null && (entity.start_id === excludePointId || entity.end_id === excludePointId)) continue;
 		const p1 = sketchPositions.get(entity.start_id);
 		const p2 = sketchPositions.get(entity.end_id);
 		if (!p1 || !p2) continue;
@@ -3765,13 +3787,22 @@ export function findLineNear(x, y, threshold) {
  * @param {number} x
  * @param {number} y
  * @param {number} threshold
+ * @param {number | null} [excludePointId] - skip circles and arcs this point
+ *   defines (centre, or an arc's start or end)
  * @returns {{ id: number, dist: number } | null}
  */
-export function findCircleNear(x, y, threshold) {
+export function findCircleNear(x, y, threshold, excludePointId = null) {
 	let closest = null;
 	let closestDist = threshold;
 	for (const entity of sketchEntities) {
 		if (entity.type !== 'Circle' && entity.type !== 'Arc') continue;
+		if (
+			excludePointId != null &&
+			(entity.center_id === excludePointId ||
+				entity.start_id === excludePointId ||
+				entity.end_id === excludePointId)
+		)
+			continue;
 		const center = sketchPositions.get(entity.center_id);
 		if (!center) continue;
 
@@ -9810,6 +9841,20 @@ export async function closeTab(tabId) {
 export async function renameTab(tabId, name) {
 	if (bridge && engineReady) {
 		try {
+			// Until the session's first `ModelUpdated` the store has no tab list
+			// and the tab bar shows a stand-in for the session's one tab. Its id
+			// is not the session's, so ask the session what it holds (an empty
+			// meta patch changes nothing and answers with the document) and
+			// rename the tab the stand-in stood for.
+			if (!documentTabs.some((t) => t.id === tabId)) {
+				await bridge.send({ type: 'SetDocumentMeta' });
+				const real = getActiveTabId() || documentTabs[0]?.id;
+				if (!real) {
+					log('error', `RenameTab failed: the document has no tab '${tabId}'`);
+					return;
+				}
+				tabId = real;
+			}
 			await bridge.send({ type: 'RenameTab', tab_id: tabId, name });
 		} catch (err) {
 			log('error', `RenameTab failed: ${err?.message || err}`);

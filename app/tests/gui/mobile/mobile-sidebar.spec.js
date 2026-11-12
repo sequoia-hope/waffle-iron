@@ -6,6 +6,40 @@
 import { test, expect } from '../helpers/waffle-test.js';
 import { isMobileViewport } from '../helpers/mobile.js';
 
+/**
+ * Tap the backdrop where a user can reach it: on the strip the open panel
+ * leaves uncovered.
+ *
+ * The backdrop fills the window and the panel sits on top of it, 260 px of a
+ * 440 px portrait window (`.mobile-panel { width: min(260px, 75vw) }`), so
+ * the backdrop's CENTER — where a bare `backdrop.click()` aims — is under the
+ * panel. Such a click can only land while the panel is still sliding in
+ * (0.2 s) and short of the middle; once the slide has finished it waits on a
+ * point that is covered by design until the test times out.
+ *
+ * So: let the slide come to rest, then aim at the middle of what is left.
+ * Playwright still hit-tests that point, so a panel that grew to cover the
+ * whole backdrop fails here rather than passing.
+ *
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').Locator} panel - the open `.mobile-panel`
+ */
+async function tapBackdropBeside(page, panel) {
+	const backdrop = page.locator('.mobile-backdrop');
+	await expect(backdrop).toBeVisible();
+	// `.open` is `transform: translateX(0)`; mid-slide it is a translation.
+	await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
+
+	const view = page.viewportSize();
+	const box = await panel.boundingBox();
+	expect(box).not.toBeNull();
+	// A left panel leaves the strip to its right, a right panel the one to
+	// its left.
+	const [from, to] = box.x <= 0 ? [box.x + box.width, view.width] : [0, box.x];
+	expect(to - from, 'backdrop strip left uncovered by the open panel').toBeGreaterThan(0);
+	await backdrop.click({ position: { x: (from + to) / 2, y: view.height / 2 } });
+}
+
 test.describe('Mobile sidebar', () => {
 	test.beforeEach(async ({ waffle }) => {
 		const isMobile = await isMobileViewport(waffle.page);
@@ -38,8 +72,7 @@ test.describe('Mobile sidebar', () => {
 		await expect(rightPanel).not.toHaveClass(/\bopen\b/);
 
 		// Close left panel via backdrop (backdrop intercepts pointer events over FABs)
-		const backdrop = page.locator('.mobile-backdrop');
-		await backdrop.click();
+		await tapBackdropBeside(page, leftPanel);
 		await expect(leftPanel).not.toHaveClass(/\bopen\b/);
 
 		// Now open right panel
@@ -89,9 +122,7 @@ test.describe('Mobile sidebar', () => {
 		await expect(rightPanel).toHaveClass(/\bopen\b/);
 
 		// Click backdrop to close
-		const backdrop = page.locator('.mobile-backdrop');
-		await expect(backdrop).toBeVisible();
-		await backdrop.click();
+		await tapBackdropBeside(page, rightPanel);
 
 		// Panel should be closed
 		await expect(rightPanel).not.toHaveClass(/\bopen\b/);

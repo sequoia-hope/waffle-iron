@@ -3,14 +3,40 @@
  * chain (entities sharing endpoints, transitively). Shift+double-click unions
  * the chain into the existing selection. See /specs/sketch_chain_offset.md
  * branch table rows 1-3.
+ *
+ * Every double-click here is ONE gesture (`doubleClickAt`). Two `clickAt`
+ * calls are not: each re-measures the canvas and sleeps 150 ms, and with the
+ * suite running in parallel the gap between the two presses passes the app's
+ * 400 ms double-click window (`handleSelectTool` in tools.js). The second
+ * press then reads as a plain click — selecting one line instead of the
+ * chain, or, with Shift held, toggling the just-added line back OUT (3
+ * selected instead of 4).
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch } from './helpers/toolbar.js';
-import { clickAt } from './helpers/canvas.js';
+import { clickAt, doubleClickAt } from './helpers/canvas.js';
 import { getEntities } from './helpers/state.js';
 
 const getSelection = (page) => page.evaluate(() => window.__waffle.getSketchSelection());
 const setTool = (page, t) => page.evaluate((tool) => window.__waffle.setTool(tool), t);
+
+/**
+ * Wait for the chain walk to land. The double-click asks the engine for the
+ * connected chain (`connectedChain`, a promise) and sets the selection when it
+ * answers, so the selection is not final when the gesture returns. Throws on
+ * timeout — that IS the failure.
+ */
+async function waitForSelectedLines(page, n) {
+	await page.waitForFunction(
+		(want) => {
+			const sel = window.__waffle.getSketchSelection();
+			const lines = window.__waffle.getEntities().filter((e) => e.type === 'Line' && sel.includes(e.id));
+			return lines.length === want;
+		},
+		n,
+		{ timeout: 5000 }
+	);
+}
 
 /** Draw a 3-segment open polyline (staircase) with the line tool's chaining. */
 async function drawStaircase(page) {
@@ -46,8 +72,8 @@ test.describe('chain select', () => {
 
 		// Double-click the middle staircase segment (vertical at x=-60).
 		await setTool(page, 'select');
-		await clickAt(page, -60, 30);
-		await clickAt(page, -60, 30);
+		await doubleClickAt(page, -60, 30);
+		await waitForSelectedLines(page, 3);
 
 		const selection = await getSelection(page);
 		const selectedLines = entities.filter(
@@ -80,12 +106,12 @@ test.describe('chain select', () => {
 
 		// Chain-select the staircase, then shift+double-click the lone line.
 		await setTool(page, 'select');
-		await clickAt(page, -60, 30);
-		await clickAt(page, -60, 30);
+		await doubleClickAt(page, -60, 30);
+		await waitForSelectedLines(page, 3);
 		await page.keyboard.down('Shift');
-		await clickAt(page, 130, -80);
-		await clickAt(page, 130, -80);
+		await doubleClickAt(page, 130, -80);
 		await page.keyboard.up('Shift');
+		await waitForSelectedLines(page, 4);
 
 		const selection = await getSelection(page);
 		const entities = await getEntities(page);
@@ -103,9 +129,8 @@ test.describe('chain select', () => {
 		await page.waitForTimeout(300);
 
 		await setTool(page, 'select');
-		// Click the circle's rim (radius 50px from center).
-		await clickAt(page, 50, 0);
-		await clickAt(page, 50, 0);
+		// Double-click the circle's rim (radius 50px from center).
+		await doubleClickAt(page, 50, 0);
 
 		const selection = await getSelection(page);
 		const entities = await getEntities(page);

@@ -88,33 +88,35 @@ test.describe('sketch polyline tool', () => {
 	test('polyline with snap to existing point reuses point', async ({ waffle }) => {
 		const page = waffle.page;
 
-		// Create a point at (5, 0) via API
-		await page.evaluate(() => {
-			window.__waffle.addSketchEntity({ type: 'Point', id: 900, x: 5, y: 0, construction: false });
-		});
-		await page.waitForTimeout(200);
+		// Create a point at (50 mm, 0) via API. Sketch coordinates are METRES
+		// (579ca306): the old (5, 0) is 5 m out, ~7850 px off the canvas at the
+		// default sketch view, so the second click landed outside the window,
+		// the polyline never got a second vertex, and Escape cancelled it.
+		const PX = 0.05;
+		await page.evaluate((x) => {
+			window.__waffle.addSketchEntity({ type: 'Point', id: 900, x, y: 0, construction: false });
+		}, PX);
+		await waitForEntityCount(page, 1, 3000);
 
 		// Start polyline at (-80, 0)
 		await clickAt(page, -80, 0);
 		await page.waitForTimeout(200);
 
-		// Click near (5, 0) — should snap to existing point
-		// Get the screen offset for the existing point
-		const offset = await page.evaluate(() => window.__waffle.sketchToScreenOffset(5, 0));
-		if (offset) {
-			await clickAt(page, offset.x, offset.y);
-		} else {
-			// Fallback: click near where it should be
-			await clickAt(page, 40, 0);
-		}
+		// Click on the existing point — should snap to it. The offset comes
+		// from the app's own projection, so there is no guessed fallback pixel.
+		const offset = await page.evaluate((x) => window.__waffle.sketchToScreenOffset(x, 0), PX);
+		expect(offset, 'sketchToScreenOffset returned null in an active sketch').not.toBeNull();
+		await clickAt(page, offset.x, offset.y);
 		await page.keyboard.press('Escape');
 		await page.waitForTimeout(300);
 
-		// Should have reused the existing point, so total entities:
-		// 2 new points (start) + 1 line, but endpoint may be the existing 900 point
+		// One segment, and it ENDS ON the existing point: 1 new point (the
+		// start) + point 900 + 1 line.
 		const entities = await getEntities(page);
 		const lines = entities.filter(e => e.type === 'Line');
 		expect(lines.length).toBe(1);
+		expect(lines[0].end_id).toBe(900);
+		expect(entities.filter(e => e.type === 'Point').length).toBe(2);
 	});
 
 	test('polyline close-to-start with 5 segments → pentagon', async ({ waffle }) => {

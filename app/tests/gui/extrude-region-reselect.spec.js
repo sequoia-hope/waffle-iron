@@ -42,6 +42,11 @@ test.describe('extrude region re-selection', () => {
 
 		await clickExtrude(page);
 
+		// The dialog fills its region from an engine round trip
+		// (ComputeRegions): wait for it, do not read it on the click's tick.
+		await expect
+			.poll(async () => (await getExtrudeDialogState(page))?.regions.length, { timeout: 10000 })
+			.toBe(1);
 		// Verify 1 region is auto-populated
 		const state = await getExtrudeDialogState(page);
 		expect(state).toBeTruthy();
@@ -70,6 +75,11 @@ test.describe('extrude region re-selection', () => {
 
 		await clickExtrude(page);
 
+		// The dialog fills its region from an engine round trip
+		// (ComputeRegions): wait for it, do not read it on the click's tick.
+		await expect
+			.poll(async () => (await getExtrudeDialogState(page))?.regions.length, { timeout: 10000 })
+			.toBe(1);
 		// Verify 1 region exists
 		let state = await getExtrudeDialogState(page);
 		expect(state.regions.length).toBe(1);
@@ -105,7 +115,12 @@ test.describe('extrude region re-selection', () => {
 
 		await clickExtrude(page);
 
-		// Verify 1 region auto-populated and pick mode auto-active
+		// Verify 1 region auto-populated and pick mode auto-active. The dialog
+		// fills its region from an engine round trip (ComputeRegions), so the
+		// state is waited for, not read on the same tick as the click.
+		await expect
+			.poll(async () => (await getExtrudeDialogState(page))?.regions.length, { timeout: 10000 })
+			.toBe(1);
 		let state = await getExtrudeDialogState(page);
 		expect(state.regions.length).toBe(1);
 		let pickActive = await page.evaluate(

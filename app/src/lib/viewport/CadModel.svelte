@@ -26,6 +26,7 @@
 		isBodyVisible,
 		isBodyPickingEnabled,
 		proposeHoverRef,
+		retractFaceHover,
 		getSketchHover,
 		getFreshHoveredRef,
 		setSelectedInstancePath
@@ -470,7 +471,8 @@
 		// Invariant I3: Face is the lowest hover priority — propose it for this
 		// pixel; a Vertex/Edge proposal for the same pixel supersedes it.
 		const ne = event.nativeEvent;
-		proposeHoverRef(ref, ne?.clientX ?? 0, ne?.clientY ?? 0);
+		lastFaceHoverPx = { x: ne?.clientX ?? 0, y: ne?.clientY ?? 0 };
+		proposeHoverRef(ref, lastFaceHoverPx.x, lastFaceHoverPx.y);
 		// Board data on hover (specs/kicad_board_link.md C4): what a linked
 		// KiCad board knows about this body, if anything.
 		proposeEntityCard(
@@ -482,10 +484,18 @@
 	}
 
 	/**
-	 * Handle pointer leaving mesh.
+	 * The pixel of the last Face hover a mesh proposed.
+	 * @type {{ x: number, y: number } | null}
+	 */
+	let lastFaceHoverPx = null;
+
+	/**
+	 * Handle pointer leaving mesh: withdraw the Face hover, unless a newer
+	 * pixel has been arbitrated since it was proposed (see `retractFaceHover`).
 	 */
 	function handlePointerOut() {
-		setHoveredRef(null);
+		retractFaceHover(lastFaceHoverPx?.x ?? null, lastFaceHoverPx?.y ?? null);
+		lastFaceHoverPx = null;
 	}
 
 	/** Threshold in pixels for "same click position" detection */

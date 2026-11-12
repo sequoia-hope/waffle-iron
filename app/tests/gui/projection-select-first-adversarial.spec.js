@@ -413,13 +413,31 @@ const isBoxBodyRef = (r) =>
 	r?.anchor?.type === 'FeatureOutput' && r?.anchor?.feature_id != null && !!r?.kind?.type;
 
 /** Build a box and stay in MODELING mode (no re-sketch). `extrudeDepth` lets us
- * probe both scale extremes. Returns the body AABB. */
+ * probe both scale extremes: a number is the depth in mm; a function receives
+ * the drawn rectangle's world size in mm (`{ width, height }`) and returns the
+ * depth in mm — the rectangle is drawn in SCREEN pixels, so only that makes
+ * the body's proportions independent of the default zoom. Returns the body
+ * AABB. */
 async function buildBoxModeling(waffle, rect = [-80, -60, 80, 60], extrudeDepth = 20) {
 	const page = waffle.page;
 	await clickSketch(page, 'front');
 	await clickRectangle(page);
 	await drawRectangle(page, rect[0], rect[1], rect[2], rect[3]);
 	await waitForEntityCount(page, 8, 5000);
+	if (typeof extrudeDepth === 'function') {
+		const drawn = await page.evaluate(() => {
+			const pts = [...window.__waffle.getPositions().values()];
+			const xs = pts.map((p) => p.x);
+			const ys = pts.map((p) => p.y);
+			return {
+				width: (Math.max(...xs) - Math.min(...xs)) * 1000,
+				height: (Math.max(...ys) - Math.min(...ys)) * 1000,
+			};
+		});
+		expect(drawn.width, 'drawn rectangle has a width').toBeGreaterThan(0);
+		expect(drawn.height, 'drawn rectangle has a height').toBeGreaterThan(0);
+		extrudeDepth = extrudeDepth(drawn);
+	}
 	await clickFinishSketch(page);
 	await waitForFeatureCount(page, 1, 10000);
 	await clickExtrude(page);
@@ -510,8 +528,17 @@ test.describe('Cycle 2 — picking scale robustness', () => {
 	// ---- SR3: opposite extreme — a LARGE but NORMALLY-PROPORTIONED body. The
 	// pixel-calibrated threshold must not over-correct and break picking on large
 	// geometry. The sketch rectangle (screen-pixel-sized in this fixture) and the
-	// extrude depth are scaled TOGETHER so the body grows uniformly (~4.5× the
-	// default, ~0.09 m, aspect ~2:1) instead of becoming a needle.
+	// extrude depth are scaled TOGETHER so the body grows uniformly (~4× the
+	// default box's footprint, as deep as it is wide, aspect ~1.6:1) instead of
+	// becoming a needle or a plate.
+	//
+	// "Together" is MEASURED: the depth is the drawn rectangle's own world
+	// width. It used to be a fixed 90 mm, which suited 720 px only at the
+	// default zoom of the day (frustum half-height 0.03 m, where 720 px drew
+	// under 0.1 m). 284a73d9 (2026-09-14, "200 mm default datum planes")
+	// backed the default view off to a half-height of 0.2 m, so the same
+	// 720×440 px now draw 0.459×0.280 m, and 90 mm of depth made a 5.1:1 plate
+	// that tripped the proportion guard below before any picking was exercised.
 	//
 	// (An earlier version scaled ONLY the extrude depth (160×120 sketch × 20000
 	// extrude) → a ~1700:1 needle; camera auto-fit then parks the eye INSIDE the
@@ -522,7 +549,9 @@ test.describe('Cycle 2 — picking scale robustness', () => {
 	test('SR3: modeling-mode face-interior pixel resolves to the box face on a large proportioned body', async ({ waffle }) => {
 		const page = waffle.page;
 		const crashes = collectCrashErrors(page);
-		const aabb = await buildBoxModeling(waffle, [-360, -220, 360, 220], 90);
+		const aabb = await buildBoxModeling(waffle, [-360, -220, 360, 220], (drawn) =>
+			Math.round(drawn.width)
+		);
 		const maxDim = Math.max(...aabb.size);
 		const ratio = Math.max(...aabb.size) / Math.min(...aabb.size);
 		// Large relative to the ~0.02 m default (and above the old absolute 0.06 m

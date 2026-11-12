@@ -37,21 +37,32 @@ test.describe('sketch snap click diagnostics', () => {
 
 		await clickLine(page);
 
-		// Add a point at (5, 0) via API
-		await page.evaluate(() => {
-			window.__waffle.addSketchEntity({ type: 'Point', id: 999, x: 5, y: 0, construction: false });
-		});
+		// Add a point at (50 mm, 0) via API. Sketch coordinates are METRES
+		// (579ca306): the old (5, 0) is 5 m from the origin, ~7850 px off the
+		// canvas at the default sketch view, and one lone point never triggers
+		// the sketch auto-fit — so the probed pixel was outside the window and
+		// `elementsFromPoint` returned nothing at all.
+		const PX = 0.05;
+		await page.evaluate((x) => {
+			window.__waffle.addSketchEntity({ type: 'Point', id: 999, x, y: 0, construction: false });
+		}, PX);
 		await waitForEntityCount(page, 1, 3000);
 
-		// Get screen offset for (5, 0)
-		const offset = await sketchToOffset(page, 5, 0);
-		expect(offset, 'sketchToScreenOffset(5, 0) returned null').not.toBeNull();
+		// Get screen offset for (PX, 0)
+		const offset = await sketchToOffset(page, PX, 0);
+		expect(offset, 'sketchToScreenOffset(PX, 0) returned null').not.toBeNull();
 
 		// Compute absolute position
 		const bounds = await getCanvasBounds(page);
 		expect(bounds, 'Canvas not visible').not.toBeNull();
 		const absX = bounds.centerX + offset.x;
 		const absY = bounds.centerY + offset.y;
+		// The probe is only meaningful ON the canvas: a point off it has no
+		// layer stack to analyse.
+		expect(absX, 'probe point is inside the canvas (x)').toBeGreaterThan(bounds.x);
+		expect(absX, 'probe point is inside the canvas (x)').toBeLessThan(bounds.x + bounds.width);
+		expect(absY, 'probe point is inside the canvas (y)').toBeGreaterThan(bounds.y);
+		expect(absY, 'probe point is inside the canvas (y)').toBeLessThan(bounds.y + bounds.height);
 
 		// Move to that position to trigger any hover overlays
 		await moveTo(page, offset.x, offset.y);

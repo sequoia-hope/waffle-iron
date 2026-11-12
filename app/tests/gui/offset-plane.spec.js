@@ -224,21 +224,39 @@ test.describe('offset datum plane creation', () => {
 		await clickFinishSketch(waffle.page);
 		await waitForFeatureCount(waffle.page, 2, 10000);
 
-		// Sketch's world centre = plane_origin + mean(u,v) in the buildSketchPlane basis.
+		// Sketch's world centre = plane_origin + mean(u,v) in the buildSketchPlane
+		// basis (`src/lib/sketch/sketchCoords.js`, mirroring `SketchPlaneBasis`):
+		// +u is the in-plane part of the sketch's own `plane_x_axis` when it
+		// carries a usable one, else derived from the normal. A new sketch on a
+		// plane facing ±Z — this one — is stamped with world +X since c9311cc9
+		// (2026-10-06, "Top sketches draw upright"); the derived basis there is
+		// u = −Y, a quarter turn away, which is what this used to assume.
 		const sketchCenter = await waffle.page.evaluate(() => {
 			const t = window.__waffle.getFeatureTree();
 			const sk = t.features.find((f) => f.operation?.type === 'Sketch');
 			const s = sk.operation.sketch;
-			const o = s.plane_origin,
-				n = s.plane_normal;
+			const o = s.plane_origin;
 			const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 			const cross = (a, b) => [
 				a[1] * b[2] - a[2] * b[1],
 				a[2] * b[0] - a[0] * b[2],
 				a[0] * b[1] - a[1] * b[0],
 			];
-			const ref = Math.abs(dot(n, [0, 0, 1])) < 0.99 ? [0, 0, 1] : [1, 0, 0];
-			let x = cross(ref, n);
+			const nl = Math.hypot(...s.plane_normal);
+			const n = s.plane_normal.map((v) => v / nl);
+			let x = null;
+			const given = s.plane_x_axis ?? null;
+			if (given) {
+				const gl = Math.hypot(...given);
+				if (gl > 0 && Number.isFinite(gl) && Math.abs(dot(given, n) / gl) < 0.99999) {
+					const along = dot(given, n);
+					x = given.map((v, i) => v - n[i] * along);
+				}
+			}
+			if (!x) {
+				const ref = Math.abs(dot(n, [0, 0, 1])) < 0.99 ? [0, 0, 1] : [1, 0, 0];
+				x = cross(ref, n);
+			}
 			let xl = Math.hypot(...x);
 			x = x.map((v) => v / xl);
 			let y = cross(n, x);

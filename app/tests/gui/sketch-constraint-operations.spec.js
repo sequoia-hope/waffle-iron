@@ -78,22 +78,60 @@ test.describe('sketch constraint operations', () => {
 		await waitForEntityCount(page, 3, 5000);
 		await page.waitForTimeout(300);
 
+		const line = (await getEntities(page)).find(e => e.type === 'Line');
+		expect(line).toBeTruthy();
+
 		// Activate dimension tool
 		await clickDimension(page);
 
-		// Click on the line (at its midpoint near canvas center)
+		// The dimension tool is PICK-THEN-PLACE (bcd85f74, specs/dimension_tool.md):
+		// clicking the line only completes the pick and starts the leader
+		// preview; the value popup opens on the NEXT click, in free space,
+		// which places the leader. (This test predates that flow and waited
+		// for a popup straight after the pick, which never comes.)
 		await clickAt(page, 0, 0);
+		expect(
+			await page.evaluate(() => window.__waffle.getPreview()?.type ?? null),
+			'picking the line starts the leader-placement preview'
+		).toBe('dimension');
+		expect(
+			await page.evaluate(() => window.__waffle.getDimensionPopup()),
+			'no value popup until the leader is placed'
+		).toBeNull();
+
+		// Place the leader above the line (free space)
+		await clickAt(page, 10, -60);
 
 		// Wait for dimension popup to appear
 		await waitForDimensionPopup(page, 5000);
 
-		// Apply a dimension value
+		// Apply a dimension value: 10 in the document's display unit (mm)
 		await applyDimensionValue(page, 10);
-		await page.waitForTimeout(500);
 
-		// Verify a Distance constraint was created
-		const distCount = await getConstraintCountByType(page, 'Distance');
-		expect(distCount).toBeGreaterThanOrEqual(1);
+		// A horizontal line is measured along its own axis, so the tool emits
+		// HDistance between its endpoints (dimensionHeuristic.js
+		// `axisAlignedOrientation`), not the aligned `Distance` it emitted
+		// before pick-then-place. Exactly one, carrying the entered value in
+		// internal metres.
+		await page.waitForFunction(
+			() => (window.__waffle?.getConstraints() ?? []).some(c => c.type === 'HDistance'),
+			null,
+			{ timeout: 5000 }
+		);
+		const constraints = await getConstraints(page);
+		const hDist = constraints.filter(c => c.type === 'HDistance');
+		expect(hDist.length).toBe(1);
+		expect([hDist[0].point_a, hDist[0].point_b].sort()).toEqual([line.start_id, line.end_id].sort());
+		expect(hDist[0].value).toBeCloseTo(0.01, 9);
+		expect(await getConstraintCountByType(page, 'Distance')).toBe(0);
+
+		// ...and the solver enforces it: the line is now 10 mm long.
+		await expect.poll(async () => {
+			const pos = await page.evaluate(() => Object.fromEntries(window.__waffle.getPositions()));
+			const a = pos[line.start_id];
+			const b = pos[line.end_id];
+			return a && b ? Math.abs(Math.abs(b.x - a.x) - 0.01) : Infinity;
+		}, { timeout: 5000 }).toBeLessThan(1e-6);
 	});
 
 	test('edit dimension value by clicking dimension label', async ({ waffle }) => {

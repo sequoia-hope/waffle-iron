@@ -292,17 +292,22 @@ test.describe('sketch snap click regression', () => {
 	test('7. click on quadrant snap on circle places point at quadrant', async ({ waffle }) => {
 		const page = waffle.page;
 
-		// Create a circle center at (0, 0) radius 3 via API
-		await page.evaluate(() => {
+		// Create a circle center at (0, 0) radius 30 mm via API. Sketch
+		// coordinates are METRES (579ca306): the old radius of 3 was a 6 m
+		// circle whose quadrant projected ~4700 px off the canvas, and a lone
+		// circle (one solved position) never triggers the sketch auto-fit, so
+		// the click below landed outside the window and placed nothing.
+		const R = 0.03;
+		await page.evaluate((radius) => {
 			const w = window.__waffle;
 			w.addSketchEntity({ type: 'Point', id: 7001, x: 0, y: 0, construction: false });
-			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius: 3, construction: false });
-		});
+			w.addSketchEntity({ type: 'Circle', id: 7002, center_id: 7001, radius, construction: false });
+		}, R);
 		await waitForEntityCount(page, 2, 3000);
 
-		// Quadrant at (3, 0) — get screen offset
-		const offset = await sketchToOffset(page, 3, 0);
-		expect(offset, 'sketchToScreenOffset should return a value for (3,0)').not.toBeNull();
+		// Quadrant at (R, 0) — get screen offset
+		const offset = await sketchToOffset(page, R, 0);
+		expect(offset, 'sketchToScreenOffset should return a value for (R,0)').not.toBeNull();
 
 		// Activate line tool
 		await page.evaluate(() => window.__waffle.setTool('line'));

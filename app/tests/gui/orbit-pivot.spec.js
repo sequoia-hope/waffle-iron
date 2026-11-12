@@ -11,7 +11,7 @@
  * to whatever `target` has drifted to.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { orbitDrag } from './helpers/canvas.js';
+import { orbitDrag, getCanvasBounds, viewExtent } from './helpers/canvas.js';
 import { createExtrudedBox } from './helpers/geometry.js';
 import { getMeshBoundingBox } from './helpers/state.js';
 
@@ -60,23 +60,51 @@ test.describe('orbit pivot', () => {
 	test('orbiting holds the point it turns about', async ({ waffle }) => {
 		const page = waffle.page;
 		await createExtrudedBox(page);
-		await orbitDrag(page, 0, 0, 90, 30);
-
-		const first = await camera(page);
-		expect(first.orbitPivot).not.toBeNull();
+		const bounds = await getCanvasBounds(page);
 		const distance = (c) =>
 			Math.hypot(
 				c.position[0] - c.orbitPivot[0],
 				c.position[1] - c.orbitPivot[1],
 				c.position[2] - c.orbitPivot[2]
 			);
-		const before = distance(first);
 
-		// A second rotate from the same place keeps the same pivot, and orbiting
-		// about a point leaves the camera the same distance from it.
-		await orbitDrag(page, 0, 0, -70, 40);
-		const second = await camera(page);
-		expect(second.orbitPivot).toEqual(first.orbitPivot);
-		expect(distance(second)).toBeCloseTo(before, 4);
+		// One rotate gesture from the canvas centre, read while the button is
+		// still down: the press anchors the pivot, and the drag turns the
+		// camera about it.
+		const rotate = async (dx, dy) => {
+			await page.mouse.move(bounds.centerX, bounds.centerY);
+			await page.mouse.down({ button: 'right' });
+			const pressed = await camera(page);
+			for (let i = 1; i <= 5; i++) {
+				await page.mouse.move(bounds.centerX + (dx * i) / 5, bounds.centerY + (dy * i) / 5);
+			}
+			const dragged = await camera(page);
+			await page.mouse.up({ button: 'right' });
+			await page.waitForTimeout(200);
+			return { pressed, dragged };
+		};
+
+		const first = await rotate(90, 30);
+		expect(first.pressed.orbitPivot).not.toBeNull();
+		// The drag really turned the camera...
+		expect(
+			Math.hypot(...first.dragged.position.map((v, i) => v - first.pressed.position[i]))
+		).toBeGreaterThan(0.1 * distance(first.pressed));
+		// ...about the pivot the press anchored: same pivot, same distance.
+		expect(first.dragged.orbitPivot).toEqual(first.pressed.orbitPivot);
+		expect(distance(first.dragged)).toBeCloseTo(distance(first.pressed), 6);
+
+		// A second rotate from the same place turns about the same spot. The
+		// pivot was held under the cursor by the first rotate, so the press
+		// lands on it again, to within the 14 px rosette `anchorOrbitPivot`
+		// probes with (it takes the hit nearest the camera, not the centre one).
+		const second = await rotate(-70, 40);
+		const worldPerPx = (2 * viewExtent(second.pressed)) / bounds.height;
+		const shift = Math.hypot(
+			...second.pressed.orbitPivot.map((v, i) => v - first.pressed.orbitPivot[i])
+		);
+		expect(shift).toBeLessThan(2 * 14 * worldPerPx);
+		expect(second.dragged.orbitPivot).toEqual(second.pressed.orbitPivot);
+		expect(distance(second.dragged)).toBeCloseTo(distance(second.pressed), 6);
 	});
 });

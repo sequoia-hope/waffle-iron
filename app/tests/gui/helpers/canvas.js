@@ -100,7 +100,7 @@ export async function drawCircle(page, cx, cy, rx, ry) {
 }
 
 /**
- * Perform an orbit drag (left-button drag) on the canvas.
+ * Perform an orbit drag (right-button drag) on the canvas.
  * @param {import('@playwright/test').Page} page
  * @param {number} startX - start x offset from center
  * @param {number} startY - start y offset from center
@@ -116,8 +116,9 @@ export async function orbitDrag(page, startX, startY, endX, endY) {
 	const ex = bounds.centerX + endX;
 	const ey = bounds.centerY + endY;
 
+	// The RIGHT button orbits (CameraControls: left selects, middle pans).
 	await page.mouse.move(sx, sy);
-	await page.mouse.down();
+	await page.mouse.down({ button: 'right' });
 	// Move in small steps for smoother drag
 	const steps = 5;
 	for (let i = 1; i <= steps; i++) {
@@ -127,8 +128,25 @@ export async function orbitDrag(page, startX, startY, endX, endY) {
 			sy + (ey - sy) * t
 		);
 	}
-	await page.mouse.up();
+	await page.mouse.up({ button: 'right' });
 	await page.waitForTimeout(200);
+}
+
+/**
+ * How much of the model the view shows: the half-height of the orthographic
+ * frustum, or the camera-to-target distance of a perspective camera. Zooming
+ * in makes it smaller in both projections.
+ * @param {{ projection: string, frustumTop: number, zoom: number, position: number[], target: number[] }} cam
+ *   a `window.__waffle.getCameraState()` result
+ * @returns {number}
+ */
+export function viewExtent(cam) {
+	if (cam.projection === 'orthographic') return cam.frustumTop / cam.zoom;
+	return Math.hypot(
+		cam.position[0] - cam.target[0],
+		cam.position[1] - cam.target[1],
+		cam.position[2] - cam.target[2]
+	);
 }
 
 /**

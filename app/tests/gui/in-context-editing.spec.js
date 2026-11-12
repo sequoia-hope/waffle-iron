@@ -13,10 +13,14 @@ import { test, expect } from './helpers/waffle-test.js';
 import { clickRectangle, clickFinishSketch, clickExtrude } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import { waitForEntityCount, waitForFeatureCount } from './helpers/state.js';
+import { FORMAT_VERSION, MIN_READER_VERSION } from '../../src/lib/engine/format.js';
 
 const CUBE_STEP = fs.readFileSync(new URL('./fixtures/cube.step', import.meta.url), 'utf8');
 
 const near = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;
+
+/** The format version that introduced `GeomRef.scope` (v4 Phase 3d-4): the oldest reader that keeps one. */
+const SCOPE_READER_FLOOR = 5;
 
 /** Part 1 = the 10 mm cube (import + apply), then an Assembly tab, active. */
 async function cubePartAndAssembly(page) {
@@ -144,11 +148,17 @@ test.describe('In-context editing', () => {
 		await page.waitForFunction(() => (window.__waffle.getToasts() || []).some((t) => /open the part in that assembly/.test(t.message)), { timeout: 10000 });
 
 		// The document writes the scoped reference and demands the current
-		// reader floor (v5 for `scope`, raised to v6 by `plane_x_axis`, v7 by
-		// `names`, v8 by `DesignParameter.unit`, v9 by `Sketch.plane_face`).
+		// reader floor: whatever the app's writer is at (`FORMAT_VERSION` /
+		// `MIN_READER_VERSION`, mirrored from `crates/file-format/src/save.rs`
+		// in `src/lib/engine/format.js`), never a number pinned here — this
+		// line named v9 until the format reached v15. What this feature itself
+		// needs of that floor is v5, the version that introduced `scope`: a
+		// reader older than that would drop the scope and bind the plane to
+		// this part's own geometry.
 		const json = JSON.parse(await page.evaluate(() => window.__waffle.buildDocumentJson()));
-		expect(json.version).toBe(9);
-		expect(json.min_reader_version).toBe(9);
+		expect(json.version).toBe(FORMAT_VERSION);
+		expect(json.min_reader_version).toBe(MIN_READER_VERSION);
+		expect(json.min_reader_version).toBeGreaterThanOrEqual(SCOPE_READER_FLOOR);
 		const part = json.tabs.find((t) => t.id === partTab);
 		expect(part.kind.features.features[1].operation.sketch.plane.scope).toEqual({ tab_id: asmTab, instance_path: [a] });
 	});

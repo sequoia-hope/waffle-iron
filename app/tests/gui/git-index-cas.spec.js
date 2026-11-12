@@ -5,7 +5,7 @@
  * latest remote index instead of clobbering concurrent entries or renames.
  */
 import { test as rawTest, expect } from '@playwright/test';
-import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { collectCrashErrors, expectNoAnyCrash, gotoHome } from './helpers/state.js';
 
 function v4Doc(id, name) {
 	const tabId = '33333333-4444-4555-8666-777777777777';
@@ -137,7 +137,7 @@ rawTest.describe('GitProvider .waffle-index.json compare-and-swap merge', () => 
 				return route.fulfill({ status: 405, body: '' });
 			});
 
-			await page.goto('/home');
+			await gotoHome(page);
 			await page.evaluate(() => {
 				localStorage.setItem(
 					'waffle-host-tokens',

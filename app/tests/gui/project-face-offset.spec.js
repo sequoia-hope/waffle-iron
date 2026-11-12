@@ -147,8 +147,25 @@ test('imported STEP face: curved boundary projects as one loop and offsets outwa
 	await page.keyboard.press('Enter');
 	// Wait for the committed offset rather than a fixed delay: under parallel
 	// load the engine round trip outlived 300 ms (1 in 6 at HEAD, 2026-10-24).
+	//
+	// ...and for the solver to have answered for it. The offset is ONE
+	// `Offset` constraint (03da244c), so the joints asserted below are the
+	// SOLVED positions, and since 2d692f79 (2026-10-30) at most one solve is
+	// in flight: a solve of the PRE-offset sketch is still out when the
+	// offset lands (the projection's 2·n entity adds drain through the engine
+	// lock one at a time, and were still draining when Enter was pressed —
+	// measured), the offset's solve queues behind it, and that older answer —
+	// it knows only the n projected points — replaces the position table
+	// until the queued solve answers. Reading on the line count alone read
+	// that older table (no entry for any offset point), every run, at
+	// `pos2[id].x`. `isSolveInFlight()` is false only once
+	// the last requested solve has been applied (the store re-arms it in the
+	// same task that applies an answer with one queued), so this is the
+	// settled state, not a delay.
 	await page.waitForFunction(
-		(n) => window.__waffle.getEntities().filter((e) => e.type === 'Line').length >= 2 * n,
+		(n) =>
+			window.__waffle.getEntities().filter((e) => e.type === 'Line').length >= 2 * n &&
+			!window.__waffle.isSolveInFlight(),
 		linesMade,
 		{ timeout: 10000 }
 	);
@@ -168,6 +185,7 @@ test('imported STEP face: curved boundary projects as one loop and offsets outwa
 	const pos2 = await positions(page);
 	for (const l of newLines) {
 		for (const id of [l.start_id, l.end_id]) {
+			expect(pos2[id], `offset joint ${id} has a solved position`).toBeTruthy();
 			const r = Math.hypot(pos2[id].x - cx, pos2[id].y - cy);
 			expect(r).toBeGreaterThan(srcR + 0.0003);
 			expect(r).toBeLessThan(srcR + 0.0008);

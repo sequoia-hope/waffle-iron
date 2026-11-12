@@ -10,7 +10,7 @@
  * 3. On a clean rename, `PUT <new>` (with no `sha` in body) precedes `DELETE <old>`.
  */
 import { test as rawTest, expect } from '@playwright/test';
-import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { collectCrashErrors, expectNoAnyCrash, gotoHome } from './helpers/state.js';
 
 function v4Doc(id, name) {
 	const tabId = '22222222-3333-4444-8555-666666666666';
@@ -116,7 +116,7 @@ rawTest.describe('GitProvider rename write-before-delete and target null-base ch
 				return route.fulfill({ status: 405, body: '' });
 			});
 
-			await page.goto('/home');
+			await gotoHome(page);
 			await page.evaluate(() => {
 				localStorage.setItem(
 					'waffle-host-tokens',

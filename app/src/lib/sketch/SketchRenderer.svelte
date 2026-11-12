@@ -144,14 +144,18 @@
 		return new Set(profiles[selectedProfile].entityIds);
 	});
 
+	/** Ids of the construction entities, so a per-curve lookup is not a scan. */
+	let constructionIds = $derived(
+		new Set(renderEntities.filter((e) => e.construction).map((e) => e.id))
+	);
+
 	/**
 	 * Check if entity is construction geometry.
 	 * @param {number} entityId
 	 * @returns {boolean}
 	 */
 	function isConstruction(entityId) {
-		const entity = renderEntities.find(e => e.id === entityId);
-		return entity?.construction ?? false;
+		return constructionIds.has(entityId);
 	}
 
 	/**

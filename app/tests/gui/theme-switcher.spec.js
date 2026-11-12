@@ -190,6 +190,17 @@ test.describe('light-mode and editor-scheme themes', () => {
  * token is a dark-theme color on a bright ground — #ffdd44 "selected" yellow
  * on white, a near-black viewport behind a white panel. So a theme that
  * declares `color-scheme: light` must redefine every color token.
+ *
+ * "Redefine" has two legitimate forms. A token whose baseline value is a
+ * literal must be declared in the theme's own block. A token the baseline
+ * DERIVES from another token — `--drawing-paper: var(--bg-primary)` and the
+ * rest of the drawing-sheet palette (app.css; D3 2026-10-03, D4b), written
+ * that way on purpose so that "every theme block … gets a drawing palette
+ * without a drawing block of its own" — is redefined when the token it reads
+ * is: it carries no color of its own to inherit. Both halves are checked, in
+ * the source (the chain of `var()` ends at a token the theme declares) and in
+ * the browser (under the theme, the derived token resolves to exactly what
+ * its source resolves to).
  */
 test.describe('theme registry', () => {
 	test('every light theme overrides every color token', async ({ waffle }) => {
@@ -238,7 +249,29 @@ test.describe('theme registry', () => {
 				(k) => k.startsWith('--') && !/^--(sai-|panel-width|toolbar-height|statusbar-height|font-)/.test(k)
 			);
 
+			/**
+			 * The token a baseline value is derived from: non-null only when
+			 * the value is NOTHING BUT one `var(--x)` — no literal of its own,
+			 * no fallback literal either.
+			 */
+			const sourceOf = (k) => /^var\(\s*(--[\w-]+)\s*\)$/.exec(base.get(k) ?? '')?.[1] ?? null;
+			const derivedTokens = colorTokens.filter((k) => sourceOf(k) !== null);
+
+			/** Does the theme give `k` a value of its own, directly or through the token it derives from? */
+			const redefines = (own, k, seen = new Set()) => {
+				if (own.has(k)) return true;
+				if (seen.has(k)) return false; // a cycle of var()s defines nothing
+				seen.add(k);
+				const src = sourceOf(k);
+				return src !== null && redefines(own, src, seen);
+			};
+
+			const root = document.documentElement;
+			const resolved = (k) => getComputedStyle(root).getPropertyValue(k).trim();
+			const activeTheme = root.dataset.theme;
+
 			const missing = {};
+			const unresolved = {};
 			const schemes = {};
 			for (const id of themeIds) {
 				if (id === 'default') continue; // the baseline itself
@@ -251,17 +284,39 @@ test.describe('theme registry', () => {
 				// native widgets, and it is what decides the rule below.
 				schemes[id] = own.get('color-scheme') || '<undeclared>';
 				if (schemes[id] !== 'light') continue;
-				const gaps = colorTokens.filter((k) => !own.has(k));
+				const gaps = colorTokens.filter((k) => !redefines(own, k));
 				if (gaps.length) missing[id] = gaps;
+
+				// The derivation has to hold where it is painted, not just in
+				// the source: with this theme applied, a derived token the theme
+				// left alone must come out as its source's value.
+				root.dataset.theme = id;
+				const stale = derivedTokens
+					.filter((k) => !own.has(k))
+					.filter((k) => resolved(k) === '' || resolved(k) !== resolved(sourceOf(k)))
+					.map((k) => `${k}: ${resolved(k)} != ${sourceOf(k)}: ${resolved(sourceOf(k))}`);
+				if (stale.length) unresolved[id] = stale;
 			}
-			return { colorTokenCount: colorTokens.length, missing, schemes };
+			root.dataset.theme = activeTheme;
+			return {
+				colorTokenCount: colorTokens.length,
+				literalTokenCount: colorTokens.length - derivedTokens.length,
+				derivedTokens,
+				missing,
+				unresolved,
+				schemes
+			};
 		}, ids);
 
 		// A non-empty map names the theme and the exact tokens it forgot.
 		expect(report.missing).toEqual({});
+		// …and the derived tokens that do not follow their source under it.
+		expect(report.unresolved).toEqual({});
 		// Guard the guard: if the token list ever collapses to nothing, the
-		// check above passes vacuously.
-		expect(report.colorTokenCount).toBeGreaterThanOrEqual(26);
+		// check above passes vacuously. Counted over the tokens that carry a
+		// literal — the ones a theme block has to spell out — so the derived
+		// allowance cannot hollow the check out either.
+		expect(report.literalTokenCount).toBeGreaterThanOrEqual(26);
 		// And every registered theme declares its lean, so none falls through to
 		// the browser default.
 		for (const [id, scheme] of Object.entries(report.schemes)) {

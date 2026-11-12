@@ -2,7 +2,7 @@
  * Advanced viewport tests — zoom behavior, camera state, hover state management.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { zoom, getCanvasBounds, orbitDrag } from './helpers/canvas.js';
+import { zoom, getCanvasBounds, orbitDrag, viewExtent } from './helpers/canvas.js';
 import { createExtrudedBox } from './helpers/geometry.js';
 
 /**
@@ -25,7 +25,7 @@ test.describe('viewport advanced', () => {
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
 		const before = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(before).not.toBeNull();
-		const distBefore = cameraDistance(before.position, before.target);
+		const extentBefore = viewExtent(before);
 
 		// Zoom in with negative deltaY
 		await zoom(page, -300);
@@ -33,9 +33,9 @@ test.describe('viewport advanced', () => {
 
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(after).not.toBeNull();
-		const distAfter = cameraDistance(after.position, after.target);
 
-		expect(distAfter).toBeLessThan(distBefore);
+		// Zooming in shows less of the model, in either projection.
+		expect(viewExtent(after)).toBeLessThan(extentBefore);
 	});
 
 	test('zoom-out moves camera farther', async ({ waffle }) => {
@@ -44,7 +44,7 @@ test.describe('viewport advanced', () => {
 		await page.waitForFunction(() => window.__waffle?.getCameraState() !== null);
 		const before = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(before).not.toBeNull();
-		const distBefore = cameraDistance(before.position, before.target);
+		const extentBefore = viewExtent(before);
 
 		// Zoom out with positive deltaY
 		await zoom(page, 300);
@@ -52,9 +52,9 @@ test.describe('viewport advanced', () => {
 
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(after).not.toBeNull();
-		const distAfter = cameraDistance(after.position, after.target);
 
-		expect(distAfter).toBeGreaterThan(distBefore);
+		// Zooming out shows more of the model, in either projection.
+		expect(viewExtent(after)).toBeGreaterThan(extentBefore);
 	});
 
 	test('zoom with no object under cursor does not crash', async ({ waffle }) => {
@@ -87,12 +87,8 @@ test.describe('viewport advanced', () => {
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(after).not.toBeNull();
 
-		// Verify the camera actually moved (position changed)
-		const posMoved =
-			before.position[0] !== after.position[0] ||
-			before.position[1] !== after.position[1] ||
-			before.position[2] !== after.position[2];
-		expect(posMoved).toBe(true);
+		// The view closed in on the cursor: it shows less than before.
+		expect(viewExtent(after)).toBeLessThan(viewExtent(before));
 	});
 
 	test('hover over edge area triggers store update', async ({ waffle }) => {
@@ -232,12 +228,13 @@ test.describe('viewport advanced', () => {
 		const after = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(after).not.toBeNull();
 
-		// Camera position should have moved significantly (> 5 units)
+		// A 200 px orbit turns the camera a large part of a quarter turn, so
+		// it ends more than a quarter of its orbit radius from where it was.
 		const dx = after.position[0] - before.position[0];
 		const dy = after.position[1] - before.position[1];
 		const dz = after.position[2] - before.position[2];
 		const dist = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2);
-		expect(dist).toBeGreaterThan(5);
+		expect(dist).toBeGreaterThan(0.25 * cameraDistance(before.position, before.target));
 	});
 
 	test('orbit with geometry present changes camera position', async ({ waffle }) => {
@@ -259,7 +256,7 @@ test.describe('viewport advanced', () => {
 		const dy = after.position[1] - before.position[1];
 		const dz = after.position[2] - before.position[2];
 		const dist = Math.sqrt(dx ** 2 + dy ** 2 + dz ** 2);
-		expect(dist).toBeGreaterThan(1);
+		expect(dist).toBeGreaterThan(0.25 * cameraDistance(before.position, before.target));
 	});
 
 	test('shift+drag on empty space activates box select', async ({ waffle }) => {

@@ -155,11 +155,24 @@ test.describe('project/offset on body geometry — explicit chains', () => {
 		expect(armed.segmentCount).toBe(4);
 
 		// Pull outward perpendicular to the hovered edge and commit 5 mm.
-		// The front view renders with up=[1,0,0], so the box's world-top edge
-		// draws VERTICALLY on screen left of center — outward = screen-left.
-		await page.mouse.move(s.x - 60, s.y, { steps: 3 });
+		// "Outward" is taken from the geometry — away from the face center, on
+		// screen — not from a remembered view orientation. This test used to
+		// pull screen-LEFT, right when the front view rendered with up=[1,0,0];
+		// since c9311cc9 (2026-10-06, "Top sketches draw upright") a sketch on
+		// a ±Z plane carries plane_x_axis = [1,0,0], the view is up=[0,1,0],
+		// the world-top edge draws horizontally above center, and a leftward
+		// pull runs ALONG it: zero signed distance, so the value box rightly
+		// never opened.
+		const fc = await worldToScreen(page, t.faceCenterWorld);
+		const reach = Math.hypot(s.x - fc.x, s.y - fc.y);
+		expect(reach, 'edge midpoint and face center are distinct on screen').toBeGreaterThan(20);
+		const out = {
+			x: s.x + (60 * (s.x - fc.x)) / reach,
+			y: s.y + (60 * (s.y - fc.y)) / reach,
+		};
+		await page.mouse.move(out.x, out.y, { steps: 3 });
 		await page.waitForTimeout(150);
-		await page.mouse.click(s.x - 60, s.y);
+		await page.mouse.click(out.x, out.y);
 		const input = page.locator('.dimension-input');
 		await expect(input).toBeVisible({ timeout: 3000 });
 		await input.fill('5');

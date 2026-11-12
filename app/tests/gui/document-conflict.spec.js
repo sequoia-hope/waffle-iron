@@ -11,7 +11,7 @@
 import { test as rawTest, expect } from '@playwright/test';
 import { seedDocument, getDocumentFromDB } from './helpers/waffle-test.js';
 import { createExtrudedBox } from './helpers/geometry.js';
-import { collectCrashErrors, expectNoAnyCrash } from './helpers/state.js';
+import { collectCrashErrors, expectNoAnyCrash, gotoHome } from './helpers/state.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const REV_RE = /^git-blob-sha1:[0-9a-f]{40}$/;
@@ -92,8 +92,8 @@ rawTest.describe('DocumentStore revisions and conflict resolution', () => {
 			const pageB = await context.newPage();
 			const crashesB = collectCrashErrors(pageB);
 
-			await pageA.goto('/home');
-			await pageB.goto('/home');
+			await gotoHome(pageA);
+			await gotoHome(pageB);
 
 			const docId = 'c0f11c70-1111-4222-8333-000000000001';
 
@@ -334,7 +334,7 @@ rawTest.describe('DocumentStore revisions and conflict resolution', () => {
 		const crashes = collectCrashErrors(page);
 		const docId = 'c0f11c70-1111-4222-8333-000000000002';
 
-		await page.goto('/home');
+		await gotoHome(page);
 		await seedDocument(page, {
 			id: docId,
 			json: JSON.stringify(v4Doc({ id: docId, name: 'Unchanged Save Doc' })),
@@ -375,7 +375,7 @@ rawTest.describe('DocumentStore revisions and conflict resolution', () => {
 			const crashesB = collectCrashErrors(pageB);
 			const docId = 'c0f11c70-1111-4222-8333-000000000003';
 
-			await pageA.goto('/home');
+			await gotoHome(pageA);
 			await seedDocument(pageA, {
 				id: docId,
 				json: JSON.stringify(v4Doc({ id: docId, name: 'Shared Bracket' })),
@@ -463,7 +463,7 @@ rawTest.describe('DocumentStore revisions and conflict resolution', () => {
 			const crashesB = collectCrashErrors(pageB);
 			const docId = 'c0f11c70-1111-4222-8333-000000000004';
 
-			await pageA.goto('/home');
+			await gotoHome(pageA);
 			await seedDocument(pageA, {
 				id: docId,
 				json: JSON.stringify(v4Doc({ id: docId, name: 'Housing' })),
@@ -525,7 +525,7 @@ rawTest.describe('DocumentStore revisions and conflict resolution', () => {
 			expect(parsedCopy.tabs.map((t) => t.kind.type)).toEqual(['Part', 'Assembly']);
 
 			// Both documents appear on the Home screen.
-			await pageB.goto('/home');
+			await gotoHome(pageB);
 			await expect(pageB.locator('[data-testid="document-card"]')).toHaveCount(2, {
 				timeout: 10000
 			});

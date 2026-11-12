@@ -50,13 +50,17 @@ test.describe('orbit past poles', () => {
 		});
 		expect(after).not.toBeNull();
 
-		// Position should change significantly (not stuck)
+		// Position should change significantly (not stuck). Two 200 px drags
+		// turn the camera well over a quarter turn, so it ends more than half
+		// an orbit radius from where it was.
 		const dist = Math.sqrt(
 			(after[0] - before[0]) ** 2 +
 			(after[1] - before[1]) ** 2 +
 			(after[2] - before[2]) ** 2
 		);
-		expect(dist).toBeGreaterThan(10);
+		const radius = Math.hypot(before[0], before[1], before[2]);
+		expect(radius).toBeGreaterThan(0);
+		expect(dist).toBeGreaterThan(0.5 * radius);
 	});
 
 	test('orbit is continuous with no position jumps through poles', async ({ waffle }) => {
@@ -74,19 +78,29 @@ test.describe('orbit past poles', () => {
 		const totalSteps = 50;
 		const stepSize = 8;
 
+		// The RIGHT button orbits.
 		await page.mouse.move(cx, cy + 100);
-		await page.mouse.down();
+		await page.mouse.down({ button: 'right' });
 		for (let i = 1; i <= totalSteps; i++) {
 			await page.mouse.move(cx, cy + 100 - i * stepSize);
 			await page.waitForTimeout(20);
 			const state = await page.evaluate(() => window.__waffle.getCameraState());
 			positions.push(state.position);
 		}
-		await page.mouse.up();
+		await page.mouse.up({ button: 'right' });
 
-		// Check that no consecutive pair has a position jump.
-		// On a sphere of radius ~52, each 8px step should move the camera
-		// at most ~8 units. A discontinuity (180° flip) would be ~104 units.
+		// The drag really orbited: the camera ended somewhere else.
+		const radius = Math.hypot(...initial.position.map((v, i) => v - initial.target[i]));
+		const [fx, fy, fz] = positions[positions.length - 1];
+		const travelled = positions.some(
+			([x, y, z]) => Math.hypot(x - initial.position[0], y - initial.position[1], z - initial.position[2]) > 0.5 * radius
+		);
+		expect(travelled, 'the drag orbited the camera').toBe(true);
+		expect(Number.isFinite(fx + fy + fz)).toBe(true);
+
+		// Check that no consecutive pair has a position jump. Each 8 px step
+		// turns the camera a few degrees, so it moves a small fraction of the
+		// orbit radius. A discontinuity (a 180° flip) would be 2 radii.
 		let maxJump = 0;
 		for (let i = 1; i < positions.length; i++) {
 			const [x1, y1, z1] = positions[i - 1];
@@ -95,6 +109,6 @@ test.describe('orbit past poles', () => {
 			if (dist > maxJump) maxJump = dist;
 		}
 
-		expect(maxJump, 'camera position must be continuous (no jumps)').toBeLessThan(15);
+		expect(maxJump, 'camera position must be continuous (no jumps)').toBeLessThan(0.3 * radius);
 	});
 });

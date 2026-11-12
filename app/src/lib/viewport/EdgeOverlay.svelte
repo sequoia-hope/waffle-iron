@@ -181,12 +181,16 @@
 		const wpp = worldPerPixel(camera, rect.height, camera.position?.length?.());
 		_edgeRaycaster.params.Line = { threshold: EDGE_PICK_THRESHOLD_PX * wpp };
 
-		// Collect LineSegments from the scene
+		// Collect the BODY edge overlays. Datum-plane borders, the origin
+		// axes and the sketch grid are LineSegments too; a hit on one of them
+		// carries no body and its vertex index means nothing in a body's edge
+		// ranges, so it must never be read as a body edge.
 		const lineObjects = [];
 		const scene = camera.parent;
 		if (scene) {
 			scene.traverse((obj) => {
-				if (/** @type {any} */ (obj).isLineSegments) {
+				const o = /** @type {any} */ (obj);
+				if (o.isLineSegments && o.userData?.waffleType === 'edges') {
 					lineObjects.push(obj);
 				}
 			});
