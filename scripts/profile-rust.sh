@@ -52,7 +52,12 @@ TOTAL_START=$(date +%s)
 # Phase 1: Individual crates
 CRATES=(
     "waffle-types"
-    "kernel-fork"
+    "cad-primitives"
+    "nurbs-rs"
+    "cherchi-rs"
+    "ssi-rs"
+    "yang-rs"
+    "kernel-v2"
     "sketch-solver"
     "modeling-ops"
     "feature-engine"
@@ -63,7 +68,7 @@ for crate in "${CRATES[@]}"; do
     run_test "$crate" cargo test -p "$crate"
 done
 
-# wasm-bridge needs --no-default-features (native-solver requires libslvs C++)
+# wasm-bridge is tested without its default features
 run_test "wasm-bridge" cargo test -p wasm-bridge --no-default-features
 
 # Phase 2: test-harness as a whole

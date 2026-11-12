@@ -2,9 +2,6 @@
 # launch.sh — launch claude or agy in a host tmux session in this directory.
 # Reconnects if the session already exists. Use -r to force restart,
 # and pass 'claude' (default) or 'agy' (or -a claude|agy) to select the agent.
-#
-# Replaces shell.sh, which ran the agents inside the waffle-iron-claude Docker
-# container (see HOST-MOVE-CHECKLIST.md for why the agents moved to the host).
 set -euo pipefail
 
 SESSION="waffle-iron"

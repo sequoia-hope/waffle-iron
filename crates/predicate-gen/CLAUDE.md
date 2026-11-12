@@ -45,7 +45,7 @@ Sources are the papers ONLY:
 - `refs/text/meyer_pion2008_fpg.txt` — Meyer-Pion 2008: forward error
   analysis rules (Appendix B).
 
-Do NOT open anything under `/home/claude/cherchi2022/` (LGPL C++ —
+Do NOT open anything under `$CHERCHI2022_ROOT` (default `~/cherchi2022/`) (LGPL C++ —
 neither headers nor implementation). The FFI crate
 `indirect-predicates-sidecar-rs` may be exercised only as a black-box
 test oracle from cherchi-rs's test suite.

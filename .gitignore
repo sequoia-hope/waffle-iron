@@ -14,7 +14,7 @@
 .claude/*
 !.claude/settings.json
 
-# Docker
+# Local environment
 .env
 
 # Test profiling output

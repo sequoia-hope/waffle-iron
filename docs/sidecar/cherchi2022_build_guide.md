@@ -16,14 +16,14 @@ does not. The sidecar IS the load-bearing oracle for PR-Y15+.
 
 ## Where the binary lives
 
-**Default path (this Docker image, post-PR-S1):**
+**Default path (`$CHERCHI2022_ROOT`, else `$HOME/cherchi2022`; the crates resolve it the same way since dca3466c):**
 
 ```
-/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans
-/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck
+$HOME/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans
+$HOME/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck
 ```
 
-The sidecar repo lives **outside** `/home/claude/workspace` to keep the
+The sidecar repo lives **outside** the waffle-iron checkout to keep the
 in-repo footprint small and avoid accidentally committing C++ sources. Repo
 size ~150 MB; build artifacts ~8 GB.
 
@@ -39,7 +39,7 @@ Clang 18.1.3, CMake 3.28.3). Total wall-clock ~22 minutes.
 
 ```bash
 # 1. Clone (shallow, ~30s, ~150 MB)
-mkdir -p /home/claude/cherchi2022 && cd /home/claude/cherchi2022
+mkdir -p $HOME/cherchi2022 && cd $HOME/cherchi2022
 git clone --depth 1 https://github.com/gcherchi/InteractiveAndRobustMeshBooleans.git
 
 # 2. Configure (~5s; enable Release for AVX2 + optimization)

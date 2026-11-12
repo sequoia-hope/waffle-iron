@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 # Register the waffle-iron MCP server (the agent-link relay) with Claude Code.
 #
-# The relay runs on the Docker host over ssh. Nothing here hardcodes a port:
-# the Tailscale name, the HTTPS port, and the app and relay loopback ports all
-# come from the host's `tailscale serve` config, which must mount the app at
-# `/` and the relay at `/relay` on one HTTPS port (see relay/README.md).
+# The relay runs on this machine, from the checkout's own uv project (the
+# agents moved out of Docker on 2026-11-12, so there is no ssh hop any more).
+# Nothing here hardcodes a port: the Tailscale name, the HTTPS port, and the
+# app and relay loopback ports all come from this machine's `tailscale serve`
+# config, which must mount the app at `/` and the relay at `/relay` on one
+# HTTPS port (see relay/README.md).
 #
 # Usage: scripts/add-waffle-mcp.sh [--scope local|user|project] [--persistent-link] [--dry-run]
 #   --persistent-link  development: the pairing link is reusable and never
-#                      expires (its code lives on the host in
+#                      expires (its code lives in
 #                      ~/.local/state/waffle-mcp-relay/link-<port>.code)
-# Env:   WAFFLE_HOST_SSH   ssh target (default: $WAFFLE_HOST_USER@<default gateway>)
-#        WAFFLE_HOST_USER  host login used with the default gateway when
-#                          WAFFLE_HOST_SSH is unset (one of the two is required)
-#        WAFFLE_HOST_REPO  waffle-iron checkout on the host
-#                          (default: $HOME/Software/waffle-iron, expanded on the host)
 set -euo pipefail
 
 scope=local
@@ -29,19 +26,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Default gateway from /proc (the container has no `ip`): little-endian hex.
-g=$(awk '$2 == "00000000" { print $3; exit }' /proc/net/route)
-gateway=${g:+$((16#${g:6:2})).$((16#${g:4:2})).$((16#${g:2:2})).$((16#${g:0:2}))}
-if [[ -z ${WAFFLE_HOST_SSH:-} ]]; then
-  : "${WAFFLE_HOST_USER:?set WAFFLE_HOST_SSH (user@host) or WAFFLE_HOST_USER (used with the default gateway)}"
-  : "${gateway:?no default gateway; set WAFFLE_HOST_SSH}"
-fi
-host_ssh=${WAFFLE_HOST_SSH:-$WAFFLE_HOST_USER@$gateway}
-# Expanded by the host's shell, not here.
-host_repo=${WAFFLE_HOST_REPO:-'$HOME/Software/waffle-iron'}
-ssh_opts=(-T -o BatchMode=yes -o UserKnownHostsFile="$HOME/.claude/host_known_hosts")
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+uv_bin="$(command -v uv || true)"
+[[ -z $uv_bin && -x $HOME/.local/bin/uv ]] && uv_bin="$HOME/.local/bin/uv"
+: "${uv_bin:?uv not found (https://docs.astral.sh/uv/)}"
 
-serve_json=$(ssh "${ssh_opts[@]}" "$host_ssh" tailscale serve status --json)
+serve_json=$(tailscale serve status --json)
 
 # Emits: <https host:port> <app loopback port> <relay loopback port>
 read -r public app_port relay_port < <(python3 -c '
@@ -57,11 +47,11 @@ else:
     sys.exit("no tailscale serve entry mounts both / and /relay on the host")
 ' <<<"$serve_json")
 
+# --frozen --no-dev: the lockfile's runtime set, synced into relay/.venv on
+# first start.
 args=(
-  "${ssh_opts[@]}" "$host_ssh"
-  env 'UV_PROJECT_ENVIRONMENT=$HOME/.cache/waffle-mcp-relay-venv'
-  '$HOME/.local/bin/uv' run --frozen --no-dev --no-sync
-  --project "$host_repo/relay"
+  "$uv_bin" run --frozen --no-dev
+  --project "$repo/relay"
   waffle-mcp-relay
   --port "$relay_port"
   --app-url "https://$public/"
@@ -74,10 +64,10 @@ if [[ $persistent == 1 ]]; then
 fi
 
 if [[ $dry_run == 1 ]]; then
-  printf '%q ' claude mcp add -s "$scope" waffle-iron -- ssh "${args[@]}"; echo
+  printf '%q ' claude mcp add -s "$scope" waffle-iron -- "${args[@]}"; echo
   exit 0
 fi
 
 claude mcp remove -s "$scope" waffle-iron >/dev/null 2>&1 || true
-claude mcp add -s "$scope" waffle-iron -- ssh "${args[@]}"
+claude mcp add -s "$scope" waffle-iron -- "${args[@]}"
 echo "Added waffle-iron (scope $scope). Reconnect it with /mcp in Claude Code."

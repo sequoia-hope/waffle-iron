@@ -65,7 +65,7 @@ If asked to "fix a boolean bug" or "make booleans support X," check whether the 
 You may read:
 - Everything inside `crates/cherchi-rs/` and `crates/cad-primitives/`
 - The reference paper texts: `refs/text/cherchi2020_*.txt`, `refs/text/cherchi2022_*.txt`
-- The upstream C++ source if available locally (typically at `/home/claude/cherchi2022/` or `/home/claude/cherchi2020/`)
+- The upstream C++ source if available locally (under `$CHERCHI2022_ROOT`, default `~/cherchi2022/`)
 - `docs/sidecar/cherchi2022_build_guide.md`
 
 You may NOT read:
