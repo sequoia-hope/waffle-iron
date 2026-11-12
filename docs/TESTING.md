@@ -108,7 +108,8 @@ in CI as the `gui-relay` job of `relay-tests.yml`.
 ./scripts/test.sh full       # All Rust tests incl. parity (~27min)
 ./scripts/test.sh gui-fast   # Quick GUI smoke tests (also CI: .github/workflows/gui-tests.yml)
 ./scripts/test.sh gui-relay  # Agent-link GUI specs that spawn the real relay (also CI: relay-tests.yml)
-./scripts/test.sh gui-full   # All GUI tests
+./scripts/test.sh gui-rest   # Every GUI spec gui-fast and gui-relay do not run (CI nightly: gui-nightly.yml)
+./scripts/test.sh gui-full   # All GUI tests, incl. the pixel baselines that only match the dev machine
 ./scripts/test.sh relay      # Agent-link relay: pytest + ruff (also CI: relay-tests.yml)
 ./scripts/test.sh all-fast   # Rust fast + GUI fast + GUI relay + relay
 ./scripts/test.sh all        # Everything
@@ -155,7 +156,7 @@ Add the binary name to either:
 ### New GUI Spec File
 
 - Add to the `GUI_FAST_SPECS` array in `scripts/test.sh` if it tests pure UI
-- Otherwise it will be included automatically in `gui-full`
+- Otherwise it is included automatically in `gui-rest` (which CI runs nightly) and `gui-full`
 
 ## Layout overflow (nothing may leave the window)
 

@@ -638,6 +638,64 @@ run_gui_full() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: GUI Rest — every spec file that neither gui-fast nor gui-relay runs.
+#
+# Those two tiers run on every push; nothing ran the rest, and by 2026-11-12
+# it had 47 failures hiding five real app bugs. The list is computed, not
+# written down: a new spec file lands here unless someone lists it in
+# GUI_FAST_SPECS or GUI_RELAY_SPECS, so no spec can be in no tier.
+# .github/workflows/gui-nightly.yml runs this tier every night.
+#
+# GUI_SKIP_MACHINE_BASELINES=1 leaves out the pixel-baseline specs: their
+# PNGs only match the machine that rendered them (fonts), so they are for
+# the dev machine, where gui-full still runs them.
+# ---------------------------------------------------------------------------
+GUI_MACHINE_BASELINE_SPECS=(
+  infra/screenshot-baseline.spec.js
+  baselines/screenshot-suite.spec.js
+)
+
+run_gui_rest() {
+  header "GUI Rest Tier"
+  local tier_start rc=0
+  tier_start=$(timer_start)
+
+  local -A covered=()
+  local spec
+  for spec in "${GUI_FAST_SPECS[@]}" "${GUI_RELAY_SPECS[@]}"; do covered["$spec"]=1; done
+  if [[ "${GUI_SKIP_MACHINE_BASELINES:-0}" == "1" ]]; then
+    for spec in "${GUI_MACHINE_BASELINE_SPECS[@]}"; do covered["$spec"]=1; done
+  fi
+
+  local spec_args=()
+  while IFS= read -r spec; do
+    [[ -n "${covered[$spec]:-}" ]] || spec_args+=("tests/gui/$spec")
+  done < <(cd "$APP_DIR/tests/gui" && find . -name '*.spec.js' | sed 's|^\./||' | sort)
+
+  if [[ ${#spec_args[@]} -eq 0 ]]; then
+    fail "GUI Rest: no spec files left to run"
+    return
+  fi
+  echo "  ${#spec_args[@]} spec files"
+
+  # PW_PROJECTS and PW_SHARD as in run_gui_fast. No mem_guard (V8 sandbox).
+  local project_args=()
+  for p in ${PW_PROJECTS:-}; do project_args+=("--project=$p"); done
+  [[ -n "${PW_SHARD:-}" ]] && project_args+=("--shard=$PW_SHARD")
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${project_args[@]}" "${spec_args[@]}") || rc=$?
+
+  local elapsed
+  elapsed=$(timer_elapsed "$tier_start")
+  if [[ $rc -eq 0 ]]; then
+    pass "GUI Rest (${elapsed}s)"
+  else
+    fail "GUI Rest (${elapsed}s)"
+  fi
+  echo ""
+  echo -e "${CYAN}  GUI Rest tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
 # Tier: Agent-link relay (specs/waffle_mcp_server.md §5 harness a)
 # The Python relay's pytest suite plus its ruff lint and format gates. Needs
 # `uv` (the relay is a uv project) and `node` (one test regenerates the tool
@@ -771,7 +829,8 @@ print_help() {
   echo -e "  ${GREEN}parity${NC}       Ignored sidecar reference oracles (~20s, needs sidecars)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~275 tests, 37 spec files)"
   echo -e "  ${GREEN}gui-relay${NC}    GUI relay tier        (~60 tests, agent-link specs that spawn the real relay; needs uv)"
-  echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
+  echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (all spec files)"
+  echo -e "  ${GREEN}gui-rest${NC}     GUI rest tier         (the spec files gui-fast and gui-relay do not run; nightly in CI)"
   echo -e "  ${GREEN}relay${NC}        Agent-link relay      (pytest + ruff, needs uv and node)"
   echo -e "  ${GREEN}all-fast${NC}     fast + gui-fast + gui-relay + relay"
   echo -e "  ${GREEN}all${NC}          full + gui-full + relay"
@@ -799,6 +858,9 @@ print_help() {
   echo ""
   echo -e "${BOLD}GUI Full Tier:${NC}"
   echo "  All spec files in app/tests/gui/"
+  echo ""
+  echo -e "${BOLD}GUI Rest Tier (gui-rest, nightly in CI):${NC}"
+  echo "  Every spec file in neither gui-fast nor gui-relay"
   echo ""
   echo -e "${BOLD}Assay Tiers:${NC}"
   echo "  assay-quick: corpus replay + box-box proptest (5 cases)"
@@ -842,6 +904,9 @@ main() {
       ;;
     gui-full)
       run_gui_full
+      ;;
+    gui-rest)
+      run_gui_rest
       ;;
     relay)
       run_relay

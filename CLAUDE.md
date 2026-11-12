@@ -266,9 +266,13 @@ Run the appropriate test tier for your workflow:
 - `./scripts/test.sh relay` — the agent-link relay's pytest and lint (~30s)
 - `./scripts/test.sh gui-fast` — the GUI specs CI gates (~15min at 8 workers)
 - `./scripts/test.sh gui-relay` — the agent-link specs against the real relay (~3min)
-- `./scripts/test.sh gui-full` — All GUI spec files (~45min at 8 workers). CI
-  does not run this tier, so it rots unless someone runs it: run it before
-  merging app changes.
+- `./scripts/test.sh gui-rest` — every GUI spec file gui-fast and gui-relay
+  do not run (the list is computed). CI runs it nightly
+  (`.github/workflows/gui-nightly.yml`); nothing gates on it, so read the
+  nightly's result.
+- `./scripts/test.sh gui-full` — All GUI spec files (~45min at 8 workers),
+  including the pixel-baseline specs that only match the dev machine. Run it
+  before merging app changes.
 - `./scripts/test.sh all-fast` — Rust fast + GUI fast combined
 - `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
 
