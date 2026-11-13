@@ -668,6 +668,9 @@ pub(crate) fn stage1_tessellate_once(
                 .collect();
             for i in 0..cyls.len() {
                 for j in (i + 1)..cyls.len() {
+                    if crate::skeleton::off("s1fold") {
+                        continue;
+                    }
                     if let Some(n) = cyl_pair_phantom_n(cyls[i], cyls[j]) {
                         n_seg = n_seg.max(n);
                     }
@@ -699,6 +702,9 @@ pub(crate) fn stage1_tessellate_once(
                 }
                 for i in 0..rims.len() {
                     for j in (i + 1)..rims.len() {
+                        if crate::skeleton::off("s1fold") {
+                            continue;
+                        }
                         if let Some(n) = face_rim_pair_phantom_n(f.surface, rims[i], rims[j]) {
                             if std::env::var_os("YANG_SPLIT_PROBE").is_some() && n > n_seg {
                                 eprintln!(

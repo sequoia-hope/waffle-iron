@@ -882,6 +882,9 @@ pub(crate) fn retriangulate_collapsed_fan_regions_ex_with_bounds(
                 continue;
             }
             attempted.insert(sig.clone());
+            if crate::skeleton::off("s4") {
+                continue;
+            }
             match repair_fan_cluster_ex_with_bounds(
                 mesh,
                 attr_vec,

@@ -877,19 +877,23 @@ pub(crate) fn reconstruct_topology_stage4(
             // relocation overran. Placed AFTER the construct pass so it sees
             // the final cycles (a collapsed/refined seam changes which
             // vertices are on a boundary at all).
-            let m_applied = run_fold_merge_passes(
-                mesh,
-                attribution,
-                side_labels,
-                tri_bounds,
-                a,
-                b,
-                &mut infos,
-                &mut intersection_curves,
-                &mut relocations,
-                false,
-                None,
-            )?;
+            let m_applied = if crate::skeleton::off("s4") {
+                0
+            } else {
+                run_fold_merge_passes(
+                    mesh,
+                    attribution,
+                    side_labels,
+                    tri_bounds,
+                    a,
+                    b,
+                    &mut infos,
+                    &mut intersection_curves,
+                    &mut relocations,
+                    false,
+                    None,
+                )?
+            };
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
             }
@@ -1025,7 +1029,9 @@ pub(crate) fn reconstruct_topology_stage4(
         // provenance restriction (the band does the scoping); KV9's
         // unconnected ring duplicates carry no joining edge and cannot be
         // touched. Byte-identical no-op when no such edge exists.
-        let s194_collapsed = {
+        let s194_collapsed = if crate::skeleton::off("s4") {
+            false
+        } else {
             let mut attr_vec = std::mem::take(&mut attribution.attributions);
             let c = collapse_subtauwork_mesh_edges_with_bounds(
                 mesh,

@@ -2816,13 +2816,17 @@ fn stage4_relocate_and_correct_inner(
                 // over, and the transit is declined: the vertex keeps its
                 // out-of-domain position, the §4.5 postcondition records
                 // the fire, and the §4.5.2 ladder answers it.
-                let solved = crate::stage4_boundary_curve::solve_crease_transit(
-                    p,
-                    proj,
-                    surfs,
-                    &creases[ci],
-                    &nbr_creases,
-                )
+                let solved = if crate::skeleton::off("transit") {
+                    Err(crate::stage4_boundary_curve::CreaseTransitFailure::SideUndetermined)
+                } else {
+                    crate::stage4_boundary_curve::solve_crease_transit(
+                        p,
+                        proj,
+                        surfs,
+                        &creases[ci],
+                        &nbr_creases,
+                    )
+                }
                 .and_then(|t| {
                     match crate::stage4_boundary_curve::transit_lands_inside_neighbour(
                         brep_a,
@@ -5855,7 +5859,7 @@ fn stage4_relocate_and_correct_inner(
     // `YANG_EDGE_PINCH_ENTRY_ONLY` opt-out deleted 2026-10-16.
     // Under I3 (`full_arrangement == true`), pinch splitting runs post-keep on
     // the classified submesh (`specs/yang_442_classify_after_update.md` §4).
-    let pinch_splits = if full_arrangement {
+    let pinch_splits = if full_arrangement || crate::skeleton::off("s4") {
         0
     } else {
         split_pinch_vertices_with_bounds(
@@ -5928,7 +5932,7 @@ fn stage4_relocate_and_correct_inner(
     // third edge use is the χ=3 book edge THIS gate stops on). Byte-identical
     // no-op when no such edge exists; `collapsed_any` routes the caller into
     // the standard compact + Phase-A recompute.
-    {
+    if !crate::skeleton::off("s4") {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
         let c = collapse_subtauwork_mesh_edges_ex_with_bounds(
             mesh,
@@ -6280,16 +6284,18 @@ fn stage4_relocate_and_correct_inner(
     // fires when every certificate holds; any refusal leaves the mesh
     // untouched and the postcondition STOP below fires exactly as today.
     s4_lap("before-transit", mesh);
-    corner_transit_apply(
-        mesh,
-        attribution,
-        side_labels,
-        tri_bounds,
-        brep_a,
-        brep_b,
-        &s4_entry_pos,
-        full_arrangement,
-    )?;
+    if !crate::skeleton::off("transit") {
+        corner_transit_apply(
+            mesh,
+            attribution,
+            side_labels,
+            tri_bounds,
+            brep_a,
+            brep_b,
+            &s4_entry_pos,
+            full_arrangement,
+        )?;
+    }
     s4_lap("transit", mesh);
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The

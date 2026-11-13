@@ -1049,7 +1049,7 @@ fn boolean_once_timed(
     // refine retry, 2026-10-15: a grazed rim's doubled chord is a T4 Euler
     // site, its Stage-6 walk STOP a T5 site naming its face, and the loop
     // refines both.)
-    let req = phantom_min_rim_segments(a, b);
+    let req = if crate::skeleton::off("s1.rim") { None } else { phantom_min_rim_segments(a, b) };
     let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,
@@ -1238,6 +1238,7 @@ fn boolean_once_timed(
     }
     let junction_boosted: Option<(BRep, BRep)> = if stage0.is_none()
         && cyl_pairs.is_empty()
+        && !crate::skeleton::off("s1.junction")
         // Diagnostic kill-switch, dev-only — gated out of release (F12): in
         // release the junction is always enabled (the correct default); the
         // env var is honored only under debug_assertions.
@@ -1323,7 +1324,11 @@ fn boolean_once_timed(
         && cyl_pairs.is_empty()
         && junction_boosted.is_none()
     {
-        let mut jo = junction_stage1_overrides(a, b);
+        let mut jo = if crate::skeleton::off("s1.p3a") {
+            Default::default()
+        } else {
+            junction_stage1_overrides(a, b)
+        };
         // §4.5.5 one dimension down, arm 2 (spec
         // `yang_455_edge_in_plane_conformity.md`): the sub-segments of an
         // edge lying in a partner planar face become identically-sampled
@@ -1332,7 +1337,11 @@ fn boolean_once_timed(
         // inside sub-segments as interior CONSTRAINTS of the face's CDT.
         // Same scope gate and same rebuild as the P3a mints; empty when no
         // edge lies in a partner face (the byte-identical identity).
-        let eip = stage0::edge_in_plane::conformity_overrides(a, b);
+        let eip = if crate::skeleton::off("s1.eip") {
+            Default::default()
+        } else {
+            stage0::edge_in_plane::conformity_overrides(a, b)
+        };
         if !eip.is_empty() {
             for (into, from) in [
                 (&mut jo.edge_a, &eip.edge_a),
