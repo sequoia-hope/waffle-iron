@@ -11,6 +11,12 @@ import { getCanvasBounds, clickAt } from '../helpers/canvas.js';
 
 test.describe('performance budgets', () => {
 	test('FPS meets minimum budget (>=10 avg in headless)', async ({ waffle }) => {
+		// Frame rate under software GL depends on the cores the machine has
+		// to spare: a four-core CI runner with four workers measured 9.5.
+		test.skip(
+			process.env.GUI_SKIP_MACHINE_DEPENDENT === '1',
+			'frame rate on a shared runner measures the runner'
+		);
 		const result = await measureFPS(waffle.page, 2000);
 
 		expect(result.avg).toBeGreaterThan(0);

@@ -62,7 +62,9 @@ async function mockGitHubAPI(page, opts = {}) {
 	});
 
 	// Mock index file
-	await page.route('https://api.github.com/repos/testuser/waffle-iron-documents/contents/.waffle-index.json', async (route) => {
+	// The app asks for `...?ref=<branch>`; without the trailing `*` the mock
+	// did not match and the request went to the real api.github.com.
+	await page.route('https://api.github.com/repos/testuser/waffle-iron-documents/contents/.waffle-index.json*', async (route) => {
 		if (route.request().method() === 'GET') {
 			if (hasIndex) {
 				const content = btoa(JSON.stringify({ version: 1, documents: indexDocs }));
@@ -84,7 +86,7 @@ async function mockGitHubAPI(page, opts = {}) {
 	});
 
 	// Mock file operations (catch-all for contents)
-	await page.route('https://api.github.com/repos/testuser/waffle-iron-documents/contents/*.waffle', async (route) => {
+	await page.route('https://api.github.com/repos/testuser/waffle-iron-documents/contents/*.waffle*', async (route) => {
 		if (route.request().method() === 'PUT') {
 			await route.fulfill({
 				status: 200,
@@ -105,6 +107,16 @@ async function mockGitHubAPI(page, opts = {}) {
 }
 
 rawTest.describe('GitHub storage provider', () => {
+	// Leave the app before the context closes. The device-flow test ends with
+	// the app still polling for its token; a second later it connects, and
+	// closing a context in that state stalls for seconds here and past the
+	// 60 s test timeout on a loaded runner, where it shows up as the NEXT
+	// test in this worker "setting up context". Only after a passing test:
+	// Playwright's failure screenshot should show the app.
+	rawTest.afterEach(async ({ page }, testInfo) => {
+		if (testInfo.status === testInfo.expectedStatus) await page.goto('about:blank');
+	});
+
 	rawTest('provider dropdown shows on home page', async ({ page }) => {
 		await page.goto('/home');
 		await expect(page.locator('[data-testid="provider-dropdown"]')).toBeVisible({ timeout: 10000 });

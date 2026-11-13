@@ -7,12 +7,8 @@ const baseURL = process.env.PW_BASE_URL || 'http://localhost:5173';
 export default defineConfig({
 	testDir: './tests',
 	timeout: 60000,
-	// No retries: a test that passes on a second try has not passed. The one
-	// exception is PW_RETRIES for the nightly (gui-nightly.yml), where an
-	// unexplained start-up stall — one test per run spends its whole timeout
-	// "setting up context" and passes when run again — would otherwise turn
-	// every night red. A retried pass is reported as "flaky", not as passed.
-	retries: parseInt(process.env.PW_RETRIES || '0', 10),
+	// No retries: a test that passes on a second try has not passed.
+	retries: 0,
 	workers: parseInt(process.env.PW_WORKERS || '4', 10),
 	outputDir: './test-results',
 	// PW_REPORTER overrides Playwright's own default (`dot` on CI, `list`

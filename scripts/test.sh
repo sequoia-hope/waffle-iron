@@ -646,9 +646,11 @@ run_gui_full() {
 # GUI_FAST_SPECS or GUI_RELAY_SPECS, so no spec can be in no tier.
 # .github/workflows/gui-nightly.yml runs this tier every night.
 #
-# GUI_SKIP_MACHINE_BASELINES=1 leaves out the pixel-baseline specs: their
-# PNGs only match the machine that rendered them (fonts), so they are for
-# the dev machine, where gui-full still runs them.
+# GUI_SKIP_MACHINE_DEPENDENT=1 leaves out what only means something on the
+# machine it was calibrated on: the pixel-baseline specs below (their PNGs
+# only match the machine that rendered them, through fonts), and the
+# frame-rate budget, which skips itself (tests/gui/perf/budgets.spec.js).
+# gui-full on the dev machine still runs them.
 # ---------------------------------------------------------------------------
 GUI_MACHINE_BASELINE_SPECS=(
   infra/screenshot-baseline.spec.js
@@ -663,7 +665,7 @@ run_gui_rest() {
   local -A covered=()
   local spec
   for spec in "${GUI_FAST_SPECS[@]}" "${GUI_RELAY_SPECS[@]}"; do covered["$spec"]=1; done
-  if [[ "${GUI_SKIP_MACHINE_BASELINES:-0}" == "1" ]]; then
+  if [[ "${GUI_SKIP_MACHINE_DEPENDENT:-0}" == "1" ]]; then
     for spec in "${GUI_MACHINE_BASELINE_SPECS[@]}"; do covered["$spec"]=1; done
   fi
 

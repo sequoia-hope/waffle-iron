@@ -13,9 +13,10 @@ name: GUI nightly
 # runner time. Nothing gates on it. A red run is a regression to look at the
 # next morning: the tier was green on the dev machine when this was added.
 #
-# Left out: the two pixel-baseline specs (GUI_SKIP_MACHINE_BASELINES). Their
-# PNGs only match the machine that rendered them (fonts), so they run on the
-# dev machine in gui-full, not here.
+# Left out (GUI_SKIP_MACHINE_DEPENDENT): the two pixel-baseline specs, whose
+# PNGs only match the machine that rendered them (fonts), and the frame-rate
+# budget, which under software GL on a shared four-core runner measures the
+# runner. They run on the dev machine in gui-full, not here.
 #
 # Like gui-tests.yml this runs against the COMMITTED WASM bundle in
 # app/static/pkg/, so it needs no Rust toolchain.
@@ -62,13 +63,7 @@ jobs:
           TEST_THREADS: 4
           PW_SHARD: ${{ matrix.shard }}
           PW_REPORTER: list
-          GUI_SKIP_MACHINE_BASELINES: '1'
-          # One retry, here only. About once per run a test spends its whole
-          # 60 s "setting up context" (browser.newContext stalls) and passes
-          # when run again; the cause is not found. Playwright reports a
-          # retried pass as "flaky" in the log, so it stays visible, and a
-          # test that fails twice still fails the shard.
-          PW_RETRIES: '1'
+          GUI_SKIP_MACHINE_DEPENDENT: '1'
 
       - name: Upload traces and screenshots of failures
         if: failure() || cancelled()
