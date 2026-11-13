@@ -2816,16 +2816,21 @@ fn stage4_relocate_and_correct_inner(
                 // over, and the transit is declined: the vertex keeps its
                 // out-of-domain position, the §4.5 postcondition records
                 // the fire, and the §4.5.2 ladder answers it.
-                let solved = if crate::skeleton::off("transit") {
+                let solved = if crate::skeleton::off("transit.crease") {
                     Err(crate::stage4_boundary_curve::CreaseTransitFailure::SideUndetermined)
                 } else {
-                    crate::stage4_boundary_curve::solve_crease_transit(
+                    crate::skeleton::note("transit.crease.called");
+                    let r = crate::stage4_boundary_curve::solve_crease_transit(
                         p,
                         proj,
                         surfs,
                         &creases[ci],
                         &nbr_creases,
-                    )
+                    );
+                    if r.is_ok() {
+                        crate::skeleton::note("transit.crease.solved");
+                    }
+                    r
                 }
                 .and_then(|t| {
                     match crate::stage4_boundary_curve::transit_lands_inside_neighbour(
@@ -6284,8 +6289,8 @@ fn stage4_relocate_and_correct_inner(
     // fires when every certificate holds; any refusal leaves the mesh
     // untouched and the postcondition STOP below fires exactly as today.
     s4_lap("before-transit", mesh);
-    if !crate::skeleton::off("transit") {
-        corner_transit_apply(
+    if !crate::skeleton::off("transit.corner")
+        && corner_transit_apply(
             mesh,
             attribution,
             side_labels,
@@ -6294,7 +6299,9 @@ fn stage4_relocate_and_correct_inner(
             brep_b,
             &s4_entry_pos,
             full_arrangement,
-        )?;
+        )?
+    {
+        crate::skeleton::note("transit.corner.mutated");
     }
     s4_lap("transit", mesh);
     // After a collapse the vertex set may have lost some relocated verts; keep

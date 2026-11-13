@@ -1049,7 +1049,11 @@ fn boolean_once_timed(
     // refine retry, 2026-10-15: a grazed rim's doubled chord is a T4 Euler
     // site, its Stage-6 walk STOP a T5 site naming its face, and the loop
     // refines both.)
-    let req = if crate::skeleton::off("s1.rim") { None } else { phantom_min_rim_segments(a, b) };
+    let req = if crate::skeleton::off("s1.rim") {
+        None
+    } else {
+        phantom_min_rim_segments(a, b)
+    };
     let boosted: Option<(BRep, BRep)> = match req {
         Some(n) => Some((
             a.rebuilt_with_min_rim_segments(n)?,

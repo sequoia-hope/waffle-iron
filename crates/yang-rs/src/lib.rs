@@ -97,8 +97,8 @@ pub mod stage4_dt;
 // + interior-constraint CDT). NOT yet wired into `stage4_relocate_and_correct`;
 // that is N2-3. Spec: `specs/n2_stage4_mesh_updating.md`.
 mod boolean;
-mod skeleton;
 mod brep;
+mod skeleton;
 pub(crate) use boolean::*;
 pub use boolean::{boolean, union_operands_strictly_disjoint};
 mod shell_contact;
