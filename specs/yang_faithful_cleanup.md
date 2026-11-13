@@ -107,7 +107,9 @@ the same series**. The deviations ledger moves in the same commit (P2).
 **Acceptance metric for the cleanup is REMOVAL with the corpus held**:
 arms, passes, knobs and lines deleted; the prospector per-seed ERROR rate
 (30 → 10.5 → 16 → 7 → 5 % for seeds 1–5) not rising; corpus
-`SUPPORTED_CORRECT` not falling and `WRONG` at zero. A faithful mechanism
+`WRONG` at zero and `SUPPORTED_CORRECT` not falling except by a named dip
+(roadmap §1 item 4: a removal may turn a few cases into typed ERRORs, each
+named against the milestone that answers it). A faithful mechanism
 that converts no new case still ships (roadmap §0.1). A substitute that
 "would convert a case" is not built.
 

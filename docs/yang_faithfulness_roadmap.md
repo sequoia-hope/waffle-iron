@@ -35,9 +35,17 @@ The implementation is *faithful* when all four hold:
    passes, 2c per-surface Stage 1, 2d matrix-found substitutes) is either
    RETIRED or re-graded "keep" because it *is* the paper's operation, with
    that row moved to FAITHFUL.
-4. **Corpus held:** WRONG = 0, `SUPPORTED_CORRECT` not below the start
-   value (360), and prospector per-seed ERROR rate not rising. Slower is
-   acceptable (N67 amendment, "slow and correct first").
+4. **Corpus held:** WRONG = 0. `SUPPORTED_CORRECT` is the start value (360)
+   less the *named dips*, and the prospector per-seed ERROR rate does not
+   rise apart from them. A named dip is a case that goes from CORRECT to a
+   typed ERROR because a substitute, or a mechanism that is not the paper's,
+   was removed (owner ruling 2026-11-13: a small drop in the score is
+   acceptable when what was removed was not faithful or not a good
+   implementation). Each dip is named in the commit and in §5, against the
+   milestone whose mechanism answers it. A dip is never a WRONG, and never
+   the price of a change that is not a move toward the paper. At the finish
+   line each named case is CORRECT again or adjudicated loud-by-design.
+   Slower is acceptable (N67 amendment, "slow and correct first").
 
 ## 2. Scoreboard
 
@@ -76,10 +84,14 @@ other. Each in-place change so far has regressed cases a substitute protects
 on the old substrate: the N85 trial lost four cases, the I3b flip stopped on
 three, and the N106 retirement lost two volume pins. A coupled system cannot
 be converted one mechanism at a time while the corpus is held at every
-commit. F5a therefore opens with one design session that chooses between:
+commit. Since 2026-11-13 a retirement may cost a named dip (§1 item 4),
+which removes that obstacle for the substitutes; the trials above changed
+the core, and their losses were not all loud (the N106 retirement lost
+volume pins). F5a therefore opens with one design session that chooses
+between:
 
 - **in place** — today's method, one wired increment at a time on the
-  production path, each holding the corpus; or
+  production path, each holding the corpus less its named dips; or
 - **a second path** — the paper's order assembled from the primitives that
   already exist (`update_patches_ex`, `boolean::refine_loop`, the I3a
   full-arrangement primitives, `d_of_t`, the F4 Newton and Gauss-map code)

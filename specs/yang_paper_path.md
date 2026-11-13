@@ -1,10 +1,14 @@
 # Yang paper path — in place, or a second path
 
-**Status:** the choice is OPEN and is the owner's. This spec holds the question,
-one experiment (2026-11-12) and what it settles, a recommendation, and what the
-F5a design session still has to measure. The roadmap's hold stays in force
-until §6 records a choice: no new increment is wired into the production
-Stage 4 (`docs/yang_faithfulness_roadmap.md` §3).
+**Status:** for the core the choice is OPEN and is the owner's. For the outer
+layer of substitutes it is made: they are retired in place (§6), on the
+owner's ruling of 2026-11-13 that a small, loud drop in the corpus score is
+acceptable when what was removed was not faithful to the paper. This spec
+holds the question, one experiment (2026-11-12) and what it settles, and what
+the F5a design session still has to measure. The roadmap's hold stays in
+force for the core until §6 records that choice: no new increment is wired
+into the production Stage 4 (`docs/yang_faithfulness_roadmap.md` §3). A
+retirement is not an increment.
 
 ## 1. The question
 
@@ -159,11 +163,17 @@ is where the paper sends boundary and corner points (N87).
 - **`s4` was not split.** Which of its four passes owns each of its four
   cases is not measured.
 
-## 6. Recommendation
+## 6. The outer layer: in place. The core: open
 
-The decision is the owner's; this is the reading the data supports.
+**Owner ruling, 2026-11-13.** "If there's something that's not faithful to
+the paper or is otherwise not a good implementation and it lowers the score
+a little bit, that's OK." The roadmap records it as the *named dip* (§1
+item 4): a removal may turn a few cases into typed ERRORs, each named against
+the milestone that answers it; never a WRONG. The owner did not say "in
+place"; that the ruling settles the outer layer is this spec's reading, since
+the dip was the one thing §3's data left for the owner to decide there.
 
-**The outer layer does not need a second path.** It can be retired in place,
+**The outer layer does not need a second path.** It is retired in place,
 in the order §3 gives:
 
 1. The four switches with no corpus customer, one per commit: transits (N87),
@@ -172,11 +182,15 @@ in the order §3 gives:
    needs what §5 lists as missing first: the kernel suites and one seed under
    its switch. The corpus is held throughout; where outputs change, the gate
    is the oracle verdict, since the hash cannot be.
-2. Rim-junction insertion, the P3a mints and the Stage-4/5 repairs when their
-   seven customers pass without them. Those customers belong to F2 (§4.4.1)
-   and F3 (§4.5). Retiring them earlier means accepting a named, loud dip of
-   at most seven cases, which "corpus held at every commit" forbids today;
-   lifting that rule for a named list is a decision this spec does not make.
+2. Rim-junction insertion, the P3a mints and the Stage-4/5 repairs, at a
+   named dip of at most seven corpus cases, which become customers of F2
+   (§4.4.1) and F3 (§4.5). The same two checks come first, and a seed case
+   lost with them is named too. `s4` is split before it is retired, so that
+   each of its four passes goes in its own commit with its own cases. Two of
+   the seven (P0029, F0058) are stopped by kernel-v2's validation of the
+   finished body and not by yang-rs; each gets a yang-rs stop that names the
+   site before its mechanism goes, so the dip is loud at the stage that
+   causes it.
 
 **For the core the question is still open, and the same method answers it
 cheaply.** Put the paper-order changes that have each been tried alone (the

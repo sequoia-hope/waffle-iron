@@ -126,7 +126,10 @@ off-surface vertex.
    design session that decides in-place conversion versus a second,
    paper-ordered path (roadmap §3); no new increment is wired into the
    production Stage 4 until `specs/yang_paper_path.md` records that choice. Progress is the roadmap's scoreboard **with the corpus held**, never
-   the corpus score alone. Tail cases are *customers* of a milestone, not
+   the corpus score alone. Held means WRONG = 0 and no loss except a *named
+   dip*: removing a substitute or an unfaithful mechanism may turn a few
+   cases into typed ERRORs, each named against the milestone that answers
+   it (roadmap §1 item 4, owner ruling 2026-11-13). Tail cases are *customers* of a milestone, not
    work items of their own (roadmap §4); a WRONG still preempts everything.
    - **Plans of record:**
      - `docs/kernel_1_0.md` — what kernel 1.0 means (four measured gates) and the way there; the faithfulness roadmap is its gate 2.
