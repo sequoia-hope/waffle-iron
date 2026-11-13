@@ -89,9 +89,18 @@ commit. F5a therefore opens with one design session that chooses between:
   it are deleted together. This is how `cherchi-rs` replaced the C++
   sidecar.
 
-The session's output is a spec (`specs/yang_paper_path.md`) with the choice,
-its reasons from the code, and the gate for the flip. Until it exists, no
-new increment is wired into the production Stage 4.
+The session's output goes in `specs/yang_paper_path.md`: the choice, its
+reasons from the code, and the gate for the flip. Until that spec records
+the choice, no new increment is wired into the production Stage 4.
+
+The spec holds one measurement so far. With the outer substitutes switched
+off (the Stage-1 pre-emptive arms, the Stage-4/5 repair passes, the transits
+and the cross-patch folds; branch `exp/paper-skeleton`), the corpus keeps
+354 of 360 CORRECT with no WRONG, the losses add across groups with one
+exception, and four of the mechanisms have no corpus customer. That layer
+can be retired in place. The core (the construct pass, Stage-0 relocation,
+Stage-1 meshing, the d(T) refusal, the classify order, the representation)
+was left on and is the open half of the question.
 
 ### F0 — Bookkeeping (no geometry change)
 
@@ -401,3 +410,4 @@ the first known item.
 | 2026-10-30 | F2 Step 1 + review fixes (N81; N58 reopened; N105 added): Stage-5 polyline chain decimation re-sited into §4.4.1 (`stage4_chain_decimate`, forward §4.3.4, `DecimateStats` + loud `Stage4ChainDecimateFailed`; `Surface::Sphere` non-decimation stated), operand-anchored conic merge vertex-index-free (`0`-operand-vertex closed circle retains `min_by_key` index rule as open debt on `R0021`), Stage-1/`sphere.rs` unbundled, `developable.rs` hardened with `Result` + red-first pin (`curved_holed_lateral_reentry`), `4.4-23`/`4.4-28` updated (`stage5_topology.rs:1037`), class-(b) elision ledgered as N105 | 64 | 132 | 360C / 0W / 9E / 5EE / 0T (wall 524.8 s, 0 moved) | 3d98d89b, 41d3e61a |
 | 2026-10-31 | F2 Step 2 (Antigravity; reworked after independent review): Fig. 11(a) split inside `update_patches_ex` by patch CDT; the `(3d)` unzip deleted and its local arms (first moved into the update for every refusal) narrowed to the N106 d(T)-budget refusal — any other declined component STOPs loudly into §4.5.2; hole-first patch chart fixed; `4.4-12` DEVIATES → PARTIAL (first committed as FAITHFUL; trigger still a collapsed triangle); N106 ledgered (the d(T) refusal is not the paper's) | 65 | 133 | 360C / 0W / 9E / 5EE / 0T (O1+O3 in force, no case moved — see commit) | (this commit) |
 | 2026-11-12 | Plan revised after review (user: *"update the 1.0 plan and roadmap with those recommendations"*): F5 split into F5a (parameter-domain substrate: surface interface with the Theorem-A and Theorem-4.1 bounds, parameter coordinates carried, result-neutral) and F5b; order now F5a → F2 → I3b → F3 → F4 → F5b → F6 → F7; the N106 d(T) retirement moved from F2 to F5b; the conversion method (in place or a second path) is F5a's first item; class sign-offs in F7. No geometry changed | 64 | 132 | not re-run (no kernel change) | (this commit) |
+| 2026-11-12 | Ablation experiment for the F5a design session (`specs/yang_paper_path.md`, branch `exp/paper-skeleton`): outer substitutes off → 354C / 0W, losses additive but for P0020; transits (N87), rim boost, cross-patch folds (N88) and edge-in-plane arm 2 (N64) have no corpus customer. No kernel change on main; the in-place / second-path choice stays open for the core | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

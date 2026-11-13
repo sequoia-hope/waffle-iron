@@ -125,7 +125,7 @@ off-surface vertex.
    instance → F6 Stage 0 & emission → F7 adjudication). F5a opens with a
    design session that decides in-place conversion versus a second,
    paper-ordered path (roadmap §3); no new increment is wired into the
-   production Stage 4 before its spec exists. Progress is the roadmap's scoreboard **with the corpus held**, never
+   production Stage 4 until `specs/yang_paper_path.md` records that choice. Progress is the roadmap's scoreboard **with the corpus held**, never
    the corpus score alone. Tail cases are *customers* of a milestone, not
    work items of their own (roadmap §4); a WRONG still preempts everything.
    - **Plans of record:**
