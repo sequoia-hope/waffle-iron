@@ -133,6 +133,33 @@ export async function orbitDrag(page, startX, startY, endX, endY) {
 }
 
 /**
+ * Wait until the camera has stopped moving and return its state.
+ *
+ * Orbit and pan are DAMPED (CameraControls `dampingFactor`): each frame
+ * applies a quarter of what is left, so the camera keeps gliding after the
+ * pointer is released, for a number of FRAMES. A fixed sleep is enough at
+ * 60 fps and not at the 10 fps of software GL on a shared CI runner, where
+ * a pan read 300 ms after release was still 10 % short.
+ * @param {import('@playwright/test').Page} page
+ * @param {number} [timeout]
+ * @returns {Promise<any>} `window.__waffle.getCameraState()` at rest
+ */
+export async function waitForCameraRest(page, timeout = 10000) {
+	const read = () => page.evaluate(() => window.__waffle.getCameraState());
+	const same = (a, b) =>
+		[...a.position, ...a.target].every((v, i) => Math.abs(v - [...b.position, ...b.target][i]) < 1e-12);
+	const deadline = Date.now() + timeout;
+	let prev = await read();
+	for (;;) {
+		await page.waitForTimeout(150);
+		const next = await read();
+		if (same(prev, next)) return next;
+		if (Date.now() > deadline) throw new Error(`camera still moving after ${timeout} ms`);
+		prev = next;
+	}
+}
+
+/**
  * How much of the model the view shows: the half-height of the orthographic
  * frustum, or the camera-to-target distance of a perspective camera. Zooming
  * in makes it smaller in both projections.

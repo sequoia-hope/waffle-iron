@@ -2,7 +2,7 @@
  * Viewport pan + zoom limit tests — middle-click drag panning, wheel zoom with distance limits.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { zoom, getCanvasBounds, orbitDrag, viewExtent } from './helpers/canvas.js';
+import { zoom, getCanvasBounds, orbitDrag, viewExtent, waitForCameraRest } from './helpers/canvas.js';
 import { createExtrudedBox } from './helpers/geometry.js';
 
 /**
@@ -57,10 +57,10 @@ test.describe('viewport pan', () => {
 		const before = await page.evaluate(() => window.__waffle.getCameraState());
 		expect(before).not.toBeNull();
 
-		// Middle-click drag to pan
+		// Middle-click drag to pan, then let the damped glide finish.
 		await panDrag(page, -80, 0, 80, 0);
 
-		const after = await page.evaluate(() => window.__waffle.getCameraState());
+		const after = await waitForCameraRest(page);
 		expect(after).not.toBeNull();
 
 		// The pan carries the focal point with the cursor: in the default
