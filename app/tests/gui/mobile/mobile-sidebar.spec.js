@@ -4,41 +4,7 @@
  * These tests require mobile layout (viewport <= 768px), skipped on landscape.
  */
 import { test, expect } from '../helpers/waffle-test.js';
-import { isMobileViewport } from '../helpers/mobile.js';
-
-/**
- * Tap the backdrop where a user can reach it: on the strip the open panel
- * leaves uncovered.
- *
- * The backdrop fills the window and the panel sits on top of it, 260 px of a
- * 440 px portrait window (`.mobile-panel { width: min(260px, 75vw) }`), so
- * the backdrop's CENTER — where a bare `backdrop.click()` aims — is under the
- * panel. Such a click can only land while the panel is still sliding in
- * (0.2 s) and short of the middle; once the slide has finished it waits on a
- * point that is covered by design until the test times out.
- *
- * So: let the slide come to rest, then aim at the middle of what is left.
- * Playwright still hit-tests that point, so a panel that grew to cover the
- * whole backdrop fails here rather than passing.
- *
- * @param {import('@playwright/test').Page} page
- * @param {import('@playwright/test').Locator} panel - the open `.mobile-panel`
- */
-async function tapBackdropBeside(page, panel) {
-	const backdrop = page.locator('.mobile-backdrop');
-	await expect(backdrop).toBeVisible();
-	// `.open` is `transform: translateX(0)`; mid-slide it is a translation.
-	await expect(panel).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
-
-	const view = page.viewportSize();
-	const box = await panel.boundingBox();
-	expect(box).not.toBeNull();
-	// A left panel leaves the strip to its right, a right panel the one to
-	// its left.
-	const [from, to] = box.x <= 0 ? [box.x + box.width, view.width] : [0, box.x];
-	expect(to - from, 'backdrop strip left uncovered by the open panel').toBeGreaterThan(0);
-	await backdrop.click({ position: { x: (from + to) / 2, y: view.height / 2 } });
-}
+import { isMobileViewport, tapBackdropBeside, PANEL_AT_REST } from '../helpers/mobile.js';
 
 test.describe('Mobile sidebar', () => {
 	test.beforeEach(async ({ waffle }) => {
@@ -88,8 +54,8 @@ test.describe('Mobile sidebar', () => {
 		const leftPanel = page.locator('.mobile-panel-left');
 		await expect(leftPanel).toHaveClass(/\bopen\b/);
 
-		// Wait for slide transition to complete (200ms ease + rendering buffer)
-		await page.waitForTimeout(500);
+		// Wait for the slide transition to come to rest.
+		await expect(leftPanel).toHaveCSS('transform', PANEL_AT_REST);
 
 		const box = await leftPanel.boundingBox();
 		expect(box).not.toBeNull();

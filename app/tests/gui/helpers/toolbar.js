@@ -258,9 +258,15 @@ export async function clickFinishSketch(page) {
  * Click the Extrude toolbar button and wait for the dialog.
  * @param {import('@playwright/test').Page} page
  */
-export async function clickExtrude(page) {
+export async function clickExtrude(page, { waitForRegions = true } = {}) {
 	await clickTool(page, 'extrude');
 	await page.locator('[data-testid="extrude-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
+	// The dialog fills its region list from an engine round trip. Specs that
+	// read the list want it settled; pass `waitForRegions: false` to act on
+	// the dialog's first tick, as a fast user does.
+	if (waitForRegions) {
+		await page.evaluate(() => window.__waffle.whenExtrudeRegionsReady());
+	}
 }
 
 /**

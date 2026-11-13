@@ -6,7 +6,7 @@
  * so mobile-specific tests are skipped in landscape via isMobileViewport().
  */
 import { test, expect } from '../helpers/waffle-test.js';
-import { assertNoOverflow, assertElementWithinBounds, isMobileViewport } from '../helpers/mobile.js';
+import { assertNoOverflow, assertElementWithinBounds, isMobileViewport, tapBackdropBeside } from '../helpers/mobile.js';
 
 test.describe('Layout — all viewports', () => {
 	test('viewport fills available screen width', async ({ waffle }) => {
@@ -143,10 +143,8 @@ test.describe('Mobile layout — portrait only', () => {
 		await treeFab.click();
 		await expect(leftPanel).toHaveClass(/\bopen\b/);
 
-		// Click the backdrop
-		const backdrop = page.locator('.mobile-backdrop');
-		await expect(backdrop).toBeVisible();
-		await backdrop.click();
+		// Tap the backdrop on the strip the open panel leaves uncovered.
+		await tapBackdropBeside(page, leftPanel);
 
 		// Panel should be closed
 		await expect(leftPanel).not.toHaveClass(/\bopen\b/);

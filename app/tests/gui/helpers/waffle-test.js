@@ -104,8 +104,27 @@ export class WafflePage {
  */
 export const TEST_SETTINGS = { extrudeAutoSelectRegion: true };
 
+/**
+ * Drop the app before the context closes.
+ *
+ * One browser process serves every test a worker runs. A page that still
+ * holds a document's meshes makes the NEXT test's `browser.newContext` slow,
+ * and on a loaded four-core runner slow enough to spend the whole 60 s test
+ * timeout "setting up context" (seen in examples, in-context-editing,
+ * perf-budget and home-page). Navigating away frees the renderer first.
+ *
+ * Only after a test that went as expected: Playwright takes its failure
+ * screenshot after the fixtures tear down, and it should show the app.
+ * @param {import('@playwright/test').Page} page
+ * @param {import('@playwright/test').TestInfo} testInfo
+ */
+async function releasePage(page, testInfo) {
+	if (testInfo.status !== testInfo.expectedStatus || page.isClosed()) return;
+	await page.goto('about:blank');
+}
+
 export const test = base.extend({
-	waffle: async ({ page }, use) => {
+	waffle: async ({ page }, use, testInfo) => {
 		const waffle = new WafflePage(page);
 		await page.addInitScript((s) => {
 			// Only seed once per browser context: a reload must keep whatever the
@@ -117,6 +136,7 @@ export const test = base.extend({
 		await waffle.goto();
 		await waffle.waitForReady();
 		await use(waffle);
+		await releasePage(page, testInfo);
 	},
 });
 
@@ -125,9 +145,10 @@ export const test = base.extend({
  * (no engine wait needed).
  */
 export const homeTest = base.extend({
-	homePage: async ({ page }, use) => {
+	homePage: async ({ page }, use, testInfo) => {
 		await page.goto('/home');
 		await use(page);
+		await releasePage(page, testInfo);
 	},
 });
 

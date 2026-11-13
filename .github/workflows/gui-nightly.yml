@@ -63,6 +63,12 @@ jobs:
           PW_SHARD: ${{ matrix.shard }}
           PW_REPORTER: list
           GUI_SKIP_MACHINE_BASELINES: '1'
+          # One retry, here only. About once per run a test spends its whole
+          # 60 s "setting up context" (browser.newContext stalls) and passes
+          # when run again; the cause is not found. Playwright reports a
+          # retried pass as "flaky" in the log, so it stays visible, and a
+          # test that fails twice still fails the shard.
+          PW_RETRIES: '1'
 
       - name: Upload traces and screenshots of failures
         if: failure() || cancelled()

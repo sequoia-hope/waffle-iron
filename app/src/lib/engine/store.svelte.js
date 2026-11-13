@@ -1636,6 +1636,7 @@ export async function initEngine() {
 			getAxisPickMode: () => getAxisPickMode(),
 			setAxisPickMode: (active) => setAxisPickMode(active),
 			getExtrudeRegions: () => getExtrudeRegions(),
+			whenExtrudeRegionsReady: () => whenExtrudeRegionsReady(),
 			addExtrudeRegion: (sketchId, sketchName, profileIndex, region = null) => addExtrudeRegion(sketchId, sketchName, profileIndex, region),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
 			changeExtrudeSketch: (sketchId) => changeExtrudeSketch(sketchId),
@@ -5091,6 +5092,24 @@ export function setRevolvePreviewParams(params) { revolvePreviewParams = params;
  * Show the extrude dialog. Auto-selects the last sketch in the feature tree.
  * Pre-populates regions from selectedProfileIndex or auto-selects single-profile sketches.
  */
+/**
+ * The extrude dialog's region auto-select while it is in flight (an engine
+ * round trip), else null.
+ * @type {Promise<void> | null}
+ */
+let extrudeAutoSelectPending = null;
+
+/**
+ * Resolves once the extrude dialog's region list is settled: immediately,
+ * unless an auto-select is still in flight. Apply waits on this, so pressing
+ * Enter the moment the dialog opens extrudes the region the dialog was about
+ * to show instead of finding the list empty.
+ * @returns {Promise<void>}
+ */
+export function whenExtrudeRegionsReady() {
+	return extrudeAutoSelectPending ?? Promise.resolve();
+}
+
 export function showExtrudeDialog() {
 	const tree = featureTree;
 	if (!tree || !tree.features) return;
@@ -5142,8 +5161,12 @@ export function showExtrudeDialog() {
 			// the list shows is exactly what Apply extrudes (a bare "profile 0"
 			// placeholder used to be shown, then rejected at Apply on any sketch
 			// with several regions).
-			autoSelectExtrudeRegion(lastSketch.id, lastSketch.name)
-				.catch((err) => log('error', `Extrude auto-select failed: ${err}`));
+			const pending = autoSelectExtrudeRegion(lastSketch.id, lastSketch.name)
+				.catch((err) => log('error', `Extrude auto-select failed: ${err}`))
+				.finally(() => {
+					if (extrudeAutoSelectPending === pending) extrudeAutoSelectPending = null;
+				});
+			extrudeAutoSelectPending = pending;
 		} else {
 			// Nothing pre-selected: arm region picking so the next click on a
 			// sketch region adds it.

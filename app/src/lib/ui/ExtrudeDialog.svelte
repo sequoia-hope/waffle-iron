@@ -4,6 +4,7 @@
 		getExtrudeDialogState,
 		hideExtrudeDialog,
 		applyExtrude,
+		whenExtrudeRegionsReady,
 		removeExtrudeRegion,
 		clearExtrudeRegions,
 		setExtrudePreviewParams,
@@ -220,9 +221,15 @@
 		return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
 	});
 
-	function handleApply() {
+	async function handleApply() {
+		// The region list may still be filling (auto-select is an engine round
+		// trip); Apply on the dialog's first tick must not find it empty.
+		await whenExtrudeRegionsReady();
 		const firstRegion = regions[0];
-		if (!firstRegion) return;
+		if (!firstRegion) {
+			showToast('warning', 'Select a sketch region to extrude');
+			return;
+		}
 
 		if (regions.length > 1) {
 			log('ui', `Multi-region extrude: using first region (${regions.length} selected)`);

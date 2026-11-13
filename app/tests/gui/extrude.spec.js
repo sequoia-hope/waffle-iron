@@ -210,7 +210,9 @@ test.describe('extrude dialog basics', () => {
 test.describe('extrude keyboard shortcuts', () => {
 	test('Enter key in extrude dialog applies', async ({ waffle }) => {
 		await sketchRectangle(waffle);
-		await clickExtrude(waffle.page);
+		// Not waiting for the region list: Enter on the dialog's first tick
+		// must still extrude (Apply waits for the pending auto-select).
+		await clickExtrude(waffle.page, { waitForRegions: false });
 
 		const depthInput = waffle.page.locator('[data-testid="extrude-depth"]');
 		await depthInput.fill('5');
