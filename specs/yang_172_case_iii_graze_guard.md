@@ -21,8 +21,8 @@ The guard realizes the paper's Case-III elimination (§4.2.1: proximity
 `< 2d_ε` implies a potential intersection that must be resolved; §4.3.3:
 "if the two meshes do not intersect but are within the distance tolerance
 d_ε, there is a tangent point, or a small loop") at Stage 1, as the exact
-mirror of the SHIPPED Case-IV phantom guard
-(`specs/yang_case_iv_phantom_guard.md`, `phantom_min_rim_segments`):
+mirror of the Case-IV phantom guard (`phantom_min_rim_segments`, deleted
+2026-11-13):
 raise the rim sampling density of BOTH inputs until the combined chord
 sagitta is strictly inside the analytic penetration depth, so the meshes
 MUST intersect where the surfaces do, and the existing SurfacePair
@@ -148,10 +148,6 @@ a speculative lever.
   surfaces are analytic quadrics, so the conservative proximity
   heuristic is replaced by the EXACT pair penetration depth — strictly
   stronger than the paper's filter.
-- `specs/yang_case_iv_phantom_guard.md` — the shipped mirror guard
-  (M8 increments 15/16) whose mechanism (derived rim-N, factor-2
-  sagitta margin, self-limiting gate, 4096 cap, boolean-entry rebuild)
-  this spec reuses verbatim.
 - `specs/m5_surface_pair_curve.md` — the SurfacePair vocabulary that
   refines the wedge once the mesh sees it (P8 degree-4 procedural
   curve).

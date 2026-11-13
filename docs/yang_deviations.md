@@ -187,7 +187,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N85 | OPEN (2026-10-16, matrix U-1; 2026-10-27: Step-1 census landed + Step-3 switch measured at `356C / 0W / 13E / 5EE / 0T`, stopped & reverted on 4 `SUPPORTED_CORRECT → ERROR` regressions `F0084, P0007, P0046, R0032` gated on F2/F3 + Stage-4 readback lockstep; spec `yang_41_deps_from_bbox.md`) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | OPEN (2026-10-16, matrix U-3) | The crease and corner transits apply §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
-| N88 | OPEN (2026-10-16, matrix U-4) | Stage-1 folds across patches (cylinder-pair phantom fold, thin-band fold, chart-crossing re-run, P0008 chord split) |
+| N88 | OPEN (2026-10-16, matrix U-4; amended 2026-11-13) | Stage-1 mechanisms that read other patches: the chart-crossing re-run and the P0008 chord split (the cylinder-pair and thin-band folds deleted 2026-11-13) |
 | N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–4: §4.3 tangency-point Newton, Stage-1 `cyl_cyl_tangent_points` retirement, `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT, exact Fig. 10(c) barycenter seeding, and `:502-506` L curve-redundancy removal landed) | Tangent points, small loops and sub-band contacts: all §4.2.2/§4.3 tangency & interior small-loop mechanisms (`stage4_tangency.rs`, `gauss_map.rs`, `stage4_small_loop.rs`, `C0116`) landed; non-cylinder 0D tangent mesh insertion (`N82`), post-collapse single-survivor census (`N81`), and external 0D solid kiss policy (`C0107`–`C0109`) remain open |
@@ -6915,18 +6915,35 @@ Matrix 4.5.1-05, -08, -10, -13, `s451 F1`. **State: OPEN** (found
 without considering its neighbors"; §4.1.2 triangulates the u-v domain first
 (`:404-405`).
 
-**Implementation.** Four Stage-1 mechanisms read other patches: the
-intra-solid cylinder-pair phantom fold (`stage1_tessellate.rs:636-664`,
-`boolean/rim_junction.rs` `cyl_pair_phantom_n`), the thin-band rim fold
-(`:665-700`, `face_rim_pair_phantom_n`), the chart-crossing re-run
-(`CHART_REFINE_ROUNDS`, `stage1_tessellate/chart_crossing.rs`
-`chart_polygon_crossings`) and the P0008 planar-neighbour chord split
+**Implementation.** Two Stage-1 mechanisms read other patches: the
+chart-crossing re-run (`CHART_REFINE_ROUNDS`,
+`stage1_tessellate/chart_crossing.rs` `chart_polygon_crossings`) and the
+P0008 planar-neighbour chord split
 (`stage1_tessellate/planar_neighbor_chords.rs` `split_planar_neighbor_chords`).
-The first two appeared only in a cleanup §2a footnote, the last two nowhere.
+Two more, the intra-solid cylinder-pair fold and the thin-band rim fold,
+were deleted on 2026-11-13 (amendment below).
 
 **Remediation.** N5 family — cleanup Phase 3 (the §4.1 d_ε certificate and
 §4.1.2 domain triangulation). Matrix 4.1-19, `s41 F3`. **State: OPEN**
 (found 2026-10-16).
+
+**Amendment (2026-11-13): the two a-priori folds are deleted.**
+`cyl_pair_phantom_n` and `face_rim_pair_phantom_n` raised the solid's shared
+rim count before the first pass, from the gap between two of its own
+cylinders and between two rims of one face. The chart-crossing re-run
+already answers both configurations by §4.5.4's own method, detect and
+refine: a hole 0.0115 from a plate wall under a rim chord is detected in the
+cap's chart and the solid re-run at N = 25 (from 14); a thin cone band's
+interleaving rims are detected and the first round demands the count the
+fold used to pre-compute
+(`tests_unit/m5_case_iv.rs::a_hole_under_a_rim_chord_is_refined_by_the_chart_crossing_retry`,
+`tests_unit/s1_chart_crossing.rs::a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass`).
+Corpus 360C / 0W / 9E / 5EE / 0T, no case moved; thirteen outputs change and
+stay CORRECT (F0087, F0088, F0090, P0014, R0003, R0019, R0032, R0038, R0044,
+R0047, R0053, R0054, R0081). Prospector seed 6 is verdict-identical with and
+without them. No named dip. What remains of this entry is the re-run's
+shared-N refinement (it re-samples every rim of the solid, not the face that
+crossed) and the P0008 chord split. State unchanged: OPEN.
 
 ### N89 — Smaller unledgered divergences (matrix U-5)
 

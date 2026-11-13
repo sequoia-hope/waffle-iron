@@ -2814,16 +2814,13 @@ pub(crate) fn lateral_partial_patch_multi_arc_no_holes() {
     }
 }
 
-/// Thin-band chart guard (R0044 face 166, 2026-09-05): a CONE band whose
+/// A thin band (R0044 face 166): a CONE band whose
 /// two rims sit 0.02 apart in height (slant gap 0.0283 at r ≈ 10, α = 45°),
 /// as a bounded half-band (two arcs per rim + two rulings) so it takes the
 /// holed-lateral CDT path whose chart is the cone's isometric development.
 /// At the natural rim density (N ≈ 14, sag 0.25 ≫ 0.028) the two rims'
-/// chords interleave in the chart — RED before the guard, either as a loud
-/// CDT failure or, if the flood-fill CDT paves the crossing (the R0040 pin
-/// showed it can), as the rim-density / area / fold assertions below.
-/// `face_rim_pair_phantom_n` now folds the
-/// band's own demand (N ≥ 84) into the shared rim N: the band tessellates,
+/// chords interleave in the chart. Stage 1 detects the crossing (§4.5.4)
+/// and re-runs at the rim count that clears it (N ≥ 84): the band tessellates,
 /// its area is the developed annular sector `½·Δθ·sin α·(ℓ₂² − ℓ₁²)` within
 /// the corrugation the sampling allows (see the area assertion), no mesh
 /// edge is covered more than twice, and the rims carry ≥ 60 segments per

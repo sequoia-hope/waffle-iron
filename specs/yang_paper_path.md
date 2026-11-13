@@ -174,7 +174,8 @@ the dip was the one thing §3's data left for the owner to decide there.
 in the order §3 gives:
 
 1. The four switches with no corpus customer, one per commit: the rim boost
-   (**deleted 2026-11-13**), the cross-patch folds (N88), the transits (N87),
+   and the two cross-patch folds (N88) (**both deleted 2026-11-13**), the
+   transits (N87),
    and edge-in-plane arm 2 (N64, whose paper status is an F7 adjudication,
    so "retire" there means "ask"). The two checks §5 listed as missing were
    run on 2026-11-13 with all four off together. Prospector seed 6: 188C /

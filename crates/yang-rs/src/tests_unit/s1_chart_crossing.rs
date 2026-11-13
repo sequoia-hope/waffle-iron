@@ -1,7 +1,6 @@
-//! Stage-1 chart simplicity (Yang §4.5.4; spec `yang_stage1_curved_holed_patch`
-//! "The thin-band chart guard" + the detect-then-refine that backs it):
-//! the crossing scan, the rim demand it derives, and the R0044-shaped spike
-//! band that no rim-pair rule can make simple.
+//! Stage-1 chart simplicity (Yang §4.5.4; spec `yang_stage1_curved_holed_patch`,
+//! the detect-then-refine): the crossing scan, the rim demand it derives, and
+//! the R0044-shaped spike band, which takes two rounds.
 
 use super::*;
 
@@ -93,10 +92,10 @@ fn rim_demand_halves_the_crossed_vertex_distance() {
 /// The R0044 shape at unit scale: the thin 45° cone band (rims 0.0283 apart
 /// in slant) with a SPIKE bitten out of it from rim A up to 0.2 of the gap
 /// below rim B, placed under a rim-B chord. The spike's apex is a plain
-/// vertex joining two straight edges — NOT a circle, so the thin-band pair
-/// guard cannot see it (R0044's notch vertex is a hyperbola × surface-pair
-/// junction). The guard alone (N = 60 from the rim pair, outer dev sag
-/// 0.0097) lets the rim-B chord pass over the apex (0.0057 below rim B):
+/// vertex joining two straight edges (R0044's notch vertex is a hyperbola ×
+/// surface-pair junction). At N = 60, the count that clears the two rims of
+/// each other (outer dev sag 0.0097), the rim-B chord still passes over the
+/// apex (0.0057 below rim B):
 /// `stage1_tessellate_once` reports the crossing with a demand (sag ≤
 /// 0.0028 ⇒ N ≥ 133) and the driver's retry tessellates the face at that
 /// density — area = band minus spike within 5 % (the corrugation
@@ -152,8 +151,9 @@ fn spike_band() -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
     (verts, edges, faces)
 }
 
-#[test]
-fn a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass() {
+/// One pass of the spike band at rim count `min_n`: the crossing it must
+/// report, as (rim count the pass used, crossings, demanded rim count).
+fn spike_band_pass(min_n: Option<usize>) -> (usize, usize, usize) {
     let (verts, edges, faces) = spike_band();
     let mut n_used = None;
     let empty = std::collections::BTreeMap::new();
@@ -168,7 +168,7 @@ fn a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass() {
         &crate::stage1_tessellate::FaceConstraints::new(),
         &no_demands,
         &crate::stage1_tessellate::FaceRefine::new(),
-        None,
+        min_n,
         &mut n_used,
     );
     match got {
@@ -176,20 +176,32 @@ fn a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass() {
             face: 0,
             crossings,
             demand_n: Some(n),
-        }) => {
-            let cur = n_used.expect("the pass chose an N");
-            assert!(crossings >= 1, "crossings {crossings}");
-            assert!(n > cur, "demand {n} must exceed the pass's N {cur}");
-            // sag(10.02, N) ≤ 0.0057/2 ⇒ N ≥ 133.
-            let sag = |n: usize| 10.02 * (1.0 - (std::f64::consts::PI / n as f64).cos());
-            assert!(
-                sag(n) <= 0.00283 && (125..=145).contains(&n),
-                "demand N={n}"
-            );
-        }
+        }) => (n_used.expect("the pass chose an N"), crossings, n),
         Err(e) => panic!("expected a chart crossing with a demand, got {e:?}"),
         Ok(_) => panic!("expected a chart crossing with a demand, got a tessellation"),
     }
+}
+
+/// Two passes, two demands. At the natural rim count the band's own two
+/// rims interleave in the chart, and the pass demands the count that clears
+/// their gap (N = 60). At N = 60 the rim-B chord still passes over the spike
+/// apex, and the pass demands the count that clears the apex.
+#[test]
+fn a_spike_under_a_rim_chord_is_reported_with_a_demand_by_one_pass() {
+    let (natural, crossings, n_band) = spike_band_pass(None);
+    assert!(crossings >= 1, "crossings {crossings}");
+    assert!(natural < 60, "natural N {natural}");
+    assert_eq!(n_band, 60, "the rim pair's gap demands N = 60");
+
+    let (cur, crossings, n) = spike_band_pass(Some(n_band));
+    assert_eq!(cur, n_band);
+    assert!(crossings >= 1, "crossings {crossings}");
+    // sag(10.02, N) ≤ 0.0057/2 ⇒ N ≥ 133.
+    let sag = |n: usize| 10.02 * (1.0 - (std::f64::consts::PI / n as f64).cos());
+    assert!(
+        sag(n) <= 0.00283 && (125..=145).contains(&n),
+        "demand N={n}"
+    );
 }
 
 #[test]

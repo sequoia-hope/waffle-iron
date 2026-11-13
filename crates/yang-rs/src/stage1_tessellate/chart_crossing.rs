@@ -4,15 +4,14 @@
 //! between boundary chords (a sweep-pruned pair scan), and
 //! [`chart_rim_demand`] turns the crossings that involve a RIM chord into
 //! the rim segment count that clears them — the crossed vertex's radial
-//! distance to the rim halves the allowed sagitta, the same factor-2 margin
-//! the thin-band chart guard (`face_rim_pair_phantom_n`) uses for rim pairs.
+//! distance to the rim halves the allowed sagitta (a factor-2 margin).
 //! [`cone_chart_rim_demand`] is its cone-development form; the planar CDT
 //! path feeds it the circle itself.
 //!
-//! Anchors: R0044 face 173 at N = 131 — the thin-band guard cleared its two
-//! rims (gap 2.25, sag 1.06) but a rim chord 176 units long still passed
-//! over the hyperbola × surface-pair junction vertex that sits 0.5 units
-//! inside the band; no rim-pair rule can see that vertex, the scan can. F0082
+//! Anchors: R0044 face 173 at N = 131 — its two rims clear each other
+//! (gap 2.25, sag 1.06) but a rim chord 176 units long still passes over
+//! the hyperbola × surface-pair junction vertex that sits 0.5 units inside
+//! the band. F0082
 //! face 372 (2026-09-12) — a cylinder's base cap re-entering the next union
 //! with the two corners where the near-coplanar stack's plane∩plane line
 //! meets the rectangle walls 1.457e-3 inside the rim (r 0.2123) under a

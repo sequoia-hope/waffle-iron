@@ -43,6 +43,24 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-13 (the two a-priori Stage-1 folds DELETED) — **toward the paper: §4.1 discretizes each patch independently (`refs/text/yang2025_hybrid_boolean.txt:397-402`) and §4.5.4 detects an illegal intersection and refines; corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved**
+
+`cyl_pair_phantom_n` (two of a solid's own cylinders closer than their chord
+bands) and `face_rim_pair_phantom_n` (two rims of one face closer than the
+outer rim's sag) raised the solid's shared rim count before the first
+Stage-1 pass. Both are deleted (ledger N88 amendment).
+
+- **What answers their configurations:** the chart-crossing re-run. A hole
+  0.0115 from a plate wall under a rim chord: the cap's chart reports two
+  crossings and the solid re-runs at N = 25 (natural 14). A thin cone band:
+  the first pass reports its interleaving rims and demands N = 60, the count
+  the fold pre-computed; the second reports the spike under the rim chord.
+  Both pinned in `yang-rs` (`m5_case_iv`, `s1_chart_crossing`).
+- **Corpus:** thirteen outputs change, all CORRECT (F0087, F0088, F0090,
+  P0014, R0003, R0019, R0032, R0038, R0044, R0047, R0053, R0054, R0081) —
+  the same thirteen as the `s1fold` run of `specs/yang_paper_path.md`.
+- **Named dip:** none. Seed 6 verdict-identical (188C / 0W / 10E / 2T).
+
 ## 2026-11-13 (the cross-operand rim boost DELETED) — **toward the paper: §4.1 discretizes each patch independently (`refs/text/yang2025_hybrid_boolean.txt:397-402`), and a mesh intersection the surfaces do not have is a §4.3 solving failure (`:528-532`) answered by §4.5.2; corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved**
 
 `phantom_min_rim_segments` rebuilt both operands at a rim count derived from

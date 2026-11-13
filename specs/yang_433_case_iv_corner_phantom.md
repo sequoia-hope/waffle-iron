@@ -101,9 +101,8 @@ the meshes detect intersections that do not exist between the surfaces."
 Our pipeline's optimization equivalent is the Stage-4 relocation; the
 missing piece is the DOMAIN half of the paper's clause. The relocation
 solved the surfaces and never asked whether the solution lies within the
-faces' trimmed domains — the B-edge's segment, the A-face's band. The
-shipped Case-IV guard (`yang_case_iv_phantom_guard.md`) is pairwise
-cylinder×cylinder ANALYTIC-GAP only and CANNOT own this: every pairwise
+faces' trimmed domains — the B-edge's segment, the A-face's band. A
+pairwise cylinder×cylinder analytic-gap rule cannot own this: every pairwise
 surface pair here genuinely intersects (three real ellipses, radii
 250–940); the phantom is the REGION (corner wedge vs surface), invisible
 to any pairwise gap.

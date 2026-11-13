@@ -150,8 +150,6 @@ Each candidate point must pass ALL of:
 - [#24] Yang et al. 2025 §4.3.3 Case IV (intersection through mesh
   vertices/edges — subdivide so the crossing is represented; also the
   tangency-insertion analog), §4.5.5 (shared-boundary sampling).
-- M8 increment 15 (`yang_case_iv_phantom_guard`): pair-derived Stage-1
-  density + the Stage-0 pass-through trap this spec must honor.
 - M8 increment 6 (`m8_increment6_annular_rim_mint`): the rim-override
   insertion vocabulary this reuses.
 - [#1] Patrikalakis Ch.5 (plane-quadric sections; circle∩line closed form).
