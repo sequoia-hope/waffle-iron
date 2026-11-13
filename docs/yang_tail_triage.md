@@ -43,6 +43,29 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-13 (the cross-operand rim boost DELETED) — **toward the paper: §4.1 discretizes each patch independently (`refs/text/yang2025_hybrid_boolean.txt:397-402`), and a mesh intersection the surfaces do not have is a §4.3 solving failure (`:528-532`) answered by §4.5.2; corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved**
+
+`phantom_min_rim_segments` rebuilt both operands at a rim count derived from
+the gap of each disjoint cylinder pair, before Stage 0. It is deleted (ledger
+N68 amendment; owner ruling on named dips, roadmap §1 item 4).
+
+- **Corpus:** eight outputs change, all CORRECT (C0061, C0069, F0044,
+  F0087–F0090, R0021); canonical hashes equal the `s1.rim` run of
+  `specs/yang_paper_path.md` on all 374 cases.
+- **Its two customers of 2026-10-15:** F0088 fails once at natural density
+  (`RelocationDiverged`) and adopts at density 2. C0117 fails with 36 sites
+  (§4.4.1 refusals and off-surface vertices), then 72, 144 and 256 as the
+  density doubles, and adopts at density 16 with none. The loop's ceiling is
+  what answers C0117.
+- **Named dip:** no corpus case. One kernel pin: a coaxial tube with a 1e-5
+  wall at r = 0.5 no longer assembles and stops as `RefinementExhausted`
+  (`s434_typed_rim_seam_mint.rs::a_1e5_coaxial_wall_stops_loudly_at_the_refinement_ceiling`).
+  Walls of 1e-3, 5e-4 and 1e-4 still assemble. Customer of roadmap F3 item
+  I2 (the Case-IV rule-out on the full arrangement).
+- **Seed 6** (200 candidates, 900 s): 188C / 0W / 10E / 2T with the boost,
+  and with it and the three other customer-less mechanisms switched off;
+  identical verdict and signature on every candidate.
+
 ## 2026-11-04 (Stage-3 pair-curve membership reads the shared surface distance) — **faithful, no deviation: §4.3 maps each mesh intersection edge to the surface intersection curve it lies on (`refs/text/yang2025_hybrid_boolean.txt:430-460`); membership on a surface-pair curve is the point lying on BOTH surfaces**
 
 The gate-3 pair matrix (`assay_pair_matrix`) found every sphere × cylinder /

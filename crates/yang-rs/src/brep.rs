@@ -815,8 +815,8 @@ pub struct BRep {
     /// to `mesh.tris`; empty for `from_mesh` / boolean outputs with no Stage-1
     /// lineage). Ledger N93 (Roadmap F5 Step 2).
     pub(crate) tri_dt: Vec<f64>,
-    /// Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): the forced
-    /// minimum rim segment count this B-Rep was (re)tessellated at. Stage-0's
+    /// The forced minimum rim segment count this B-Rep was (re)tessellated
+    /// at ([`Self::rebuilt_with_overrides_at_least`]). Stage-0's
     /// internal re-tessellations (`disc_rim_ring`, `build_stage0_mesh`, split
     /// re-triangulation) MUST honor it so their rims stay conformal with
     /// `as_mesh()`. `None` = the solid's own Stage-1 chord bound (the default).
@@ -829,7 +829,7 @@ pub struct BRep {
     /// (the map they inserted, composed with any standing samples already in
     /// force) and honored by Stage 0's internal re-tessellations
     /// (`disc_rim_ring`, the annular / mixed ring readers, the coincident-
-    /// cylinder build, `build_stage0_mesh`) and by the §4.5.2 / phantom-guard
+    /// cylinder build, `build_stage0_mesh`) and by the §4.5.2
     /// rebuilds — so a §4.3.3 mint made BEFORE Stage 0 (the generator ruling
     /// of an internally tangent cylinder pair whose caps are coplanar, C0043)
     /// is part of the rings Stage 0 classifies and emits, not lost at the
@@ -955,9 +955,6 @@ impl BRep {
 
     /// Shared constructor body: Stage-1 tessellation with an optional forced
     /// minimum rim segment count (`None` = byte-identical to [`BRep::new`]).
-    /// The Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) rebuilds
-    /// both boolean operands through this path when their analytic gap
-    /// demands a finer sampling than each solid's own chord bound chose.
     fn from_topology(
         verts: Vec<BRepVertex>,
         edges: Vec<BRepEdge>,
@@ -1233,22 +1230,9 @@ impl BRep {
         })
     }
 
-    pub(crate) fn rebuilt_with_min_rim_segments(&self, n: usize) -> Result<Self, YangError> {
-        Self::from_topology_with_rim_overrides(
-            self.vertices.clone(),
-            self.edges.clone(),
-            self.faces.clone(),
-            Some(n),
-            &self.standing_rim,
-            &self.standing_face,
-            &self.standing_face_constraints,
-            &self.face_refine,
-        )
-    }
-
     /// Increment-2 (spec `yang_rim_junction_insertion`): rebuild this
     /// B-Rep's Stage-1 mesh with exact rim junction points inserted as
-    /// extra rim samples. Preserves an existing phantom-guard boost
+    /// extra rim samples. Preserves an existing forced rim count
     /// (`forced_rim_n`) so the two mechanisms COMPOSE. Topology is
     /// unchanged; inserting a rim sample only shrinks sagittas (A14.3).
     pub(crate) fn rebuilt_with_rim_overrides(
@@ -1330,7 +1314,7 @@ impl BRep {
     /// Stage-1 tessellation (`stage1_tessellate_inner_overrides` accepts
     /// them together). Empty maps are byte-identical to
     /// [`Self::rebuilt_with_junction_overrides`] (the empty-override
-    /// identity). Preserves an existing phantom-guard boost.
+    /// identity). Preserves an existing forced rim count.
     pub(crate) fn rebuilt_with_all_overrides(
         &self,
         rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
@@ -1593,8 +1577,8 @@ impl BRep {
         })
     }
 
-    /// Case-IV phantom guard: the forced minimum rim segment count this
-    /// B-Rep was (re)tessellated at (`None` = the solid's own chord bound).
+    /// The forced minimum rim segment count this B-Rep was (re)tessellated
+    /// at (`None` = the solid's own chord bound).
     /// Stage-0's internal re-tessellations must pass this through so their
     /// rims stay conformal with `as_mesh()`.
     pub(crate) fn forced_rim_n(&self) -> Option<usize> {

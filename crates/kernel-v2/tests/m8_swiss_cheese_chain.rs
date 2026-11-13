@@ -590,17 +590,13 @@ fn f0088_engine_frame_chain_no_offsurface_residue() {
     );
 }
 
-/// Regression for the retired increment-15 wall (was: the pin
-/// `f0088_cut4_stays_loud_phantom_intersection_wall`, which asserted the
-/// loud Stage-3 `AmbiguousCurve { candidates: 0 }` until the Case-IV
-/// phantom guard landed): hole 4's tool cylinder is ANALYTICALLY disjoint
-/// from the plate's outer cylinder (internal gap = R − d_axes − r =
-/// 0.0115) but at the natural N=14 the plate's chord facets dipped inward
-/// past the gap, so the MESHES intersected where the surfaces do not —
-/// Yang Fig-8 Case IV. The guard (spec `yang_case_iv_phantom_guard`) now
-/// rebuilds both operands at the pair-derived rim density, the phantom
-/// never reaches the arrangement, and cut 4 succeeds with a valid output
-/// — the thin wall between hole 4 and the plate rim SURVIVES.
+/// F0088 cut 4: hole 4's tool cylinder is ANALYTICALLY disjoint from the
+/// plate's outer cylinder (internal gap = R − d_axes − r = 0.0115), but at
+/// the natural N=14 the plate's chord facets dip inward past the gap, so the
+/// MESHES intersect where the surfaces do not — Yang Fig-8 Case IV. The run
+/// at natural density fails, the §4.5.2 loop refines the faces it names, and
+/// cut 4 succeeds with a valid output — the thin wall between hole 4 and
+/// the plate rim SURVIVES.
 #[test]
 fn f0088_cut4_phantom_intersection_filtered() {
     let mut a = BrepArena::new();

@@ -481,6 +481,25 @@ CLOSED, cyclic, all-refuted component, and a claim on a curved edge is still
 loop refines it away. The faithful rule-out depends on N80 (classification
 after optimization).
 
+**Amendment (2026-11-13): the cross-operand rim boost is deleted.**
+`phantom_min_rim_segments` (`boolean_once`) rebuilt both operands at a rim
+count derived from the gap of each disjoint cylinder pair, so that their
+chord meshes could not overlap. It stood in for this rule-out a priori, on
+cylinder pairs only, and against §4.1's "discretize each surface patch
+independently" (`:397-402`). It had no ledger entry of its own (cleanup §2a,
+matrix "code with no paper row"). Deleted under the owner's ruling of
+2026-11-13 (roadmap §1 item 4). Without it the overlap reaches the
+arrangement, the run fails, and the §4.5.2 loop refines the faces named:
+F0088 adopts at density 2, C0117 at density 16, the loop's ceiling. A pair
+whose gap the ceiling cannot clear stops loudly as `RefinementExhausted`
+and is a customer of roadmap F3 item I2; the first is pinned, a coaxial
+tube with a 1e-5 wall at r = 0.5
+(`kernel-v2/tests/s434_typed_rim_seam_mint.rs::a_1e5_coaxial_wall_stops_loudly_at_the_refinement_ceiling`,
+which assembled under the boost). Corpus 360C / 0W / 9E / 5EE / 0T, no case
+moved; eight outputs change and stay CORRECT (C0061, C0069, F0044,
+F0087–F0090, R0021). Prospector seed 6 is verdict-identical with and without
+it (188C / 0W / 10E / 2T). State unchanged: OPEN.
+
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
 **Amendment (2026-10-17, compliance matrix L-5 / M-5 / F-2).** Three

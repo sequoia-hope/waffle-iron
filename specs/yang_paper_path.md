@@ -152,12 +152,9 @@ is where the paper sends boundary and corner points (N87).
   3D-points representation were on throughout. The in-place trials that
   stopped on regressions (N85's d_ε scale, the I3b classify flip, the N106
   refusal retirement) are all there.
-- **The corpus is a sample.** No prospector seed was run: the seed candidates
-  (`target/prospect`) are not on this machine. The corpus contains the cases
-  these mechanisms were written for, which makes it a hard sample for them,
-  but a fresh seed under the same switch is the independent check.
-- **The kernel test suites were not run under the switch.** They have caught
-  what the corpus missed before.
+- **The corpus is a sample.** For the four customer-less switches a
+  prospector seed and the fast tier were run afterwards (§6 item 1). For
+  the other three groups (`s1.junction`, `s1.p3a`, `s4`) neither has been.
 - **A changed output that stays CORRECT has passed the oracles, no more.**
   The 153 changed cases were not compared for quality.
 - **`s4` was not split.** Which of its four passes owns each of its four
@@ -176,12 +173,18 @@ the dip was the one thing §3's data left for the owner to decide there.
 **The outer layer does not need a second path.** It is retired in place,
 in the order §3 gives:
 
-1. The four switches with no corpus customer, one per commit: transits (N87),
-   rim boost, cross-patch folds (N88), and edge-in-plane arm 2 (N64, whose
-   paper status is an F7 adjudication, so "retire" there means "ask"). Each
-   needs what §5 lists as missing first: the kernel suites and one seed under
-   its switch. The corpus is held throughout; where outputs change, the gate
-   is the oracle verdict, since the hash cannot be.
+1. The four switches with no corpus customer, one per commit: the rim boost
+   (**deleted 2026-11-13**), the cross-patch folds (N88), the transits (N87),
+   and edge-in-plane arm 2 (N64, whose paper status is an F7 adjudication,
+   so "retire" there means "ask"). The two checks §5 listed as missing were
+   run on 2026-11-13 with all four off together. Prospector seed 6: 188C /
+   0W / 10E / 2T, the same verdict as the control on each of 200 candidates.
+   Fast tier: three failures, all pins of the removed mechanisms — two
+   Stage-1 fold pins, and one real loss, a coaxial tube with a 1e-5 wall
+   that the rim boost carried and the §4.5.2 loop cannot clear at its
+   ceiling (now a loud stop, customer of F3's Case-IV rule-out). The corpus
+   is held throughout; where outputs change, the gate is the oracle verdict,
+   since the hash cannot be.
 2. Rim-junction insertion, the P3a mints and the Stage-4/5 repairs, at a
    named dip of at most seven corpus cases, which become customers of F2
    (§4.4.1) and F3 (§4.5). The same two checks come first, and a seed case

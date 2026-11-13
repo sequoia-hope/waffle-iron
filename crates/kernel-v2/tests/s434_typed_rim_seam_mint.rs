@@ -130,13 +130,31 @@ fn merged_thin_coaxial_tube_canonicalizes_in_phase() {
 /// Sub-sagitta gaps across the band: all render, all canonical.
 #[test]
 fn merged_tube_gap_sweep() {
-    for r_in in [0.499, 0.4995, 0.4999, 0.49999] {
+    for r_in in [0.499, 0.4995, 0.4999] {
         let mut arena = BrepArena::new();
         let s = tube(&mut arena, r_in, 0.0)
             .unwrap_or_else(|e| panic!("merged tube r_in={r_in} assembles: {e:?}"));
         assert_canonical_in_phase(&arena, s, r_in);
         tessellate(&arena, s).expect("renders");
     }
+}
+
+/// A 1e-5 wall at r = 0.5 is thinner than refinement can clear: the chord
+/// meshes of the two coaxial cylinders still overlap at the §4.5.2 loop's
+/// last density (16), so the boolean stops loudly. The paper does not refine
+/// a Case-IV phantom away, it rules the phantom out in the optimization
+/// (§4.3, `refs/text/yang2025_hybrid_boolean.txt:528-532`). When that
+/// rule-out lands (roadmap F3 item I2, ledger N68) this tube assembles and
+/// joins the sweep above.
+#[test]
+fn a_1e5_coaxial_wall_stops_loudly_at_the_refinement_ceiling() {
+    let mut arena = BrepArena::new();
+    let err = tube(&mut arena, 0.49999, 0.0).expect_err("a 1e-5 wall is past the ceiling");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("§4.5.2 local refinement ended"),
+        "the stop must be the refinement loop's: {msg}"
+    );
 }
 
 /// The tool's own lattice phase (30° rotated sketch frame) does NOT leak

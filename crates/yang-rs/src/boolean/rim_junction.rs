@@ -1,5 +1,5 @@
 //! Rim-junction override machinery for the `boolean()` driver: the Case-IV
-//! phantom rim-segment guard (`cyl_pair_phantom_n`, `phantom_min_rim_segments`),
+//! phantom rim-segment demand (`cyl_pair_phantom_n`, read by Stage 1),
 //! the exact cross-solid rim-junction insertion scan (`rim_junctions_against`),
 //! and the rim/planar-face containment predicates it consults (`RimDesc`,
 //! `point_in_rim_sweep`, `planar_face_segments`, `point_in_planar_face`,
@@ -9,31 +9,16 @@
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
-/// Case-IV phantom guard analysis (spec `yang_case_iv_phantom_guard`,
-/// M8 increment 15): the forced minimum rim segment count over all
-/// ANALYTICALLY DISJOINT cylinder-face pairs (A×B) whose Stage-1 chord
-/// bands could otherwise overlap the gap between the surfaces (Yang Fig. 8
-/// Case IV — the meshes would intersect where the surfaces do not,
-/// manufacturing a phantom intersection curve; measured F0088 op 4).
-///
-/// For each pair: the axis-line distance gives the analytic gap (external
-/// `d − r_a − r_b` for any axis pose; nested `r_large − d − r_small` for
-/// parallel axes). A positive gap demands the smallest `N` with
-/// `sag(r_a, N) + sag(r_b, N) ≤ gap/2` (`sag(r, N) = r(1 − cos(π/N))` —
-/// the Stage-1 sagitta, A14.3 single source; the factor-2 margin keeps the
-/// combined band strictly clear, and a finer N is always chord-valid). Far
-/// pairs derive a tiny N that the natural Stage-1 `max()` absorbs — the
-/// guard is self-limiting, no mode branch. True near-tangency (N would
-/// exceed 4096) yields no requirement: the loud Stage-3 `AmbiguousCurve`
-/// remains the tripwire (P9 — never silently proceed with phantom
-/// topology).
 /// The Case-IV pairwise requirement of two cylinder surfaces (spec
 /// `yang_case_iv_phantom_guard`): `None` unless the pair is analytically
 /// disjoint with a practical derived N — the smallest `N` with
 /// `sag(r_a, N) + sag(r_b, N) ≤ gap/2` (`sag(r, N) = r(1 − cos(π/N))`, the
 /// Stage-1 sagitta; the factor-2 margin keeps the combined chord band
-/// strictly clear of the gap, and a finer N is always chord-valid). Shared
-/// by the `boolean()` cross-pair guard AND Stage 1's intra-solid fold.
+/// strictly clear of the gap, and a finer N is always chord-valid). The
+/// axis-line distance gives the gap (external `d − r_a − r_b` for any axis
+/// pose; nested `r_large − d − r_small` for parallel axes). A true
+/// near-tangency (N would exceed 4096) yields no requirement. Read by
+/// Stage 1's intra-solid fold (N88).
 pub(crate) fn cyl_pair_phantom_n(
     (pa, da, ra): (Point3, Vector3, f64),
     (pb, db, rb): (Point3, Vector3, f64),
@@ -169,88 +154,6 @@ pub(crate) fn face_rim_pair_phantom_n(
         }
     }
     Some(n)
-}
-
-pub(crate) fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
-    let cyls = |brep: &BRep| -> Vec<(Point3, Vector3, f64)> {
-        brep.faces()
-            .iter()
-            .filter_map(|f| match f.surface {
-                Surface::Cylinder {
-                    axis_point,
-                    axis_dir,
-                    radius,
-                } => Some((axis_point, axis_dir, radius)),
-                _ => None,
-            })
-            .collect()
-    };
-    let (ca, cb) = (cyls(a), cyls(b));
-    let mut req: Option<usize> = None;
-    // CROSS pairs only (A×B): the two operands' meshes must not intersect
-    // where their surfaces do not (the measured F0088 cut-4 class).
-    // INTRA-solid pairs are folded into Stage 1's own N selection
-    // (`stage1_tessellate_inner` — M8 increment 16), where EVERY
-    // tessellation of the solid picks them up (conversion, Stage-0 rebuilds,
-    // this guard's rebuilds), so they need no handling here.
-    for &sa in &ca {
-        for &sb in &cb {
-            if let Some(n) = cyl_pair_phantom_n(sa, sb) {
-                req = Some(req.map_or(n, |r: usize| r.max(n)));
-            }
-        }
-    }
-    // Self-limiting gate: a requirement BOTH solids' natural Stage-1 N
-    // already satisfies is dropped, keeping the common path byte-identical
-    // (and rebuild-free). `natural_rim_n` mirrors the Stage-1 N derivation
-    // (chord bound over all rim circles, N from the max radius).
-    let gated = match req {
-        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
-        _ => None,
-    };
-    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-        eprintln!(
-            "[phantom-guard] req={req:?} natural=({},{}) gated={gated:?} \
-             cyl_faces=({},{})",
-            natural_rim_n(a),
-            natural_rim_n(b),
-            a.faces()
-                .iter()
-                .filter(|f| matches!(f.surface, Surface::Cylinder { .. }))
-                .count(),
-            b.faces()
-                .iter()
-                .filter(|f| matches!(f.surface, Surface::Cylinder { .. }))
-                .count(),
-        );
-    }
-    gated
-}
-
-/// The solid's natural Stage-1 rim segment count: mirrors the Stage-1 N
-/// derivation exactly (chord bound over all rim circles, N from the max
-/// radius). `usize::MAX` for a solid with no circles (nothing to boost).
-/// Shared by the Case-IV phantom and Case-III graze guards' self-limiting
-/// gates.
-fn natural_rim_n(brep: &BRep) -> usize {
-    let Some(d_eps) = curved_chord_bound(brep.edges()) else {
-        return usize::MAX; // no circles: nothing to boost
-    };
-    let max_r = brep
-        .edges()
-        .iter()
-        .filter_map(|e| match e.curve {
-            Curve::Circle { radius, .. } => Some(radius),
-            _ => None,
-        })
-        .fold(0.0f64, f64::max);
-    let mut n = 3usize;
-    if d_eps > 0.0 {
-        while max_r * (1.0 - (std::f64::consts::PI / n as f64).cos()) > d_eps {
-            n += 1;
-        }
-    }
-    n
 }
 
 /// SIGNED perpendicular distance from a point to the guard's curved target

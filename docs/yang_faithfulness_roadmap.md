@@ -277,7 +277,8 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
       splice the curve between p_f and p_b (`:659-671`; N62 locality).
 - [ ] **I2:** Case-IV rule-out on the full arrangement: merge across the
       phantom, relabel by one new ray, re-keep, with the sag re-meshed by
-      L3. Retires `phantom_min_rim_segments`. Customers: C0117, N68.
+      L3. Customers: N68, and C0117, which today adopts only at the
+      loop's ceiling (the Stage-1 rim boost that pre-empted it is deleted).
 - [ ] Retire the crease and corner transits into the loop (N87): the paper
       sends boundary and corner points to §4.5.2 (`:635-657`, Fig. 13).
 - [ ] Finish §4.5.1 for interior points (N90): truncation at C_b,
@@ -423,3 +424,4 @@ the first known item.
 | 2026-10-31 | F2 Step 2 (Antigravity; reworked after independent review): Fig. 11(a) split inside `update_patches_ex` by patch CDT; the `(3d)` unzip deleted and its local arms (first moved into the update for every refusal) narrowed to the N106 d(T)-budget refusal — any other declined component STOPs loudly into §4.5.2; hole-first patch chart fixed; `4.4-12` DEVIATES → PARTIAL (first committed as FAITHFUL; trigger still a collapsed triangle); N106 ledgered (the d(T) refusal is not the paper's) | 65 | 133 | 360C / 0W / 9E / 5EE / 0T (O1+O3 in force, no case moved — see commit) | (this commit) |
 | 2026-11-12 | Plan revised after review (user: *"update the 1.0 plan and roadmap with those recommendations"*): F5 split into F5a (parameter-domain substrate: surface interface with the Theorem-A and Theorem-4.1 bounds, parameter coordinates carried, result-neutral) and F5b; order now F5a → F2 → I3b → F3 → F4 → F5b → F6 → F7; the N106 d(T) retirement moved from F2 to F5b; the conversion method (in place or a second path) is F5a's first item; class sign-offs in F7. No geometry changed | 64 | 132 | not re-run (no kernel change) | (this commit) |
 | 2026-11-12 | Ablation experiment for the F5a design session (`specs/yang_paper_path.md`, branch `exp/paper-skeleton`): outer substitutes off → 354C / 0W, losses additive but for P0020; transits (N87), rim boost, cross-patch folds (N88) and edge-in-plane arm 2 (N64) have no corpus customer. No kernel change on main; the in-place / second-path choice stays open for the core | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-13 | Outer-layer retirement 1 (`specs/yang_paper_path.md` §6, owner ruling on named dips): the cross-operand rim boost `phantom_min_rim_segments` deleted. The §4.5.2 loop answers its cases (F0088 at density 2, C0117 at 16). Named dip: none in the corpus; one kernel pin, a coaxial tube with a 1e-5 wall, now stops loudly (customer of F3 item I2). Seed 6 verdict-identical, 188C / 0W / 10E / 2T | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

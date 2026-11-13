@@ -1033,34 +1033,10 @@ fn boolean_once_timed(
         return concat_breps(a, b);
     }
 
-    // Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
-    // both operands at the pair-derived rim density BEFORE any Stage-0/1
-    // machinery samples their meshes, so analytically-disjoint cylinder
-    // pairs cannot mesh-intersect. `None` (no cylinder faces, e.g. the
-    // `from_mesh` chained-output operand, or no disjoint pair demanding
-    // more than each solid's own N) leaves both operands byte-identical.
-    // (The Case-III graze / pinch guard that boosted here — spec
-    // `yang_172_case_iii_graze_guard` — was RETIRED 2026-10-15, cleanup
-    // step 2: the meshes that miss or mis-join a shallow cylinder × cylinder
-    // intersection are detected after the arrangement by T6 / T3c and
-    // refined by the §4.5.2 loop.)
-    // (So was the rim × plane graze arm — spec
-    // `yang_195_seal_neighborhood_self_overlap` §5 — and its detect-then-
-    // refine retry, 2026-10-15: a grazed rim's doubled chord is a T4 Euler
-    // site, its Stage-6 walk STOP a T5 site naming its face, and the loop
-    // refines both.)
-    let req = phantom_min_rim_segments(a, b);
-    let boosted: Option<(BRep, BRep)> = match req {
-        Some(n) => Some((
-            a.rebuilt_with_min_rim_segments(n)?,
-            b.rebuilt_with_min_rim_segments(n)?,
-        )),
-        None => None,
-    };
-    let (a, b): (&BRep, &BRep) = match &boosted {
-        Some((ba, bb)) => (ba, bb),
-        None => (a, b),
-    };
+    // A shallow or phantom cylinder × cylinder contact is not pre-empted
+    // here: the meshes that miss, mis-join or invent an intersection are
+    // detected after the arrangement (T3c, T4, T5, T6) and the §4.5.2 loop
+    // refines the faces they name.
 
     // Backtrack-spike normalization (task #146): a chained-boolean-drift operand
     // can carry an invalid, self-overlapping boundary loop — a straight edge

@@ -361,7 +361,7 @@ pub(crate) fn pair_newton_converges_at_large_coordinate_magnitude() {
     assert!(signed_distance_to_surface(unit_plane, q).unwrap().abs() <= 1e-13);
 }
 
-// ── Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) ────────
+// ── Cylinder fixtures ────────────────────────────────────────────────
 
 /// Minimal solid cylinder B-Rep (two rims + seam) for the guard tests.
 pub(crate) fn guard_cyl(cx: f64, cy: f64, r: f64, h: f64) -> BRep {
@@ -429,45 +429,6 @@ pub(crate) fn guard_cyl(cx: f64, cy: f64, r: f64, h: f64) -> BRep {
         },
     ];
     BRep::new(verts, edges, faces).expect("guard cylinder")
-}
-
-/// The measured F0088 pair: a nested-disjoint tool inside the plate
-/// cylinder with gap 0.0115 < the natural N=14 sagitta — the guard must
-/// demand a finer N (34 at these radii: the smallest N with
-/// sag(R,N)+sag(r,N) ≤ gap/2).
-#[test]
-pub(crate) fn phantom_guard_nested_disjoint_demands_finer_n() {
-    let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
-    let tool = guard_cyl(1.2243, 0.0, 0.042871795720997065, 0.23);
-    let n = phantom_min_rim_segments(&plate, &tool).expect("guard must fire");
-    let gap = 1.2787008340600021 - 1.2243 - 0.042871795720997065;
-    let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
-    assert!(
-        sag(1.2787008340600021, n) + sag(0.042871795720997065, n) <= gap / 2.0,
-        "derived N={n} must clear the analytic gap with the factor-2 margin"
-    );
-    assert!(
-        sag(1.2787008340600021, n - 1) + sag(0.042871795720997065, n - 1) > gap / 2.0,
-        "derived N={n} must be MINIMAL (no over-refinement)"
-    );
-}
-
-/// A crossing pair (the tool overlaps the plate wall) has no analytic
-/// gap — a real intersection curve exists and SSI refines it. No boost.
-#[test]
-pub(crate) fn phantom_guard_crossing_pair_is_silent() {
-    let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
-    let tool = guard_cyl(1.26, 0.0, 0.042871795720997065, 0.23);
-    assert_eq!(phantom_min_rim_segments(&plate, &tool), None);
-}
-
-/// A far-disjoint pair derives a tiny N that both solids' natural
-/// Stage-1 N already satisfies — the self-limiting gate drops it.
-#[test]
-pub(crate) fn phantom_guard_far_pair_is_silent() {
-    let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
-    let tool = guard_cyl(0.3, 0.1, 0.042871795720997065, 0.23);
-    assert_eq!(phantom_min_rim_segments(&plate, &tool), None);
 }
 
 /// Build one VALID B-Rep carrying TWO cylinders: a plate wall (radius
@@ -586,14 +547,8 @@ pub(crate) fn stage1_intra_solid_phantom_fold_densifies_rims() {
         near.as_mesh().num_verts(),
         far.as_mesh().num_verts()
     );
-    // And the cross-pair guard is silent for it — the intra fold lives
-    // in Stage 1, not in the pair analysis.
-    let partner = guard_cyl(10.0, 10.0, 0.1, 0.23);
-    assert_eq!(phantom_min_rim_segments(&near, &partner), None);
 }
 
-/// An operand without B-Rep faces (the `from_mesh` chained-output
-/// degenerate) has no cylinder faces to scan — byte-identical path.
 /// Thin-band chart guard (R0044 face 166): two rim circles of ONE cone face
 /// 1.07 apart along the axis at α = 1.011 rad (r ≈ 3682) — the measured
 /// R0044 numbers — demand the N that keeps both rims' chords inside their
@@ -673,14 +628,6 @@ pub(crate) fn thin_band_guard_derives_r0044_rim_density() {
         ),
         None
     );
-}
-
-#[test]
-pub(crate) fn phantom_guard_faceless_operand_is_silent() {
-    let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
-    let raw = BRep::from_mesh(plate.as_mesh().clone());
-    assert_eq!(phantom_min_rim_segments(&plate, &raw), None);
-    assert_eq!(phantom_min_rim_segments(&raw, &plate), None);
 }
 
 // R0072: position tie-break for near-coincident PARALLEL line candidates
