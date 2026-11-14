@@ -43,6 +43,56 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-14 (the seven quiet rotation mismatches read) — **F0076 is a WRONG: the kernel loses a crossing the surfaces have, depending on where the cylinder's mesh samples fall; the other six keep their volume and differ in how the same material is grouped**
+
+The seven builds the rotation sweep marked quiet (no error, different result;
+entry below) were read with the probes of `docs/TESTING.md` §"Running the
+rigid-motion sweep". Only F0076's volume changes.
+
+**F0076 (a silent wrong model, 6e-6 of the volume).** The difference starts at
+operation 3, a cylinder extruded from the top of a box and merged with it. The
+cylinder's radius (0.11529) exceeds the box's half-width (0.11463) by 0.66 mm, so
+a 1.06e-5 sliver of the cylinder's base disc overhangs the box's side wall.
+- The independent volume of the first three operations (inclusion–exclusion
+  of the convex pieces, the cylinder–box intersection extrapolated over the
+  polygon's side count; scipy) is 0.029374896126, which equals the unmoved
+  build (0.02937489612616, 16 faces) to twelve digits.
+- Under motion 2 the kernel returns 0.02937507081560 with 15 faces: the
+  overhang's base face is absent, and no error or warning says so.
+- Spinning ONLY the cylinder's sketch about its own axis (same geometry,
+  `plane_x_axis` rotated in 5° steps) flips the result between the two with a
+  period of 30° — the phase of the cylinder's mesh samples against the wall.
+  Wrong at 10°–20° (mod 30°), right at 25°–35° (mod 30°): half the phases.
+- The paper's §4.2.1 names this case: "Case III the meshes miss intersections",
+  filtered by the distance threshold d_ε through the 2d_ε octree
+  (`refs/text/yang2025_hybrid_boolean.txt:432-447`). The kernel has that
+  detection (`shell_contact.rs:295`, audit row 4.1-27), so the crossing is lost
+  somewhere between the detection and the output. WHERE is not yet found.
+  Next step: the census of that pair (cylinder triangles near the wall)
+  at the wrong phase against the right one, before any change.
+
+**The other six (volume equal; no wrong material).**
+- F0055 (k=0, 1): the same surfaces are partitioned into more faces (one face
+  of 1.93e6 is four of 4.83e5; one of 1.06e7 is three pieces).
+- F0060 (k=2): four separate wedge bodies unmoved; two of them are one body
+  moved (their coplanar faces merge, 0.1414 + 0.1414 → 0.2827).
+- F0094 (k=0, 3): two cylinders whose end discs touch over a lens of 0.1518
+  are one body unmoved and two bodies moved (`Add: target body(ies) remain
+  disjoint from the tool; kept as separate bodies`). A rotated plane cannot
+  hold the contact exactly, so face contact reads as a gap.
+- R0057 (k=0): two more vertices and edges, one face area 4e-5 off; the
+  mesh volume agrees to 4e-6. Not read further.
+- These are grouping differences, not wrong material, and the sweep's
+  verdict compares bodies and χ, which is why they print `DIFF`. They are not
+  customers of any milestone yet; what the paper wants for a face-touching
+  union is not read.
+
+The probe's blind spot, found here: F0076's χ is 6 in both builds (16 faces
+against 15), so only its volume gave it away, and the missing face was a
+sliver. A sliver on a larger part would pass the 1e-9 volume check
+too only if it carried no volume; a comparison of the sorted face areas would
+catch it, and the probe does not make one yet.
+
 ## 2026-11-13 (rotation sweep at main's tip; the rim boost's cost under rotation NAMED) — **C0117 passes only in the orientation it was authored in: a named dip of the rim boost removal (`d4c658b4`), customer of F3 item I2**
 
 `crates/test-harness/tests/rigid_motion_sweep.rs` (recipe: `docs/TESTING.md`
