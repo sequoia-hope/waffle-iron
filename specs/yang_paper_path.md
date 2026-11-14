@@ -140,7 +140,8 @@ is where the paper sends boundary and corner points (N87).
 3. **Four switches have no corpus customer.** The transits and edge-in-plane
    arm 2 change no output at all; the ten cases where a transit acts are
    answered by the §4.5.2 loop either way. The rim boost and the cross-patch
-   folds change 8 and 13 outputs and every one stays CORRECT.
+   folds change 8 and 13 outputs and every one stays CORRECT. No corpus
+   customer is not no customer: arm 2 has one the corpus does not hold (§5).
 4. **Seven cases are the customers of the rest**: F0059 of rim-junction
    insertion; C0058 and P0029 of the P3a mints; F0058, F0060, P0020 and P0057
    of the Stage-4/5 repairs. Every other corpus case passes without them.
@@ -155,6 +156,15 @@ is where the paper sends boundary and corner points (N87).
 - **The corpus is a sample.** For the four customer-less switches a
   prospector seed and the fast tier were run afterwards (§6 item 1). For
   the other three groups (`s1.junction`, `s1.p3a`, `s4`) neither has been.
+- **All three checks hold each case in one orientation, and that hid arm 2's
+  customer.** The corpus, the seed and the fast tier agreed that edge-in-plane
+  arm 2 does nothing. Its anchoring pair (P0001's octagon and star) moved
+  rigidly says otherwise: with arm 2 off, 68 of 640 motions stop with
+  `NonManifoldOutput`; with it on, none (ledger N64, pin
+  `s455_rigid_motions_all_union_at_the_control_volume`). P0001 is
+  axis-aligned, where a float holds the identified edge exactly; arm 2 is for
+  the planes where it cannot. A mechanism built against rounding is tested by
+  moving its anchoring case, and that check precedes a removal (§6).
 - **A changed output that stays CORRECT has passed the oracles, no more.**
   The 153 changed cases were not compared for quality.
 - **`s4` was not split.** Which of its four passes owns each of its four
@@ -173,11 +183,13 @@ the dip was the one thing §3's data left for the owner to decide there.
 **The outer layer does not need a second path.** It is retired in place,
 in the order §3 gives:
 
-1. The four switches with no corpus customer, one per commit: the rim boost
-   and the two cross-patch folds (N88) (**both deleted 2026-11-13**), the
-   transits (N87),
-   and edge-in-plane arm 2 (N64, whose paper status is an F7 adjudication,
-   so "retire" there means "ask"). The two checks §5 listed as missing were
+1. The switches with no corpus customer, one per commit: the rim boost
+   and the two cross-patch folds (N88) (**both deleted 2026-11-13**) and the
+   transits (N87). Edge-in-plane arm 2 (N64) is off this list: it has a
+   customer outside the corpus (§5) and stays, with its paper status an F7
+   adjudication. Each removal is preceded by a rigid-motion sweep of the
+   cases its mechanism acts on, switch on against switch off; a loss there
+   is a named dip like any other. The two checks §5 listed as missing were
    run on 2026-11-13 with all four off together. Prospector seed 6: 188C /
    0W / 10E / 2T, the same verdict as the control on each of 200 candidates.
    Fast tier: three failures, all pins of the removed mechanisms — two

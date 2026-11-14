@@ -97,7 +97,6 @@ loop edge, curved-bounded F, non-planar F.
 planes), every contact (crossings, sub-segments) and the census of gaps in the
 STOP window `(band/100, band]` — the population a #178-style loud STOP would
 need before it is added (none added here: unmeasured).
-`YANG_EDGE_IN_PLANE=off|0` disables both arms (dev A/B).
 
 ## 4. Invariants
 
@@ -122,3 +121,8 @@ need before it is added (none added here: unmeasured).
    moved.
 3. Full categorized release assay (8 jobs, ≥900 s): EXACTLY {P0001}
    ERROR→CORRECT; every other case category- and detail-identical.
+4. Rigid motions (`s455_rigid_motions_all_union_at_the_control_volume`):
+   the P0001 pair under 160 rigid motions, tip femto-off and tip exact, 320
+   unions, all at the control volume. This is the gate for arm 2. With arm 2
+   off, 43 of the 320 stop with `NonManifoldOutput`; gates 1–3 pass either
+   way, because P0001 itself is axis-aligned and arm 1 alone converts it.

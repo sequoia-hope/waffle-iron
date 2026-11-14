@@ -296,15 +296,12 @@ pub(crate) fn s455_conformity_mints_one_crossing_and_one_constraint() {
     assert_eq!(eip.declined, 0);
 }
 
-/// Rigid motion of the femto-off pair: the cap plane is oblique, bit-exact
-/// coplanarity is unattainable, and the conformity arm still completes the
-/// union at the same volume.
-#[test]
-pub(crate) fn s455_oblique_rigid_motion_unions_at_the_same_volume() {
-    let control = exact_union_volume();
-    // Rodrigues rotation about (1, 2, 3)/‖·‖ by 0.7 rad, then a translation.
-    let k = unit([1.0, 2.0, 3.0]);
-    let (s, c) = 0.7f64.sin_cos();
+/// The P0001 pair under a rigid motion: Rodrigues rotation about `axis` by
+/// `angle`, then the translation `t`. `tip_u` / `other_u` as in
+/// [`star_prism`].
+fn moved_pair(axis: [f64; 3], angle: f64, t: [f64; 3], tip_u: f64, other_u: f64) -> (BRep, BRep) {
+    let k = unit(axis);
+    let (s, c) = angle.sin_cos();
     let rot = |v: [f64; 3]| -> [f64; 3] {
         let kv = cross(k, v);
         let kd = dot(k, v);
@@ -314,7 +311,6 @@ pub(crate) fn s455_oblique_rigid_motion_unions_at_the_same_volume() {
             v[2] * c + kv[2] * s + k[2] * kd * (1.0 - c),
         ]
     };
-    let t = [0.3, -1.1, 2.2];
     let origin = add(rot([0.0, Y0, 0.0]), t);
     let xz = [
         [-10.01142855584012, -30.39476694290923],
@@ -337,11 +333,11 @@ pub(crate) fn s455_oblique_rigid_motion_unions_at_the_same_volume() {
     let uv = [
         [22.0331315381885, 0.0],
         [1.4142135623730951, 1.414213562373095],
-        [OTHER_U, 22.0331315381885],
+        [other_u, 22.0331315381885],
         [-1.414213562373095, 1.4142135623730951],
         [-22.0331315381885, 2.6982804013435146e-15],
         [-1.4142135623730954, -1.414213562373095],
-        [TIP_U, -22.0331315381885],
+        [tip_u, -22.0331315381885],
         [1.4142135623730947, -1.4142135623730954],
     ];
     let b = prism(
@@ -351,12 +347,75 @@ pub(crate) fn s455_oblique_rigid_motion_unions_at_the_same_volume() {
         rot([0.0, 0.0, 1.0]),
         7.854423622158365,
     );
+    (a, b)
+}
+
+/// Rigid motion of the femto-off pair: the cap plane is oblique, bit-exact
+/// coplanarity is unattainable, and the conformity arm still completes the
+/// union at the same volume.
+#[test]
+pub(crate) fn s455_oblique_rigid_motion_unions_at_the_same_volume() {
+    let control = exact_union_volume();
+    let (a, b) = moved_pair([1.0, 2.0, 3.0], 0.7, [0.3, -1.1, 2.2], TIP_U, OTHER_U);
     let out = union(&a, &b).expect("the oblique femto-off pair must union");
     assert!(closed_2_manifold(&out.as_mesh().tris));
     let vol = signed_volume(out.as_mesh());
     assert!(
         ((vol - control) / control).abs() < 1e-9,
         "oblique volume {vol} vs control {control}"
+    );
+}
+
+/// The same pair under 160 rigid motions (eight axes, twenty angles), with the
+/// tip authored femto-off and authored exactly on the axis: all 320 unions
+/// land at the control volume.
+///
+/// This is arm 2's customer. An oblique plane cannot hold the tip edge
+/// exactly, so after identification the edge sits within rounding of the cap,
+/// to one side or the other. Measured 2026-11-13 with arm 2 switched off: 43
+/// of these 320 unions (19 femto-off, 24 exact) stop with `NonManifoldOutput`,
+/// and 68 of 640 at twice the angular density. With arm 2 on, none does. The
+/// axis-aligned corpus case (P0001), the prospector seeds and the rest of the
+/// suites pass with arm 2 off, so nothing else pins it.
+#[test]
+pub(crate) fn s455_rigid_motions_all_union_at_the_control_volume() {
+    let control = exact_union_volume();
+    let axes = [
+        [1.0, 2.0, 3.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+        [1.0, 1.0, 0.0],
+        [-2.0, 1.0, 0.5],
+        [0.3, -0.7, 1.9],
+        [5.0, 1.0, -1.0],
+    ];
+    let mut failed: Vec<String> = Vec::new();
+    for (tip_u, other_u, tag) in [(TIP_U, OTHER_U, "femto"), (0.0, 0.0, "exact")] {
+        for (i, axis) in axes.iter().enumerate() {
+            for j in 0..20 {
+                let angle = 0.05 + 0.314 * j as f64;
+                let t = [0.3 + i as f64, -1.1 * (2.0 * j as f64 + 1.0), 2.2];
+                let (a, b) = moved_pair(*axis, angle, t, tip_u, other_u);
+                match union(&a, &b) {
+                    Ok(out) => {
+                        let vol = signed_volume(out.as_mesh());
+                        if !closed_2_manifold(&out.as_mesh().tris)
+                            || ((vol - control) / control).abs() >= 1e-9
+                        {
+                            failed.push(format!("{tag} axis {i} angle {j}: volume {vol}"));
+                        }
+                    }
+                    Err(e) => failed.push(format!("{tag} axis {i} angle {j}: {e:?}")),
+                }
+            }
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "{} of 320 rigid motions failed:\n{}",
+        failed.len(),
+        failed.join("\n")
     );
 }
 
