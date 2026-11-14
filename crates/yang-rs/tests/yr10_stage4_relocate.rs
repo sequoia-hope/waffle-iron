@@ -227,28 +227,30 @@ fn d_eps(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: f64) -> 
 
 fn unit_cube_brep_offset_at(origin: [f64; 3]) -> BRep {
     let [x, y, z] = origin;
+    box_brep_lo_hi(origin, [x + 1.0, y + 1.0, z + 1.0])
+}
+
+/// Axis-aligned box `lo..hi`, faces in the unit cube's order (F0 bottom, F1
+/// top, F2 front, F3 right, F4 back, F5 left).
+fn box_brep_lo_hi(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+    let [x, y, z] = lo;
+    let [x1, y1, z1] = hi;
     let verts = vec![
         BRepVertex { point: p(x, y, z) },
+        BRepVertex { point: p(x1, y, z) },
         BRepVertex {
-            point: p(x + 1.0, y, z),
+            point: p(x1, y1, z),
+        },
+        BRepVertex { point: p(x, y1, z) },
+        BRepVertex { point: p(x, y, z1) },
+        BRepVertex {
+            point: p(x1, y, z1),
         },
         BRepVertex {
-            point: p(x + 1.0, y + 1.0, z),
+            point: p(x1, y1, z1),
         },
         BRepVertex {
-            point: p(x, y + 1.0, z),
-        },
-        BRepVertex {
-            point: p(x, y, z + 1.0),
-        },
-        BRepVertex {
-            point: p(x + 1.0, y, z + 1.0),
-        },
-        BRepVertex {
-            point: p(x + 1.0, y + 1.0, z + 1.0),
-        },
-        BRepVertex {
-            point: p(x, y + 1.0, z + 1.0),
+            point: p(x, y1, z1),
         },
     ];
     let face_verts: [[u32; 4]; 6] = [
@@ -280,7 +282,7 @@ fn unit_cube_brep_offset_at(origin: [f64; 3]) -> BRep {
         Vector3::new(0.0, 1.0, 0.0),
         Vector3::new(-1.0, 0.0, 0.0),
     ];
-    let offs = [z, -(z + 1.0), y, -(x + 1.0), -(y + 1.0), x];
+    let offs = [z, -z1, y, -x1, -y1, x];
     let faces: Vec<BRepFace> = (0..6)
         .map(|i| BRepFace {
             surface: Surface::Plane {
@@ -1191,7 +1193,13 @@ fn t4_ellipse_edge_relocates() {
     );
 
     let a = oblique_cylinder();
-    let b = canonical_box();
+    // The tube's caps are the z = 0 and z = 1 sections of the oblique
+    // cylinder; the z = 1 ellipse reaches x = 1.31, past the unit cube's top
+    // face. The box is a slab wide enough to hold both caps on its z-faces,
+    // so the hand-built arrangement is one a real backend could return (the
+    // curve-domain certificate, ledger N107, holds an intersection curve to
+    // the faces it lies on).
+    let b = box_brep_lo_hi([-1.0, -1.0, 0.0], [2.0, 2.0, 1.0]);
     let mock = LabelMock {
         arrangement: hand_built_oblique_ellipse_arrangement(),
     };

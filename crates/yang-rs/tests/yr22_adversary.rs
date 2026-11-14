@@ -1048,30 +1048,38 @@ fn cyl_brep() -> BRep {
     BRep::new(verts, edges, faces).expect("cyl_brep: BRep::new failed")
 }
 
+/// The slab `z ∈ [0, 1.5]`, wide enough in x and y (`−1.5..3`) to hold both
+/// cap ellipses of the oblique cylinder on its z-faces: the z = 1.5 section
+/// reaches y = 1.57, so a 1.5 cube's top face would not contain the cap the
+/// hand-built arrangement attributes to it (the curve-domain certificate,
+/// ledger N107, holds an intersection curve to the faces it lies on).
 fn box_15_brep() -> BRep {
     let s = 1.5;
+    let (lo, hi) = (-1.5, 3.0);
     let verts = vec![
         BRepVertex {
-            point: p(0.0, 0.0, 0.0),
+            point: p(lo, lo, 0.0),
         },
         BRepVertex {
-            point: p(s, 0.0, 0.0),
+            point: p(hi, lo, 0.0),
         },
         BRepVertex {
-            point: p(s, s, 0.0),
+            point: p(hi, hi, 0.0),
         },
         BRepVertex {
-            point: p(0.0, s, 0.0),
+            point: p(lo, hi, 0.0),
         },
         BRepVertex {
-            point: p(0.0, 0.0, s),
+            point: p(lo, lo, s),
         },
         BRepVertex {
-            point: p(s, 0.0, s),
+            point: p(hi, lo, s),
         },
-        BRepVertex { point: p(s, s, s) },
         BRepVertex {
-            point: p(0.0, s, s),
+            point: p(hi, hi, s),
+        },
+        BRepVertex {
+            point: p(lo, hi, s),
         },
     ];
     let face_verts: [[u32; 4]; 6] = [
@@ -1103,7 +1111,7 @@ fn box_15_brep() -> BRep {
         Vector3::new(0.0, 1.0, 0.0),
         Vector3::new(-1.0, 0.0, 0.0),
     ];
-    let offs = [0.0, -s, 0.0, -s, -s, 0.0];
+    let offs = [0.0, -s, lo, -hi, -hi, lo];
     let faces: Vec<BRepFace> = (0..6)
         .map(|i| BRepFace {
             surface: Surface::Plane {

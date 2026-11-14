@@ -5491,8 +5491,10 @@ fn stage4_relocate_and_correct_inner(
     //
     // Phase A is recomputed here rather than reusing `inc0`/`curves0`: the mesh
     // has been relocated and possibly collapsed since, so the earlier maps can
-    // reference stale vertices.
-    {
+    // reference stale vertices. The curve map outlives the block: the
+    // curve-domain postcondition below reads it (the relocations here move
+    // rim vertices only, never an endpoint of a cross-input curve).
+    let curves_final = {
         let (_infos_bc, inc_bc, curves_bc) = compute_phase_a_with_side_labels(
             mesh,
             attribution,
@@ -5724,7 +5726,8 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
         }
-    }
+        curves_bc
+    };
 
     // After a collapse the vertex set may have lost some relocated verts; keep
     // only relocations whose vertex still carries a conic output edge. The
@@ -5739,6 +5742,10 @@ fn stage4_relocate_and_correct_inner(
     // stray output edge the render tessellator declines (P0003).
     boundary_domain_postcondition(mesh, attribution, brep_a, brep_b, &s4_entry_pos)?;
     s4_lap("boundary-domain", mesh);
+    // Yang §4.3 curve-interior domain certificate: the arc each typed
+    // intersection edge will carry, read against its faces' creases.
+    curve_domain_postcondition(mesh, attribution, &curves_final, brep_a, brep_b);
+    s4_lap("curve-domain", mesh);
 
     Ok((relocations, collapsed_any))
 }

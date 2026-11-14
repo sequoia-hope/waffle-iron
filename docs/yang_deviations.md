@@ -206,10 +206,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N104 | OPEN (2026-10-30; output typed at emission by the N60 amendment, Stage-3 type still missing) | Stage 3 leaves two A×B edge families untyped — the perpendicular torus × plane section (`torus_plane_is_perpendicular_section`) and an A×B curve on a Stage-0 overlay face attributed to one input; Stage 5 types them from the owner surfaces (R0015, R0026, R0050) |
 | N105 | OPEN (2026-10-30; tracked under N80/N81 rule-out cleanup) | Class-(b) straight operand-edge subdivision vertex elision in `stage4_chain_decimate::decimate_patch_chains_441` (`TAU_WORK·(1+scale)` collinearity within `l < d_p·10³`) — elides non-intersection valence-2 split vertices left on straight operand edges after ruled-out crossings (R0085); no paper §4.3.4/§4.4.1 counterpart |
 | N106 | OPEN (2026-10-31; F2) | The §4.4.1 update REFUSES a curved patch CDT whose certified max d(T) exceeds min(old max, d_ε) (I2d `ChordDegradation`, with an I2e seed-grid retry); the paper refuses nothing — a boundary triangle's d(T) IS its error bound d_ε(T) (§4.1.2 `:357-378`), "recalculated" after the trim (`:566-571`) |
+| N107 | OPEN (2026-11-14; F5a) | The §4.3 domain test on an intersection curve's interior (trigger T9, `stage4_correct::curve_domain_postcondition`) is a one-sided certificate read from each face's Stage-1 mesh and creases, not membership in the face's trimmed parameter domain (§4.3.3 `:528-532`, §4.3.4 `:579-583`); it answers with §4.5.2 only, never §4.5.1's continuation across the boundary (Fig. 12, `:626-637`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-11-13 — N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-11-14 — N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -6832,6 +6833,22 @@ canonical-tube ruling carrier (`tangent_point_face_overrides` + 1D parallel
 `mint_generator` / `mint_crossing_rulings`) remains under F2 until §4.4.1
 post-optimization mesh updating owns it. **State: OPEN** (found 2026-10-16).
 
+*2026-11-14 — a measured cost of the mints (F0076 moved rigidly,
+`docs/yang_tail_triage.md`).* The P3a conformal sampling inserts a cylinder's
+base rim ∩ wall-plane points as rim samples, and the crease ∩ cylinder points
+into the lateral face. When no regular rim sample falls between the two rim
+mints (a 12° window against 30° chords: half of all rim phases), the chord
+joining them lies IN the wall plane and both operands' meshes carry it. The
+meshes then touch along that chord and never cross: the part of the cylinder
+outside the wall (a sliver of the base disc and a strip of the lateral) has
+no triangle on the outer side of the wall, the arrangement reports a touch,
+and T6 has nothing to find — every touching pair's exact pieces lie on one
+side of the other's face, because the mints put mesh edges along the crossing
+curve itself. Stage 3 then types the chord as wall ∩ cylinder. The paper's
+mesh has no such vertex: its Case III is two meshes within d_ε that do not
+meet (`:438-448`), which T6 does see. The silent body this produced is now a
+§4.5 site (T9, N107); the mints themselves are unchanged and stay under F2.
+
 ### N83 — §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh, and skips cone, sphere and torus charts (matrix O-4)
 
 **Paper.** §4.5.4 (`:752-758`): detect "new intersections that may arise
@@ -8007,7 +8024,12 @@ kernel-v2 suites; print-only — corpus byte-identical, 360C / 0W / 9E / 5EE /
   test) — i.e. the contacts T6 would have flagged had the shortcut not
   returned. Full corpus + yang-rs suite: **zero** (corpus byte-identical).
   No missed contact measured; open only in the sense that a corpus is a
-  sample — the probe stays for prospector seeds.
+  sample — the probe stays for prospector seeds. *2026-11-14:* F0076 moved
+  rigidly is a touch-only contact whose surfaces cross, and it is NOT this
+  path: with the shortcut bypassed, every one of its zero-distance wall ×
+  cylinder pairs reads `pieces_cross_point = None` (the exact pieces do not
+  straddle each other; N82 amendment of the same date). It is caught one
+  stage later, by T9 (N107).
 - Item 2: 140 firings in 5 cases (P0049 82, R0074 48, P0005 4, R0077 4,
   P0045 2), all CORRECT; 2 in the suites. The producer-vouched single
   candidate's endpoints are relocation obligations, and T8 (item 9) now
@@ -8644,3 +8666,77 @@ samples, and lands only with the three pins above green, not re-pinned.
 refusal is now an item of roadmap **F5b**, next to the one CDT per face with
 interior sampling it waits on (owner ruling 2026-11-06), so F2 closes without
 it. The increments already landed here are unchanged.
+
+### N107 — the §4.3 domain test on a curve's interior is a one-sided certificate, answered by §4.5.2 only
+
+**Paper.** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:528-532`): "if
+there is no solution in one of the two parametric domains, we regard it as a
+solving failure". §4.3.4 (`:579-583`) inserts, between two consecutive
+optimized points p and q, the point m that "the midpoints of their parameter
+domains" optimize to — "an intersection m between p and q", an intersection
+point like any other and so held to the same two domains. §4.5 (`:656-659`)
+collects "the point pairs that cannot converge to a distance of 0 within
+their domains"; for a region bounded by two successfully optimized points it
+first re-optimizes "by allowing the points across the boundaries" (§4.5.1,
+Fig. 12 `:626-637`: "the intersection of the meshes is shifted onto S2,
+completely bypassing S1"), and refines locally when that fails (§4.5.2).
+
+**What the code did.** Stage 3 types a mesh intersection edge with the SSI
+curve through its two endpoints (`stage3_ssi::build_intersection_curves`) and
+§4.3.4's inserts are closed-form evaluations of that curve
+(`stage4_construct::collect_inserts_rec`, matrix 4.3-22). Nothing asked where
+the curve runs between the endpoints. Measured on F0076 moved rigidly
+(2026-11-14, `docs/yang_tail_triage.md`; N82 amendment): a 24.4 mm mesh chord
+between two exact points of wall ∩ cylinder, both on the cylinder's base rim,
+was emitted as the arc of that ellipse between them, which runs 41 mm below
+the rim where the cylinder face does not exist. The body was closed, every
+vertex on its surfaces, 1.7469e-7 m³ too large, the failure set empty.
+
+**What the code does now.** `stage4_correct::curve_domain_postcondition`
+(end of Stage 4, beside the T2 boundary-point certificate) samples the arc
+each typed intersection edge will carry (`boolean::failures::sample_output_edge`,
+the arc as kernel-v2 reads it) and reads every interior sample against the
+creases (`stage4_boundary_curve::CreaseIndex`) of each input face the edge's
+triangles are attributed to. `face_sides` gives each crease's divider the
+side its face occupies — the one side on which every Stage-1 mesh vertex of
+that face lies — and a margin: the face's largest triangle deviation from
+its surface, or the operand's rim chord bound for a face with a curved
+boundary (§4.2.1, `:449-450`: the surface is within d_ε of its mesh). A
+sample beyond a divider on the other side by more than the divider's
+evaluation band plus that margin is a `CurveLeftDomain` site (T9) naming the
+faces on the edge; `boolean::refine_loop` refines them. F0076's site clears
+at the first rung (×2 puts a rim sample in the window), all 72 rim phases
+build the document's exact volume, and the corpus is unchanged
+(360C / 0W / 9E / 5EE / 0T, every result line identical but F0064's error
+text).
+
+**How it departs from the paper.**
+1. *A certificate, not membership.* The paper tests the point against the
+   surface's trimmed parameter domain. This reads a side per crease, so it
+   is silent where (a) the arc leaves its face by less than the margin — the
+   face's own d_ε; (b) the face has Stage-1 vertices on both sides of that
+   crease's divider (a face not convex toward the crease, a full cylinder's
+   seam); (c) the crease is a `SurfacePair` edge, which `CreaseIndex`
+   declines. It never fires on an in-domain point, given §4.2.1's bound.
+2. *Curved edges only.* A `LineSegment` intersection edge (plane × plane) is
+   not read; a straight chord between two points of a face leaves it only
+   where the face is not convex, which is case (b).
+3. *§4.5.2 is the only answer.* The paper's first strategy continues the
+   curve across the boundary onto the neighbouring surface (Fig. 12 c–e) —
+   on F0076 that is the base disc, whose intersection with the wall is the
+   very chord the mesh carries. The code has no such continuation for an
+   edge's interior (the vertex form is `s451_plan_repairs`, N90); it refines.
+
+**Remediation.** Roadmap F5a (the parameter-domain substrate) replaces the
+side reading by membership in the face's trimmed parameter domain, which
+removes (a)–(c) and covers straight edges; F3 (§4.5 locality and
+collection) owns the continuation of item 3. Matrix rows 4.3-14 and 4.3-22.
+Pins: `crates/yang-rs/tests/s43_curve_domain.rs` (the F0076 site at 72 rim
+phases; red with the record line removed, at phase 10°),
+`tests_unit/s43_curve_domain.rs`. Two mock-backend fixtures fed
+`boolean()` a hand-built tube whose cap ellipse ran 0.31 and 0.07 past the
+box face it was attributed to (`yr10_stage4_relocate::t4_ellipse_edge_relocates`,
+`yr22_adversary::adversary_regression_cylinder_ellipse_still_on_curve`) — an
+arrangement no backend can return, and T9 refused it; their boxes are now
+slabs that hold both caps, the assertions unchanged. **State: OPEN** (found
+2026-11-14).

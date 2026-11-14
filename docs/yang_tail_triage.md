@@ -43,6 +43,96 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-14 (F0076 moved rigidly: cause found, the silent body is now a §4.5 site) — **the Stage-1 junction mints turned a crossing into a touch, and Stage 3 typed the touching chord as an arc that leaves the cylinder face; trigger T9 holds an intersection curve's interior to its faces' domains, and the loop builds the right solid at every rim phase**
+
+Both questions of the entry below are answered. The corpus figure does not
+move (360C / 0W / 9E / 5EE / 0T; release, 900 s budget, wall 739 s run
+beside the sweep). Under the rigid-motion sweep F0076's motion 2 now
+reproduces the unmoved build, and no other verdict changes.
+
+**What the meshes hold in the wrong phase** (`YANG_S2_MESH_DUMP` on the
+first three operations with the circle's sketch spun 15° about its normal —
+the build `f0076_union_volume_is_the_same_at_every_rim_phase` makes; angles
+about the cylinder's axis, from the wall's normal).
+- The base circle is outside the wall over 173.917°…186.083° (12.17°, 0.649 mm
+  deep). The P3a conformal sampling (ledger N82) inserts those two
+  rim ∩ wall-plane points as rim samples of the cylinder and as interior
+  vertices of the wall, and the two crease ∩ cylinder points (the triple
+  points) into the lateral face and the crease.
+- The regular rim samples are every 30°. In the right phase one of them
+  (179.976°) is inside the window, and the rim polygon steps outside the
+  wall. In the wrong phase the nearest are 165.024° and 195.024°, so the
+  rim polygon's edge between the two mints is the chord IN the wall plane.
+- The meshes therefore touch along that chord and nowhere cross. The lateral
+  triangle above it leans outward (the axis is 0.902° off the wall), so the
+  mesh union keeps it whole, drops the wall above the chord and keeps the
+  wall below: topologically the right result, with the base sliver as a face
+  of zero area — the disc's mesh ends at the chord.
+
+**Question 1 — why §4.2.1 admits nothing.** Not the planar pair's 2e-7 reach
+(the candidate named below): the wall × lateral pairs are within reach, at
+distance zero. A temporary probe past T6's zero-distance shortcut read every
+one of them (wall triangles 30–37 against the lateral triangles at the site)
+as `pieces_cross_point = None`: the mints lay the cylinder's mesh edges along
+the crossing curve itself, so each exact piece lies wholly on one side of
+the wall face and none straddles it. T6's test is a crossing of two pieces;
+this contact has none to find. It is not N100 item 1's path either.
+
+**Question 2 — which stage typed the long arc.** Stage 3
+(`build_intersection_curves`): the chord between the two rim mints is a mesh
+boundary edge between a wall triangle and a lateral triangle, both its ends
+are exact points of wall ∩ cylinder, and it takes that ellipse. The two short
+edges from the triple points down to the mints take it too, and the three
+merge into the one emitted edge. Between the mints the ellipse's arc dips to
+41.26 mm below the base rim. The paper's §4.3.4 point between two optimized
+points is itself an optimized intersection, held to both parametric domains
+(§4.3.3, `refs/text/yang2025_hybrid_boolean.txt:528-532`); the code's is a
+closed-form evaluation that nothing tested. This is Fig. 12 (`:626-637`):
+the mesh intersection "shifted onto S2, completely bypassing S1".
+
+**The change (yang-rs, ledger N107, trigger T9).**
+`stage4_correct::curve_domain_postcondition` samples the arc each typed
+intersection edge will carry and reads it against the creases of the input
+faces on that edge; a sample beyond a crease, on the side its face does not
+occupy, by more than the face's own d_ε, is a `CurveLeftDomain` site for the
+§4.5.2 loop. On F0076 it names the wall and the lateral (`the curve on edge
+(36,37) leaves B:2 across edge 0 by 3.662e-2`), the loop refines ×2 — which
+puts a rim sample in the window — and adopts at the first rung with an empty
+failure set.
+
+**Measured.**
+- The spin repro: 72 of 72 phases (5° steps) build 16 faces and exact volume
+  0.02937489612616 (36 were wrong).
+- Rigid-motion sweep, whole corpus, four motions a case, against the same
+  binary with the site not recorded: one verdict of 1,496 changes — F0076
+  motion 2, `DIFF` (5.722947861629e-2) → `OK` (5.722930392685e-2). Totals
+  over all 374 cases: 1,374 `OK` / 110 `ERR` / 12 `DIFF` → 1,375 / 110 / 11;
+  over the 360 CORRECT cases: 1,371 / 62 / 7 → 1,372 / 62 / 6.
+- Corpus: every case's result line (category, exact and mesh volume,
+  on-surface maxima) is identical to main's but F0064's error text, which
+  names four more sites (it was and is the open ERROR row).
+- The certificate also fires elsewhere: in the corpus run, in some run
+  (natural or refined) of seventeen cases — F0064, F0082, P0003, P0031,
+  P0044, P0045, P0047, P0050, P0056, P0057, P0061, P0062, R0003, R0019,
+  R0025, R0070 (69 of the 129 fires), R0095. None of them changes its
+  case's result line, and none changes a sweep verdict; which of those
+  runs carried another site already was not read.
+- Pins: `crates/yang-rs/tests/s43_curve_domain.rs` (the site rebuilt at yang
+  level, 72 rim phases; red at phase 10° with the record line removed),
+  `tests_unit/s43_curve_domain.rs`, and
+  `rigid_motion_sweep::f0076_union_volume_is_the_same_at_every_rim_phase`
+  (the document's own volume, computed outside the kernel).
+
+**What this does not do.**
+- It is a certificate, not domain membership: an arc that leaves its face by
+  less than that face's chord bound, or across a crease its face is not
+  convex toward, is not seen (N107; F5a's parameter domain replaces it).
+- The mints still turn this crossing into a touch (N82, F2). The loop answers
+  by refining; the paper's first answer is to continue the curve across the
+  boundary onto the base disc (§4.5.1), which the code does not have for an
+  edge's interior.
+- R0057 and the other five quiet mismatches of the entry below are untouched.
+
 ## 2026-11-14 (the seven quiet rotation mismatches read) — **F0076 moved rigidly is a silent wrong model: it holds material that neither operand has. R0057's moved build is not shown equal. The other five keep their exact volume and differ in faces or bodies; which grouping is right is not determined**
 
 The seven builds the rotation sweep marked quiet (no error, different result;
@@ -86,23 +176,9 @@ R0057 as volume-equal.
   so the §4.5.2 loop never runs. `YANG_T6_PROBE` admits no pair, and
   `YANG_N100_CENSUS` (items 1, 2, 4, 5) prints nothing in either phase, so
   this is not N100's zero-distance skip as that census defines it.
-- **Not yet found — two questions, neither answered.**
-  1. Why §4.2.1 admits nothing. The meshes miss a crossing the surfaces have
-     (Case III, `refs/text/yang2025_hybrid_boolean.txt:438-448` left). One
-     candidate, unmeasured: the wall and the base disc are both planes, so
-     their pair's reach is the 2e-7 band (T6: `coarse d=1.2982e-3 > reach
-     2.0000e-7`), although the disc's mesh boundary is a chord polygon up to
-     3.9 mm inside its circle. The paper gives the triangles on boundary curves
-     the offset d(T) (`:435-438` right; ledger N93, audit rows 4.2-03 and
-     4.2-06).
-  2. Which stage typed that edge as the long arc, and why no check holds an
-     emitted edge inside the faces it bounds. Its endpoints are in both faces;
-     its interior leaves the cylinder's face.
-- **Next step.** The Stage-1 rim samples and the arrangement's edges at that
-  site in the wrong phase against the right one (answers the inference above
-  and question 1), then the stage that types the edge. No kernel change before
-  both are read. Repro: the `phase1` test of `~/wt/sweep-scratch/zz_scratch_review.rs.txt`
-  (`DEG=15` wrong, `DEG=0` right; first three operations only).
+- **Found.** Both open questions (why §4.2.1 admits nothing; which stage
+  typed that edge) are answered in the entry above, with the change that
+  makes the body a §4.5 site.
 
 **R0057 (motion 0) — not shown equal; unread.** The moved build has no exact
 volume (`CurvedGeometryMismatch … torus patch loop winds around the axis or the

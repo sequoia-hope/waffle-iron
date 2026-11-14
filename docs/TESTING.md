@@ -653,8 +653,14 @@ diff the verdict column. A removal of a kernel mechanism runs this first
 corpus, a prospector seed or the fast tier, and 68 of 640 rigid motions of
 its anchoring pair fail without it.
 
-Baseline, 2026-11-13: of 1,440 rotated runs of the 360 CORRECT cases, 66 do
-not reproduce the unmoved result (`docs/yang_tail_triage.md`).
+Baseline, 2026-11-14: of 1,440 rotated runs of the 360 CORRECT cases, 68 do
+not reproduce the unmoved result — 62 loud, 6 quiet
+(`docs/yang_tail_triage.md`).
+
+`f0076_union_volume_is_the_same_at_every_rim_phase`, in the same file, is a
+pin rather than a probe: it spins one sketch of F0076 about its own normal
+(same geometry, different rim samples) and holds the union to the
+document's volume.
 
 ## Running the SI5 corpus gate (exact STEP ingestion over real CAD)
 

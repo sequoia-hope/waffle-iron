@@ -607,3 +607,307 @@ pub(crate) fn relocation_domain_postcondition(
     }
     Ok(())
 }
+
+/// One curve-interior domain fire: the arc Stage 3 typed on the intersection
+/// edge `edge` passes `depth` beyond crease `crease_edge` of face
+/// `(input, face)`, on the side that face does not occupy.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CurveDomainFire {
+    pub(crate) edge: (u32, u32),
+    pub(crate) input: InputId,
+    pub(crate) face: u32,
+    pub(crate) crease_edge: u32,
+    pub(crate) depth: f64,
+    pub(crate) at: [f64; 3],
+    /// Every `(input, face)` of the live triangles on the edge.
+    pub(crate) incident: Vec<(InputId, u32)>,
+}
+
+/// The side of each crease's divider that ONE input face occupies, and the
+/// margin within which that reading holds.
+///
+/// A crease's divider (`FaceCrease::divider`) is the surface a point must not
+/// cross to leave the face through that crease. The face's Stage-1 mesh
+/// vertices are points of the face; when every one of them that is off the
+/// divider lies on ONE side, the face lies on that side, up to how far the
+/// face can be from its own mesh — the largest deviation of its triangles
+/// from its surface, and, for a face with a curved boundary, the operand's
+/// rim chord bound (Yang §4.2.1: "the original surface is within a distance
+/// tolerance d_ε from the mesh", `refs/text/yang2025_hybrid_boolean.txt:449-450`).
+/// A divider with witnesses on both sides (a face that is not convex toward
+/// that crease) gets no side: no certificate, never a guess.
+pub(crate) struct FaceSides {
+    /// Per crease of the face (the `CreaseIndex` order): `Some(±1.0)`.
+    pub(crate) sign: Vec<Option<f64>>,
+    pub(crate) margin: f64,
+}
+
+/// Metric signed distance of `p` to `s` (a cone's radial residual × cos α,
+/// as `shell_contact` and T8 convert it).
+fn metric_distance(s: Surface, p: [f64; 3]) -> Option<f64> {
+    let scale = match s {
+        Surface::Cone { half_angle, .. } => half_angle.cos(),
+        _ => 1.0,
+    };
+    crate::geom::signed_distance_to_surface(s, Point3::new(p[0], p[1], p[2]))
+        .ok()
+        .map(|d| d * scale)
+        .filter(|d| d.is_finite())
+}
+
+fn crease_band(c: &crate::stage4_boundary_curve::FaceCrease, x: [f64; 3]) -> f64 {
+    junction_certificate_band(x, c.divider)
+        + junction_certificate_band(x, c.s_own)
+        + c.s_other.map_or(0.0, |s| junction_certificate_band(x, s))
+}
+
+pub(crate) fn face_sides(
+    brep: &BRep,
+    face: u32,
+    creases: &[crate::stage4_boundary_curve::FaceCrease],
+) -> FaceSides {
+    let mesh = brep.as_mesh();
+    let tri_face = brep.tri_face();
+    let mut witnesses: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut dev = 0.0f64;
+    if tri_face.len() == mesh.tris.len() {
+        for (ti, tri) in mesh.tris.iter().enumerate() {
+            if tri_face[ti] != face {
+                continue;
+            }
+            witnesses.extend(tri.iter().copied());
+            if let Some(f) = brep.faces().get(face as usize) {
+                let pts = tri.map(|v| mesh.verts[v as usize].as_array());
+                dev = dev.max(crate::shell_contact::surface_deviation(&f.surface, pts));
+            }
+        }
+    }
+    let curved_boundary = brep.faces().get(face as usize).is_some_and(|f| {
+        f.outer_loop
+            .iter()
+            .chain(f.inner_loops.iter().flatten())
+            .filter_map(|&ei| brep.edges().get(ei as usize))
+            .any(|e| !matches!(e.curve, Curve::LineSegment))
+    });
+    let rim = if curved_boundary {
+        input_curved_chord_bound(brep).unwrap_or(f64::INFINITY)
+    } else {
+        0.0
+    };
+    let sign = creases
+        .iter()
+        .map(|c| {
+            let (mut pos, mut neg) = (false, false);
+            for &v in &witnesses {
+                let p = mesh.verts[v as usize].as_array();
+                let g = metric_distance(c.divider, p)?;
+                if g.abs() <= crease_band(c, p) {
+                    continue;
+                }
+                if g > 0.0 {
+                    pos = true;
+                } else {
+                    neg = true;
+                }
+            }
+            match (pos, neg) {
+                (true, false) => Some(1.0),
+                (false, true) => Some(-1.0),
+                _ => None,
+            }
+        })
+        .collect();
+    FaceSides {
+        sign,
+        margin: dev.max(rim),
+    }
+}
+
+/// Yang §4.3 curve-interior DOMAIN certificate, as a Stage-4 postcondition.
+///
+/// The paper optimizes every intersection point onto both surfaces and
+/// treats a point with "no solution in one of the two parametric domains" as
+/// a solving failure (§4.3.3, `refs/text/yang2025_hybrid_boolean.txt:528-532`);
+/// §4.3.4 (`:579-583`) then inserts, between two consecutive optimized
+/// points `p` and `q`, the intersection point `m` their parameter midpoints
+/// optimize to — an intersection point like any other, held to the same
+/// domains. It is the paper's Fig. 12 (`:626-637`): "the intersection of the
+/// meshes is shifted onto S2, completely bypassing S1". Stage 3 types a mesh
+/// intersection edge with the SSI
+/// curve through its two endpoints and never asks where that curve runs
+/// BETWEEN them. This pass asks: the arc the output will carry on each typed
+/// intersection edge is sampled, and each sample is read against the creases
+/// of every input face the edge's triangles are attributed to
+/// ([`face_sides`]). A sample beyond a crease's divider, on the side its face
+/// does not occupy, by more than the face's own margin, is a point of the
+/// intersection curve outside that face's domain.
+///
+/// Measured on F0076 moved rigidly (2026-11-14): the Stage-1 junction mints
+/// (ledger N82) put a cylinder's rim samples exactly on a box wall's plane at
+/// both ends of a 12° window with no regular sample inside it, so the meshes
+/// touch along the chord between the two mints and the arrangement types
+/// that chord as wall ∩ cylinder — an arc that runs 41 mm below the
+/// cylinder's base rim, where the cylinder face does not exist. The body was
+/// closed, on-surface, and held material neither operand has; the failure
+/// set was empty.
+///
+/// A fire is a §4.5 site (`:656-659`: "we collect the point pairs that
+/// cannot converge to a distance of 0 within their domains"), recorded for
+/// `boolean::refine_loop` (trigger T9). `curves` is Stage 3's curve per
+/// intersection edge of the mesh as Stage 4 leaves it. Tracing only:
+/// `YANG_452_PROBE` prints each fire, and `YANG_S43_CURVE_DOMAIN_LOG=<path>`
+/// appends one line per fire (the corpus runner discards stderr).
+pub(crate) fn curve_domain_postcondition(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    a: &BRep,
+    b: &BRep,
+) {
+    use crate::stage4_boundary_curve::CreaseIndex;
+    if curves.values().all(|c| matches!(c, Curve::LineSegment)) {
+        return;
+    }
+    // Typed edge → the (input, face) of every live triangle on it.
+    let mut on_edge: std::collections::BTreeMap<
+        (u32, u32),
+        std::collections::BTreeSet<(InputId, u32)>,
+    > = std::collections::BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        let Some(Some(att)) = attribution.attributions.get(ti) else {
+            continue;
+        };
+        for k in 0..3 {
+            let (s, e) = (tri[k], tri[(k + 1) % 3]);
+            let key = (s.min(e), s.max(e));
+            if curves
+                .get(&key)
+                .is_some_and(|c| !matches!(c, Curve::LineSegment))
+            {
+                on_edge
+                    .entry(key)
+                    .or_default()
+                    .insert((att.input, att.face));
+            }
+        }
+    }
+    let mut index: [Option<CreaseIndex>; 2] = [None, None];
+    let mut sides: std::collections::BTreeMap<(InputId, u32), FaceSides> =
+        std::collections::BTreeMap::new();
+    let mut fires: Vec<CurveDomainFire> = Vec::new();
+    for (&(s, e), faces) in &on_edge {
+        let Some(curve) = curves.get(&(s, e)) else {
+            continue;
+        };
+        let (ps, pe) = (mesh.verts[s as usize], mesh.verts[e as usize]);
+        let chord = {
+            let (x, y) = (ps.as_array(), pe.as_array());
+            ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+        };
+        if chord.is_nan() || chord <= 0.0 {
+            continue;
+        }
+        // The arc as the output reads it, to a hundredth of its chord; at
+        // least eight interior samples.
+        let mut tol = 1e-2 * chord;
+        let mut samples: Vec<[f64; 3]> = Vec::new();
+        for _ in 0..4 {
+            match crate::boolean::failures::sample_output_edge(curve, ps, pe, false, tol) {
+                Ok(pts) => samples = pts,
+                Err(_) => {
+                    samples.clear();
+                    break;
+                }
+            }
+            if samples.len() >= 10 {
+                break;
+            }
+            tol /= 16.0;
+        }
+        if samples.len() < 3 {
+            continue;
+        }
+        let interior = &samples[1..samples.len() - 1];
+        for &(input, face) in faces {
+            let (slot, brep) = match input {
+                InputId::A => (0usize, a),
+                InputId::B => (1usize, b),
+            };
+            let idx = index[slot].get_or_insert_with(|| CreaseIndex::build(brep));
+            let Some(creases) = idx.faces.get(face as usize) else {
+                continue;
+            };
+            let fs = sides
+                .entry((input, face))
+                .or_insert_with(|| face_sides(brep, face, creases));
+            if !fs.margin.is_finite() {
+                continue;
+            }
+            let mut worst: Option<(f64, u32, [f64; 3])> = None;
+            for (c, sign) in creases.iter().zip(fs.sign.iter()) {
+                let Some(sign) = *sign else {
+                    continue;
+                };
+                for &m in interior {
+                    let Some(g) = metric_distance(c.divider, m) else {
+                        continue;
+                    };
+                    let depth = -(sign * g) - (crease_band(c, m) + fs.margin);
+                    if depth > 0.0 && worst.is_none_or(|w| depth > w.0) {
+                        worst = Some((depth, c.edge, m));
+                    }
+                }
+            }
+            if let Some((depth, crease_edge, at)) = worst {
+                fires.push(CurveDomainFire {
+                    edge: (s, e),
+                    input,
+                    face,
+                    crease_edge,
+                    depth,
+                    at,
+                    incident: faces.iter().copied().collect(),
+                });
+            }
+        }
+    }
+    if fires.is_empty() {
+        return;
+    }
+    if std::env::var_os("YANG_452_PROBE").is_some() {
+        for f in &fires {
+            eprintln!(
+                "YANG_S43_CURVE_DOMAIN edge ({},{}) leaves {:?}:{} across edge {} by {:.4e} at \
+                 ({:.9},{:.9},{:.9})",
+                f.edge.0,
+                f.edge.1,
+                f.input,
+                f.face,
+                f.crease_edge,
+                f.depth,
+                f.at[0],
+                f.at[1],
+                f.at[2]
+            );
+        }
+    }
+    if let Some(path) = std::env::var_os("YANG_S43_CURVE_DOMAIN_LOG") {
+        use std::io::Write as _;
+        let case = std::env::var("ASSAY_CASE").unwrap_or_default();
+        let rung = crate::stage1_tessellate::chord_refine_scale();
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            for f in &fires {
+                let _ = writeln!(
+                    file,
+                    "{case} rung={rung} edge=({},{}) {:?}:{} crease={} depth={:.4e}",
+                    f.edge.0, f.edge.1, f.input, f.face, f.crease_edge, f.depth
+                );
+            }
+        }
+    }
+    crate::boolean::failures::record_curve_domain_fires(&fires);
+}

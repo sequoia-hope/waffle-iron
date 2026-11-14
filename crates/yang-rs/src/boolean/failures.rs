@@ -53,6 +53,11 @@ pub(crate) enum FailureTrigger {
     /// remedy for one that persists is §4.5.2 refinement of its curve's
     /// faces.
     ReversalUnresolved,
+    /// T9 — §4.3.3 (`:528-532`) read at §4.3.4's inserted points
+    /// (`:579-583`): the arc a typed intersection edge carries between its
+    /// two optimized endpoints leaves the domain of a face it lies on
+    /// (`stage4_correct::curve_domain_postcondition`).
+    CurveLeftDomain,
     /// T8 — §4.4.2 (`:574-605`): the output restores each face from the
     /// surface and curves that bound it, so every loop vertex of the EMITTED
     /// body lies on its face's surface. A vertex off its surface by more than
@@ -358,6 +363,21 @@ pub(crate) fn record_domain_fires(fires: &[DomainFire]) {
             detail: format!(
                 "v{} left {:?}:{} across edge {} f_post={:.3e}",
                 f.v, f.input, f.face, f.edge, f.f_post
+            ),
+        });
+    }
+}
+
+/// T9 producer: every curve-interior domain fire of the run, naming the
+/// faces of the triangles on the edge.
+pub(crate) fn record_curve_domain_fires(fires: &[crate::stage4_correct::CurveDomainFire]) {
+    for f in fires {
+        record(FailureSite {
+            trigger: FailureTrigger::CurveLeftDomain,
+            faces: f.incident.clone(),
+            detail: format!(
+                "the curve on edge ({},{}) leaves {:?}:{} across edge {} by {:.3e}",
+                f.edge.0, f.edge.1, f.input, f.face, f.crease_edge, f.depth
             ),
         });
     }

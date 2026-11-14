@@ -984,7 +984,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 10 unresolved failure site(s): BoundaryDomainFire×2 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 14 unresolved failure site(s): BoundaryDomainFire×2 CurveLeftDomain×4 IllegalIntersection×2 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0064",
       "status": "error"
     },

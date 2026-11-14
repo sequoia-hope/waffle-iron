@@ -220,3 +220,72 @@ fn steps() {
         );
     }
 }
+
+/// F0076's first three operations with the circle's sketch spun about its
+/// own normal: the geometry is unchanged, only where the cylinder's rim
+/// samples fall. The union's exact volume must be the document's at every
+/// phase.
+///
+/// Measured 2026-11-14 (`docs/yang_tail_triage.md`): the cylinder overhangs
+/// the box's side wall over a 12° arc of its base rim, and for the phases
+/// with no regular rim sample inside that arc (10°–20° of every 30°) the
+/// kernel returned 0.02937507081560 with 15 faces — the overhang's base
+/// sliver absent and, under it, 1.7469e-7 of material neither operand has,
+/// with no error. yang-rs's curve-domain certificate (T9, ledger N107) now
+/// sends that site to §4.5.2 refinement. The expected value is independent
+/// of the kernel: inclusion–exclusion of the convex pieces, the cylinder a
+/// circumscribed polygon extrapolated over its side count.
+#[test]
+fn f0076_union_volume_is_the_same_at_every_rim_phase() {
+    const VOLUME: f64 = 0.029_374_896_126_156;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../app/tests/cases/assay/F0076.waffle");
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let reference = with_explicit_x_axes(&doc).expect("explicit axes");
+    for deg in (0..60).step_by(5) {
+        let mut spun = reference.clone();
+        let features = spun["tabs"][0]["kind"]["features"]["features"]
+            .as_array_mut()
+            .expect("features");
+        // The third sketch is the circle.
+        let sketch = &mut features
+            .iter_mut()
+            .filter(|f| f["operation"]["type"] == "Sketch")
+            .nth(2)
+            .expect("third sketch")["operation"]["sketch"];
+        let read = |v: &Value| -> [f64; 3] {
+            let a = v.as_array().expect("vector");
+            [
+                a[0].as_f64().unwrap(),
+                a[1].as_f64().unwrap(),
+                a[2].as_f64().unwrap(),
+            ]
+        };
+        let (n, u) = (read(&sketch["plane_normal"]), read(&sketch["plane_x_axis"]));
+        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let n = [n[0] / nl, n[1] / nl, n[2] / nl];
+        let v = [
+            n[1] * u[2] - n[2] * u[1],
+            n[2] * u[0] - n[0] * u[2],
+            n[0] * u[1] - n[1] * u[0],
+        ];
+        let (c, s) = (
+            f64::from(deg).to_radians().cos(),
+            f64::from(deg).to_radians().sin(),
+        );
+        sketch["plane_x_axis"] = serde_json::json!([
+            c * u[0] + s * v[0],
+            c * u[1] + s * v[1],
+            c * u[2] + s * v[2]
+        ]);
+        let m = measure(&truncate_ops(&spun, 3).expect("three operations"));
+        assert!(m.errs.is_empty(), "phase {deg}°: {:?}", m.errs);
+        let volume = m
+            .exact_volume
+            .unwrap_or_else(|e| panic!("phase {deg}°: {e}"));
+        assert!(
+            rel(volume, VOLUME) <= 1e-11,
+            "phase {deg}°: exact volume {volume:.14e}, the document's is {VOLUME:.14e}"
+        );
+    }
+}
