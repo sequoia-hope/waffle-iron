@@ -71,6 +71,13 @@ fn wrap(a: f64) -> f64 {
     a.rem_euclid(std::f64::consts::TAU)
 }
 
+/// Below this length the component of a unit `d̂` off an axis is rounding,
+/// and `d̂` is treated as lying along the axis. A unit vector carried through
+/// a rotation agrees with its own image to about `1e-16`; reading `d̂` as
+/// axial when it is within `1e-8` of the axis moves an extent by at most
+/// `1e-8` of the feature's radius.
+const AXIAL_REMAINDER: f64 = 1e-8;
+
 /// Running `[lo, hi]` of `p · d̂`.
 struct Interval {
     d: V,
@@ -180,15 +187,20 @@ fn edge_extremes(
         } => {
             let c = center.as_array();
             let n = [normal.x, normal.y, normal.z];
-            // In-plane direction of steepest ascent of p · d̂.
-            let Some(s) = unit(sub(d, scale(n, dot(d, n)))) else {
-                return Ok(()); // d̂ ∥ the axis: constant along the circle
-            };
             let full = matches!(he.curve, Curve::Circle { .. }) || closed;
             let Some(e1) = unit(sub(o, c)) else {
                 return Ok(());
             };
             let e2 = cross(n, e1);
+            // p(t) = c + r (cos t · e1 + sin t · e2), so p · d̂ is extremal at
+            // t* = atan2(d̂ · e2, d̂ · e1) and t* + π. Both candidates are
+            // points OF the circle whatever d̂ is: with d̂ along the axis the
+            // two components are rounding noise, t* is arbitrary, and the
+            // candidate still projects to the circle's own constant value.
+            let (alpha, beta) = (dot(d, e1), dot(d, e2));
+            if alpha == 0.0 && beta == 0.0 {
+                return Ok(()); // d̂ ∥ the axis: constant along the circle
+            }
             let angle = |p: V| {
                 let q = sub(p, c);
                 wrap(dot(q, e2).atan2(dot(q, e1)))
@@ -198,10 +210,13 @@ fn edge_extremes(
             } else {
                 angle(e)
             };
-            for sign in [1.0, -1.0] {
-                let p = add(c, scale(s, sign * radius));
-                if full || angle(p) <= sweep {
-                    iv.add(p);
+            let t_star = beta.atan2(alpha);
+            for t in [t_star, t_star + std::f64::consts::PI] {
+                if full || wrap(t) <= sweep {
+                    iv.add(add(
+                        c,
+                        add(scale(e1, radius * t.cos()), scale(e2, radius * t.sin())),
+                    ));
                 }
             }
         }
@@ -299,7 +314,15 @@ fn face_interior_extremes(
         } => {
             let c = center.as_array();
             let a = [axis_dir.x, axis_dir.y, axis_dir.z];
-            match unit(sub(d, scale(a, dot(d, a)))) {
+            // The part of d̂ off the axis. In an oblique frame a d̂ meant to
+            // be the axis leaves a remainder of rounding size here, and a
+            // remainder that small is not a direction: normalized, it points
+            // anywhere, off the equatorial plane included.
+            let off_axis = sub(d, scale(a, dot(d, a)));
+            match (norm(off_axis) > AXIAL_REMAINDER)
+                .then(|| unit(off_axis))
+                .flatten()
+            {
                 Some(e) => {
                     let mut v = Vec::with_capacity(4);
                     for s1 in [1.0, -1.0] {

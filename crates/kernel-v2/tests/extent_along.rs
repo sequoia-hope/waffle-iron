@@ -232,3 +232,112 @@ fn a_torus_extent_is_its_outer_equator_off_axis() {
         "torus along its axis",
     );
 }
+
+/// A cylinder measured along its OWN axis in an oblique frame: every point
+/// of a rim has the same projection, so the extent is the two cap planes and
+/// nothing else. In an oblique frame the axis and the rim normal agree only
+/// to rounding, and the in-plane remainder of `d̂` is noise. Read as a
+/// direction, that noise put a "critical point" up to one radius off the rim
+/// plane: assay P0054 moved rigidly measured a 0.9-thick body as 2.3 thick,
+/// and a direction-less cut swept away from the material and removed nothing,
+/// with no error.
+#[test]
+fn an_oblique_cylinder_along_its_own_axis_is_its_two_caps() {
+    let (r, h) = (1.4, 0.9);
+    let mut worst: f64 = 0.0;
+    for k in 0..24 {
+        // Rodrigues rotation about a fixed oblique axis by a varying angle.
+        let axis = unit([1.0 + 0.37 * k as f64, 2.0 - 0.11 * k as f64, 3.0]);
+        let (s, c) = (0.3 + 0.41 * k as f64).sin_cos();
+        let rot = |v: [f64; 3]| -> [f64; 3] {
+            let kv = [
+                axis[1] * v[2] - axis[2] * v[1],
+                axis[2] * v[0] - axis[0] * v[2],
+                axis[0] * v[1] - axis[1] * v[0],
+            ];
+            let kd = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+            [
+                v[0] * c + kv[0] * s + axis[0] * kd * (1.0 - c),
+                v[1] * c + kv[1] * s + axis[1] * kd * (1.0 - c),
+                v[2] * c + kv[2] * s + axis[2] * kd * (1.0 - c),
+            ]
+        };
+        let (u, v, n) = (
+            rot([1.0, 0.0, 0.0]),
+            rot([0.0, 1.0, 0.0]),
+            rot([0.0, 0.0, 1.0]),
+        );
+        let origin = [0.7 * k as f64, -1.3, 2.9];
+        let mut arena = BrepArena::new();
+        let profile = Profile::circle(
+            Point3::new(origin[0], origin[1], origin[2]),
+            Vector3::new(u[0], u[1], u[2]),
+            Vector3::new(v[0], v[1], v[2]),
+            Point2::new(0.0, 0.0),
+            r,
+        )
+        .expect("circle profile");
+        let solid = extrude(&mut arena, &profile, Vector3::new(n[0], n[1], n[2]), h)
+            .expect("oblique cylinder")
+            .solid;
+        let base = origin[0] * n[0] + origin[1] * n[1] + origin[2] * n[2];
+        let (lo, hi) = extent_along(&arena, solid, n).unwrap().expect("an extent");
+        worst = worst.max((lo - base).abs()).max((hi - (base + h)).abs());
+    }
+    assert!(
+        worst <= 1e-12 * 30.0,
+        "the extent along the axis left the caps by {worst:e}"
+    );
+}
+
+/// The same question for a torus: along its own axis in an oblique frame the
+/// extent is the tube's two flat circles, one minor radius either side of
+/// the centre plane.
+#[test]
+fn an_oblique_torus_along_its_own_axis_is_one_minor_radius_either_side() {
+    let (big, small) = (3.0, 1.0);
+    for k in 0..12 {
+        let axis = unit([1.0 + 0.37 * k as f64, 2.0 - 0.11 * k as f64, 3.0]);
+        let (s, c) = (0.3 + 0.41 * k as f64).sin_cos();
+        let rot = |v: [f64; 3]| -> [f64; 3] {
+            let kv = [
+                axis[1] * v[2] - axis[2] * v[1],
+                axis[2] * v[0] - axis[0] * v[2],
+                axis[0] * v[1] - axis[1] * v[0],
+            ];
+            let kd = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+            [
+                v[0] * c + kv[0] * s + axis[0] * kd * (1.0 - c),
+                v[1] * c + kv[1] * s + axis[1] * kd * (1.0 - c),
+                v[2] * c + kv[2] * s + axis[2] * kd * (1.0 - c),
+            ]
+        };
+        // The profile circle lies in the plane (u, v) at (0, big); the torus
+        // axis is u through the origin.
+        let (u, v) = (rot([1.0, 0.0, 0.0]), rot([0.0, 1.0, 0.0]));
+        let mut arena = BrepArena::new();
+        let profile = Profile::circle(
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(u[0], u[1], u[2]),
+            Vector3::new(v[0], v[1], v[2]),
+            Point2::new(0.0, big),
+            small,
+        )
+        .expect("circle profile");
+        let solid = revolve(
+            &mut arena,
+            &profile,
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(u[0], u[1], u[2]),
+            2.0 * PI,
+        )
+        .expect("closed torus")
+        .solid;
+        assert_interval(
+            extent_along(&arena, solid, u).unwrap(),
+            (-small, small),
+            1e-3 * (big + small),
+            "oblique torus along its axis",
+        );
+    }
+}

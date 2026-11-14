@@ -43,6 +43,33 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-13 (kernel-v2 `extent_along`: a circle measured along its own axis) — **a wrong model with no error, found by rotating the corpus: P0054 moved rigidly kept material its last cut should have removed**
+
+Not a Yang mechanism; the booleans were right. P0054 is an extrude and three
+cuts with no authored direction. The feature engine sweeps such a cut toward
+the material, read from `KernelIntrospect::solid_extent_along`. After the
+second cut the body is 0.9 thick along the cut axis, in any orientation. In
+three of four rigid motions the kernel measured it 2.3 thick, the third cut
+swept away from the body, and the document built with volume 0.917 where
+the unrotated one gives 0.311. No error, no warning.
+
+- **Cause:** `extent::edge_extremes`, the circle and arc case. It took the
+  direction of steepest ascent as `unit(d̂ − n (d̂ · n))`. With `d̂` along the
+  circle's axis that remainder is zero in an axis-aligned frame and rounding
+  noise in an oblique one; normalized, the noise is an arbitrary direction,
+  and the "critical point" `c ± r s` lands up to one radius off the rim's
+  plane.
+- **Fix:** the critical points are taken in the circle's own frame,
+  `t* = atan2(d̂ · e2, d̂ · e1)`, so every candidate is a point of the
+  circle whatever `d̂` is. The torus arm had the same pattern (it could only
+  miss its flat circles, and no failing case was found); it now treats a
+  `d̂` within `1e-8` of the axis as axial.
+- **Pins:** `crates/kernel-v2/tests/extent_along.rs`
+  `an_oblique_cylinder_along_its_own_axis_is_its_two_caps` (off by 1.4, one
+  radius, before the fix) and
+  `an_oblique_torus_along_its_own_axis_is_one_minor_radius_either_side`.
+- **Rotation sweep after the fix:** P0054 reproduces in all four motions.
+
 ## 2026-11-13 (the crease and corner transits DELETED; ledger N87 RESOLVED) — **toward the paper: §4.5.1's first strategy "only applies to the interior points", and a corner where more than two surfaces meet goes to the second (`refs/text/yang2025_hybrid_boolean.txt:635-657`); corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved, no output changed**
 
 `solve_crease_transit` re-seated a triple junction that had left its face
