@@ -35,6 +35,7 @@ pub(crate) fn triangle_adjacency(mesh: &Mesh) -> Vec<Vec<u32>> {
 /// PR-YR5 helper: BFS flood-fill same-attribution triangles into
 /// patches. Skip None-attributed triangles. Deterministic seed order:
 /// lowest unvisited tri index first.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn flood_fill_patches(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,

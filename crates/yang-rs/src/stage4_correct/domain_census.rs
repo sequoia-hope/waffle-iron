@@ -763,16 +763,6 @@ pub(crate) fn strategy_selection_census(
     }
 }
 
-// inc-2c-3b-1 (spec `specs/yang_451_corner_transit.md` §3j): the
-// corner-transit corridor mutation is ALWAYS-ON since inc-3a (2026-09-03;
-// R0011 and, with the torus chart, R0074 converted). §4.5.1 inc-2c-3b-12b-8 —
-// the EMISSION apply arm (write the certified
-// [`crate::stage4_boundary_curve::TransitEmissionFill`] at a determined
-// out-of-domain relocation site and move the site to its corrected junction)
-// is ALWAYS-ON since inc-3c (2026-09-04; R0044 moved to the honest Stage-1
-// partial-patch wall). Their `YANG_451_TRANSIT` / `YANG_451_TRANSIT_EMIT`
-// off-knobs were deleted 2026-10-16 (cleanup spec §4).
-
 /// The §4-I9 two-leg detection as a quiet fire list — the SAME rule
 /// [`relocation_domain_postcondition`] STOPs on (a moved vertex crossed a
 /// STILL neighbour that carries a surface the traveller is off), kept in
@@ -827,14 +817,13 @@ pub(crate) fn corner_crossing_fires(
 /// surface's own Stage-1 chord band `d_ε(far)` against the corner's distance
 /// to that surface `|d_far(q)|`: while `d_ε(far) ≥ |d_far(q)|` the far mesh
 /// cannot decide which side of the far surface the corner lies on, so the
-/// discrete crossing the arrangement produced may not exist at all and no
-/// transit can be planned — refinement is the paper's remedy, and the ratio
-/// is the factor the band must shrink by. The MAX over the invocation's
+/// discrete crossing the arrangement produced may not exist at all —
+/// refinement is the paper's remedy, and the ratio is the factor the band
+/// must shrink by. The MAX over the invocation's
 /// fires is the demand (R0085: the rider at the tooth corner nearest the
 /// exact exit reads 18.2 while the STOP'd site itself reads 0.54 — the
 /// ladder must resolve every corner the crossing chain touches). A corner
-/// exactly ON the far surface has no finite demand and contributes nothing
-/// (that is the transit planner's `JunctionAtCorner` class).
+/// exactly ON the far surface has no finite demand and contributes nothing.
 pub(crate) fn under_resolution_ratio(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
@@ -877,113 +866,4 @@ pub(crate) fn under_resolution_ratio(
         }
     }
     worst
-}
-
-/// inc-2c-3b-1 — the gated corner-transit CORRIDOR MUTATION (spec §3i).
-///
-/// Re-runs the measured pipeline quietly — site planner → contract-band
-/// walks → corridor assembly → corrected-cycle planning — and, only when
-/// EVERY admission certificate holds (every fired site consumed by an
-/// applyable corridor, zero plan declines, every affected patch key
-/// planned), mints the pool and replaces each planned component's
-/// triangles with a wholesale re-CDT from its corrected cycles, as one
-/// batch. Any refusal rolls back completely (appended mints truncated)
-/// and returns `Ok(false)` — the standing §4-I9 STOP then fires exactly
-/// as today. Never guesses (P10).
-/// inc-2c-3b-6 — stitch a deleted fan region's link RUNS with the
-/// corrected cycle's all-New arcs into one refill polygon (spec §3m). The
-/// region's rim alternates surviving link chains with boundary gaps whose
-/// replacement is the minted path; between consecutive runs exactly ONE
-/// corrected-cycle arc with an all-New interior must connect them (an Old
-/// inside an arc means the selection left the region — refused, typed by
-/// message). `base` maps `CycleRef::New(i)` to mesh id `base + i`.
-pub(crate) fn stitch_fan_polygon(
-    corrected: &[Vec<crate::stage4_corridor::CycleRef>],
-    runs: &[Vec<u32>],
-    base: u32,
-) -> Result<Vec<u32>, String> {
-    use crate::stage4_corridor::CycleRef;
-    let hits: Vec<&Vec<CycleRef>> = corrected
-        .iter()
-        .filter(|cy| cy.contains(&CycleRef::Old(runs[0][0])))
-        .collect();
-    let cyc: Vec<CycleRef> = match hits[..] {
-        [one] => one.clone(),
-        _ => {
-            return Err(format!(
-                "run end v{} on {} corrected cycles",
-                runs[0][0],
-                hits.len()
-            ))
-        }
-    };
-    let arc_from = |v: u32, forward: bool| -> Option<(Vec<u32>, u32)> {
-        let n = cyc.len();
-        let i = cyc.iter().position(|&r| r == CycleRef::Old(v))?;
-        let mut interior = Vec::new();
-        for step in 1..n {
-            let idx = if forward {
-                (i + step) % n
-            } else {
-                (i + n - step) % n
-            };
-            match cyc[idx] {
-                CycleRef::New(m) => interior.push(base + m),
-                CycleRef::Old(o) => return Some((interior, o)),
-            }
-        }
-        None
-    };
-    let mut polygon: Vec<u32> = runs[0].clone();
-    let mut used = vec![false; runs.len()];
-    used[0] = true;
-    let start_v = runs[0][0];
-    loop {
-        let cur = *polygon.last().expect("runs are non-empty");
-        let all_used = used.iter().all(|&u| u);
-        let mut cands: Vec<(Vec<u32>, u32)> = Vec::new();
-        for forward in [true, false] {
-            if let Some((interior, term)) = arc_from(cur, forward) {
-                let wanted = if all_used {
-                    term == start_v
-                } else {
-                    runs.iter()
-                        .enumerate()
-                        .any(|(ri, r)| !used[ri] && (r[0] == term || r.last() == Some(&term)))
-                };
-                if wanted && !cands.iter().any(|(i2, t2)| *t2 == term && *i2 == interior) {
-                    cands.push((interior, term));
-                }
-            }
-        }
-        let (interior, term) = match cands.len() {
-            1 => cands.remove(0),
-            n2 => return Err(format!("{n2} candidate arcs from v{cur}")),
-        };
-        polygon.extend(interior);
-        if all_used {
-            return Ok(polygon); // the arc closed the ring back to start_v
-        }
-        let (ri, rev) = runs
-            .iter()
-            .enumerate()
-            .find_map(|(ri, r)| {
-                if used[ri] {
-                    None
-                } else if r[0] == term {
-                    Some((ri, false))
-                } else if r.last() == Some(&term) {
-                    Some((ri, true))
-                } else {
-                    None
-                }
-            })
-            .expect("wanted implies an unused run with this end");
-        used[ri] = true;
-        if rev {
-            polygon.extend(runs[ri].iter().rev().copied());
-        } else {
-            polygon.extend(runs[ri].iter().copied());
-        }
-    }
 }

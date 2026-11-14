@@ -43,6 +43,46 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-13 (the crease and corner transits DELETED; ledger N87 RESOLVED) — **toward the paper: §4.5.1's first strategy "only applies to the interior points", and a corner where more than two surfaces meet goes to the second (`refs/text/yang2025_hybrid_boolean.txt:635-657`); corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved, no output changed**
+
+`solve_crease_transit` re-seated a triple junction that had left its face
+across a crease; `corner_transit_apply` re-routed a corridor across a model
+corner. Both are deleted with their planner, emission chain and census
+(about 15,000 lines with tests).
+
+- **What answers their cases:** the detection they sat on. The triple block
+  certifies each relocation against its face's creases, the stage-end
+  postconditions record a junction that left its face, and
+  `boolean::refine_loop` refines until the failure set is empty.
+- **Corpus:** every output bit-identical, including the ten cases where a
+  transit acted (F0082, P0040, P0050, P0053, R0003, R0011, R0019, R0044,
+  R0074, R0095). In each the run at natural density fails with or without
+  the transit and the loop's refined run is the one adopted.
+- **Rotation:** all 360 CORRECT cases under four rigid motions each, with
+  and without the transits: 1,440 verdicts, none different.
+- **Named dip:** none. Seed 6 verdict-identical (188C / 0W / 10E / 2T).
+
+**What the rotation sweep measured about the kernel itself** (transits on,
+base `723c0283`; kernel-level verdict: errors, auto-union warnings, body
+count, Euler characteristic, exact volume, against the same document
+unrotated). Of 1,440 rotated runs of the 360 CORRECT cases, 1,374 reproduce
+the unrotated result and 66 do not, in 30 cases. The corpus holds each case
+in the orientation it was authored in, so none of this shows in its score.
+
+- 57 are typed errors or failed auto-unions: 13 kernel-v2
+  `extrude: NonPlanarFace` (C0038, C0040, F0071, F0072, F0084), 6 the
+  coplanar wall (F0075, F0027, F0070: faces coplanar only to rounding once
+  rotated), the rest yang-rs stops and kernel-v2 output refusals (R0003 in
+  3 of 4 motions, P0020 in 3, F0060 in 3, C0010 in 4).
+- 3 are a wrong model with no error: P0054, whose last cut removes nothing.
+  Cause and fix: `kernel_v2::extent` (the entry above this one).
+- 6 return the same volume with a different body count or vertex/edge
+  count (F0055, F0060, F0094), or a volume 3e-6 off (F0076). Unexamined.
+
+These are measurements, not customers of this removal: the same 66 fail
+with the transits off.
+
+
 ## 2026-11-13 (the two a-priori Stage-1 folds DELETED) — **toward the paper: §4.1 discretizes each patch independently (`refs/text/yang2025_hybrid_boolean.txt:397-402`) and §4.5.4 detects an illegal intersection and refines; corpus 360C / 0W / 9E / 5EE / 0T over 374, no case moved**
 
 `cyl_pair_phantom_n` (two of a solid's own cylinders closer than their chord

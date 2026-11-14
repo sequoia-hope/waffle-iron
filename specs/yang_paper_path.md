@@ -183,9 +183,10 @@ the dip was the one thing §3's data left for the owner to decide there.
 **The outer layer does not need a second path.** It is retired in place,
 in the order §3 gives:
 
-1. The switches with no corpus customer, one per commit: the rim boost
-   and the two cross-patch folds (N88) (**both deleted 2026-11-13**) and the
-   transits (N87). Edge-in-plane arm 2 (N64) is off this list: it has a
+1. The switches with no corpus customer, one per commit: the rim boost,
+   the two cross-patch folds (N88) and the transits (N87, RESOLVED). **All
+   three are deleted (2026-11-13).** Edge-in-plane arm 2 (N64) is off this
+   list: it has a
    customer outside the corpus (§5) and stays, with its paper status an F7
    adjudication. Each removal is preceded by a rigid-motion sweep of the
    cases its mechanism acts on, switch on against switch off; a loss there
@@ -197,7 +198,9 @@ in the order §3 gives:
    that the rim boost carried and the §4.5.2 loop cannot clear at its
    ceiling (now a loud stop, customer of F3's Case-IV rule-out). The corpus
    is held throughout; where outputs change, the gate is the oracle verdict,
-   since the hash cannot be.
+   since the hash cannot be. For the transits the rigid-motion sweep was
+   the whole corpus: 360 CORRECT cases, four motions each, with and without
+   them, 1,440 verdicts and none different.
 2. Rim-junction insertion, the P3a mints and the Stage-4/5 repairs, at a
    named dip of at most seven corpus cases, which become customers of F2
    (§4.4.1) and F3 (§4.5). The same two checks come first, and a seed case

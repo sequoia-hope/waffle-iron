@@ -132,17 +132,14 @@ crease is not the true junction's clearance from the corner (P0003's
 0.99 mm overrun and 1.23 mm clearance coincide only by geometry), so
 the fixed budget applies.
 
-## 4. Why this and not the corner-transit corridor
+## 4. Why refinement
 
-The §4.5.1 machinery (`specs/yang_451_corner_transit.md`) repairs an
-interior traveller whose corrected junction lies on the NEXT facet of
-the same operand, with the crossed corner already a mesh vertex. Here
-each traveller's true junction is on the OTHER operand's neighbouring
-face (v44: the top cap, not the lateral; v15: the end cap, not the
-torus), the corner is not a mesh vertex, and the two travellers'
-junctions (J, q₂) are distinct points 1.3 mm apart — Fig. 13's shape,
-which the paper excludes from transit by name. Refinement is the
-prescribed remedy and it converges at the first rung.
+Each traveller's true junction is on the OTHER operand's neighbouring face
+(v44: the top cap, not the lateral; v15: the end cap, not the torus), the
+corner is not a mesh vertex, and the two travellers' junctions (J, q₂) are
+distinct points 1.3 mm apart — Fig. 13's shape, which the paper excludes
+from §4.5.1's first strategy by name. Refinement is the prescribed remedy
+and it converges at the first rung.
 
 ## 5. What the certificate is NOT
 
@@ -158,7 +155,7 @@ here at larger scale: the general certificate fires 42 times on R0003
 alone, and on R0004, R0032, R0049, R0070 — every one a many-facet gear
 operand (a revolved or extruded gear profile) whose facet creases are
 closer than the chord band, so the relocations that cross them are the
-§4.5.1 corridor family (`specs/yang_451_corner_transit.md` §1) and the
+corner-crossing family (`specs/yang_451_corner_transit.md` §1) and the
 ladder cannot reach them (`stop` mode: no rung converges, budget
 exhausted). Those cases pass every oracle they have. Converting them to
 ERROR for a defect they survive would break the no-regression bar for
@@ -205,8 +202,8 @@ natural density, one line per fire per Stage-4 invocation):
 | R0070 | (gear operand) | 86 | — | A facet creases |
 
 These are §3t's R0003 population at the general certificate's reach:
-genuine out-of-domain relocations on sub-chord facet creases (the §4.5.1
-corridor family — `specs/yang_451_corner_transit.md` §1: "the traveller
+genuine out-of-domain relocations on sub-chord facet creases (the
+corner-crossing family — `specs/yang_451_corner_transit.md` §1: "the traveller
 sits where the chord-resolution mesh curve crosses the model edge
 base∩facet_k of a many-facet operand") that today's output survives by
 every oracle the case has. A STOP converts them for no capability
@@ -408,9 +405,8 @@ the face normal is parallel to the circle normal, and
 `boundary_crease_crossed`'s `CreaseExtent::Circle` arm reads the crossing's
 axial offset against that cylinder (the plane divider still reads the radial
 offset). Nothing changes for a curved face: the plane cuts a cylinder, cone
-or torus transversally and remains its divider. The full anchor, the
-companion neighbour-side certificate for the corner transit, and the
-measurements are in `specs/yang_451_corner_transit.md` §3aj; pins
+or torus transversally and remains its divider. The rule is stated in
+`specs/yang_451_corner_transit.md` §3aj and §3ak; pins
 `tests_unit/s451_crease_domain.rs` (`the_brep_crease_index_gives_a_cap_its_radial_divider`).
 
 ## 10. Every planar conic, and the neighbour the index never paired (2026-10-13)

@@ -1794,11 +1794,9 @@ fn smoke_corpus_boundary_categories() {
         // cap, small lateral} corner 12 units away. CORRECT at ×1e-3 and ×1e3.
         // CONVERTED 2026-10-12 (seed 4): a circle crease seen from the PLANAR
         // face that contains it now divides that face RADIALLY (its own plane
-        // divided nothing), and the §4.5.1 transit certifies the SIDE its
-        // corrected junction lands on against the B-Rep face (an on-crease
-        // start was exempt from the sign test); both transits decline, the
-        // §4.5 postcondition records two fires, and the local §4.5.2 ladder's
-        // first rung clears them (spec `yang_451_corner_transit` §3aj).
+        // divided nothing); the §4.5 postcondition records two fires, and
+        // the §4.5.2 loop's first refinement clears them (spec
+        // `yang_451_corner_transit` §3aj).
         ("P0040", Category::SupportedCorrect),
         // P0041 (3 ops) ⇒ the same text on `boolean_subtract`, Seg edges of a
         // planar cap loop used once. Same class at ×1e-3 and ×1e3.

@@ -1,25 +1,19 @@
-//! Corner-transit epic (`specs/yang_451_corner_transit.md`, inc-2c-3b-12b-11):
-//! the R0044 UNION on its own, under the gate set that converts it.
+//! The R0044 UNION on its own.
 //!
 //! R0044 is three ops — revolve(rectangle) ∪ revolve(gear), then a circle
-//! cut. The corner-transit epic's target was the union (the standing
-//! `FaceId(627)` / vertex-8 walls). With the emission write armed the union
-//! COMPLETES, and the case then stops at the cut's typed NotSupported (a
-//! curved boolean result re-entering Stage 1 — partial-patch tessellation),
-//! so the categorized runner never validates the union's geometry. This
-//! probe truncates the document to the first two ops and runs the runner's
-//! full oracle set on the union result: mesh checks, Euler characteristic
-//! (against the reference-adjudicated genus 1, one shell), volume magnitude,
-//! and the independent volume-composition oracle.
+//! cut. The categorized runner judges the finished document, so the union's
+//! own geometry is never validated there. This probe truncates the document
+//! to the first two ops and runs the runner's full oracle set on the union
+//! result: mesh checks, Euler characteristic (against the
+//! reference-adjudicated genus 1, one shell), volume magnitude, and the
+//! independent volume-composition oracle.
 //!
-//! Gated: this test SETS the epic's gate knobs itself (process-wide), so it
+//! The test sets the triple-domain census knob itself (process-wide), so it
 //! is `#[ignore]` and must run ALONE:
 //! ```text
 //! cargo test -p test-harness --test s451_r0044_union_probe --release \
 //!   -- --ignored --nocapture
 //! ```
-//! `S451_PROBE_GATES=off` runs the same probe with the gates unset, which
-//! must report the standing wall (the control).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,19 +31,10 @@ fn corpus_dir() -> PathBuf {
 }
 
 #[test]
-#[ignore = "sets the corner-transit gate knobs process-wide; run alone"]
-fn r0044_union_only_under_the_gate_set() {
-    let gates_on = std::env::var("S451_PROBE_GATES").as_deref() != Ok("off");
-    if gates_on {
-        // R0044's minimal converting set (measured 2026-09-03): the corridor
-        // arm, the §4.5.3 surface-pair arm, and the emission write inside
-        // its census chain. The corridor arm and the emission write are
-        // always on (their `YANG_451_TRANSIT` / `YANG_451_TRANSIT_EMIT`
-        // knobs were deleted 2026-10-16, as was the §4.5.3 surface-pair
-        // arm's `YANG_453_SPAIR`); the census chain is reporting.
-        std::env::set_var("YANG_451_TRIPLE_DOMAIN", "census");
-        std::env::set_var("YANG_451_TRANSIT_ANATOMY", "1");
-    }
+#[ignore = "sets a census knob process-wide; run alone"]
+fn r0044_union_only() {
+    // Report each out-of-domain triple relocation to stderr.
+    std::env::set_var("YANG_451_TRIPLE_DOMAIN", "census");
     let d = corpus_dir();
     let waffle: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(d.join("R0044.waffle")).unwrap()).unwrap();
@@ -64,10 +49,7 @@ fn r0044_union_only_under_the_gate_set() {
         .iter()
         .map(|f| f["name"].as_str().unwrap_or("?").to_string())
         .collect();
-    eprintln!(
-        "[s451-probe] gates={} features={names:?}",
-        if gates_on { "on" } else { "off" }
-    );
+    eprintln!("[s451-probe] features={names:?}");
     assert_eq!(names.len(), 4, "two sketches + two revolves");
 
     let json = serde_json::to_string(&doc).unwrap();
@@ -85,14 +67,6 @@ fn r0044_union_only_under_the_gate_set() {
         .collect();
     eprintln!("[s451-probe] engine errors={errors:?}");
     eprintln!("[s451-probe] auto-union failures={union_failures:?}");
-    if !gates_on {
-        // The control: the union must still fail at its standing wall.
-        assert!(
-            !union_failures.is_empty(),
-            "gates off: the union is expected to fail (standing wall)"
-        );
-        return;
-    }
     assert!(errors.is_empty(), "engine errors: {errors:?}");
     assert!(
         union_failures.is_empty(),

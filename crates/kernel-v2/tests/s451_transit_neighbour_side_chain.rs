@@ -1,6 +1,5 @@
-//! §4.5.1 corner transit — the NEIGHBOUR-SIDE certificate (P0040's shape,
-//! 2026-10-12; spec `yang_451_corner_transit` §3aj and
-//! `yang_45_boundary_point_domain_certificate` §9).
+//! §4.5 relocation domain — a step within a cap plane that leaves the cap's
+//! disc (P0040's shape; spec `yang_45_boundary_point_domain_certificate` §9).
 //!
 //! Two plain cylinder bosses: a z-cylinder (r 450.9, h 540.4) and an
 //! x-cylinder (r 290.1, x ∈ [−271.5, 39.0], axis at y −112.4, z 370.9) whose
@@ -10,29 +9,20 @@
 //! footprint by 3.5 while the exact rim clears it by 12, so the arrangement
 //! holds mesh triple points — {top cap, big lateral, small lateral} and {top
 //! cap, big lateral, start-cap plane} — that the exact topology does not have.
-//! Stage 4 solved both exactly on the EXTENDED surfaces: the first 15.4
-//! outside the small lateral's x-range, and the §4.5.1 transit "repaired" it
-//! onto the start-cap PLANE at the second, 9.9 outside that cap's disc (300.0
-//! from its axis against r 290.09). The emission wrote the phantom; the top
-//! cap's output loop ran the rim circle and the rectangular hole through one
-//! vertex, and kernel-v2 refused the body: `InvalidBooleanOutput("an
-//! undirected output edge is not used by exactly two directed edges")`.
+//! Stage 4 solves both exactly on the EXTENDED surfaces: the first 15.4
+//! outside the small lateral's x-range, the second 9.9 outside the start
+//! cap's disc (300.0 from its axis against r 290.09). Emitted as they stand,
+//! the top cap's output loop would run the rim circle and the rectangular
+//! hole through one vertex, and kernel-v2 would refuse the body.
 //!
-//! Two certificate gaps let it through. A step WITHIN a cap plane that leaves
-//! the cap's rim had a zero residual against the rim circle's plane (the cap's
-//! own plane) at both ends — the domain boundary of a planar face is RADIAL,
-//! and its divider is the rim's cylinder. And the transit's neighbour-domain
-//! postcondition could not see the crease it had just crossed: `p_trunc` lies
-//! ON it, and an on-crease start is exempt from the sign-change test, so the
-//! SIDE the corrected junction lands on is now certified against the B-Rep
-//! face (a planar face lies inside its OUTER-loop circle). Both transits
-//! decline, the §4.5 postcondition records the fires, and the §4.5.2 ladder's
-//! first rung (d_ε/2, rim sagitta 2.7 < the 12 clearance) emits a body whose
-//! mesh topology is the exact one.
+//! The domain boundary of a planar face is RADIAL: the divider of the cap's
+//! rim, seen from the cap, is the rim's cylinder, so a step within the cap
+//! plane that leaves the disc is a crossing. The §4.5 postcondition records
+//! both fires, and the §4.5.2 loop's first refinement (d_ε/2, rim sagitta
+//! 2.7 < the 12 clearance) emits a body whose mesh topology is the exact one.
 //!
-//! RED before the fix (the P0040 STOP, verbatim); GREEN with it: the union
-//! validates as one shell with a proper volume between the big boss and the
-//! sum of the two.
+//! The union validates as one shell with a proper volume between the big
+//! boss and the sum of the two.
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
@@ -110,7 +100,7 @@ fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
 }
 
 #[test]
-fn a_transit_onto_a_cap_plane_outside_its_disc_is_declined_and_the_ladder_converges() {
+fn a_junction_outside_a_caps_disc_is_recorded_and_the_loop_converges() {
     let mut a = BrepArena::new();
     let big = big_boss(&mut a);
     let small = small_boss(&mut a);
@@ -118,9 +108,8 @@ fn a_transit_onto_a_cap_plane_outside_its_disc_is_declined_and_the_ladder_conver
     let v_small = mesh_signed_volume(&tessellate(&a, small).expect("small boss tessellates"));
     assert!(v_big > 0.0 && v_small > 0.0);
 
-    // P0040's STOP: the union emitted a top-cap loop pinched through a
-    // phantom {top cap, big lateral, start-cap plane} vertex and kernel-v2
-    // refused it.
+    // P0040's shape: at natural density the top-cap loop would be pinched
+    // through a phantom {top cap, big lateral, start-cap plane} vertex.
     let out = boolean_op(&mut a, big, small, BoolOp::Union)
         .unwrap_or_else(|e| panic!("big ∪ small failed: {e:?}"));
     let report = validate_solid(&a, out).expect("union validates");

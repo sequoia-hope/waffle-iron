@@ -146,19 +146,11 @@ pub(crate) use stage1_tessellate::*;
 pub(crate) use stage4_correct::*;
 pub(crate) use stage4_relocate::*;
 mod stage4_boundary_curve;
+mod stage4_construct;
 mod stage4_phantom;
 mod stage4_rehome;
 mod stage4_slit;
-// §4.5.1 corner-transit planner (spec `specs/yang_451_corner_transit.md`
-// inc-2a): the pure recognize/discriminate/classify unit for §4-I9
-// corner-crosser sites. Census-wired report-only from the §4-I9 branch;
-// the gated apply arm is inc-2b+.
-mod stage4_transit;
-// §4.5.1 corner-transit APPLY planner (spec §3h, inc-2c-3b-0): the pure
-// corrected-cycle machinery (mint pool, corridor path, directed sub-path
-// replacement). Census-wired report-only; the gated mutation is 3b-1.
-mod stage4_construct;
-mod stage4_corridor;
+
 // §4.4.1 Fig-11 merge selectors (fold-merge sites, run absorption, rehome
 // candidates) consumed by `stage5_topology::run_fold_merge_passes`.
 mod stage4_fold_risk;

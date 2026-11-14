@@ -63,6 +63,9 @@ Deleted on 2026-10-24: `YANG_441_OPEN_CONIC_PARAM` (open-conic parameter order i
 `stage4_correct/reversal.rs` is always-on for both `Parabola` and `Hyperbola`),
 and the result-changing arms of the 8 multi-valued `census` / `stop` modes above
 were gated behind `cfg!(debug_assertions)`.
+Deleted on 2026-11-13 with the crease and corner transits (ledger N87):
+`YANG_451_TRANSIT_ANATOMY`, and the tracing probes `YANG_451_CHI`,
+`YANG_451_HOSTS` and `YANG_451_CORNER_PROBE`.
 
 ## Result-changing modes still read in release (OPEN)
 

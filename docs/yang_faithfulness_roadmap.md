@@ -110,7 +110,10 @@ off (the Stage-1 pre-emptive arms, the Stage-4/5 repair passes, the transits
 and the cross-patch folds; branch `exp/paper-skeleton`), the corpus keeps
 354 of 360 CORRECT with no WRONG, the losses add across groups with one
 exception, and four of the mechanisms have no corpus customer. That layer
-can be retired in place. The core (the construct pass, Stage-0 relocation,
+can be retired in place. Three of the four are deleted (the rim boost, the
+cross-patch folds, the transits). The fourth, edge-in-plane arm 2, stays:
+it has a customer the corpus does not hold, found by moving its anchoring
+case rigidly, and that check now precedes each removal. The core (the construct pass, Stage-0 relocation,
 Stage-1 meshing, the d(T) refusal, the classify order, the representation)
 was left on and is the open half of the question.
 
@@ -279,8 +282,10 @@ re-run. Specs: `specs/yang_452_cp_region.md` (L2, L3),
       phantom, relabel by one new ray, re-keep, with the sag re-meshed by
       L3. Customers: N68, and C0117, which today adopts only at the
       loop's ceiling (the Stage-1 rim boost that pre-empted it is deleted).
-- [ ] Retire the crease and corner transits into the loop (N87): the paper
+- [x] Retire the crease and corner transits into the loop (N87): the paper
       sends boundary and corner points to §4.5.2 (`:635-657`, Fig. 13).
+      Deleted 2026-11-13; the detection stays and the loop answers every
+      case they touched.
 - [ ] Finish §4.5.1 for interior points (N90): truncation at C_b,
       continuation on S1 (pinned, unwired), and q1/q2. Every surface pair,
       not only cone+plane and torus.
@@ -426,3 +431,4 @@ the first known item.
 | 2026-11-12 | Ablation experiment for the F5a design session (`specs/yang_paper_path.md`, branch `exp/paper-skeleton`): outer substitutes off → 354C / 0W, losses additive but for P0020; transits (N87), rim boost, cross-patch folds (N88) and edge-in-plane arm 2 (N64) have no corpus customer. No kernel change on main; the in-place / second-path choice stays open for the core | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-13 | Outer-layer retirement 1 (`specs/yang_paper_path.md` §6, owner ruling on named dips): the cross-operand rim boost `phantom_min_rim_segments` deleted. The §4.5.2 loop answers its cases (F0088 at density 2, C0117 at 16). Named dip: none in the corpus; one kernel pin, a coaxial tube with a 1e-5 wall, now stops loudly (customer of F3 item I2). Seed 6 verdict-identical, 188C / 0W / 10E / 2T | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-13 | Outer-layer retirement 2: the two a-priori Stage-1 folds deleted (`cyl_pair_phantom_n`, `face_rim_pair_phantom_n`; N88 amended, still OPEN for the chart-crossing re-run and the P0008 chord split). The re-run detects both configurations (§4.5.4). No named dip; thirteen outputs change, all CORRECT; seed 6 verdict-identical | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-13 | Outer-layer retirement 3: the crease and corner transits deleted (`solve_crease_transit`, `corner_transit_apply`, `stage4_transit.rs`, `stage4_corridor.rs`, about 15,000 lines with tests; **N87 RESOLVED**). The detection stays and the §4.5.2 loop answers every case they touched. No named dip; every corpus output bit-identical; seed 6 verdict-identical; 1,440 rotated corpus runs verdict-identical with and without them. Edge-in-plane arm 2 (N64) was to go too and stays: 68 of 640 rigid motions of its anchoring pair fail without it, which the corpus, the seed and the fast tier could not see. A rigid-motion sweep now precedes a removal. Measured on the way: 66 of 1,440 rotated runs of CORRECT cases do not reproduce the unrotated result (`docs/yang_tail_triage.md`, 2026-11-13) | 63 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

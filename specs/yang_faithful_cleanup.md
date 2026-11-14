@@ -29,7 +29,7 @@ Stage-1 arms and Stage-4 passes below.
 **Paper-first complement (2026-10-16):** `docs/audits/yang_2025_audit.md`
 walks the paper in order. It found mechanisms this table does not list — the
 Stage-0 Fig-11 relocation subsystem (U-2), the §4.5.1 transits on the
-boundary class (U-3), Stage-1 junction mints (O-3), and the
+boundary class (U-3, deleted 2026-11-13), Stage-1 junction mints (O-3), and the
 classify-before-update order (O-1) — and three paths where a known failure
 leaves without a STOP or a refinable site (F-1 to F-3). Its "What this
 changes" section lists the proposed changes to the phases below; none is
@@ -94,7 +94,7 @@ retire under the same rule as 2a–2c.
 |---|---|---|---|
 | Stage-1 exact junction mints (N82): rim-junction insertion, P3a conformal sampling, tangent boost | `boolean.rs` `boolean_once` (the "Increment 2" block, P3a #146, the boost), `boolean/rim_junction.rs` `rim_junction_overrides` | §4.4.1 junction identification AFTER optimization (`:546-571`) | retire into the §4.4.1 update (Phase 2) |
 | Stage-0 Fig-11 mesh updating (N86) | `stage0/reloc.rs` (~2.4k production lines: cavity relocation, Lawson flips, Fig-11(a) split / slide, Fig-11(b) backtrack) | §4.3 + §4.4.1 applied to overlay mints before Stage 1 | retire into the one §4.4.1 update (Phase 2); the §4.5.5 overlay itself stays |
-| crease and corner transits (N87) | `stage4_boundary_curve.rs` `solve_crease_transit`, `stage4_correct.rs` `corner_transit_apply` / `stage4_transit.rs` | §4.5.2 — the paper sends boundary and corner points there (`:635-657`, Fig. 13); §4.5.1 is for interior points | retire into the loop once its locality lands (Phase 1, N62 reopened); was listed under §5 "not touched" |
+| ~~crease and corner transits (N87)~~ | ~~`solve_crease_transit`, `corner_transit_apply`, `stage4_transit.rs`, `stage4_corridor.rs`~~ | §4.5.2 — the paper sends boundary and corner points there (`:635-657`, Fig. 13); §4.5.1 is for interior points | **DELETED 2026-11-13**: the detection stays (`crease_crossed_by_step`, the two domain postconditions) and `boolean::refine_loop` answers every case the transits touched |
 | Stage-1 mechanisms that read other patches (N88): the chart-crossing re-run, the P0008 planar-neighbour chord split. ~~Cylinder-pair phantom fold, thin-band rim fold~~ **DELETED 2026-11-13**: the re-run detects both configurations and derives the same rim count | `stage1_tessellate.rs` (`CHART_REFINE_ROUNDS`), `planar_neighbor_chords.rs` | §4.1 "discretize each patch independently" (`:397-402`) + the d_ε certificate | fold into the §4.1 certificate (Phase 3) |
 
 ## 3. Phases and acceptance
@@ -168,9 +168,7 @@ scope (D14), Stage-0 §4.5.5 and its n-ary extension (one honest customer,
 R0023) — its overlay, not the Fig-11 relocation subsystem in
 `stage0/reloc.rs`, which is §2d — the §4.3.3 tangent-point mint, the
 incidence-count triple gate, the §4.4.2 boundary restoration and its
-§4.3.4 acceptance test. (Until 2026-10-17 this list also named the §4.5.1
-corner transit; the compliance matrix found it is §4.5.1 applied to the
-class the paper sends to §4.5.2 — N87, now in §2d.)
+§4.3.4 acceptance test.
 
 ## 6. Ledger
 

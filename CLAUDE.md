@@ -121,7 +121,7 @@ off-surface vertex.
    parameter-domain substrate: surface interface + parameter coordinates,
    result-neutral → F2 §4.4.1 one per-patch update → F1's flip,
    classify-after-update N80 → F3 §4.5 locality / collection / Case-IV
-   rule-out / transits → F4 §4.3 → F5b Stage 1 as §4.1 and the B-spline
+   rule-out → F4 §4.3 → F5b Stage 1 as §4.1 and the B-spline
    instance → F6 Stage 0 & emission → F7 adjudication). F5a opens with a
    design session that decides in-place conversion versus a second,
    paper-ordered path (roadmap §3); no new increment is wired into the

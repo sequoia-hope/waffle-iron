@@ -334,12 +334,11 @@ pub enum Stage4InvalidReason {
     ///
     /// Sibling of [`Self::RelocationCrossedCarrierVertex`]: same defect class
     /// (an exact solution off the bounded face), detected on the junction arm
-    /// rather than the carrier-travel one. Yang §4.5.1's own trigger and
-    /// prescription — truncate the step to `C_b`, transit onto the neighbouring
-    /// surface, then solve the `q` points on `C_b`; until that repair lands,
-    /// this is the loud stop naming the site, instead of an out-of-domain
-    /// junction surfacing three stages later as a rejected output ring on a
-    /// different face.
+    /// rather than the carrier-travel one. This is Yang §4.5.1's own trigger.
+    /// At a point where three surfaces meet the paper does not glide across
+    /// the boundary; it refines (§4.5.1 `:653-657`, §4.5.2). This is the loud
+    /// stop naming the site, instead of an out-of-domain junction surfacing
+    /// three stages later as a rejected output ring on a different face.
     RelocationCrossedCrease,
 }
 

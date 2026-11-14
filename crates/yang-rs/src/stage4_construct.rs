@@ -472,6 +472,7 @@ pub(crate) fn collapse_patch_runs(
 /// (`unwrap_theta` refuses), so its unwrapped boundary spans < 2π and each
 /// interior vertex has exactly one branch landing inside that span — no
 /// tolerance, a branch containment check that fails loud.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn rebuild_patch_planar(
     mesh: &Mesh,
     patch_index: usize,

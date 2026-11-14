@@ -735,8 +735,8 @@ stay NotCovered) — P0007, 2026-09-29. Needs the sidecar
 (`scripts/build_sidecars.sh`). Cut chains are not covered (the tool is not
 re-authored). Measured 2026-09-03: R0044's union reads genus 1 by reference
 = the kernel's; R0053 read "genus 15" by reference vs the kernel's 1 under
-`YANG_453_SPAIR` (spec `yang_451_corner_transit.md` §3af) — and that
-reference reading was WRONG (§3ah): the sidecar's mesh was a closed
+`YANG_453_SPAIR` — and that reference reading was WRONG (spec
+`yang_451_corner_transit.md` §3ah): the sidecar's mesh was a closed
 manifold with 606 faces strictly inside the true solid. **A reference
 mesh's χ is a verdict only once the mesh itself is certified** — closed,
 manifold, and with no face inside the operands' exact union. The strongest

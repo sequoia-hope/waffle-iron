@@ -1001,87 +1001,6 @@ fn n106_d2_pin_c_repair_fan_cluster_panics_on_short_tri_bounds() {
     );
 }
 
-/// Pin (c.5): `transit_emission_write` panics in both debug and release builds
-/// when a `FillPolygon`'s `tri_bounds` vector is shorter than `tris`, rather
-/// than silently truncating triangles.
-#[test]
-#[should_panic(expected = "tri_bounds")]
-fn n106_d2_pin_c_transit_emission_write_panics_on_short_polygon_bounds() {
-    use crate::stage4_boundary_curve::{
-        transit_emission_write, BiteRegion, ChordBudget, FillPolygon, LiftSense,
-        TransitEmissionFill,
-    };
-    let mut mesh = Mesh::new(
-        vec![
-            pt(0.0, 0.0, 0.0),
-            pt(1.0, 0.0, 0.0),
-            pt(0.0, 1.0, 0.0),
-            pt(1.0, 1.0, 0.0),
-        ],
-        vec![[0, 1, 2]],
-    );
-    let mut attribution = TriangleAttributionMap {
-        attributions: vec![attr(InputId::A, 0)],
-    };
-    let mut side_labels = TriangleSideLabelMap {
-        labels: vec![side_lbl(0, [false, false], [true, false])],
-    };
-    let mut tri_bounds = TriangleErrorBoundMap::from_bounds(vec![0.0]);
-    let fill = TransitEmissionFill {
-        site: 0,
-        site_at: pt(0.0, 0.0, 0.0),
-        mints: vec![(4, pt(0.5, 0.0, 0.0)), (5, pt(0.0, 0.5, 0.0))],
-        removed: vec![0],
-        touched_delta: Vec::new(),
-        own_face: (InputId::A, 0),
-        notch_face: (InputId::A, 0),
-        notch_surface_agrees: Some(true),
-        bite: BiteRegion {
-            face: (InputId::A, 0),
-            contains_corner: Vec::new(),
-            crossed: Vec::new(),
-            corner_uv: (0.0, 0.0),
-        },
-        dropped: Vec::new(),
-        polygons: vec![FillPolygon {
-            face: (InputId::A, 0),
-            polygon: vec![0, 4, 2, 5],
-            tris: vec![[0, 4, 2], [2, 4, 5]],
-            bite: false,
-            lift: vec![Some(true), Some(true)],
-            tri_bounds: vec![0.0], // short! 1 < 2
-        }],
-        edge_defects: Vec::new(),
-        opposed: 0,
-        folded: 0,
-        added_folds: 0,
-        chord: vec![ChordBudget {
-            face: (InputId::A, 0),
-            old_max: Some(0.0),
-            new_max: Some(0.0),
-        }],
-        lift: vec![LiftSense {
-            face: (InputId::A, 0),
-            old_along: 1,
-            old_against: 0,
-            new_along: 2,
-            new_against: 0,
-            survivors_along: 0,
-            survivors_against: 0,
-            uncertified: 0,
-        }],
-        lift_flips: 0,
-        lift_uncertified: 0,
-    };
-    let _ = transit_emission_write(
-        &mut mesh,
-        &mut attribution,
-        &mut side_labels,
-        &mut tri_bounds,
-        &fill,
-    );
-}
-
 /// Review D2.2 pin: whenever `d_of_t` fails or a triangle's surface attribution
 /// is missing, the stored bound is `f64::NAN` — never `0.0` (which is reserved
 /// strictly for exact planar surfaces so an unknown bound can never masquerade
@@ -1210,10 +1129,9 @@ fn n106_d2_failed_d_of_t_and_unattributed_tris_store_nan_never_zero() {
 ///       surviving Stage-1 boundary = `tri_dt`, Stage-2 split = `recompute_tri_bound_from_world`),
 ///   (2) `retriangulate_collapsed_fan_regions_ex_with_bounds` (curved cylinder fan),
 ///   (3) `update_patches_ex_with_bounds` (new curved cylinder triangles),
-///   (4) `corner_transit_apply` (curved cylinder × box corner-clipping corridor),
-///   (5) `decimate_patch_chains_441_with_bounds` (curved cylinder × plane chain decimation),
-///   (6) `rebuild_merge_fan` + `apply_rebuild_batch` (curved cylinder fan rebuild),
-///   (7) `split_boundary_edge` + `apply_rebuild_batch` (curved cylinder edge split).
+///   (4) `decimate_patch_chains_441_with_bounds` (curved cylinder × plane chain decimation),
+///   (5) `rebuild_merge_fan` + `apply_rebuild_batch` (curved cylinder fan rebuild),
+///   (6) `split_boundary_edge` + `apply_rebuild_batch` (curved cylinder edge split).
 #[test]
 fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     use cherchi_rs::labeled_arrangement::InputId as LaInputId;
@@ -1757,150 +1675,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     }
 
     // -------------------------------------------------------------------------
-    // (4) `corner_transit_apply` on curved cylinder `cyl_t` × box `bx_t`:
-    // corner `q = (0, 0, 0)` of `bx_t` sits outside `cyl_t`'s Stage-1 chord
-    // polygon (`r_chord ≈ 19.50 < 19.8635`) and inside analytic `cyl_t` (`r = 20`),
-    // so triple relocation moves the `{A:0, B:0, B:1}` vertex along the y-axis
-    // from `y < 0` across `q = (0, 0, 0)` to `y > 0` (`TransitClass::Clip`).
-    // -------------------------------------------------------------------------
-    {
-        let cyl_t = rj_cylinder([-18.0, -19.5, 12.0], [0.0, 0.6, -0.8], 20.0, 30.0);
-        let cyl_t_surf = cyl_t.faces()[0].surface;
-        let cyl_t_chart = SurfaceChart::new(cyl_t_surf).expect("cyl_t chart");
-        let bx_t = rj_box([0.0, -4.0, 0.0], [10.0, 0.0, 10.0]);
-
-        let (_la, mut mesh, _orig, mut attribution, mut side_labels) =
-            build_kept_subtract(&cyl_t, &bx_t, false);
-        let entry: Vec<[f64; 3]> = mesh.verts.iter().map(|p| p.as_array()).collect();
-
-        // Collect per-vertex `(InputId, face)` memberships so we relocate
-        // intersection vertices onto the analytic cylinder surface (`A:0`)
-        // combined with their incident `bx_t` planes, matching Stage-4 entry to
-        // `corner_transit_apply`.
-        let mut v_patches: BTreeMap<u32, BTreeSet<(InputId, u32)>> = BTreeMap::new();
-        for (ti, tri) in mesh.tris.iter().enumerate() {
-            if let Some(at) = attribution.lookup(ti as u32) {
-                for &v in tri {
-                    v_patches.entry(v).or_default().insert((at.input, at.face));
-                }
-            }
-        }
-        let radial_project_in_plane = |p: Point3, fix_x: bool, fix_z: bool| -> Point3 {
-            let [mut x, mut y, z] = p.as_array();
-            // Cylinder implicit: `(x + 18)^2 + (0.8 (y + 10.5) + 0.6 z)^2 = 400`.
-            for _ in 0..12 {
-                let u = x + 18.0;
-                let w = 0.8 * (y + 10.5) + 0.6 * z;
-                let f = u * u + w * w - 400.0;
-                if fix_x && fix_z {
-                    let df_dy = 2.0 * w * 0.8;
-                    y -= f / df_dy;
-                } else if fix_z {
-                    // Project along gradient in `(x, y)` with `z` fixed.
-                    let (gx, gy) = (2.0 * u, 1.6 * w);
-                    let g2 = gx * gx + gy * gy;
-                    x -= f * gx / g2;
-                    y -= f * gy / g2;
-                } else if fix_x {
-                    // `x` fixed (`x = 0`): move `y` or `(y, z)`? Wait: on `x = 0` (`facet_k`),
-                    // keep `z` if also on `z = 4`, else project along `w` in `(y, z)`.
-                    let (gy, gz) = (1.6 * w, 1.2 * w);
-                    let g2 = gy * gy + gz * gz;
-                    y -= f * gy / g2;
-                }
-            }
-            pt(x, y, z)
-        };
-        for (&v, ps) in &v_patches {
-            if !ps.contains(&(InputId::A, 0)) {
-                continue;
-            }
-            let b_faces: Vec<u32> = ps
-                .iter()
-                .filter(|&&(op, _)| op == InputId::B)
-                .map(|&(_, f)| f)
-                .collect();
-            if b_faces.len() >= 2 {
-                let s1 = bx_t.faces()[b_faces[0] as usize].surface;
-                let s2 = bx_t.faces()[b_faces[1] as usize].surface;
-                if let Some(sol) = crate::stage4_relocate::relocate_onto_implicit_triple(
-                    mesh.verts[v as usize],
-                    cyl_t_surf,
-                    s1,
-                    s2,
-                ) {
-                    mesh.verts[v as usize] = sol;
-                }
-            } else if b_faces.len() == 1 {
-                let bf = b_faces[0];
-                let p0 = mesh.verts[v as usize];
-                let n = match bx_t.faces()[bf as usize].surface {
-                    Surface::Plane { normal, .. } => normal.as_array(),
-                    _ => continue,
-                };
-                if n[2].abs() > 0.5 {
-                    mesh.verts[v as usize] = radial_project_in_plane(p0, false, true);
-                } else if n[0].abs() > 0.5 {
-                    mesh.verts[v as usize] = radial_project_in_plane(p0, true, false);
-                }
-            }
-        }
-
-        let mut tri_bounds = TriangleErrorBoundMap::from_bounds(
-            (0..mesh.tris.len()).map(|i| 700.0 + i as f64).collect(),
-        );
-        let applied = crate::stage4_correct::corner_transit_apply(
-            &mut mesh,
-            &mut attribution,
-            &mut side_labels,
-            &mut tri_bounds,
-            &cyl_t,
-            &bx_t,
-            &entry,
-            false,
-        )
-        .expect("corner_transit_apply must not error");
-        assert!(
-            applied,
-            "corner_transit_apply must fire and apply on curved cylinder × box"
-        );
-        tri_bounds.assert_lockstep(mesh.tris.len(), "after curved corner_transit_apply");
-
-        let mut n_new_cyl = 0usize;
-        for (ti, &tri) in mesh.tris.iter().enumerate() {
-            let bound = tri_bounds.lookup(ti as u32);
-            if bound >= 700.0 {
-                continue;
-            }
-            if attribution.lookup(ti as u32) == attr(InputId::A, 0) {
-                n_new_cyl += 1;
-                let uv_tri = tri.map(|vi| cyl_t_chart.project(mesh.verts[vi as usize]));
-                let exact_dt = crate::stage4_dt::d_of_t(&cyl_t_surf, uv_tri)
-                    .expect("d_of_t on corner_transit cylinder tri");
-                assert!(
-                    bound > 0.0,
-                    "new curved corner_transit cylinder tri {ti} must have positive d(T)"
-                );
-                assert_eq!(
-                    bound.to_bits(),
-                    exact_dt.to_bits(),
-                    "new curved corner_transit cylinder tri {ti} bound must equal d_of_t"
-                );
-            } else {
-                assert_eq!(
-                    bound, 0.0,
-                    "new planar corner_transit tri {ti} must carry exact 0.0"
-                );
-            }
-        }
-        assert!(
-            n_new_cyl > 0,
-            "corner_transit_apply must refill >= 1 curved cylinder triangle"
-        );
-    }
-
-    // -------------------------------------------------------------------------
-    // (5) `decimate_patch_chains_441_with_bounds` on curved `cyl5` × `plane_y0`:
+    // (4) `decimate_patch_chains_441_with_bounds` on curved `cyl5` × `plane_y0`:
     // 20-vertex dense `5e-5` generator chain at `(5.0, 0.0, z)` decimates and
     // refills the curved cylinder patch via `refill_fan_hole_seeded_with_bounds`.
     // -------------------------------------------------------------------------
@@ -2002,7 +1777,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     }
 
     // -------------------------------------------------------------------------
-    // (6) Fan rebuild (`rebuild_merge_fan` + `apply_rebuild_batch`) on curved `cyl5`.
+    // (5) Fan rebuild (`rebuild_merge_fan` + `apply_rebuild_batch`) on curved `cyl5`.
     // -------------------------------------------------------------------------
     {
         let mut fan_mesh = Mesh::new(
@@ -2062,7 +1837,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     }
 
     // -------------------------------------------------------------------------
-    // (7) `split_boundary_edge` + `apply_rebuild_batch` on curved `cyl5`.
+    // (6) `split_boundary_edge` + `apply_rebuild_batch` on curved `cyl5`.
     // -------------------------------------------------------------------------
     {
         let mint = cyl5_chart.lift(Point2::new(0.2, 0.0));
