@@ -5386,8 +5386,10 @@ Every failure is a typed error; none is a wrong body. This is the rounding
 luck the 2026-09-27 experiment above measured at 1 in 9, and arm 1 does not
 remove it, because an oblique plane cannot hold the identified edge exactly.
 Arm 2 stays. Pin: `s455_rigid_motions_all_union_at_the_control_volume`
-(320 of the 640). **State unchanged:** PROPOSED, both arms, pending the
-owner's sign-off. What the measurement adds to that request: without the
+(320 of the 640). The owner ruled on 2026-11-14: keep arm 2. **State
+unchanged:** PROPOSED, both arms. The ruling keeps the code; it is not the
+prose sign-off that the §4.5.5 reading (an edge in a plane, one dimension
+down) still needs. What the measurement adds to that request: without the
 shared segment, about one orientation in ten of an edge lying in a partner
 face fails loudly.
 
