@@ -200,11 +200,15 @@ in the order §3 gives:
    is held throughout; where outputs change, the gate is the oracle verdict,
    since the hash cannot be. For the transits the rigid-motion sweep was
    the whole corpus: 360 CORRECT cases, four motions each, with and without
-   them, 1,440 verdicts and none different.
+   them, 1,440 verdicts and none different. The same sweep, run late for
+   the rim boost, names a dip the corpus could not show: C0117 stops at the
+   §4.5.2 ceiling in 4 of 4 motions without the boost (F3 item I2's
+   customer). The sweep is `crates/test-harness/tests/rigid_motion_sweep.rs`.
 2. Rim-junction insertion, the P3a mints and the Stage-4/5 repairs, at a
    named dip of at most seven corpus cases, which become customers of F2
-   (§4.4.1) and F3 (§4.5). The same two checks come first, and a seed case
-   lost with them is named too. `s4` is split before it is retired, so that
+   (§4.4.1) and F3 (§4.5). The same checks come first — a seed, the fast
+   tier and the rigid-motion sweep — and a case lost in any of them is
+   named too. `s4` is split before it is retired, so that
    each of its four passes goes in its own commit with its own cases. Two of
    the seven (P0029, F0058) are stopped by kernel-v2's validation of the
    finished body and not by yang-rs; each gets a yang-rs stop that names the

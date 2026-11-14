@@ -614,6 +614,48 @@ oracle, which reads the same document. A generated candidate whose build
 stopped at a harness error still has the failing feature (and its engine
 error) in the document — that is what the categorizer reads.
 
+## Running the rigid-motion sweep (does a case survive being rotated?)
+
+The corpus, the prospector seeds and the suites hold each case in the
+orientation it was authored in. `rigid_motion_sweep` moves one corpus case
+by seeded rigid motions and reads each moved build against the unmoved one,
+at kernel level (engine errors, failed auto-unions, body count, per-body
+Euler characteristic, volume), not through the categorizer, whose
+exact-membership lattice is rotation-dependent on revolves.
+
+```bash
+SWEEP_CASE=P0054 SWEEP_N=4 cargo test -p test-harness \
+  --test rigid_motion_sweep --release sweep -- --ignored --nocapture
+```
+
+One `SWEEP` line per motion: `OK`, `ERR` (loud: an engine error, or an
+auto-union that failed), or `DIFF` (built without complaint and differs
+from the unmoved build). A `DIFF` with a different volume is a wrong model;
+read those first. `steps` (`SWEEP_K` picks the motion) builds the document
+truncated after each operation to find the first one whose result differs.
+
+The whole corpus, four motions a case, takes about ten minutes at 14 jobs.
+Build once, then run the test binary per case:
+
+```bash
+cargo test -p test-harness --test rigid_motion_sweep --release --no-run
+mkdir -p /tmp/sweep
+BIN=$(ls -t target/release/deps/rigid_motion_sweep-* | grep -v '\.d$' | head -1)
+ls app/tests/cases/assay/*.waffle | xargs -n1 basename | sed 's/\.waffle$//' \
+  | xargs -P 14 -I{} sh -c \
+    "SWEEP_CASE={} SWEEP_N=4 $BIN --ignored --nocapture sweep 2>/dev/null | grep '^SWEEP' > /tmp/sweep/{}.txt"
+```
+
+Motions are seeded by case id, so two trees draw the same ones. To judge a
+kernel change, run the sweep from a tree with it and a tree without and
+diff the verdict column. A removal of a kernel mechanism runs this first
+(`specs/yang_paper_path.md` §6): edge-in-plane arm 2 moved nothing in the
+corpus, a prospector seed or the fast tier, and 68 of 640 rigid motions of
+its anchoring pair fail without it.
+
+Baseline, 2026-11-13: of 1,440 rotated runs of the 360 CORRECT cases, 66 do
+not reproduce the unmoved result (`docs/yang_tail_triage.md`).
+
 ## Running the SI5 corpus gate (exact STEP ingestion over real CAD)
 
 `crates/test-harness/tests/si5_c7_corpus_gate.rs` (SI5 checkpoint C7,

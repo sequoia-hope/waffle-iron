@@ -43,6 +43,38 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-13 (rotation sweep at main's tip; the rim boost's cost under rotation NAMED) — **C0117 passes only in the orientation it was authored in: a named dip of the rim boost removal (`d4c658b4`), customer of F3 item I2**
+
+`crates/test-harness/tests/rigid_motion_sweep.rs` (recipe: `docs/TESTING.md`
+§"Running the rigid-motion sweep"), run on the whole corpus after the rim
+boost, the Stage-1 folds and the transits were deleted and `extent_along`
+was fixed: 360 CORRECT cases, four rigid motions each.
+
+| | reproduce the unmoved result | do not | cases |
+|---|---|---|---|
+| base `723c0283`, before the four changes | 1,373 | 67 | 31 |
+| main's tip | 1,371 | 69 (62 loud, 7 quiet) | 30 |
+
+What moved between the two rows, each attributed by switching one mechanism
+on `exp/paper-skeleton`:
+
+- **C0117, 4 of 4 motions lost: the rim boost.** With the boost on, all
+  four motions pass; with it off, all four stop with `§4.5.2 local
+  refinement ended with 36 unresolved failure site(s)`. The unrotated case
+  adopts only at the loop's ceiling (density 16), so it had no margin, and
+  the corpus could not show the loss. Typed error, never a wrong body. It
+  is the roadmap's own customer of F3 item I2 (Case-IV rule-out on the full
+  arrangement), now on record as failing under rotation until I2 lands.
+- **R0019, 2 motions lost, and R0032, 1 gained: the rim boost and the
+  folds together** (kernel-v2 `TessellationFailed` either way; R0019 already
+  failed 1 of 4 on the base).
+- **P0054, 3 gained:** the `extent_along` fix (entry below).
+- **The transits: nothing.** 1,440 verdicts identical with and without.
+
+The 7 quiet differences at the tip: F0055 ×2, F0060, F0094 ×2, R0057 (same
+volume, different body count or vertex/edge count) and F0076 (volume 3e-6
+off). None has been examined.
+
 ## 2026-11-13 (kernel-v2 `extent_along`: a circle measured along its own axis) — **a wrong model with no error, found by rotating the corpus: P0054 moved rigidly kept material its last cut should have removed**
 
 Not a Yang mechanism; the booleans were right. P0054 is an extrude and three
@@ -92,8 +124,8 @@ corner. Both are deleted with their planner, emission chain and census
 **What the rotation sweep measured about the kernel itself** (transits on,
 base `723c0283`; kernel-level verdict: errors, auto-union warnings, body
 count, Euler characteristic, exact volume, against the same document
-unrotated). Of 1,440 rotated runs of the 360 CORRECT cases, 1,374 reproduce
-the unrotated result and 66 do not, in 30 cases. The corpus holds each case
+unrotated). Of 1,440 rotated runs of the 360 CORRECT cases, 1,373 reproduce
+the unrotated result and 67 do not, in 31 cases. The corpus holds each case
 in the orientation it was authored in, so none of this shows in its score.
 
 - 57 are typed errors or failed auto-unions: 13 kernel-v2
@@ -103,10 +135,11 @@ in the orientation it was authored in, so none of this shows in its score.
   3 of 4 motions, P0020 in 3, F0060 in 3, C0010 in 4).
 - 3 are a wrong model with no error: P0054, whose last cut removes nothing.
   Cause and fix: `kernel_v2::extent` (the entry above this one).
-- 6 return the same volume with a different body count or vertex/edge
-  count (F0055, F0060, F0094), or a volume 3e-6 off (F0076). Unexamined.
+- 7 return the same volume with a different body count or vertex/edge
+  count (F0055, F0060, F0094, R0057), or a volume 3e-6 off (F0076).
+  Unexamined.
 
-These are measurements, not customers of this removal: the same 66 fail
+These are measurements, not customers of this removal: the same 67 fail
 with the transits off.
 
 
