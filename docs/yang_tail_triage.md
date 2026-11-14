@@ -43,55 +43,99 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
-## 2026-11-14 (the seven quiet rotation mismatches read) — **F0076 is a WRONG: the kernel loses a crossing the surfaces have, depending on where the cylinder's mesh samples fall; the other six keep their volume and differ in how the same material is grouped**
+## 2026-11-14 (the seven quiet rotation mismatches read) — **F0076 moved rigidly is a silent wrong model: it holds material that neither operand has. R0057's moved build is not shown equal. The other five keep their exact volume and differ in faces or bodies; which grouping is right is not determined**
 
 The seven builds the rotation sweep marked quiet (no error, different result;
 entry below) were read with the probes of `docs/TESTING.md` §"Running the
-rigid-motion sweep". Only F0076's volume changes.
+rigid-motion sweep" and a scratch test over `KernelIntrospect`. The corpus
+figure does not move: every case is CORRECT as authored. This entry replaces
+the first reading (`a59fafe0`), which called F0076 a lost crossing and counted
+R0057 as volume-equal.
 
-**F0076 (a silent wrong model, 6e-6 of the volume).** The difference starts at
-operation 3, a cylinder extruded from the top of a box and merged with it. The
-cylinder's radius (0.11529) exceeds the box's half-width (0.11463) by 0.66 mm, so
-a 1.06e-5 sliver of the cylinder's base disc overhangs the box's side wall.
-- The independent volume of the first three operations (inclusion–exclusion
-  of the convex pieces, the cylinder–box intersection extrapolated over the
-  polygon's side count; scipy) is 0.029374896126, which equals the unmoved
-  build (0.02937489612616, 16 faces) to twelve digits.
-- Under motion 2 the kernel returns 0.02937507081560 with 15 faces: the
-  overhang's base face is absent, and no error or warning says so.
-- Spinning ONLY the cylinder's sketch about its own axis (same geometry,
-  `plane_x_axis` rotated in 5° steps) flips the result between the two with a
-  period of 30° — the phase of the cylinder's mesh samples against the wall.
-  Wrong at 10°–20° (mod 30°), right at 25°–35° (mod 30°): half the phases.
-- The paper's §4.2.1 names this case: "Case III the meshes miss intersections",
-  filtered by the distance threshold d_ε through the 2d_ε octree
-  (`refs/text/yang2025_hybrid_boolean.txt:432-447`). The kernel has that
-  detection (`shell_contact.rs:295`, audit row 4.1-27), so the crossing is lost
-  somewhere between the detection and the output. WHERE is not yet found.
-  Next step: the census of that pair (cylinder triangles near the wall)
-  at the wrong phase against the right one, before any change.
+**F0076 (motion 2; exact volume 5.9e-6 too large; no error, no warning).**
+- **Where.** Operation 3, a cylinder extruded from the top of the second box
+  and merged. Radius 0.115293 against a box half-width of 0.114630; the axes
+  are 2.448° apart and the base disc is centred on the box top. On one side
+  the disc dips below the box top, and there a 1.0583e-5 sliver of it lies
+  outside the box's side wall.
+- **The unmoved build is right.** 16 faces, exact volume 0.02937489612616. An
+  independent value (inclusion–exclusion of the convex pieces, the cylinder a
+  circumscribed polygon extrapolated over its side count; scipy) is
+  0.029374896126156.
+- **The moved build is wrong by an identified solid.** 15 faces, exact volume
+  0.02937507081560. Against the right build: the sliver face is absent, the
+  wall face is 6.7258576e-4 smaller, the cylinder face is larger, the volume is
+  1.7468944e-7 larger; every other face area is equal. Those are the numbers
+  of the UNBOUNDED cylinder below its own base disc and outside the wall,
+  integrated in closed form from the document: volume 1.746894e-7, area cut
+  from the wall plane 6.725858e-4. The emitted wall face carries one curved
+  edge on the cylinder between the two points where cylinder, wall and box top
+  meet, and that edge runs to 41.26 mm BELOW the base disc (axial height
+  −4.12559e-2 to +2.30263e-3), where the cylinder's face does not exist. In the
+  right build the same two points are joined through the base rim: two short
+  edges down to the disc plane, the sliver's two arcs and its 24.4 mm chord.
+- **It depends on where the rim samples fall.** Spinning only the circle's
+  sketch about its own axis (`plane_x_axis` in 5° steps, geometry unchanged)
+  flips the result with a period of 30°: right at 25°–35° (mod 30°), wrong at
+  10°–20°. The cylinder's regular chords span 30° (T6 prints their deviation,
+  3.9287e-3 = r·(1 − cos 15°)), and the base circle is outside the wall over a
+  window of about 12°; the two readings agree with "right when a regular sample falls
+  in the window", which is an inference, not a measurement of the Stage-1 mesh.
+- **Nothing is recorded.** In the wrong phase `YANG_452_PROBE` prints no
+  `[s452]` line: the natural result has an empty failure set and is adopted,
+  so the §4.5.2 loop never runs. `YANG_T6_PROBE` admits no pair, and
+  `YANG_N100_CENSUS` (items 1, 2, 4, 5) prints nothing in either phase, so
+  this is not N100's zero-distance skip as that census defines it.
+- **Not yet found — two questions, neither answered.**
+  1. Why §4.2.1 admits nothing. The meshes miss a crossing the surfaces have
+     (Case III, `refs/text/yang2025_hybrid_boolean.txt:438-448` left). One
+     candidate, unmeasured: the wall and the base disc are both planes, so
+     their pair's reach is the 2e-7 band (T6: `coarse d=1.2982e-3 > reach
+     2.0000e-7`), although the disc's mesh boundary is a chord polygon up to
+     3.9 mm inside its circle. The paper gives the triangles on boundary curves
+     the offset d(T) (`:435-438` right; ledger N93, audit rows 4.2-03 and
+     4.2-06).
+  2. Which stage typed that edge as the long arc, and why no check holds an
+     emitted edge inside the faces it bounds. Its endpoints are in both faces;
+     its interior leaves the cylinder's face.
+- **Next step.** The Stage-1 rim samples and the arrangement's edges at that
+  site in the wrong phase against the right one (answers the inference above
+  and question 1), then the stage that types the edge. No kernel change before
+  both are read. Repro: the `phase1` test of `~/wt/sweep-scratch/zz_scratch_review.rs.txt`
+  (`DEG=15` wrong, `DEG=0` right; first three operations only).
 
-**The other six (volume equal; no wrong material).**
-- F0055 (k=0, 1): the same surfaces are partitioned into more faces (one face
-  of 1.93e6 is four of 4.83e5; one of 1.06e7 is three pieces).
-- F0060 (k=2): four separate wedge bodies unmoved; two of them are one body
-  moved (their coplanar faces merge, 0.1414 + 0.1414 → 0.2827).
-- F0094 (k=0, 3): two cylinders whose end discs touch over a lens of 0.1518
-  are one body unmoved and two bodies moved (`Add: target body(ies) remain
-  disjoint from the tool; kept as separate bodies`). A rotated plane cannot
-  hold the contact exactly, so face contact reads as a gap.
-- R0057 (k=0): two more vertices and edges, one face area 4e-5 off; the
-  mesh volume agrees to 4e-6. Not read further.
-- These are grouping differences, not wrong material, and the sweep's
-  verdict compares bodies and χ, which is why they print `DIFF`. They are not
-  customers of any milestone yet; what the paper wants for a face-touching
-  union is not read.
+**R0057 (motion 0) — not shown equal; unread.** The moved build has no exact
+volume (`CurvedGeometryMismatch … torus patch loop winds around the axis or the
+tube`), so the sweep compared render meshes at 1e-2. V 10 → 16, E 15 → 20,
+χ 3 → 4, 8 faces in both. The seven planar faces agree to ten digits; the
+toroidal face reads 1.338177e4 against 1.338230e4; the mesh volumes differ by
+4.4e-6 (2.842617e5, 2.842605e5). An error of F0076's size would pass this
+comparison.
 
-The probe's blind spot, found here: F0076's χ is 6 in both builds (16 faces
-against 15), so only its volume gave it away, and the missing face was a
-sliver. A sliver on a larger part would pass the 1e-9 volume check
-too only if it carried no volume; a comparison of the sorted face areas would
-catch it, and the probe does not make one yet.
+**The other five (exact volume equal to the printed twelve digits).**
+- F0055 (motions 0, 1): V 40 → 21 / 20, E 45 → 32 / 29, F 8 → 13 / 11, χ 3 → 2.
+  One face of 1.9314e6 is four of 4.8285e5 (two of those and one of 9.6571e5
+  under motion 1); one of 1.05998e7 is three (two) faces whose areas sum 8e-6
+  (6e-6) short. Which faces, and whether the shortfall is the area of a curved
+  boundary read from samples, is not read.
+- F0060 (motion 2): four bodies of 6.4115e-3 unmoved; three moved, one of them
+  two of the four joined (planar face 0.2827 = 2 × 0.1414, cylinder face
+  0.3599 = 2 × 0.1800). Whether the two pieces share more than a line, and so
+  which body count is right, is not determined.
+- F0094 (motions 0, 3): two cylinders whose end discs overlap on a lens of
+  0.1518 are one body unmoved and two bodies moved, with the engine warning
+  `Add: target body(ies) … remain disjoint from the tool; kept as separate
+  bodies`. The moved build does not find the face contact. Why is not
+  measured (the coplanar pair is Stage 0's, §4.5.5).
+- None of the five is attached to a milestone yet.
+
+**What the probe cannot see, found here.**
+- Where either build has no exact volume the verdict falls back to the render
+  mesh at 1e-2, which a wrong sliver of F0076's size passes (R0057 above).
+- The verdict counts a failed auto-union as loud but not the `remain
+  disjoint` warning, so F0094 prints `DIFF`.
+- Equal bodies, χ and volume do not imply equal faces; the probe compares no
+  face areas.
 
 ## 2026-11-13 (rotation sweep at main's tip; the rim boost's cost under rotation NAMED) — **C0117 passes only in the orientation it was authored in: a named dip of the rim boost removal (`d4c658b4`), customer of F3 item I2**
 
