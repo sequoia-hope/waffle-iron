@@ -137,6 +137,11 @@ fix to a red main and for mechanism-free changes, and every use is logged.
   own shell).
 - Test tiers: `./scripts/test.sh rewrite` after any low-stack (yang-rs,
   cherchi-rs, kernel-v2) change before you call it done.
+- **The rewrite tier and the push gate do not run test-harness.** A kernel
+  change that adds a check able to refuse a build (a trigger, a certificate,
+  a postcondition) also runs CI's always-on harness job before the push:
+  `cargo test --release -p test-harness --no-fail-fast -- --skip smoke_corpus_boundary_categories`.
+  The corpus and the rigid-motion sweep hold no board or assembly shapes.
 - **Cross-browser GUI (Firefox / WebKit) reds are often the environment or
   the test, not the app.** Firefox on a GPU-less box has no WebGL unless it
   has an X display (`xvfb-run`) plus `webgl.force-enabled`; without WebGL

@@ -43,6 +43,56 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-15 (T9 refused a correct build: a hole beside a rounded corner) — **the certificate read a face's side of a curved divider from its mesh vertices; the mesh is its triangles. Corpus and sweep unchanged; the red test-harness board test is green**
+
+The 2026-11-14 change below went in on the rewrite tier, the corpus and the
+whole-corpus rigid-motion sweep, and CI's `Rust tests` went red on it:
+test-harness `board_shape_kv2`
+`board_with_arc_corners_cutouts_keepouts_cw_winding_and_thickness_expr`
+(the always-on harness job; neither the rewrite tier nor the push gate runs
+test-harness). The build it refused is correct.
+
+- **The site.** A 60 × 40 × 1.6 mm board with 5 mm rounded corners; the
+  operation subtracts a mounting hole of r 1.5 mm centred 3 mm in from a
+  corner arc's centre on both axes (4.24 mm from it). The hole's circle on
+  each cap is typed correctly — cap ∩ hole cylinder.
+- **What fired.** `the curve on edge (48,49) leaves A:12 across edge 26 by
+  1.221e-3`: A:12 is the cap, edge 26 the corner arc. 21 `CurveLeftDomain`
+  sites at the natural run, then 42, 82, 160 and 320 at densities 2 to 16 —
+  the samples of the same circle — and the loop ended at its ceiling.
+- **Why.** A circle crease on a planar face has the circle's cylinder as its
+  divider (`crease_divider_for`). `face_sides` took the side on which every
+  mesh vertex of the face lies. The cap's vertices are its boundary's: all
+  on or outside the corner's cylinder. The cap covers that cylinder's whole
+  disc, and the part of the hole's circle inside it (to 2.26 mm deep) is on
+  the cap. Vertices on one side put a face on that side only when that side
+  is convex: true of a plane's two sides, false of a cylinder's outside.
+- **The change (yang-rs, N107 corrected).** The vertices name the candidate
+  side; the face's mesh triangles confirm it. `divider_range_on_triangle`
+  gives a divider's least and greatest distance over a whole triangle (a
+  plane: its corners; a cylinder: the corners for the greatest, the nearest
+  approach to the axis for the least; a cone: declined). A mesh that extends
+  to the other side by more than the face's margin has no side; a smaller
+  extent (`reach`: a hole's chords dip inside its cylinder by their sagitta)
+  is added to the depth a sample must pass. It only withdraws certificates.
+
+**Measured.**
+- `board_shape_kv2`: 5 of 5 pass (the red one had 625 fire lines; now none).
+- Corpus: 360C / 0W / 9E / 5EE / 0T, `results.json` byte-identical to the
+  committed one; the certificate's 129 fire lines are the same 129.
+- Rigid-motion sweep, whole corpus, four motions a case: all 374 verdict
+  files identical to the 2026-11-14 run (1,375 `OK` / 110 `ERR` / 11
+  `DIFF`), the 597 fire lines the same 597. F0076 reproduces in 4 of 4.
+- Pins, both red with the triangle reading switched off:
+  `crates/kernel-v2/tests/s43_curve_domain_rounded_corner_hole.rs` (the
+  site at kernel level, exact volume) and
+  `tests_unit/s43_curve_domain.rs::a_face_that_covers_a_cylinder_its_corners_are_all_outside_gets_no_side`.
+- CI's always-on harness job (`cargo test --release -p test-harness --no-fail-fast -- --skip smoke_corpus_boundary_categories`): 105 binaries, 675 passed, 0 failed. Rewrite tier green.
+
+**What this does not do.** The certificate is narrower still (N107 item
+1 b, d): no side against a cone divider, and none where the mesh is on both
+sides. R0057 and the five quiet rotation mismatches are untouched.
+
 ## 2026-11-14 (F0076 moved rigidly: cause found, the silent body is now a §4.5 site) — **the Stage-1 junction mints turned a crossing into a touch, and Stage 3 typed the touching chord as an arc that leaves the cylinder face; trigger T9 holds an intersection curve's interior to its faces' domains, and the loop builds the right solid at every rim phase**
 
 Both questions of the entry below are answered. The corpus figure does not

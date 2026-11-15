@@ -8698,13 +8698,16 @@ each typed intersection edge will carry (`boolean::failures::sample_output_edge`
 the arc as kernel-v2 reads it) and reads every interior sample against the
 creases (`stage4_boundary_curve::CreaseIndex`) of each input face the edge's
 triangles are attributed to. `face_sides` gives each crease's divider the
-side its face occupies — the one side on which every Stage-1 mesh vertex of
-that face lies — and a margin: the face's largest triangle deviation from
-its surface, or the operand's rim chord bound for a face with a curved
-boundary (§4.2.1, `:449-450`: the surface is within d_ε of its mesh). A
-sample beyond a divider on the other side by more than the divider's
-evaluation band plus that margin is a `CurveLeftDomain` site (T9) naming the
-faces on the edge; `boolean::refine_loop` refines them. F0076's site clears
+side its face occupies and a margin: the face's largest triangle deviation
+from its surface, or the operand's rim chord bound for a face with a curved
+boundary (§4.2.1, `:449-450`: the surface is within d_ε of its mesh). The
+side is the one every Stage-1 mesh vertex of the face lies on, kept only
+when the face's mesh TRIANGLES do not extend to the other side by more than
+the margin (`divider_range_on_triangle`; that extent is the crease's
+`reach`). A sample beyond a divider on the other side by more than the
+divider's evaluation band plus the margin plus the reach is a
+`CurveLeftDomain` site (T9) naming the faces on the edge;
+`boolean::refine_loop` refines them. F0076's site clears
 at the first rung (×2 puts a rim sample in the window), all 72 rim phases
 build the document's exact volume, and the corpus is unchanged
 (360C / 0W / 9E / 5EE / 0T, every result line identical but F0064's error
@@ -8714,10 +8717,27 @@ text).
 1. *A certificate, not membership.* The paper tests the point against the
    surface's trimmed parameter domain. This reads a side per crease, so it
    is silent where (a) the arc leaves its face by less than the margin — the
-   face's own d_ε; (b) the face has Stage-1 vertices on both sides of that
+   face's own d_ε; (b) the face's Stage-1 mesh lies on both sides of that
    crease's divider (a face not convex toward the crease, a full cylinder's
-   seam); (c) the crease is a `SurfacePair` edge, which `CreaseIndex`
-   declines. It never fires on an in-domain point, given §4.2.1's bound.
+   seam, a plate against the cylinder of its own rounded corner); (c) the
+   crease is a `SurfacePair` edge, which `CreaseIndex` declines; (d) the
+   divider is a cone (a hyperbola's or a parabola's crease on a planar
+   face), whose range over a triangle `divider_range_on_triangle` does not
+   bound. It never fires on an in-domain point, given §4.2.1's bound.
+
+   *Correction, 2026-11-15.* As landed on 2026-11-14 the side was read from
+   the mesh VERTICES alone, which is the mesh only against a plane. A circle
+   crease on a planar face has its cylinder as divider; a plate's vertices
+   are all on or outside the cylinder of its rounded corner, and the plate
+   covers that cylinder's disc. A hole drilled there (r 1.5 mm, 4.24 mm
+   from the centre of a 5 mm corner) read as leaving the cap: 21
+   `CurveLeftDomain` sites at the natural run, 320 at density 16, and the
+   subtraction refused — test-harness
+   `board_with_arc_corners_cutouts_keepouts_cw_winding_and_thickness_expr`,
+   red in CI on `fe13dfaf` (the corpus, the sweep and the rewrite tier hold
+   no such plate). The triangles are now read; pins
+   `kernel-v2/tests/s43_curve_domain_rounded_corner_hole.rs` and
+   `tests_unit/s43_curve_domain.rs`, both red with the reading switched off.
 2. *Curved edges only.* A `LineSegment` intersection edge (plane × plane) is
    not read; a straight chord between two points of a face leaves it only
    where the face is not convex, which is case (b).

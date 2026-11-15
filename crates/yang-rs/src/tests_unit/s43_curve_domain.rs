@@ -140,3 +140,75 @@ fn a_face_with_witnesses_on_both_sides_of_a_divider_gets_no_side() {
     let sides = face_sides(&c, 0, &[crease]);
     assert_eq!(sides.sign, vec![None]);
 }
+
+/// The top cap of [`closed_cylinder`] read against one crease whose divider
+/// is the cylinder of radius `r` about the +z line through `(x, 0)`.
+fn cap_against_cylinder(x: f64, r: f64) -> crate::stage4_correct::FaceSides {
+    let c = closed_cylinder(1.0, 2.0);
+    let index = CreaseIndex::build(&c);
+    let mut crease = index.faces[2][0];
+    crease.divider = Surface::Cylinder {
+        axis_point: Point3::new(x, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        radius: r,
+    };
+    face_sides(&c, 2, &[crease])
+}
+
+#[test]
+fn a_face_that_covers_a_cylinder_its_corners_are_all_outside_gets_no_side() {
+    // A plate with a rounded corner, as a hole drilled beside that corner
+    // meets it (test-harness `board_with_arc_corners_…`, 2026-11-15): the
+    // corner arc's divider is its whole cylinder, every mesh vertex of the
+    // plate's cap is on or outside it, and the cap covers its disc. Here the
+    // unit disc against a cylinder of radius 0.2 well inside its rim — no
+    // rim vertex is inside the small cylinder, and the disc's triangles are.
+    let sides = cap_against_cylinder(0.3, 0.2);
+    assert_eq!(sides.sign, vec![None]);
+    assert_eq!(sides.reach, vec![0.0]);
+}
+
+#[test]
+fn a_face_wholly_outside_a_cylinder_keeps_that_side() {
+    let sides = cap_against_cylinder(3.0, 0.5);
+    assert_eq!(sides.sign, vec![Some(1.0)]);
+    assert_eq!(sides.reach, vec![0.0]);
+}
+
+#[test]
+fn a_dividers_range_on_a_triangle_is_read_inside_it_not_only_at_its_corners() {
+    use crate::stage4_correct::divider_range_on_triangle;
+    let cylinder = |x: f64, y: f64, r: f64| Surface::Cylinder {
+        axis_point: Point3::new(x, y, -7.0),
+        axis_dir: Vector3::new(0.0, 0.0, 2.0),
+        radius: r,
+    };
+    let tri = [[0.0, 0.0, 0.0], [4.0, 0.0, 0.0], [0.0, 4.0, 0.0]];
+    // The axis passes through the triangle: the least distance is −r, though
+    // every corner is outside.
+    let (lo, hi) = divider_range_on_triangle(cylinder(1.0, 1.0, 0.25), tri).expect("range");
+    assert_eq!(lo, -0.25);
+    assert!((hi - (10.0f64.sqrt() - 0.25)).abs() < 1e-15, "{hi}");
+    // The axis passes outside, nearest the hypotenuse: the least distance is
+    // on that side, not at a corner.
+    let (lo, _) = divider_range_on_triangle(cylinder(3.0, 3.0, 0.5), tri).expect("range");
+    assert!((lo - (2.0f64.sqrt() - 0.5)).abs() < 1e-15, "{lo}");
+    // A chord of the cylinder's own circle dips inside it by its sagitta.
+    let (s, c) = (0.3f64.sin(), 0.3f64.cos());
+    let chord = [[c, -s, 1.0], [c, s, 1.0], [5.0, 0.0, 1.0]];
+    let (lo, _) = divider_range_on_triangle(cylinder(0.0, 0.0, 1.0), chord).expect("range");
+    assert!((lo - (c - 1.0)).abs() < 1e-15, "{lo}");
+    // A plane is linear: its range is its corners'.
+    let plane = Surface::Plane {
+        normal: Vector3::new(1.0, 0.0, 0.0),
+        d: -1.0,
+    };
+    assert_eq!(divider_range_on_triangle(plane, tri), Some((-1.0, 3.0)));
+    // A cone's residual is neither linear nor convex: declined.
+    let cone = Surface::Cone {
+        apex: Point3::new(0.0, 0.0, 5.0),
+        axis_dir: Vector3::new(0.0, 0.0, -1.0),
+        half_angle: 0.4,
+    };
+    assert_eq!(divider_range_on_triangle(cone, tri), None);
+}

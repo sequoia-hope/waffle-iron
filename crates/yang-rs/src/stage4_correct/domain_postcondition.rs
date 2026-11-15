@@ -627,18 +627,32 @@ pub(crate) struct CurveDomainFire {
 /// margin within which that reading holds.
 ///
 /// A crease's divider (`FaceCrease::divider`) is the surface a point must not
-/// cross to leave the face through that crease. The face's Stage-1 mesh
-/// vertices are points of the face; when every one of them that is off the
-/// divider lies on ONE side, the face lies on that side, up to how far the
-/// face can be from its own mesh — the largest deviation of its triangles
-/// from its surface, and, for a face with a curved boundary, the operand's
-/// rim chord bound (Yang §4.2.1: "the original surface is within a distance
-/// tolerance d_ε from the mesh", `refs/text/yang2025_hybrid_boolean.txt:449-450`).
-/// A divider with witnesses on both sides (a face that is not convex toward
-/// that crease) gets no side: no certificate, never a guess.
+/// cross to leave the face through that crease. The face is within `margin`
+/// of its Stage-1 mesh — the largest deviation of its triangles from its
+/// surface, and, for a face with a curved boundary, the operand's rim chord
+/// bound (Yang §4.2.1: "the original surface is within a distance tolerance
+/// d_ε from the mesh", `refs/text/yang2025_hybrid_boolean.txt:449-450`). So
+/// the face lies on the side of a divider its MESH lies on, up to that
+/// margin.
+///
+/// The mesh is its triangles, not their corners. The corners name the
+/// candidate side: every one that is off the divider lies on it. The
+/// triangles then confirm it: `reach` is how far any of them extends to the
+/// other side ([`divider_range_on_triangle`]), and a mesh that goes there by
+/// more than the margin has the face on both sides. Against a plane the two
+/// readings are one; against a curved divider they are not — a plate's
+/// corners all lie outside the cylinder of its own rounded corner while the
+/// plate covers that cylinder's whole disc.
+///
+/// A divider with the mesh on both sides (a face that is not convex toward
+/// that crease), or one whose range over a triangle is not bounded, gets no
+/// side: no certificate, never a guess.
 pub(crate) struct FaceSides {
     /// Per crease of the face (the `CreaseIndex` order): `Some(±1.0)`.
     pub(crate) sign: Vec<Option<f64>>,
+    /// Per crease: how far the face's mesh extends beyond the divider on the
+    /// side `sign` does not name (0 where there is no sign).
+    pub(crate) reach: Vec<f64>,
     pub(crate) margin: f64,
 }
 
@@ -655,6 +669,102 @@ fn metric_distance(s: Surface, p: [f64; 3]) -> Option<f64> {
         .filter(|d| d.is_finite())
 }
 
+/// Distance from the line through `c` along the unit vector `u` to the
+/// segment `p`–`q`.
+fn line_segment_distance(c: [f64; 3], u: [f64; 3], p: [f64; 3], q: [f64; 3]) -> f64 {
+    // Components across the line.
+    let across = |v: [f64; 3]| -> [f64; 3] {
+        let along = v[0] * u[0] + v[1] * u[1] + v[2] * u[2];
+        [
+            v[0] - along * u[0],
+            v[1] - along * u[1],
+            v[2] - along * u[2],
+        ]
+    };
+    let w = across([p[0] - c[0], p[1] - c[1], p[2] - c[2]]);
+    let d = across([q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+    let dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let t = if dd > 0.0 {
+        (-(w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / dd).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let r = [w[0] + t * d[0], w[1] + t * d[1], w[2] + t * d[2]];
+    (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
+}
+
+/// Distance from the line through `c` along the unit vector `u` to the
+/// triangle `pts`: zero when the line passes through the triangle, else the
+/// least distance to its three sides (distance to a line is convex, so a
+/// least value that is not zero is attained on the boundary).
+fn line_triangle_distance(c: [f64; 3], u: [f64; 3], pts: [[f64; 3]; 3]) -> f64 {
+    let sub = |a: [f64; 3], b: [f64; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]));
+    let across = dot(n, u);
+    if across != 0.0 {
+        let t = dot(n, sub(pts[0], c)) / across;
+        let x = [c[0] + t * u[0], c[1] + t * u[1], c[2] + t * u[2]];
+        let inside = (0..3).all(|k| {
+            let (a, b) = (pts[k], pts[(k + 1) % 3]);
+            dot(cross(sub(b, a), sub(x, a)), n) >= 0.0
+        });
+        if inside {
+            return 0.0;
+        }
+    }
+    (0..3)
+        .map(|k| line_segment_distance(c, u, pts[k], pts[(k + 1) % 3]))
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// The least and the greatest metric signed distance to `s` over the whole
+/// triangle `pts` — `None` where this cannot bound them.
+///
+/// A plane's distance is linear: both extremes are at the corners. A
+/// cylinder's is the distance to its axis less the radius, which is convex:
+/// the greatest is at a corner, and the least is where the triangle comes
+/// nearest the axis, which may be inside it. Those are the dividers
+/// `crease_divider_for` builds for a line, a circle and a cylinder's oblique
+/// section. A cone's residual (a hyperbola's or a parabola's divider) is
+/// neither, and is declined.
+pub(crate) fn divider_range_on_triangle(s: Surface, pts: [[f64; 3]; 3]) -> Option<(f64, f64)> {
+    let at = [
+        metric_distance(s, pts[0])?,
+        metric_distance(s, pts[1])?,
+        metric_distance(s, pts[2])?,
+    ];
+    let corner_min = at[0].min(at[1]).min(at[2]);
+    let corner_max = at[0].max(at[1]).max(at[2]);
+    match s {
+        Surface::Plane { .. } => Some((corner_min, corner_max)),
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let u = axis_dir.as_array();
+            let ul = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+            if !ul.is_finite() || ul <= 0.0 {
+                return None;
+            }
+            let u = [u[0] / ul, u[1] / ul, u[2] / ul];
+            let least = line_triangle_distance(axis_point.as_array(), u, pts) - radius;
+            least
+                .is_finite()
+                .then_some((least.min(corner_min), corner_max))
+        }
+        _ => None,
+    }
+}
+
 fn crease_band(c: &crate::stage4_boundary_curve::FaceCrease, x: [f64; 3]) -> f64 {
     junction_certificate_band(x, c.divider)
         + junction_certificate_band(x, c.s_own)
@@ -669,6 +779,7 @@ pub(crate) fn face_sides(
     let mesh = brep.as_mesh();
     let tri_face = brep.tri_face();
     let mut witnesses: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+    let mut tris: Vec<[[f64; 3]; 3]> = Vec::new();
     let mut dev = 0.0f64;
     if tri_face.len() == mesh.tris.len() {
         for (ti, tri) in mesh.tris.iter().enumerate() {
@@ -676,8 +787,9 @@ pub(crate) fn face_sides(
                 continue;
             }
             witnesses.extend(tri.iter().copied());
+            let pts = tri.map(|v| mesh.verts[v as usize].as_array());
+            tris.push(pts);
             if let Some(f) = brep.faces().get(face as usize) {
-                let pts = tri.map(|v| mesh.verts[v as usize].as_array());
                 dev = dev.max(crate::shell_contact::surface_deviation(&f.surface, pts));
             }
         }
@@ -694,32 +806,48 @@ pub(crate) fn face_sides(
     } else {
         0.0
     };
-    let sign = creases
+    let margin = dev.max(rim);
+    let read = |c: &crate::stage4_boundary_curve::FaceCrease| -> Option<(f64, f64)> {
+        let (mut pos, mut neg) = (false, false);
+        let mut band = 0.0f64;
+        for &v in &witnesses {
+            let p = mesh.verts[v as usize].as_array();
+            let g = metric_distance(c.divider, p)?;
+            let b = crease_band(c, p);
+            band = band.max(b);
+            if g.abs() <= b {
+                continue;
+            }
+            if g > 0.0 {
+                pos = true;
+            } else {
+                neg = true;
+            }
+        }
+        let sign = match (pos, neg) {
+            (true, false) => 1.0,
+            (false, true) => -1.0,
+            _ => return None,
+        };
+        let mut reach = 0.0f64;
+        for &pts in &tris {
+            let (lo, hi) = divider_range_on_triangle(c.divider, pts)?;
+            reach = reach.max(if sign > 0.0 { -lo } else { hi });
+        }
+        // NaN-safe: only a reach known to be within the margin keeps the side.
+        (reach <= band + margin).then_some((sign, reach))
+    };
+    let (sign, reach) = creases
         .iter()
-        .map(|c| {
-            let (mut pos, mut neg) = (false, false);
-            for &v in &witnesses {
-                let p = mesh.verts[v as usize].as_array();
-                let g = metric_distance(c.divider, p)?;
-                if g.abs() <= crease_band(c, p) {
-                    continue;
-                }
-                if g > 0.0 {
-                    pos = true;
-                } else {
-                    neg = true;
-                }
-            }
-            match (pos, neg) {
-                (true, false) => Some(1.0),
-                (false, true) => Some(-1.0),
-                _ => None,
-            }
+        .map(|c| match read(c) {
+            Some((sign, reach)) => (Some(sign), reach),
+            None => (None, 0.0),
         })
-        .collect();
+        .unzip();
     FaceSides {
         sign,
-        margin: dev.max(rim),
+        reach,
+        margin,
     }
 }
 
@@ -844,7 +972,7 @@ pub(crate) fn curve_domain_postcondition(
                 continue;
             }
             let mut worst: Option<(f64, u32, [f64; 3])> = None;
-            for (c, sign) in creases.iter().zip(fs.sign.iter()) {
+            for ((c, sign), reach) in creases.iter().zip(fs.sign.iter()).zip(fs.reach.iter()) {
                 let Some(sign) = *sign else {
                     continue;
                 };
@@ -852,7 +980,9 @@ pub(crate) fn curve_domain_postcondition(
                     let Some(g) = metric_distance(c.divider, m) else {
                         continue;
                     };
-                    let depth = -(sign * g) - (crease_band(c, m) + fs.margin);
+                    // The face is within `margin` of its mesh, and its mesh
+                    // within `reach` of this side of the divider.
+                    let depth = -(sign * g) - (crease_band(c, m) + fs.margin + reach);
                     if depth > 0.0 && worst.is_none_or(|w| depth > w.0) {
                         worst = Some((depth, c.edge, m));
                     }
