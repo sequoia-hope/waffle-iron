@@ -43,6 +43,64 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-15 (F0094, F0060, F0055 moved rigidly, read) — **F0094 is a Stage-0 gap: two discs whose rims cross get no §4.5.5 overlay, and the arrangement sees their caps as coplanar only on an axis-aligned plane (N108, an F6 item). F0060 and F0055 are authored exact tangencies; how a pinch is grouped is discontinuous in the input**
+
+No kernel change; the corpus figure does not move. With R0057 (entry
+below) all six quiet rotation mismatches are read.
+
+**F0094 (motions 0, 3: two bodies; motions 1, 2: a failed auto-union).**
+Two cylinders (r 0.5 and 0.42, centres 0.603 apart) extruded opposite ways
+from one sketch plane; their base discs overlap on a lens.
+- **Stage 0 finds the pair in both orientations** (`YANG_COPLANAR_PROBE`):
+  moved, the two planes are bit-for-bit opposite, gap 0.
+- **It builds nothing on it.** `build_disc_disc_containment` handles one disc
+  inside the other and two equal discs; for crossing rims it returns `Empty`
+  and leaves the lens to "cherchi's coplanar arrangement". The meshes handed
+  to the arrangement (`YANG_STAGE0_DUMP_DIR`) are each cylinder's own fans:
+  no lens corner, no vertex in common.
+- **Unmoved, the plane is z = 0.** Every cap vertex has z = 0 exactly, the
+  fans are coplanar in exact arithmetic, and the arrangement returns a
+  22-triangle patch on both operands' surfaces (`YANG_KEEP_PROBE`): one body.
+- **Moved, the cap vertices are within 1.7e-16 of the plane and not on it.**
+  The arrangement splits nothing (96 triangles in, 96 kept), yang returns
+  both cylinders whole with an empty failure set, and the engine keeps two
+  bodies with the warning `remain disjoint from the tool`.
+- **This is the case §4.5.5 opens with** (`:718-731`: discretization "does
+  not maintain coplanarity in triangle meshes because of floating-point
+  error"; hence the 2D Boolean and "identical meshes … for both models").
+  Ledgered **N108** (OPEN); matrix row 4.5.5-07 FAITHFUL → PARTIAL; roadmap
+  F6 has the item. The corpus case is CORRECT only in the orientation it
+  was authored in.
+- **Also seen, not acted on:** Stage 1 gave the same cylinder 13 segments
+  unmoved and 12 moved (`[stage1-nseg]`: d_ε 1.5e-2 against 1.86e-2). d_ε is
+  1e-2 of the operands' AXIS-ALIGNED bounding-box diagonal (N5), which a
+  rotation changes. Every curved case's mesh therefore differs under
+  rotation, before any mechanism runs.
+
+**F0060 (motion 2: three bodies for four; the other three motions fail
+loudly).** A cylinder r 0.3 along z, z ∈ [−0.3, 0.3], cut by a cylinder
+r 0.3 along y: the tool is tangent to both cap planes along a diameter
+(tool radius = half the body's length). Unmoved, each cap is two half discs
+(0.1414 = π·0.3²/2) and the four lumps are four bodies; moved, one cap is a
+whole disc (0.2827) and its two lumps, which meet only along the tangent
+line, are one body. Volume 2.5646e-2 in both (the cylinder less the
+Steinmetz solid, 0.16965 − 16·0.3³/3).
+
+**F0055 (motions 0, 1: 13 and 11 faces for 8; motions 2, 3 fail loudly).**
+A 3000 × 3000 × 2000 box cut from above by a cylinder r 1500 on its axis:
+the tool is inscribed in the box, tangent to all four walls along vertical
+lines. Unmoved, the top face (9e6 − π·1500² = 1.9314e6) is one face pinched
+at four points; moved, it is four faces of 4.8285e5.
+
+**Reading of the two.** Both documents place a cylinder exactly tangent to
+planes. At a tangency the count of faces and bodies is discontinuous in the
+input: an infinitesimally larger tool splits, a smaller one does not. A
+rotation keeps the tangency only to rounding, so either grouping is an
+answer to the moved document; the material is the same (exact volumes equal,
+`geo` 2.8e-4 and 3.1e-4). Not attached to a milestone. What the sweep shows
+that is worth a milestone's attention is the other motions of both cases:
+five of eight fail loudly.
+
 ## 2026-11-15 (R0057 moved rigidly, read; the sweep probe reads place) — **R0057's moved build is the unmoved solid: every edge lies on the unmoved build's curves to 7e-14. Its torus face is rebuilt without a seam, which the exact-volume chain does not read. None of the 262 sweep verdicts that had only a mesh volume is off by more than 1.2e-3 of its body**
 
 No kernel change; the corpus figure does not move.

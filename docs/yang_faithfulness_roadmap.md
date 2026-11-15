@@ -361,6 +361,12 @@ must absorb first.
       co-dispatch, pre-Stage-1 weld with the #178 refusal (retire PR-6's
       post-arrangement weld and `zband` bucketing), and a 2D (rθ, z) overlay
       in place of the axial-containment special case.
+- [ ] Stage-0 gap: two coplanar discs whose rims cross get no overlay
+      (N108, found 2026-11-15). Build the lens through the §4.5.5 overlay:
+      exact arc ∩ arc corners in both rims and their laterals, one mesh for
+      both operands. Customers: F0094 moved rigidly (two bodies in 2 of 4
+      motions, a failed auto-union in the other 2) and the loud subtract pin
+      `disc_disc_crossing_subtract_is_loud_until_exact_arc_crossing`.
 - [ ] R0023's coplanar cap residue (M8 follow-up; Stage 0's n-ary refusal, N25 — not N17, corrected 2026-10-27; it now fails first as a kernel-v2 cap segment face with < 3 vertices).
 - **Re-adjudicate on touch:** N25, N26, N44, N64 (PROPOSED), N10, N12,
   N32, N36, N42, N43.
@@ -437,3 +443,4 @@ the first known item.
 | 2026-11-13 | Rigid-motion sweep committed (`crates/test-harness/tests/rigid_motion_sweep.rs`) and run on the whole corpus at this tip: 1,371 of 1,440 rotated runs of CORRECT cases reproduce the unmoved result, 69 do not (62 loud, 7 quiet). **Named dip, late: C0117 stops at the §4.5.2 ceiling in 4 of 4 rigid motions without the rim boost** (retirement 1; the corpus holds it in one orientation), customer of F3 item I2. A wrong model found and fixed on the way (P0054 rotated; kernel-v2 `extent_along`, not a Yang mechanism) | 63 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-14 | Not a milestone step — a silent wrong model preempts: F0076 moved rigidly held material neither operand has (the Stage-1 mints, N82, turn a crossing into a touch; Stage 3 typed the touching chord as an arc outside the cylinder face). Trigger T9, `curve_domain_postcondition`, holds each typed intersection edge's arc to its faces' creases (§4.3.3 `:528-532` at §4.3.4's points) and the §4.5.2 loop builds the right solid; a certificate, not domain membership — N107 OPEN, F5a's parameter domain replaces it. Sweep: 1,372 of 1,440 reproduce (62 loud, 6 quiet), one verdict moved | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | `fe13dfaf` |
 | 2026-11-15 | Not a milestone step — T9 refused a correct build (CI red on `fe13dfaf`: test-harness `board_shape_kv2`, a hole beside a rounded plate corner). `face_sides` read a face's side of a curved divider from its mesh vertices; it now confirms the side against the mesh triangles (`divider_range_on_triangle`) and gives none where they extend to the other side. Withdraws certificates only; corpus `results.json` and all 374 sweep verdict files identical. N107 corrected, still OPEN | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-15 | Not a milestone step — the quiet rotation mismatches read. R0057 moved is the unmoved solid (every edge on the unmoved curves to 7e-14; its torus face is rebuilt without a seam, which `signed_volume` does not read). The sweep probe reads place (`geo`): no mesh-only `OK` row is off by more than 1.2e-3 of its body. F0094 moved is two bodies because a crossing disc pair has no §4.5.5 overlay and the arrangement sees coplanar caps only on an axis-aligned plane — **N108 ledgered, OPEN, an F6 item**; matrix 4.5.5-07 FAITHFUL → PARTIAL. No kernel change | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

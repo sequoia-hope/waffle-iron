@@ -207,10 +207,11 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N105 | OPEN (2026-10-30; tracked under N80/N81 rule-out cleanup) | Class-(b) straight operand-edge subdivision vertex elision in `stage4_chain_decimate::decimate_patch_chains_441` (`TAU_WORK·(1+scale)` collinearity within `l < d_p·10³`) — elides non-intersection valence-2 split vertices left on straight operand edges after ruled-out crossings (R0085); no paper §4.3.4/§4.4.1 counterpart |
 | N106 | OPEN (2026-10-31; F2) | The §4.4.1 update REFUSES a curved patch CDT whose certified max d(T) exceeds min(old max, d_ε) (I2d `ChordDegradation`, with an I2e seed-grid retry); the paper refuses nothing — a boundary triangle's d(T) IS its error bound d_ε(T) (§4.1.2 `:357-378`), "recalculated" after the trim (`:566-571`) |
 | N107 | OPEN (2026-11-14; F5a) | The §4.3 domain test on an intersection curve's interior (trigger T9, `stage4_correct::curve_domain_postcondition`) is a one-sided certificate read from each face's Stage-1 mesh and creases, not membership in the face's trimmed parameter domain (§4.3.3 `:528-532`, §4.3.4 `:579-583`); it answers with §4.5.2 only, never §4.5.1's continuation across the boundary (Fig. 12, `:626-637`) |
+| N108 | OPEN (2026-11-15; F6) | A coplanar pair of two discs whose rims CROSS gets no §4.5.5 overlay: Stage 0 hands both caps to the arrangement as their own Stage-1 fans and relies on the triangles being exactly coplanar (`stage0/disc_pair.rs` `build_disc_disc_containment`, the crossing branch). The paper builds identical meshes on the overlap because discretization does not keep coplanarity (`:718-731`). Holds on an axis-aligned plane; F0094 moved rigidly comes back as two bodies |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-11-14 — N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-11-15 — N108 ledgered: a crossing disc pair has no §4.5.5 overlay): 25 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-11-14 (N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -8760,3 +8761,60 @@ box face it was attributed to (`yr10_stage4_relocate::t4_ellipse_edge_relocates`
 arrangement no backend can return, and T9 refused it; their boxes are now
 slabs that hold both caps, the assertions unchanged. **State: OPEN** (found
 2026-11-14).
+
+### N108 — a crossing disc pair has no §4.5.5 overlay; the arrangement is trusted to see the two caps as coplanar
+
+**Paper.** §4.5.5 (`refs/text/yang2025_hybrid_boolean.txt:718-731`): "As our
+discretization method does not maintain coplanarity in triangle meshes
+because of floating-point error introduced in discretization, it may lead to
+incorrect Boolean operation results. Therefore, it is necessary to check
+coplanar planes and perform 2D Boolean operations before mesh
+discretizations. … The overlapping part is replaced by a trimmed common
+planar surface, and identical meshes are generated for both models in this
+part."
+
+**What the code does.** `stage0/disc_pair.rs` `build_disc_disc_containment`
+builds the overlap for two coplanar discs when one contains the other or
+the two are the same circle. When the rims CROSS (a lens) it returns
+`DiscPair::Empty` — the value for a pair that does not overlap in the plane —
+and its comment says why: "the two caps keep their default conformal Stage-1
+fans and cherchi's coplanar arrangement … resolves the coplanar lens
+directly". Stage 0 then only snaps the loop vertices onto the pair's plane.
+No 2D Boolean runs, the lens corners (circle ∩ circle) are not computed, and
+the two meshes share no vertex.
+
+**Why that is the paper's own failure case.** cherchi-rs arranges coplanar
+triangles exactly, on the f64 coordinates it is given. Vertices snapped onto
+an axis-aligned plane share one coordinate bit for bit, so the triangles are
+coplanar in exact arithmetic. Vertices snapped onto an oblique plane satisfy
+its equation only to rounding, and the two fans are not coplanar.
+
+**Measured (2026-11-15, F0094: two cylinders extruded opposite ways from one
+sketch plane, rims crossing on a lens of 0.1518).**
+- Unmoved (plane z = 0): the meshes handed to the arrangement
+  (`YANG_STAGE0_DUMP_DIR`) are each operand's 13-gon fans, byte-identical to
+  the pre-Stage-0 meshes, no vertex in common; every cap vertex has z = 0.
+  The arrangement returns a 22-triangle patch carrying both operands'
+  surfaces (`YANG_KEEP_PROBE`), and the union is one body.
+- Motion 0 of the rigid-motion sweep: Stage 0 finds the same pair with the
+  planes bit-for-bit opposite and gap 0 (`YANG_COPLANAR_PROBE`); the cap
+  vertices are within 1.7e-16 of the plane; the arrangement splits nothing
+  (96 triangles in, 96 kept, no shared patch); yang returns each cylinder
+  whole. The failure set is empty. The feature engine reports `Add: target
+  body(ies) … remain disjoint from the tool; kept as separate bodies` and
+  the document holds two bodies in face contact. Motions 1 and 2 fail the
+  auto-union loudly; motion 3 is motion 0's result.
+- The subtract of the same shape is loud for a neighbouring reason
+  (`m8_disc_coplanar::disc_disc_crossing_subtract_is_loud_until_exact_arc_crossing`:
+  the rim crossing is the chord ∩ chord point, off its cylinder, T8).
+
+**How it departs from the paper.** No 2D Boolean before discretization and
+no identical meshes on the overlap for this pair class; matrix row 4.5.5-07
+is PARTIAL on it. N25's "faithful §4.5.5" does not hold for a crossing disc
+pair.
+
+**Remediation.** Roadmap F6: the two-disc lens through the same §4.5.5
+overlay as every other pair — exact arc ∩ arc corners inserted in both rims
+and their laterals, the lens meshed once and handed to both operands.
+Customers: F0094 moved rigidly (4 of 4 motions), and the loud subtract pin
+above. **State: OPEN** (found 2026-11-15).
