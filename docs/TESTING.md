@@ -631,7 +631,18 @@ SWEEP_CASE=P0054 SWEEP_N=4 cargo test -p test-harness \
 One `SWEEP` line per motion: `OK`, `ERR` (loud: an engine error, or an
 auto-union that failed), or `DIFF` (built without complaint and differs
 from the unmoved build). A `DIFF` with a different volume is a wrong model;
-read those first. `steps` (`SWEEP_K` picks the motion) builds the document
+read those first.
+
+`geo=` on each line is where the moved body is: its render mesh carried back
+by the inverse motion, and the largest distance from a vertex of either mesh
+to the other's surface, as a fraction of the unmoved mesh's bounding-box
+diagonal. It is the only reading of shape where a build has no exact volume
+(262 of the 1,375 `OK` rows). Its floor is the render chord band, not zero —
+kernel-v2 renders every circle at a sagitta of 1e-3 of its radius whatever
+tolerance is asked for — so two builds of one solid read up to about 1e-3
+(measured: 9.1e-4 with exact volumes agreeing, 1.18e-3 without), `OK` allows
+2e-3, and a defect thinner than the band is not seen: F0076's wrong build
+held a 0.649 mm overhang on a body 1.21 m across, 5.4e-4. `steps` (`SWEEP_K` picks the motion) builds the document
 truncated after each operation to find the first one whose result differs.
 
 The whole corpus, four motions a case, takes about ten minutes at 14 jobs.
@@ -653,9 +664,11 @@ diff the verdict column. A removal of a kernel mechanism runs this first
 corpus, a prospector seed or the fast tier, and 68 of 640 rigid motions of
 its anchoring pair fail without it.
 
-Baseline, 2026-11-14: of 1,440 rotated runs of the 360 CORRECT cases, 68 do
+Baseline, 2026-11-15: of 1,440 rotated runs of the 360 CORRECT cases, 68 do
 not reproduce the unmoved result — 62 loud, 6 quiet
-(`docs/yang_tail_triage.md`).
+(`docs/yang_tail_triage.md`). All six quiet ones are the unmoved solid in
+place (`geo` 2.1e-4 to 3.1e-4) under a different count of bodies, faces or
+vertices.
 
 `f0076_union_volume_is_the_same_at_every_rim_phase`, in the same file, is a
 pin rather than a probe: it spins one sketch of F0076 about its own normal

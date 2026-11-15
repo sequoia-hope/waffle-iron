@@ -43,6 +43,55 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-15 (R0057 moved rigidly, read; the sweep probe reads place) — **R0057's moved build is the unmoved solid: every edge lies on the unmoved build's curves to 7e-14. Its torus face is rebuilt without a seam, which the exact-volume chain does not read. None of the 262 sweep verdicts that had only a mesh volume is off by more than 1.2e-3 of its body**
+
+No kernel change; the corpus figure does not move.
+
+**R0057 (motion 0).** A box extruded from a rectangle and a 67° torus
+segment revolved from a circle on the same sketch plane; the rectangle lies
+inside the circle (corners 0.88 inside a radius of 34.79), so the union is a
+face contact on the start disc.
+- **Edges.** Each of the moved build's 20 edges, carried back by the inverse
+  motion, was read against the curves of the unmoved build's 15 (segments,
+  and circles fitted through three of an edge's own samples, residual
+  ≤ 1e-13). The 12 box edges coincide; the other 8 are four arcs of each rim
+  circle, closing it. Worst distance 7.3e-14. The unmoved build's fifteenth
+  edge — the torus seam, an arc of radius 86.97 about the revolve axis — has
+  no counterpart.
+- **So** V 10 → 16 and E 15 → 20 are six split points on two circles and one
+  seam removed; the seven planar faces agree to ten digits; the eighth face
+  is the same torus between the same two circles. The meshes stand 2.1e-4
+  of the body apart (below), the render band.
+- **Why there is no exact volume.** `signed_volume` reads a torus patch as a
+  region of the parameter plane; without the seam the face is a band whose
+  two loops each wind the tube (`CurvedGeometryMismatch … torus patch loop
+  winds around the axis or the tube`). A kernel-v2 measurement gap on an
+  output the kernel itself emits; not attached to a milestone.
+- **Not read:** what makes motion 0 rebuild the torus face where the unmoved
+  build and motions 1–3 carry the operand's own (seam kept). The natural run
+  is adopted in both (`YANG_452_PROBE` prints no `[s452]` line). It is the
+  only CORRECT case whose exact volume is lost under one of its four
+  motions.
+
+**The probe now reads place** (`rigid_motion_sweep.rs`, `geo=`): the moved
+render mesh carried back, and the largest distance from a vertex of either
+mesh to the other's surface, over the unmoved mesh's bounding-box diagonal.
+Whole corpus, four motions a case, verdicts unchanged from this morning's
+run (1,375 `OK` / 110 `ERR` / 11 `DIFF`):
+- 1,113 `OK` rows with exact volumes agreeing: at most 9.1e-4 (C0104); 694
+  of them under 1e-6 (the same triangles).
+- 262 `OK` rows that had only a mesh volume, compared at 1e-2 (69 cases):
+  at most 1.18e-3 (P0014), the same distribution, no outlier.
+- The six quiet mismatches of CORRECT cases — F0055 ×2, F0060, F0094 ×2,
+  R0057 — read 2.1e-4 to 3.1e-4: each is the unmoved solid in place, and
+  differs in how it is grouped into bodies, faces or vertices.
+- **Limit.** The floor is the render chord band: the adapter ignores the
+  tolerance it is given and renders every circle at a sagitta of 1e-3 of its
+  radius. F0076's wrong build held a 0.649 mm overhang on a body 1.21 m
+  across — 5.4e-4, inside that band, though six times that case's own
+  9.2e-5; this reading would not have singled it out across the corpus. `OK` now also requires
+  `geo ≤ 2e-3`, which moves no verdict today.
+
 ## 2026-11-15 (T9 refused a correct build: a hole beside a rounded corner) — **the certificate read a face's side of a curved divider from its mesh vertices; the mesh is its triangles. Corpus and sweep unchanged; the red test-harness board test is green**
 
 The 2026-11-14 change below went in on the rewrite tier, the corpus and the
