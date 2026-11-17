@@ -93,6 +93,9 @@ mod stage0;
 // parametric embedding. NOT yet wired into `stage4_relocate_and_correct`;
 // that is N2-3. Spec: `specs/n2_stage4_dt_recompute.md`.
 pub mod stage4_dt;
+// F5a: the parameter-domain surface interface (spec
+// `specs/yang_f5a_surface_interface.md`). Increment 1 is unwired.
+mod param_surface;
 // N2 increment 1: the §4.4.1 mesh-updating primitive (Fig 11 split/merge/insert
 // + interior-constraint CDT). NOT yet wired into `stage4_relocate_and_correct`;
 // that is N2-3. Spec: `specs/n2_stage4_mesh_updating.md`.

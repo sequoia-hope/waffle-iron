@@ -3952,6 +3952,25 @@ through Stages 1–5, result-neutral; roadmap **F5b** builds the one CDT per
 face and the first non-analytic instance. N7's closed-form SSI stays as the
 exact path where a solver exists.
 
+**Progress (2026-11-16, F5a increment 1; spec
+`specs/yang_f5a_surface_interface.md`).** `crates/yang-rs/src/param_surface/`
+holds the interface, UNWIRED: the `ParamSurface` trait (domain with
+periodicity and degenerate iso-lines, evaluation, first and second
+derivatives, the outward normal s_u × s_v, rational Bézier patches over a
+parameter rectangle), the five analytic surfaces as its instances on
+`stage4_dt`'s pinned embedding, and two generic bounds over the patches —
+`control_net_distance` (d(T), §4.1.2 Fig. 6, Theorem A.1) and `normal_cone`
+(Theorem 4.1 / Appendix B, the derivative cones from the control-point
+differences, a rectangle that fails the hypothesis quartered as the paper
+refines). Pins: evaluation and d(T) equal `stage4_dt` bit for bit on 2,000
+seeded samples per surface; the cone contains every normal sampled on a
+25 × 25 grid over 150 seeded rectangles per surface and over a full turn of
+each; it is exactly ±π/4 on a quarter cylinder; it refuses rather than
+guesses when the hypothesis never holds. Nothing in the production path
+calls it, so the corpus is untouched. Next: `stage4_dt` re-sited onto it
+and the closed-form Gauss maps pinned against the net cone (increment 2,
+hash-gated). **State: OPEN.**
+
 **Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); the live analog is the five-variant `Surface` enum, `crates/yang-rs/src/geom.rs:37` and `crates/kernel-v2/src/arena.rs:245`] `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
 
 **Paper section:** Yang §4.1 + §4.1.1 NURBS-to-Bézier conversion (`yang2025:330-395`).
