@@ -1040,4 +1040,117 @@ test.describe('Studio PBR adversarial & cross-mode invariants', () => {
 
 		expectNoAnyCrash(crashes);
 	});
+
+	test('Shader-based 3D Printed materials & Print Layers toggle render exterior FDM layer lines along Z walls', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+		// Tall 60mm block in Front view so the vertical -Y wall faces the camera squarely
+		// with Z running vertically up the screen!
+		await createCleanBlock(waffle, '60');
+
+		await page.evaluate(() => {
+			window.__waffle.updateSettings({
+				viewportShading: 'studio',
+				studioEnvironment: 'studio-softbox',
+				studioBackdrop: false,
+				studioSurface: 'none',
+				showModelEdges: false,
+				showModelVertices: false,
+				studioPrintLayers: false
+			});
+			window.dispatchEvent(
+				new CustomEvent('waffle-snap-view-and-fit', { detail: { view: 'front' } })
+			);
+		});
+		await waitForStudioSettled(page);
+
+		const measureWallVerticalRipple = async () => {
+			const buf = await page.locator('[data-testid="viewport"] canvas').screenshot();
+			const b64 = buf.toString('base64');
+			return page.evaluate(async (dataB64) => {
+				const img = new Image();
+				img.src = `data:image/png;base64,${dataB64}`;
+				await img.decode();
+				const c = document.createElement('canvas');
+				c.width = img.width;
+				c.height = img.height;
+				const ctx = c.getContext('2d');
+				ctx.drawImage(img, 0, 0);
+				// Sample interior patch of the front (-Y) face around screen center
+				const x0 = Math.floor(img.width * 0.44);
+				const y0 = Math.floor(img.height * 0.38);
+				const rw = Math.floor(img.width * 0.12);
+				const rh = Math.floor(img.height * 0.24);
+				const d = ctx.getImageData(x0, y0, rw, rh).data;
+				let vertDiff = 0;
+				let horizDiff = 0;
+				let n = 0;
+				for (let y = 0; y < rh - 1; y++) {
+					for (let x = 0; x < rw - 1; x++) {
+						const i = (y * rw + x) * 4;
+						const id = i + rw * 4;
+						const ir = i + 4;
+						const lum = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+						const lumD = 0.2126 * d[id] + 0.7152 * d[id + 1] + 0.0722 * d[id + 2];
+						const lumR = 0.2126 * d[ir] + 0.7152 * d[ir + 1] + 0.0722 * d[ir + 2];
+						vertDiff += Math.abs(lum - lumD);
+						horizDiff += Math.abs(lum - lumR);
+						n++;
+					}
+				}
+				return {
+					vertDiff: vertDiff / Math.max(1, n),
+					horizDiff: horizDiff / Math.max(1, n)
+				};
+			}, b64);
+		};
+
+		const smoothStats = await measureWallVerticalRipple();
+
+		// 1. Enable via ViewCube 3D Print Layers toggle
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		const printToggle = page.locator('[data-testid="viewcube-print-layers-toggle"]');
+		await expect(printToggle).toBeVisible();
+		await printToggle.check();
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		await waitForStudioSettled(page);
+
+		const togglePrintStats = await measureWallVerticalRipple();
+		expect(
+			togglePrintStats.vertDiff,
+			`3D Print Layers toggle should create horizontal Z layer lines (vertDiff=${togglePrintStats.vertDiff.toFixed(2)} vs smooth=${smoothStats.vertDiff.toFixed(2)})`
+		).toBeGreaterThan(smoothStats.vertDiff + 2.5);
+		expect(
+			togglePrintStats.vertDiff,
+			`Horizontal layer lines vary vertically much more than horizontally (vert=${togglePrintStats.vertDiff.toFixed(2)}, horiz=${togglePrintStats.horizDiff.toFixed(2)})`
+		).toBeGreaterThan(togglePrintStats.horizDiff * 2.5);
+
+		// 2. Turn global toggle OFF, assign '3D Printed PLA (Prusa Orange)' preset to body,
+		// and verify per-material shader layer lines + orange color!
+		await page.evaluate(async () => {
+			window.__waffle.updateSettings({ studioPrintLayers: false });
+			const pla = window.__waffle
+				.getMaterialPresets()
+				.find((p) => p.name === '3D Printed PLA (Prusa Orange)');
+			await window.__waffle.upsertMaterial({
+				name: pla.name,
+				density_kg_m3: pla.density_kg_m3,
+				appearance: pla.appearance
+			});
+			await window.__waffle.setBodyMaterial(
+				window.__waffle.getMeshes()[0].bodyId,
+				pla.name
+			);
+		});
+		await waitForStudioSettled(page);
+
+		const plaStats = await measureWallVerticalRipple();
+		expect(plaStats.vertDiff).toBeGreaterThan(smoothStats.vertDiff + 2.5);
+		const [plaPx] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 3);
+		expect(plaPx.r, 'Prusa Orange PLA is bright orange (R > B)').toBeGreaterThan(plaPx.b + 40);
+
+		expectNoAnyCrash(crashes);
+	});
 });

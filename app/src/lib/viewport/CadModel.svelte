@@ -41,7 +41,10 @@
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { getColorVersion, getSettings } from '$lib/ui/settings.svelte.js';
 	import { resolveStudioFinish } from './materialPresets.js';
-	import { createStudioPhysicalMaterial } from './studio/studioMaterial.js';
+	import {
+		createStudioPhysicalMaterial,
+		attachFdmShaderToStandardMaterial
+	} from './studio/studioMaterial.js';
 
 	/**
 	 * Resolve a CSS custom property on <html> to a THREE.Color. Falls back to
@@ -260,6 +263,10 @@
 			depthWrite: !transparent,
 			side: THREE.DoubleSide
 		});
+		if (finish?.printLayerMm > 0) {
+			attachFdmShaderToStandardMaterial(mat, finish.printLayerMm);
+			return mat;
+		}
 		mat.onBeforeCompile = (shader) => {
 			if (window.__waffle?.shaderDebug) {
 				console.log('Vertex shader:', shader.vertexShader.substring(0, 500));
@@ -269,7 +276,7 @@
 		return mat;
 	}
 
-	function resolveBaseSurfaceProps(shadingMode, ghost, matSpec) {
+	function resolveBaseSurfaceProps(shadingMode, ghost, matSpec, globalPrintMm = 0) {
 		if (ghost) {
 			return {
 				color: CONTEXT_GHOST_COLOR,
@@ -288,33 +295,49 @@
 			);
 			const rawMetal = typeof app.metalness === 'number' ? app.metalness : (shadingMode === 'studio' ? 0.15 : 0.3);
 			const rawRough = typeof app.roughness === 'number' ? app.roughness : (shadingMode === 'studio' ? 0.42 : 0.6);
+			const presetFinish = resolveStudioFinish(matSpec?.matName);
+			const printLayerMm = globalPrintMm > 0 ? globalPrintMm : (presetFinish?.printLayerMm ?? 0);
+			const finish =
+				shadingMode === 'studio'
+					? presetFinish || printLayerMm > 0
+						? { ...(presetFinish ?? {}), printLayerMm }
+						: null
+					: printLayerMm > 0
+						? { printLayerMm }
+						: null;
 			return {
 				color: c,
 				// Without an IBL map in classic Shaded mode, clamp metalness <= 0.45 so metals stay legible
 				metalness: shadingMode === 'studio' ? rawMetal : Math.min(rawMetal, 0.45),
 				roughness: rawRough,
-				finish: shadingMode === 'studio' ? resolveStudioFinish(matSpec?.matName) : null
+				finish
 			};
 		}
-		// Unassigned body: exact classic parameters in Shaded mode (Invariant I1)
+		// Unassigned body: exact classic parameters in Shaded mode when globalPrintMm == 0 (Invariant I1)
 		if (shadingMode === 'studio') {
 			return {
 				color: DEFAULT_COLOR,
 				metalness: 0.18,
 				roughness: 0.38,
-				finish: { clearcoat: 0.08, clearcoatRoughness: 0.28, anisotropy: 0.0, anisotropyRotation: 0.0 }
+				finish: {
+					clearcoat: 0.08,
+					clearcoatRoughness: 0.28,
+					anisotropy: 0.0,
+					anisotropyRotation: 0.0,
+					printLayerMm: globalPrintMm
+				}
 			};
 		}
 		return {
 			color: DEFAULT_COLOR,
 			metalness: 0.3,
 			roughness: 0.6,
-			finish: null
+			finish: globalPrintMm > 0 ? { printLayerMm: globalPrintMm } : null
 		};
 	}
 
-	function plainMaterials(inSketchMode, shadingMode, matSpec) {
-		return buildMaterials(null, null, [], inSketchMode, null, false, shadingMode, matSpec);
+	function plainMaterials(inSketchMode, shadingMode, matSpec, globalPrintMm = 0) {
+		return buildMaterials(null, null, [], inSketchMode, null, false, shadingMode, matSpec, globalPrintMm);
 	}
 
 	function buildMaterials(
@@ -325,10 +348,11 @@
 		selectedFeatureId,
 		ghost = false,
 		shadingMode = 'shaded',
-		matSpec = null
+		matSpec = null,
+		globalPrintMm = 0
 	) {
 		const projectActive = isProjectToolActive();
-		const baseProps = resolveBaseSurfaceProps(shadingMode, ghost, matSpec);
+		const baseProps = resolveBaseSurfaceProps(shadingMode, ghost, matSpec, globalPrintMm);
 		const finishOpacity =
 			!ghost && !inSketchMode && !projectActive && typeof baseProps.finish?.opacity === 'number'
 				? baseProps.finish.opacity
@@ -362,7 +386,7 @@
 			});
 
 		const finishKey = baseProps.finish
-			? `${baseProps.finish.clearcoat ?? 0}:${baseProps.finish.anisotropy ?? 0}:${baseProps.finish.ior ?? 1.5}`
+			? `${baseProps.finish.clearcoat ?? 0}:${baseProps.finish.anisotropy ?? 0}:${baseProps.finish.ior ?? 1.5}:${baseProps.finish.printLayerMm ?? 0}`
 			: 'none';
 		const plainKey = `${shadingMode}|${baseProps.color.getHexString()}|${baseProps.metalness.toFixed(4)}|${baseProps.roughness.toFixed(4)}|${finishKey}|${transparent}|${opacity}`;
 		const plainArray = () => {
@@ -516,7 +540,9 @@
 		const hoveredBody = getHoveredBodyId();
 		const selFeature = getSelectedFeatureId();
 		const ghostFeature = getGhostFeatureId();
-		const shadingMode = getSettings().viewportShading;
+		const cfgSettings = getSettings();
+		const shadingMode = cfgSettings.viewportShading;
+		const globalPrintMm = cfgSettings.studioPrintLayers ? (cfgSettings.studioLayerHeightMm ?? 0.24) : 0;
 		const tree = getFeatureTree();
 		const treeMaterials = getMaterials();
 		const bodyMaterialsMap = tree?.body_materials ?? null;
@@ -533,7 +559,7 @@
 			}
 			const matSpec = resolveBodyMaterialSpec(m, treeMaterials, bodyMaterialsMap);
 			if (canSkip && !m.context && !litFeatures.has(m.featureId)) {
-				return plainMaterials(inSketch, shadingMode, matSpec);
+				return plainMaterials(inSketch, shadingMode, matSpec, globalPrintMm);
 			}
 			return buildMaterials(
 				m.faceRanges,
@@ -543,7 +569,8 @@
 				selFeature,
 				m.context,
 				shadingMode,
-				matSpec
+				matSpec,
+				globalPrintMm
 			);
 		});
 	});

@@ -35,6 +35,8 @@ Specifically:
 | `studioBackdropBlur` | `number` | `0` | `0..=1` | Optional mipmap optical defocus (`0` = sharp 4K photo, `1` = soft bokeh) on the backdrop |
 | `showModelEdges` | `boolean` | `true` | `boolean` | Render & pick 3D B-Rep edge wireframe lines (`EdgeOverlay.svelte`) |
 | `showModelVertices` | `boolean` | `true` | `boolean` | Render & pick 3D B-Rep vertex dots (`VertexOverlay.svelte`) |
+| `studioPrintLayers` | `boolean` | `false` | `boolean` | Global override rendering all 3D bodies with shader-based FDM 3D-printed exterior layer lines |
+| `studioLayerHeightMm` | `number` | `0.24` | `0.08..=0.60` | Nominal FDM layer height in millimeters (`mm`) for shader-based 3D-printed layer lines |
 | `studioAO` | `boolean` | `true` | `boolean` | Enable GTAO + multi-bounce diffuse AO + GTSO specular occlusion |
 | `studioSSR` | `boolean` | `true` | `boolean` | Enable screen-space reflections blended into PBR IBL radiance |
 | `studioGroundShadow` | `boolean` | `true` | `boolean` | Enable Z-up ground contact-shadow catcher below model `minZ` |
@@ -91,6 +93,7 @@ Specifically:
 - **I12 (Sharp 4K Equirectangular Backdrop & Optional DOF):** When `studioBackdrop` is active and a 4K backdrop texture (`4096×2048`, gamma-2.0 HDR `0..6.25`) is loaded, the composite shader samples `texture2DLodEXT` directly in Z-up equirectangular space (`LOD = studioBackdropBlur * 6.5`, defaulting to `0.0` sharp mip 0 with zero `phi = ±π` wrap seam) rather than the low-resolution `256` PMREM CubeUV atlas, falling back to PMREM CubeUV only while loading or for procedural rigs.
 - **I13 (Physical Tabletop Stage Non-Interference & PBR Integration):** `StudioStageSurface` places a 3D beveled slab (`workbench`, `desk`, `granite`, or `cutting-mat`) flush beneath `bbox.min.z`, participates in Studio G-buffer/GTAO/SSR so parts cast contact occlusion and reflections onto the tabletop, uses `raycast = () => {}` and `waffleType = 'studio-stage'` so `Fit All` framing, `getMeshes()`, and picking ignore it completely, and hides during sketch mode, section view, empty scenes, or upward views from below `bbox.min.z`.
 - **I14 (Edge & Vertex Overlay Visibility Control):** Unchecking `showModelEdges` or `showModelVertices` hides `EdgeOverlay` (`LineSegments`) or `VertexOverlay` (`Points`) and suppresses their hover/click arbitration so faces pick cleanly right up to corners and silhouettes, while keeping the Three.js objects mounted so `viewport_capture` (`style: 'agent'`) continues to render authoritative edges and vertices.
+- **I15 (Shader-Based FDM 3D-Printed Layer Lines):** Bodies assigned a `3D Printed *` material preset (`PLA`, `Silk PLA`, `PETG`, `CF-Nylon`) or rendered while `studioPrintLayers === true` apply a part-space (`transformed`), `fwidth`-band-limited semicircular filament bead normal + clearcoat-normal + V-seam micro-occlusion perturbation along `Z` on perimeter/sloped walls and `45°` rectilinear nozzle tracks on horizontal (`|n_z| -> 1`) skins, rotating faithfully with placed Assembly instances.
 
 ---
 

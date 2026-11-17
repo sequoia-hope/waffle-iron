@@ -173,6 +173,78 @@ export const MATERIAL_PRESETS = Object.freeze([
 		density_kg_m3: 1150,
 		appearance: { color: [0.22, 0.24, 0.27], metalness: 0.0, roughness: 0.86 },
 		finish: { anisotropy: 0.0, anisotropyRotation: 0.0, clearcoat: 0.0, clearcoatRoughness: 0.8 }
+	},
+
+	// ── 3D Printed FDM Filaments (Shader Exterior Layer Lines) ─────────────
+	{
+		id: 'fdm-pla-orange',
+		category: '3D Printed',
+		name: '3D Printed PLA (Prusa Orange)',
+		density_kg_m3: 1240,
+		appearance: { color: [0.95, 0.36, 0.08], metalness: 0.0, roughness: 0.36 },
+		finish: {
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0,
+			clearcoat: 0.28,
+			clearcoatRoughness: 0.22,
+			printLayerMm: 0.24
+		}
+	},
+	{
+		id: 'fdm-pla-white',
+		category: '3D Printed',
+		name: '3D Printed PLA (Matte White)',
+		density_kg_m3: 1240,
+		appearance: { color: [0.92, 0.91, 0.89], metalness: 0.0, roughness: 0.44 },
+		finish: {
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0,
+			clearcoat: 0.16,
+			clearcoatRoughness: 0.30,
+			printLayerMm: 0.20
+		}
+	},
+	{
+		id: 'fdm-petg-black',
+		category: '3D Printed',
+		name: '3D Printed PETG (Gloss Black)',
+		density_kg_m3: 1270,
+		appearance: { color: [0.09, 0.10, 0.12], metalness: 0.0, roughness: 0.22 },
+		finish: {
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0,
+			clearcoat: 0.58,
+			clearcoatRoughness: 0.12,
+			printLayerMm: 0.24
+		}
+	},
+	{
+		id: 'fdm-silk-pla-teal',
+		category: '3D Printed',
+		name: '3D Printed Silk PLA (Teal)',
+		density_kg_m3: 1240,
+		appearance: { color: [0.14, 0.68, 0.72], metalness: 0.55, roughness: 0.24 },
+		finish: {
+			anisotropy: 0.22,
+			anisotropyRotation: 0.0,
+			clearcoat: 0.40,
+			clearcoatRoughness: 0.16,
+			printLayerMm: 0.20
+		}
+	},
+	{
+		id: 'fdm-cf-nylon',
+		category: '3D Printed',
+		name: '3D Printed CF-Nylon (PA-CF)',
+		density_kg_m3: 1180,
+		appearance: { color: [0.16, 0.17, 0.18], metalness: 0.06, roughness: 0.58 },
+		finish: {
+			anisotropy: 0.0,
+			anisotropyRotation: 0.0,
+			clearcoat: 0.06,
+			clearcoatRoughness: 0.48,
+			printLayerMm: 0.16
+		}
 	}
 ]);
 
@@ -180,13 +252,23 @@ const BY_LOWER_NAME = new Map(MATERIAL_PRESETS.map((p) => [p.name.toLowerCase(),
 
 /**
  * Resolve optional Studio finish traits for a material by name (if it matches
- * a known engineering preset) or sensible physical defaults.
+ * a known engineering preset or a 3D-printed filament naming convention).
  * @param {string | null | undefined} materialName
  */
 export function resolveStudioFinish(materialName) {
 	if (typeof materialName === 'string' && materialName.length > 0) {
-		const hit = BY_LOWER_NAME.get(materialName.toLowerCase());
+		const lower = materialName.toLowerCase();
+		const hit = BY_LOWER_NAME.get(lower);
 		if (hit?.finish) return hit.finish;
+		if (lower.includes('3d print') || lower.includes('fdm') || lower.includes('pla') || lower.includes('petg')) {
+			return {
+				anisotropy: 0.0,
+				anisotropyRotation: 0.0,
+				clearcoat: 0.24,
+				clearcoatRoughness: 0.24,
+				printLayerMm: 0.24
+			};
+		}
 	}
 	return null;
 }

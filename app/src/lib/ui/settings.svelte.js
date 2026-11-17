@@ -61,6 +61,10 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	showModelEdges: true,
 	/** Render & pick 3D B-Rep vertex dots (`VertexOverlay.svelte`). */
 	showModelVertices: true,
+	/** Global override rendering all 3D bodies with shader-based FDM 3D-printed exterior layer lines. */
+	studioPrintLayers: false,
+	/** Nominal FDM layer height in millimeters (`0.08..0.60`) for 3D-printed layer lines. */
+	studioLayerHeightMm: 0.24,
 	/** Enable Ground Truth Ambient Occlusion + multi-bounce AO + GTSO in Studio mode. */
 	studioAO: true,
 	/** Enable Screen-Space Reflections blended into PBR radiance in Studio mode. */
@@ -202,6 +206,8 @@ function normalize(raw) {
 				s[k] = ((raw[k] % 360) + 360) % 360;
 			} else if (k === 'studioBackdropBlur') {
 				s[k] = Math.min(1, Math.max(0, raw[k]));
+			} else if (k === 'studioLayerHeightMm') {
+				s[k] = Math.min(0.6, Math.max(0.08, raw[k]));
 			} else {
 				s[k] = raw[k];
 			}

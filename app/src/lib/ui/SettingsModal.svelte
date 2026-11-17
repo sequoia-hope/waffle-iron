@@ -399,6 +399,33 @@
 					</span>
 				</label>
 				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-print-layers"
+						checked={settings.studioPrintLayers}
+						onchange={(e) => updateSettings({ studioPrintLayers: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">3D-printed exterior layer lines (all bodies)</span>
+						<span class="row-desc">Applies shader-based FDM horizontal filament bead ribs along Z and 45° top-infill toolpaths to every body (or leave off and assign a <code>3D Printed PLA / PETG / CF-Nylon</code> material to individual bodies).</span>
+					</span>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">3D print layer height ({(settings.studioLayerHeightMm ?? 0.24).toFixed(2)} mm)</span>
+						<span class="row-desc">Controls filament rib spacing when global 3D print layers are enabled (`0.12 mm` fine detail to `0.40 mm` coarse nozzle).</span>
+					</span>
+					<input
+						type="range"
+						min="0.08"
+						max="0.60"
+						step="0.02"
+						data-testid="setting-print-layer-height"
+						value={settings.studioLayerHeightMm ?? 0.24}
+						oninput={(e) => updateSettings({ studioLayerHeightMm: parseFloat(e.currentTarget.value) })}
+					/>
+				</label>
+				<label class="row">
 					<span class="row-text">
 						<span class="row-label">Studio tone mapping</span>
 						<span class="row-desc">Khronos PBR Neutral keeps material swatch colors faithful without hue shift; AgX rolls off bright highlights cinematically.</span>

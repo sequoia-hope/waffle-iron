@@ -247,6 +247,15 @@
 					/>
 					Backdrop
 				</label>
+				<label class="dropdown-label" title="Preview exterior FDM 3D-printed filament layer lines along Z">
+					<input
+						type="checkbox"
+						checked={settings.studioPrintLayers}
+						onchange={(e) => updateSettings({ studioPrintLayers: e.currentTarget.checked })}
+						data-testid="viewcube-print-layers-toggle"
+					/>
+					3D Print Layers
+				</label>
 			{/if}
 		</div>
 	{/if}

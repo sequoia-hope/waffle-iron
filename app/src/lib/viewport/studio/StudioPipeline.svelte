@@ -318,6 +318,8 @@
 			getShowOriginTriad() ? 1 : 0,
 			settings.showModelEdges ? 1 : 0,
 			settings.showModelVertices ? 1 : 0,
+			settings.studioPrintLayers ? 1 : 0,
+			(settings.studioLayerHeightMm ?? 0.24).toFixed(3),
 			getTheme(),
 			getColorVersion(),
 			settings.studioEnvironment,
@@ -609,6 +611,8 @@
 		void settings.studioSurface;
 		void settings.showModelEdges;
 		void settings.showModelVertices;
+		void settings.studioPrintLayers;
+		void settings.studioLayerHeightMm;
 		if (!active || !scene) return;
 		scene.environmentRotation.set(0, 0, (rotDeg * Math.PI) / 180);
 		invalidate();
@@ -668,6 +672,7 @@
 				const yawRad = ((settings.studioEnvRotation ?? 0) * Math.PI) / 180;
 				scene.environmentRotation.set(0, 0, yawRad);
 				const sceneRadius = getSceneRadius();
+				STUDIO_SHARED_UNIFORMS.uStudioSceneRadius.value = sceneRadius;
 				const needGBuffer = Boolean(settings.studioAO || settings.studioSSR);
 
 				// Seed prevLitTarget once before sample 0 when SSR is enabled so every
