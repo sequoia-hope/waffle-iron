@@ -29,7 +29,9 @@
 		retractFaceHover,
 		getSketchHover,
 		getFreshHoveredRef,
-		setSelectedInstancePath
+		setSelectedInstancePath,
+		getFeatureTree,
+		getMaterials
 	} from '$lib/engine/store.svelte.js';
 	import { proposeEntityCard, openEntityDetail } from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
@@ -37,7 +39,9 @@
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { placementProps } from './placement.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
-	import { getColorVersion } from '$lib/ui/settings.svelte.js';
+	import { getColorVersion, getSettings } from '$lib/ui/settings.svelte.js';
+	import { resolveStudioFinish } from './materialPresets.js';
+	import { createStudioPhysicalMaterial } from './studio/studioMaterial.js';
 
 	/**
 	 * Resolve a CSS custom property on <html> to a THREE.Color. Falls back to
@@ -197,58 +201,183 @@
 		return ref?.anchor?.feature_id ?? null;
 	}
 
-	/** The plain-body material array, reused across rebuilds (see below). */
-	let plainCache = { key: null, arr: null };
+	/**
+	 * Invariant I3 (`specs/studio_pbr_renderer.md`): bounded plain-body material
+	 * cache keyed by `(shadingMode, color, metalness, roughness, finish, transparent, opacity)`
+	 * so unhighlighted bodies sharing a material share one `[Material]` array.
+	 * @type {Map<string, THREE.Material[]>}
+	 */
+	const plainCacheMap = new Map();
+	const MAX_PLAIN_CACHE = 64;
 
 	/**
-	 * The material array for a body with nothing highlighted on it — the same
-	 * array instance every time, so Svelte sees an unchanged prop.
-	 * @param {boolean} inSketchMode
+	 * Resolve a body's assigned material name and Appearance from its render-view
+	 * metadata (authoritative for Part, Assembly, and `/view` host modes) with
+	 * live fallback to the active part's `FeatureTree`.
 	 */
-	function plainMaterials(inSketchMode) {
-		return buildMaterials(null, null, [], inSketchMode, null, false);
+	function resolveBodyMaterialSpec(mesh, treeMaterials, bodyMaterialsMap) {
+		const matName =
+			mesh?.material ??
+			(mesh?.bodyId && bodyMaterialsMap ? bodyMaterialsMap[mesh.bodyId] ?? null : null);
+		let appearance = mesh?.appearance ?? null;
+		if (!appearance && matName && Array.isArray(treeMaterials)) {
+			const found = treeMaterials.find((m) => m.name === matName);
+			if (found?.appearance) appearance = found.appearance;
+		}
+		return { matName, appearance };
 	}
 
-	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode, selectedFeatureId, ghost = false) {
-		const projectActive = isProjectToolActive();
-		const transparent = ghost || (inSketchMode && !projectActive);
-		const opacity = ghost
-			? (inSketchMode && !projectActive ? 0.2 : 0.4)
-			: (transparent ? 0.2 : (projectActive ? 0.5 : 1.0));
-		const baseColor = ghost ? CONTEXT_GHOST_COLOR : DEFAULT_COLOR;
-
-		const makeMat = (color) => {
-			const mat = new THREE.MeshStandardMaterial({
+	/**
+	 * Build a single Three.js material for the active shading mode (`shaded` vs `studio`).
+	 * Invariant I1: when `shadingMode === 'shaded'` and `spec` is null, produces the
+	 * exact classic `MeshStandardMaterial` (`metalness: 0.3, roughness: 0.6`).
+	 */
+	function createCadSurfaceMaterial({
+		shadingMode,
+		color,
+		metalness,
+		roughness,
+		finish,
+		transparent,
+		opacity
+	}) {
+		if (shadingMode === 'studio') {
+			return createStudioPhysicalMaterial({
 				color,
-				metalness: 0.3,
-				roughness: 0.6,
+				metalness,
+				roughness,
 				transparent,
 				opacity,
-				depthWrite: !transparent,
-				side: THREE.DoubleSide
+				finish
 			});
-			mat.onBeforeCompile = (shader) => {
-				if (window.__waffle?.shaderDebug) {
-					console.log('Vertex shader:', shader.vertexShader.substring(0, 500));
-					console.log('Fragment shader:', shader.fragmentShader.substring(0, 500));
-				}
-			};
-			return mat;
+		}
+		const mat = new THREE.MeshStandardMaterial({
+			color,
+			metalness,
+			roughness,
+			transparent,
+			opacity,
+			depthWrite: !transparent,
+			side: THREE.DoubleSide
+		});
+		mat.onBeforeCompile = (shader) => {
+			if (window.__waffle?.shaderDebug) {
+				console.log('Vertex shader:', shader.vertexShader.substring(0, 500));
+				console.log('Fragment shader:', shader.fragmentShader.substring(0, 500));
+			}
 		};
+		return mat;
+	}
 
-		// The plain body colour is the same for every body in a pass, so one
-		// instance serves all of them: a distinct material per body is a
-		// distinct shader program bind and uniform refresh per body, which is
-		// most of what a frame costs once there are thousands.
-		//
-		// The cache is keyed on everything that changes how a plain body looks
-		// and OUTLIVES a rebuild, so hovering one face hands every other body
-		// back the identical array and Svelte updates one mesh rather than two
-		// thousand.
-		const plainKey = `${baseColor.getHexString()}|${transparent}|${opacity}`;
+	function resolveBaseSurfaceProps(shadingMode, ghost, matSpec) {
+		if (ghost) {
+			return {
+				color: CONTEXT_GHOST_COLOR,
+				metalness: shadingMode === 'studio' ? 0.15 : 0.3,
+				roughness: shadingMode === 'studio' ? 0.5 : 0.6,
+				finish: null
+			};
+		}
+		const app = matSpec?.appearance;
+		if (app && Array.isArray(app.color) && app.color.length >= 3) {
+			const c = new THREE.Color().setRGB(
+				app.color[0],
+				app.color[1],
+				app.color[2],
+				THREE.SRGBColorSpace
+			);
+			const rawMetal = typeof app.metalness === 'number' ? app.metalness : (shadingMode === 'studio' ? 0.15 : 0.3);
+			const rawRough = typeof app.roughness === 'number' ? app.roughness : (shadingMode === 'studio' ? 0.42 : 0.6);
+			return {
+				color: c,
+				// Without an IBL map in classic Shaded mode, clamp metalness <= 0.45 so metals stay legible
+				metalness: shadingMode === 'studio' ? rawMetal : Math.min(rawMetal, 0.45),
+				roughness: rawRough,
+				finish: shadingMode === 'studio' ? resolveStudioFinish(matSpec?.matName) : null
+			};
+		}
+		// Unassigned body: exact classic parameters in Shaded mode (Invariant I1)
+		if (shadingMode === 'studio') {
+			return {
+				color: DEFAULT_COLOR,
+				metalness: 0.18,
+				roughness: 0.38,
+				finish: { clearcoat: 0.08, clearcoatRoughness: 0.28, anisotropy: 0.0, anisotropyRotation: 0.0 }
+			};
+		}
+		return {
+			color: DEFAULT_COLOR,
+			metalness: 0.3,
+			roughness: 0.6,
+			finish: null
+		};
+	}
+
+	function plainMaterials(inSketchMode, shadingMode, matSpec) {
+		return buildMaterials(null, null, [], inSketchMode, null, false, shadingMode, matSpec);
+	}
+
+	function buildMaterials(
+		faceRanges,
+		hoveredRef,
+		selectedRefs,
+		inSketchMode,
+		selectedFeatureId,
+		ghost = false,
+		shadingMode = 'shaded',
+		matSpec = null
+	) {
+		const projectActive = isProjectToolActive();
+		const baseProps = resolveBaseSurfaceProps(shadingMode, ghost, matSpec);
+		const finishOpacity =
+			!ghost && !inSketchMode && !projectActive && typeof baseProps.finish?.opacity === 'number'
+				? baseProps.finish.opacity
+				: 1.0;
+		const modeTransparent = ghost || (inSketchMode && !projectActive);
+		const transparent = modeTransparent || finishOpacity < 0.999;
+		const opacity = ghost
+			? (inSketchMode && !projectActive ? 0.2 : 0.4)
+			: (modeTransparent ? 0.2 : (projectActive ? 0.5 : finishOpacity));
+
+		const makeDefaultMat = () =>
+			createCadSurfaceMaterial({
+				shadingMode,
+				color: baseProps.color,
+				metalness: baseProps.metalness,
+				roughness: baseProps.roughness,
+				finish: baseProps.finish,
+				transparent,
+				opacity
+			});
+
+		const makeHighlightMat = (color) =>
+			createCadSurfaceMaterial({
+				shadingMode,
+				color,
+				metalness: shadingMode === 'studio' ? 0.2 : 0.3,
+				roughness: shadingMode === 'studio' ? 0.45 : 0.6,
+				finish: null,
+				transparent: modeTransparent,
+				opacity: modeTransparent ? opacity : (projectActive ? 0.5 : 1.0)
+			});
+
+		const finishKey = baseProps.finish
+			? `${baseProps.finish.clearcoat ?? 0}:${baseProps.finish.anisotropy ?? 0}:${baseProps.finish.ior ?? 1.5}`
+			: 'none';
+		const plainKey = `${shadingMode}|${baseProps.color.getHexString()}|${baseProps.metalness.toFixed(4)}|${baseProps.roughness.toFixed(4)}|${finishKey}|${transparent}|${opacity}`;
 		const plainArray = () => {
-			if (plainCache.key !== plainKey) plainCache = { key: plainKey, arr: [makeMat(baseColor)] };
-			return plainCache.arr;
+			let hit = plainCacheMap.get(plainKey);
+			if (!hit) {
+				if (plainCacheMap.size >= MAX_PLAIN_CACHE) {
+					const oldestKey = plainCacheMap.keys().next().value;
+					const evicted = plainCacheMap.get(oldestKey);
+					if (evicted) evicted.forEach((m) => m.dispose());
+					plainCacheMap.delete(oldestKey);
+				}
+				hit = [makeDefaultMat()];
+				plainCacheMap.set(plainKey, hit);
+			}
+			return hit;
 		};
 		const plainMat = () => plainArray()[0];
 
@@ -276,23 +405,23 @@
 
 			if (pickMode) {
 				if (hoveredRef && compareFn(hoveredRef, ref)) {
-					if (!hoverMat) hoverMat = makeMat(PICK_HOVER_COLOR);
+					if (!hoverMat) hoverMat = makeHighlightMat(PICK_HOVER_COLOR);
 					return hoverMat;
 				}
 			} else if (!inSketchMode) {
 				if (selectedRefs.some((r) => compareFn(r, ref))) {
-					if (!selectedMat) selectedMat = makeMat(SELECTED_COLOR);
+					if (!selectedMat) selectedMat = makeHighlightMat(SELECTED_COLOR);
 					return selectedMat;
 				}
 				if (hoveredRef && compareFn(hoveredRef, ref)) {
-					if (!hoverMat) hoverMat = makeMat(HOVER_COLOR);
+					if (!hoverMat) hoverMat = makeHighlightMat(HOVER_COLOR);
 					return hoverMat;
 				}
 				// KV13 F6c (inverse): a feature is selected in the tree → highlight
 				// the faces it INTRODUCED (lowest precedence — explicit face
 				// selection/hover above still win).
 				if (selectedFeatureId && range.created_by_feature === selectedFeatureId) {
-					if (!featureMat) featureMat = makeMat(FEATURE_FACE_COLOR);
+					if (!featureMat) featureMat = makeHighlightMat(FEATURE_FACE_COLOR);
 					return featureMat;
 				}
 			}
@@ -300,12 +429,7 @@
 			return defaultMat;
 		});
 
-		// Nothing on this body is highlighted, so the per-face split buys
-		// nothing — and it is not free: a material ARRAY makes three.js draw
-		// one call per geometry group, so a 12-triangle box cost six draw
-		// calls. Collapsing to a single material draws the body in one.
-		// (The Eiffel Tower: 25,447 draw calls for 26,436 triangles — about a
-		// triangle per call. docs/notes/eiffel/FEATURE_NOTES.md §10.)
+		// Nothing on this body is highlighted: collapse to a single material draw call.
 		if (perFace.every((m) => m === defaultMat)) return plainArray();
 		return perFace.every((m) => m === perFace[0]) ? [perFace[0]] : perFace;
 	}
@@ -335,6 +459,8 @@
 			faceRanges: m.faceRanges || [],
 			featureId: m.featureId,
 			bodyId: m.bodyId,
+			material: m.material ?? null,
+			appearance: m.appearance ?? null,
 			instanceId: m.instanceId ?? null,
 			instancePath: m.instancePath ?? null,
 			context: m.context === true,
@@ -347,13 +473,16 @@
 	 * one-element array so the template binds it as a single Material (three.js
 	 * then applies it across all geometry groups, ignoring face ranges).
 	 */
-	function makeBodyMaterial(color) {
+	function makeBodyMaterial(color, shadingMode = 'shaded') {
 		return [
-			new THREE.MeshStandardMaterial({
+			createCadSurfaceMaterial({
+				shadingMode,
 				color,
-				metalness: 0.3,
-				roughness: 0.6,
-				side: THREE.DoubleSide
+				metalness: shadingMode === 'studio' ? 0.2 : 0.3,
+				roughness: shadingMode === 'studio' ? 0.45 : 0.6,
+				finish: null,
+				transparent: false,
+				opacity: 1.0
 			})
 		];
 	}
@@ -376,7 +505,7 @@
 		];
 	}
 
-	// Build material arrays reactively based on hover/selection/sketch-mode.
+	// Build material arrays reactively based on hover/selection/sketch-mode/shading/appearance.
 	// A whole-body selection/hover (from the Bodies list) overrides per-face
 	// materials for the matching mesh, but never while in sketch mode.
 	let meshMaterials = $derived.by(() => {
@@ -387,30 +516,35 @@
 		const hoveredBody = getHoveredBodyId();
 		const selFeature = getSelectedFeatureId();
 		const ghostFeature = getGhostFeatureId();
-		// Which features could hold a highlighted face at all. A hover moves
-		// the pointer over ONE body, but this derivation runs for every body:
-		// without this, each hover walked every face range of every body and
-		// compared GeomRefs by canonical JSON. Thousands of bodies, tens of
-		// thousands of stringifies, per pointer move.
+		const shadingMode = getSettings().viewportShading;
+		const tree = getFeatureTree();
+		const treeMaterials = getMaterials();
+		const bodyMaterialsMap = tree?.body_materials ?? null;
+
 		const litFeatures = new Set();
 		if (refFeatureId(hRef)) litFeatures.add(refFeatureId(hRef));
 		for (const r of sRefs) if (refFeatureId(r)) litFeatures.add(refFeatureId(r));
-		// A tree selection lights faces by who CREATED them, which can be any
-		// body, so the shortcut is off while one is selected.
 		const canSkip = !selFeature && !isProjectToolActive() && !getProfilePickMode();
 		return engineMeshes.map((m) => {
-			// Import-placement ghost preview wins over hover/selection.
 			if (ghostFeature && m.featureId === ghostFeature) return makeGhostMaterial();
 			if (!inSketch && m.bodyId && !m.context) {
-				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
-				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
+				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR, shadingMode);
+				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR, shadingMode);
 			}
-			// Nothing on this body is lit: hand back the shared plain array
-			// without touching its faces.
+			const matSpec = resolveBodyMaterialSpec(m, treeMaterials, bodyMaterialsMap);
 			if (canSkip && !m.context && !litFeatures.has(m.featureId)) {
-				return plainMaterials(inSketch);
+				return plainMaterials(inSketch, shadingMode, matSpec);
 			}
-			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch, selFeature, m.context);
+			return buildMaterials(
+				m.faceRanges,
+				hRef,
+				sRefs,
+				inSketch,
+				selFeature,
+				m.context,
+				shadingMode,
+				matSpec
+			);
 		});
 	});
 

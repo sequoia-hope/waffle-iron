@@ -42,6 +42,21 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	 * default; sticky, like every other setting here.
 	 */
 	showRotationCenter: false,
+	/**
+	 * 3D viewport shading pipeline (`specs/studio_pbr_renderer.md` §2.1):
+	 * 'shaded' (default classic CAD lighting) or 'studio' (PBR PMREM + GTAO + GTSO + SSR).
+	 */
+	viewportShading: 'shaded',
+	/** Procedural HDR studio lighting rig used when `viewportShading === 'studio'`. */
+	studioEnvironment: 'studio-softbox',
+	/** Enable Ground Truth Ambient Occlusion + multi-bounce AO + GTSO in Studio mode. */
+	studioAO: true,
+	/** Enable Screen-Space Reflections blended into PBR radiance in Studio mode. */
+	studioSSR: true,
+	/** Enable Z-up soft contact-shadow floor catcher beneath the model in Studio mode. */
+	studioGroundShadow: true,
+	/** HDR tone-mapping curve in Studio mode: 'neutral' (Khronos PBR Neutral) or 'agx'. */
+	studioToneMapping: 'neutral',
 	/** Inline CSS-token overrides: { '--accent': '#rrggbb', ... }. */
 	colors: {},
 });
@@ -58,7 +73,19 @@ export const SETTINGS_VERSION = 1;
 
 /** Valid values of each string-enum setting. */
 export const RESTORE_ON_RELOAD = Object.freeze(['auto', 'ask', 'never']);
-const ENUMS = { restoreOnReload: RESTORE_ON_RELOAD };
+export const VIEWPORT_SHADING_MODES = Object.freeze(['shaded', 'studio']);
+export const STUDIO_ENVIRONMENT_IDS = Object.freeze([
+	'studio-softbox',
+	'daylight-workshop',
+	'darkroom-rim'
+]);
+export const STUDIO_TONE_MAPPINGS = Object.freeze(['neutral', 'agx']);
+const ENUMS = {
+	restoreOnReload: RESTORE_ON_RELOAD,
+	viewportShading: VIEWPORT_SHADING_MODES,
+	studioEnvironment: STUDIO_ENVIRONMENT_IDS,
+	studioToneMapping: STUDIO_TONE_MAPPINGS
+};
 
 /**
  * Every customizable color token, grouped for the settings UI. `id` is the

@@ -44,6 +44,8 @@
 		getDocumentDisplaySettings,
 		getMaterials,
 		setBodyMaterial,
+		upsertMaterial,
+		deleteMaterial,
 		getParameters,
 		setParameters,
 		getDocumentParameters,
@@ -66,6 +68,7 @@
 	import { describeLocator } from '$lib/storage/git/locator.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
 	import Icon from '$lib/ui/icons/Icon.svelte';
+	import { MATERIAL_PRESETS, presetToEngineMaterial } from '$lib/viewport/materialPresets.js';
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
@@ -311,6 +314,8 @@
 
 	async function handleBodyPropsToggle(e, bodyId) {
 		e.stopPropagation();
+		// Clear body hover highlight so material/appearance inspection shows the body's real material
+		setHoveredBodyId(null);
 		const next = new Set(propsOpen);
 		if (next.has(bodyId)) {
 			next.delete(bodyId);
@@ -364,13 +369,97 @@
 		return { error: 'the engine did not measure this body' };
 	}
 
-	/** The engine's material table, for the per-body picker. */
+	/** The engine's material table, for the per-body picker and Materials library. */
 	let materials = $derived(getMaterials());
 	/** The body whose material assignment is in flight. @type {string|null} */
 	let busyBody = $state(null);
+	let materialsExpanded = $state(false);
+	/** @type {string | null} */
+	let expandedMaterialName = $state(null);
+	let materialBusy = $state(false);
+
+	function srgbFloatsToHex(rgb) {
+		if (!Array.isArray(rgb) || rgb.length < 3) return '#8899aa';
+		const ch = (v) =>
+			Math.min(255, Math.max(0, Math.round(Number(v) * 255)))
+				.toString(16)
+				.padStart(2, '0');
+		return `#${ch(rgb[0])}${ch(rgb[1])}${ch(rgb[2])}`;
+	}
+
+	function hexToSrgbFloats(hex) {
+		const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec((hex ?? '').trim());
+		if (!m) return [0.53, 0.6, 0.67];
+		return [
+			parseInt(m[1], 16) / 255,
+			parseInt(m[2], 16) / 255,
+			parseInt(m[3], 16) / 255
+		];
+	}
+
+	async function handlePresetSelect(e) {
+		const presetName = e.currentTarget.value;
+		e.currentTarget.value = '';
+		if (!presetName || blockedByAgent()) return;
+		const preset = MATERIAL_PRESETS.find((p) => p.name === presetName);
+		if (!preset) return;
+		materialBusy = true;
+		try {
+			await upsertMaterial(presetToEngineMaterial(preset));
+		} finally {
+			materialBusy = false;
+		}
+	}
+
+	async function handleAddCustomMaterial() {
+		if (blockedByAgent()) return;
+		const existing = new Set(materials.map((m) => m.name));
+		let n = materials.length + 1;
+		while (existing.has(`Material ${n}`)) n++;
+		const name = `Material ${n}`;
+		materialBusy = true;
+		try {
+			await upsertMaterial({
+				name,
+				density_kg_m3: 2700,
+				appearance: { color: [0.75, 0.78, 0.82], metalness: 0.35, roughness: 0.42 }
+			});
+			materialsExpanded = true;
+			expandedMaterialName = name;
+		} finally {
+			materialBusy = false;
+		}
+	}
+
+	async function handleUpdateMaterialAppearance(mat, patch) {
+		if (blockedByAgent()) return;
+		const prev = mat.appearance ?? { color: [0.53, 0.6, 0.67], metalness: 0.3, roughness: 0.6 };
+		await upsertMaterial({
+			name: mat.name,
+			density_kg_m3: patch.density_kg_m3 ?? mat.density_kg_m3,
+			appearance: {
+				color: patch.color ?? prev.color,
+				metalness: patch.metalness !== undefined ? patch.metalness : (prev.metalness ?? 0.3),
+				roughness: patch.roughness !== undefined ? patch.roughness : (prev.roughness ?? 0.6)
+			}
+		});
+	}
+
+	async function handleDeleteMaterial(e, name) {
+		e.stopPropagation();
+		if (blockedByAgent()) return;
+		materialBusy = true;
+		try {
+			await deleteMaterial(name);
+			if (expandedMaterialName === name) expandedMaterialName = null;
+		} finally {
+			materialBusy = false;
+		}
+	}
 
 	async function assignMaterial(bodyId, name) {
 		busyBody = bodyId;
+		setHoveredBodyId(null);
 		try {
 			await setBodyMaterial(bodyId, name || null);
 			// The assignment changes the density, so the mass is a different
@@ -1298,6 +1387,128 @@
 				{/if}
 			</div>
 		{/if}
+
+		<!-- Materials library & PBR appearance editor (shown once part has bodies or materials) -->
+		{#if bodies.length > 0 || materials.length > 0}
+			<div class="bodies-section materials-section" data-testid="materials-section">
+				<div class="origin-header variables-header">
+					<button
+						class="origin-header variables-toggle"
+						onclick={() => (materialsExpanded = !materialsExpanded)}
+						data-testid="materials-toggle"
+					>
+						<span class="expand-icon">{materialsExpanded ? '▾' : '▸'}</span>
+						<span class="origin-label">Materials ({materials.length})</span>
+					</button>
+					<button
+						class="variable-add"
+						title="Add custom material"
+						disabled={materialBusy}
+						onclick={handleAddCustomMaterial}
+						data-testid="material-add-custom"
+					>+</button>
+				</div>
+				{#if materialsExpanded}
+					<div class="material-toolbar">
+						<select
+							class="material-preset-select"
+							data-testid="material-preset-select"
+							disabled={materialBusy}
+							value=""
+							onchange={handlePresetSelect}
+						>
+							<option value="">Add engineering preset…</option>
+							{#each MATERIAL_PRESETS as p (p.id)}
+								<option value={p.name}>{p.name} ({p.density_kg_m3} kg/m³)</option>
+							{/each}
+						</select>
+					</div>
+					{#if materials.length === 0}
+						<div class="variable-empty">Pick a preset above or press + to author a material</div>
+					{:else}
+						{#each materials as mat, mi (mat.name)}
+							<div class="material-row" data-testid="material-item-{mi}">
+								<input
+									type="color"
+									class="material-swatch"
+									data-testid="material-color-{mi}"
+									title="Base sRGB reflectance"
+									value={srgbFloatsToHex(mat.appearance?.color)}
+									onchange={(e) =>
+										handleUpdateMaterialAppearance(mat, {
+											color: hexToSrgbFloats(e.currentTarget.value)
+										})}
+								/>
+								<button
+									class="material-name-btn"
+									title="Edit PBR metalness, roughness and density"
+									onclick={() =>
+										(expandedMaterialName = expandedMaterialName === mat.name ? null : mat.name)}
+								>
+									<span class="material-row-name">{mat.name}</span>
+									<span class="material-row-density">{sig(mat.density_kg_m3, 4)}</span>
+								</button>
+								<button
+									class="variable-delete material-delete"
+									title="Remove material from part"
+									data-testid="material-delete-{mi}"
+									disabled={materialBusy}
+									onclick={(e) => handleDeleteMaterial(e, mat.name)}
+								>×</button>
+							</div>
+							{#if expandedMaterialName === mat.name}
+								<div class="material-sliders" data-testid="material-editor-{mi}">
+									<label class="mat-slider-row">
+										<span>metal</span>
+										<input
+											type="range"
+											min="0"
+											max="1"
+											step="0.02"
+											value={mat.appearance?.metalness ?? 0.3}
+											onchange={(e) =>
+												handleUpdateMaterialAppearance(mat, {
+													metalness: parseFloat(e.currentTarget.value)
+												})}
+										/>
+									</label>
+									<label class="mat-slider-row">
+										<span>rough</span>
+										<input
+											type="range"
+											min="0.02"
+											max="1"
+											step="0.02"
+											value={mat.appearance?.roughness ?? 0.6}
+											onchange={(e) =>
+												handleUpdateMaterialAppearance(mat, {
+													roughness: parseFloat(e.currentTarget.value)
+												})}
+										/>
+									</label>
+									<label class="mat-slider-row">
+										<span>kg/m³</span>
+										<input
+											type="number"
+											class="mat-density-input"
+											min="1"
+											step="10"
+											value={mat.density_kg_m3}
+											onchange={(e) => {
+												const d = parseFloat(e.currentTarget.value);
+												if (Number.isFinite(d) && d > 0) {
+													handleUpdateMaterialAppearance(mat, { density_kg_m3: d });
+												}
+											}}
+										/>
+									</label>
+								</div>
+							{/if}
+						{/each}
+					{/if}
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	{#if tree.features.length > 0}
@@ -1712,6 +1923,100 @@
 	.body-props .prop-error {
 		color: var(--error, #d33);
 		white-space: normal;
+	}
+
+	.material-toolbar {
+		padding: 3px 8px 5px 14px;
+	}
+	.material-preset-select {
+		width: 100%;
+		max-width: 100%;
+		box-sizing: border-box;
+		font-size: 11px;
+		padding: 2px 4px;
+		color: var(--text-primary);
+		background: var(--bg-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 3px;
+	}
+	.material-row {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		padding: 2px 8px 2px 14px;
+		min-width: 0;
+	}
+	.material-row:hover {
+		background: var(--bg-hover, #333);
+	}
+	.material-row:hover .material-delete {
+		visibility: visible;
+	}
+	.material-swatch {
+		width: 16px;
+		height: 16px;
+		padding: 0;
+		border: 1px solid var(--border-color);
+		border-radius: 3px;
+		background: none;
+		cursor: pointer;
+		flex-shrink: 0;
+	}
+	.material-name-btn {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 4px;
+		background: none;
+		border: none;
+		padding: 1px 0;
+		color: var(--text-primary);
+		font-size: 11px;
+		cursor: pointer;
+		text-align: left;
+	}
+	.material-row-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.material-row-density {
+		color: var(--text-muted);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		flex-shrink: 0;
+	}
+	.material-sliders {
+		padding: 3px 10px 6px 26px;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		font-size: 10px;
+		color: var(--text-secondary);
+	}
+	.mat-slider-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 6px;
+		min-width: 0;
+	}
+	.mat-slider-row input[type='range'] {
+		flex: 1;
+		min-width: 0;
+		height: 12px;
+	}
+	.mat-density-input {
+		width: 68px;
+		max-width: 100%;
+		font-size: 10px;
+		padding: 1px 4px;
+		background: var(--bg-primary);
+		color: var(--text-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 3px;
 	}
 
 	/* Rollback bar: a horizontal marker drawn just below the active feature.

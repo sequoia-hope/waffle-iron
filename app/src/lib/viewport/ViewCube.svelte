@@ -2,9 +2,11 @@
 	import {
 		getViewCubeTransform, getCameraProjection, toggleCameraProjection
 	} from '$lib/engine/store.svelte.js';
+	import { getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
 
 	let cubeTransform = $derived(getViewCubeTransform());
 	let isOrtho = $derived(getCameraProjection() === 'orthographic');
+	let isStudio = $derived(getSettings().viewportShading === 'studio');
 	let dropdownOpen = $state(false);
 	let currentView = $state('iso');
 
@@ -34,6 +36,10 @@
 	function handleToggleProjection() {
 		toggleCameraProjection();
 		dropdownOpen = false;
+	}
+
+	function handleToggleStudio() {
+		updateSettings({ viewportShading: isStudio ? 'shaded' : 'studio' });
 	}
 
 	function toggleDropdown() {
@@ -130,6 +136,10 @@
 			<label class="dropdown-label">
 				<input type="checkbox" checked={isOrtho} onchange={handleToggleProjection} data-testid="viewcube-ortho-toggle" />
 				Ortho
+			</label>
+			<label class="dropdown-label" title="Physically based Studio lighting (PMREM + GTAO + GTSO + SSR)">
+				<input type="checkbox" checked={isStudio} onchange={handleToggleStudio} data-testid="viewcube-studio-toggle" />
+				Studio
 			</label>
 		</div>
 	{/if}

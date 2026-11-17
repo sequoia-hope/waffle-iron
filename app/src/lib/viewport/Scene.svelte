@@ -19,6 +19,8 @@
 	import ConnectorFrames from './ConnectorFrames.svelte';
 	import AgentCapture from './AgentCapture.svelte';
 	import RotationCenter from './RotationCenter.svelte';
+	import StudioGroundCatcher from './studio/StudioGroundCatcher.svelte';
+	import StudioPipeline from './studio/StudioPipeline.svelte';
 
 	// Enable raycaster-based interactivity for all child meshes
 	interactivity();
@@ -52,4 +54,6 @@
 <SketchInteraction />
 <DimensionLabels />
 <RotationCenter />
+<StudioGroundCatcher />
+<StudioPipeline />
 <AgentCapture />

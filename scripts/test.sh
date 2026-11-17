@@ -199,6 +199,10 @@ GUI_FAST_SPECS=(
   # D4e review added four and re-timed it, and the same run took 1.2 minutes
   # with other suites on the box, which is the tier's usual load spread).
   drawing-view-placement.spec.js
+  # Studio PBR renderer & real material appearance (`specs/studio_pbr_renderer.md`):
+  # directional physical invariants over PMREM IBL, GTAO+GTSO, SSR, ground contact
+  # shadow, progressive Halton settle, and engine material presets.
+  studio-pbr-renderer.spec.js
 )
 
 # ---------------------------------------------------------------------------

@@ -201,6 +201,90 @@
 			{:else if section === 'appearance'}
 				<h2>Appearance</h2>
 
+				<h3>3D Rendering</h3>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Viewport shading mode</span>
+						<span class="row-desc">Classic Shaded uses camera-pinned CAD lights. Studio enables physically based materials, procedural softbox IBL, Ground Truth Ambient &amp; Specular Occlusion, Screen-Space Reflections, and progressive anti-aliased settling.</span>
+					</span>
+					<select
+						class="row-select"
+						data-testid="setting-viewport-shading"
+						value={settings.viewportShading}
+						onchange={(e) => updateSettings({ viewportShading: e.currentTarget.value })}
+					>
+						<option value="shaded">Classic Shaded</option>
+						<option value="studio">Studio PBR</option>
+					</select>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Studio lighting rig</span>
+						<span class="row-desc">Procedural HDR environment map used for metallic and dielectric reflections in Studio mode.</span>
+					</span>
+					<select
+						class="row-select"
+						data-testid="setting-studio-environment"
+						value={settings.studioEnvironment}
+						onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
+					>
+						<option value="studio-softbox">Studio Softbox (3-Point)</option>
+						<option value="daylight-workshop">Daylight Workshop</option>
+						<option value="darkroom-rim">Darkroom Rim Contrast</option>
+					</select>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Studio tone mapping</span>
+						<span class="row-desc">Khronos PBR Neutral keeps material swatch colors faithful without hue shift; AgX rolls off bright highlights cinematically.</span>
+					</span>
+					<select
+						class="row-select"
+						data-testid="setting-studio-tonemapping"
+						value={settings.studioToneMapping}
+						onchange={(e) => updateSettings({ studioToneMapping: e.currentTarget.value })}
+					>
+						<option value="neutral">Khronos PBR Neutral</option>
+						<option value="agx">AgX Filmic</option>
+					</select>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-studio-ao"
+						checked={settings.studioAO}
+						onchange={(e) => updateSettings({ studioAO: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Ground Truth Ambient &amp; Specular Occlusion (GTAO + GTSO)</span>
+						<span class="row-desc">Darkens pockets, counterbores, gear roots, and suppresses bright studio reflections inside occluded cavities.</span>
+					</span>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-studio-ssr"
+						checked={settings.studioSSR}
+						onchange={(e) => updateSettings({ studioSSR: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Screen-Space Reflections (SSR)</span>
+						<span class="row-desc">Reflects neighboring part geometry across shiny metals and clearcoats, falling back smoothly to the studio environment.</span>
+					</span>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-studio-ground-shadow"
+						checked={settings.studioGroundShadow}
+						onchange={(e) => updateSettings({ studioGroundShadow: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Studio ground contact shadow</span>
+						<span class="row-desc">Draws a soft grounding shadow plane beneath the model's lowest Z point when viewing from above.</span>
+					</span>
+				</label>
+
 				<h3>Base theme</h3>
 				<div class="theme-grid">
 					{#each THEMES as t (t.id)}

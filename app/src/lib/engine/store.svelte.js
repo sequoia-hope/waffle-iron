@@ -30,6 +30,8 @@ import { DEFAULT_DISPLAY, resolveDisplay, setDisplay } from '$lib/units.js';
 import { FORMAT_VERSION, MIN_READER_VERSION, fileTooNew, editDocumentMeta } from './format.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 import { mapConstraintForBridge } from '$lib/sketch/bridgeConstraint.js';
+import { MATERIAL_PRESETS } from '$lib/viewport/materialPresets.js';
+import { readStudioStats } from '$lib/viewport/studio/studioState.js';
 
 /**
  * Generate a UUID, with fallback for non-secure contexts (e.g. HTTP without localhost).
@@ -1392,6 +1394,8 @@ export async function initEngine() {
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				bodyId: m.bodyId ?? null,
+				material: m.material ?? null,
+				appearance: m.appearance ? JSON.parse(JSON.stringify(m.appearance)) : null,
 				instanceId: m.instanceId ?? null,
 				instancePath: m.instancePath ? [...m.instancePath] : null,
 				instanceName: m.instanceName ?? null,
@@ -1399,6 +1403,7 @@ export async function initEngine() {
 				leafPartSourceId: m.leafPartSourceId ?? null,
 				context: m.context === true,
 				transform: m.transform ? JSON.parse(JSON.stringify(m.transform)) : null,
+				vertices: m.vertices,
 				vertexCount: m.vertices?.length / 3,
 				triangleCount: m.triangleCount,
 				hasNormals: m.normals?.length > 0,
@@ -1607,8 +1612,22 @@ export async function initEngine() {
 				};
 			},
 			getRenderStats: () => getRenderStats(),
+			getStudioStats: () => readStudioStats(),
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
+			toggleCameraProjection: () => toggleCameraProjection(),
+			projectWorldPoint: (pt) => {
+				if (!cameraObject || !Array.isArray(pt) || pt.length < 3) return { x: 0.5, y: 0.5, z: 0 };
+				cameraObject.updateMatrixWorld();
+				const v = new THREE.Vector3(pt[0], pt[1], pt[2]).project(cameraObject);
+				return { x: v.x * 0.5 + 0.5, y: 0.5 - v.y * 0.5, z: v.z };
+			},
+			getMaterialPresets: () => JSON.parse(JSON.stringify(MATERIAL_PRESETS)),
+			getMaterials: () => JSON.parse(JSON.stringify(getMaterials())),
+			upsertMaterial: (material) => upsertMaterial(material),
+			renameMaterial: (from, to) => renameMaterial(from, to),
+			deleteMaterial: (name) => deleteMaterial(name),
+			setBodyMaterial: (bodyId, material) => setBodyMaterial(bodyId, material),
 			getConstraints: () => [...sketchConstraints],
 			getProjectedBindings: () => JSON.parse(JSON.stringify(projectedBindings)),
 			getSketchSelection: () => [...sketchSelection],
@@ -7962,6 +7981,67 @@ export async function setBodyMaterial(bodyId, material) {
 		edit: { type: 'assign_body', body_id: bodyId, material: material ?? null }
 	});
 	return response?.type === 'ModelUpdated';
+}
+
+/**
+ * Add or update a material in the active part's material table (`UiToEngine::EditMaterials`).
+ * Clones any reactive proxy input before posting to the worker.
+ *
+ * @param {{ name: string, density_kg_m3: number, appearance?: { color: number[], metalness?: number|null, roughness?: number|null } | null }} material
+ */
+export async function upsertMaterial(material) {
+	if (!bridge || !engineReady || !material) return false;
+	const plain = JSON.parse(JSON.stringify(material));
+	log('action', 'Upsert material', plain);
+	try {
+		const response = await bridge.send({
+			type: 'EditMaterials',
+			edit: { type: 'upsert', material: plain }
+		});
+		return response?.type === 'ModelUpdated';
+	} catch (err) {
+		showToast('error', err?.message || 'Invalid material');
+		return false;
+	}
+}
+
+/**
+ * Rename an existing material and rewrite every `body_materials` entry referencing it.
+ * @param {string} from
+ * @param {string} to
+ */
+export async function renameMaterial(from, to) {
+	if (!bridge || !engineReady || !from || !to || from === to) return false;
+	log('action', 'Rename material', { from, to });
+	try {
+		const response = await bridge.send({
+			type: 'EditMaterials',
+			edit: { type: 'rename', from, to }
+		});
+		return response?.type === 'ModelUpdated';
+	} catch (err) {
+		showToast('error', err?.message || 'Rename failed');
+		return false;
+	}
+}
+
+/**
+ * Delete a material from the active part's material table and unassign any bodies using it.
+ * @param {string} name
+ */
+export async function deleteMaterial(name) {
+	if (!bridge || !engineReady || !name) return false;
+	log('action', 'Delete material', { name });
+	try {
+		const response = await bridge.send({
+			type: 'EditMaterials',
+			edit: { type: 'delete', name }
+		});
+		return response?.type === 'ModelUpdated';
+	} catch (err) {
+		showToast('error', err?.message || 'Delete failed');
+		return false;
+	}
 }
 
 // -- Document model --

@@ -257,6 +257,8 @@ function collectBodies() {
 			// display name, both from the engine (authoritative).
 			bodyId: meta.bodyId ?? `${meta.featureId}/Main`,
 			name: meta.name ?? null,
+			material: meta.material ?? null,
+			appearance: meta.appearance ?? null,
 			featureIndex: meta.featureIndex,
 			featureId: meta.featureId,
 			outputKey: meta.outputKey ?? null,

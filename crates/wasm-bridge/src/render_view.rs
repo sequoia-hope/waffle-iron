@@ -680,6 +680,26 @@ pub fn body_metadata_for(state: &EngineState, bodies: &[BodyAddr]) -> Vec<serde_
             "bodyId": body_id,
             "name": name,
         });
+        // Invariant I2 (`specs/studio_pbr_renderer.md` §2.3): project the
+        // body's material name and appearance from its owning `FeatureTree`
+        // (including assembly leaf engines), omitting both keys when no
+        // material is assigned so unassigned metadata remains byte-identical.
+        if let Some(ref key) = output_key {
+            let local_id = feature_engine::types::FeatureTree::body_id(addr.feature_id, key);
+            if let Some(mat_name) = tree.body_materials.get(&local_id) {
+                entry["material"] = serde_json::json!(mat_name);
+                if let Some(app) = tree
+                    .materials
+                    .iter()
+                    .find(|m| &m.name == mat_name)
+                    .and_then(|m| m.appearance.as_ref())
+                {
+                    if let Ok(val) = serde_json::to_value(app) {
+                        entry["appearance"] = val;
+                    }
+                }
+            }
+        }
         if let (Some((li, _)), Some(view)) = (addr.instance, view_of(state)) {
             if let Some(leaf) = view.leaves.get(li) {
                 let top = leaf.path[0];

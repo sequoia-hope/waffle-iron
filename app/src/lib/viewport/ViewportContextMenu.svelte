@@ -7,10 +7,17 @@
 		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
 	import Icon from '$lib/ui/icons/Icon.svelte';
+	import { getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
 
 	let { visible = $bindable(false), pos = $bindable({ x: 0, y: 0 }) } = $props();
 
 	let ready = $derived(isEngineReady());
+	let isStudio = $derived(getSettings().viewportShading === 'studio');
+
+	function handleToggleStudio() {
+		updateSettings({ viewportShading: isStudio ? 'shaded' : 'studio' });
+		visible = false;
+	}
 
 	const getSafeInset = (prop) =>
 		parseFloat(getComputedStyle(document.documentElement).getPropertyValue(prop)) || 0;
@@ -86,6 +93,8 @@
 		<button class="ctx-item" data-testid="ctx-view-top" onclick={() => handleSnapView('top')}><Icon name="view-top" />Top View</button>
 		<button class="ctx-item" data-testid="ctx-view-right" onclick={() => handleSnapView('right')}><Icon name="view-right" />Right View</button>
 		<button class="ctx-item" data-testid="ctx-view-iso" onclick={() => handleSnapView('iso')}><Icon name="view-iso" />Isometric</button>
+		<div class="ctx-separator"></div>
+		<button class="ctx-item" data-testid="ctx-studio-shading" onclick={handleToggleStudio}><Icon name="sparkles" />{isStudio ? 'Classic Shading' : 'Studio Shading'}</button>
 	</div>
 {/if}
 

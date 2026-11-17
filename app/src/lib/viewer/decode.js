@@ -150,6 +150,8 @@ export function meshFromEntry(entry, arrays) {
 		bodyIndex: entry.body_index ?? 0,
 		bodyId: entry.bodyId ?? `${entry.featureId}/Main`,
 		name: entry.name ?? null,
+		material: entry.material ?? null,
+		appearance: entry.appearance ?? null,
 		featureIndex: entry.featureIndex,
 		featureId: entry.featureId,
 		outputKey: entry.outputKey ?? null,

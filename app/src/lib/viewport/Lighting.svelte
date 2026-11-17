@@ -1,6 +1,7 @@
 <script>
 	import { T, useThrelte, useTask } from '@threlte/core';
 	import * as THREE from 'three';
+	import { getSettings } from '$lib/ui/settings.svelte.js';
 
 	// Lights are aimed in CAMERA space, not world space: the key light must come
 	// from up and over the viewer's right shoulder no matter how the model is
@@ -25,6 +26,8 @@
 
 	const _v = new THREE.Vector3();
 
+	let isStudio = $derived(getSettings().viewportShading === 'studio');
+
 	useTask(() => {
 		const cam = camera.current;
 		if (!cam) return;
@@ -37,14 +40,14 @@
 	});
 </script>
 
-<!-- Ambient fill -->
-<T.AmbientLight intensity={0.4} />
+<!-- Ambient fill (classic Shaded = 0.4; Studio lets PMREM IBL carry indirect light) -->
+<T.AmbientLight intensity={isStudio ? 0.08 : 0.4} />
 
 <!-- Main key light — pinned over the viewer's right shoulder -->
-<T.DirectionalLight bind:ref={keyLight} intensity={0.8} castShadow={false} />
+<T.DirectionalLight bind:ref={keyLight} intensity={isStudio ? 0.65 : 0.8} castShadow={false} />
 
 <!-- Secondary fill light (opposite shoulder) -->
-<T.DirectionalLight bind:ref={fillLight} intensity={0.3} />
+<T.DirectionalLight bind:ref={fillLight} intensity={isStudio ? 0.18 : 0.3} />
 
 <!-- Hemisphere for subtle sky/ground gradient (world-oriented, by design) -->
-<T.HemisphereLight args={[0x8888cc, 0x444422, 0.3]} />
+<T.HemisphereLight args={[0x8888cc, 0x444422, isStudio ? 0.12 : 0.3]} />
