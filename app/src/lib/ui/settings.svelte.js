@@ -47,8 +47,12 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	 * 'shaded' (default classic CAD lighting) or 'studio' (PBR PMREM + GTAO + GTSO + SSR).
 	 */
 	viewportShading: 'shaded',
-	/** Procedural HDR studio lighting rig used when `viewportShading === 'studio'`. */
+	/** HDR environment preset id used when `viewportShading === 'studio'`. */
 	studioEnvironment: 'studio-softbox',
+	/** Azimuthal rotation (degrees 0..360 around world +Z) of the Studio HDR environment. */
+	studioEnvRotation: 0,
+	/** Render softly defocused Z-up HDR environment dome behind the CAD model in Studio mode. */
+	studioBackdrop: false,
 	/** Enable Ground Truth Ambient Occlusion + multi-bounce AO + GTSO in Studio mode. */
 	studioAO: true,
 	/** Enable Screen-Space Reflections blended into PBR radiance in Studio mode. */
@@ -77,7 +81,13 @@ export const VIEWPORT_SHADING_MODES = Object.freeze(['shaded', 'studio']);
 export const STUDIO_ENVIRONMENT_IDS = Object.freeze([
 	'studio-softbox',
 	'daylight-workshop',
-	'darkroom-rim'
+	'darkroom-rim',
+	'hdri-outdoor-sunny',
+	'hdri-outdoor-plaza',
+	'hdri-workbench',
+	'hdri-machine-shop',
+	'hdri-office',
+	'custom'
 ]);
 export const STUDIO_TONE_MAPPINGS = Object.freeze(['neutral', 'agx']);
 const ENUMS = {
@@ -168,8 +178,9 @@ function normalize(raw) {
 		for (const k of Object.keys(SETTINGS_DEFAULTS)) {
 			if (k === 'colors') continue;
 			if (!(k in raw) || typeof raw[k] !== typeof SETTINGS_DEFAULTS[k]) continue;
+			if (typeof raw[k] === 'number' && !Number.isFinite(raw[k])) continue;
 			if (k in ENUMS && !ENUMS[k].includes(raw[k])) continue;
-			s[k] = raw[k];
+			s[k] = k === 'studioEnvRotation' ? ((raw[k] % 360) + 360) % 360 : raw[k];
 		}
 		s.colors = sanitizeColors(raw.colors);
 		// Migrations (SETTINGS_VERSION): a value that was only the old default.

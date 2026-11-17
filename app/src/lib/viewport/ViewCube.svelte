@@ -1,14 +1,39 @@
 <script>
+	import { onDestroy } from 'svelte';
 	import {
 		getViewCubeTransform, getCameraProjection, toggleCameraProjection
 	} from '$lib/engine/store.svelte.js';
 	import { getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
+	import {
+		STUDIO_ENVIRONMENTS,
+		hasCustomStudioEnvironment,
+		getCustomStudioEnvironmentName,
+		subscribeCustomStudioEnvironment
+	} from './studio/studioEnvironment.js';
 
+	let settings = $derived(getSettings());
 	let cubeTransform = $derived(getViewCubeTransform());
 	let isOrtho = $derived(getCameraProjection() === 'orthographic');
-	let isStudio = $derived(getSettings().viewportShading === 'studio');
+	let isStudio = $derived(settings.viewportShading === 'studio');
 	let dropdownOpen = $state(false);
 	let currentView = $state('iso');
+	let customTick = $state(0);
+
+	const unsubCustom = subscribeCustomStudioEnvironment(() => {
+		customTick += 1;
+	});
+	onDestroy(() => unsubCustom());
+
+	let hasCustomEnv = $derived.by(() => {
+		void customTick;
+		return hasCustomStudioEnvironment();
+	});
+	let customEnvLabel = $derived.by(() => {
+		void customTick;
+		return getCustomStudioEnvironmentName() ?? 'Custom HDRI';
+	});
+	const hdriPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'hdri');
+	const rigPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'procedural');
 
 	// Drag-to-orbit state
 	let dragging = $state(false);
@@ -137,10 +162,46 @@
 				<input type="checkbox" checked={isOrtho} onchange={handleToggleProjection} data-testid="viewcube-ortho-toggle" />
 				Ortho
 			</label>
-			<label class="dropdown-label" title="Physically based Studio lighting (PMREM + GTAO + GTSO + SSR)">
+			<label class="dropdown-label" title="Physically based Studio lighting (HDRI / PMREM + GTAO + GTSO + SSR)">
 				<input type="checkbox" checked={isStudio} onchange={handleToggleStudio} data-testid="viewcube-studio-toggle" />
 				Studio
 			</label>
+			{#if isStudio}
+				<div class="dropdown-sub">
+					<select
+						class="dropdown-select"
+						data-testid="viewcube-studio-env"
+						aria-label="Studio environment"
+						value={settings.studioEnvironment === 'custom' && !hasCustomEnv
+							? 'studio-softbox'
+							: settings.studioEnvironment}
+						onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
+					>
+						<optgroup label="HDRI Environments">
+							{#each hdriPresets as env (env.id)}
+								<option value={env.id}>{env.label}</option>
+							{/each}
+							{#if hasCustomEnv}
+								<option value="custom">Custom: {customEnvLabel}</option>
+							{/if}
+						</optgroup>
+						<optgroup label="Studio Rigs">
+							{#each rigPresets as env (env.id)}
+								<option value={env.id}>{env.label}</option>
+							{/each}
+						</optgroup>
+					</select>
+				</div>
+				<label class="dropdown-label" title="Show softly defocused HDRI environment dome behind the part">
+					<input
+						type="checkbox"
+						checked={settings.studioBackdrop}
+						onchange={(e) => updateSettings({ studioBackdrop: e.currentTarget.checked })}
+						data-testid="viewcube-studio-backdrop"
+					/>
+					Backdrop
+				</label>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -272,6 +333,10 @@
 	}
 
 	.dropdown-panel {
+		position: absolute;
+		top: calc(100% + 4px);
+		right: 0;
+		min-width: 172px;
 		background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
 		border: 1px solid var(--border-color);
 		border-radius: 6px;
@@ -279,6 +344,22 @@
 		backdrop-filter: blur(8px);
 		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 		white-space: nowrap;
+	}
+
+	.dropdown-sub {
+		padding: 3px 10px 4px;
+	}
+
+	.dropdown-select {
+		width: 100%;
+		background: var(--bg-secondary);
+		color: var(--text-primary);
+		border: 1px solid var(--border-color);
+		border-radius: 4px;
+		font-size: 11px;
+		font-family: inherit;
+		padding: 3px 6px;
+		cursor: pointer;
 	}
 
 	.dropdown-item {

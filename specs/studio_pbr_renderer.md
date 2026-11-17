@@ -11,7 +11,7 @@ Specifically:
    - Provide an in-editor **Materials** library and editor in `FeatureTree.svelte` backed by the authoritative Rust `UiToEngine::EditMaterials` command (`upsert`, `rename`, `delete`, `assign_body`), shipping curated engineering presets with SI densities (`kg/m³`) and physically calibrated PBR reflectance.
 
 2. **AAA Studio Lighting Pipeline (`app/src/lib/viewport/studio/`):**
-   - **Procedural HDR Studio Softbox IBL (`PMREMGenerator`):** Zero-network procedural studio environments (`studio-softbox`, `daylight-workshop`, `darkroom-rim`) prefiltered into PMREM mip chains for realistic metallic and dielectric reflections across rough and polished surfaces.
+   - **Procedural Softbox Rigs & Real CC0 HDRI Environments (`PMREMGenerator`):** Ships both zero-latency procedural studio rigs (`studio-softbox`, `daylight-workshop`, `darkroom-rim`) and self-hosted 1K Radiance `.hdr` environments (`hdri-outdoor-sunny`, `hdri-outdoor-plaza`, `hdri-workbench`, `hdri-machine-shop`, `hdri-office`, plus user-loaded `.hdr`/`.exr` files), mapped right-handedly into Waffle Iron's Z-up world frame (`+Z` sky/ceiling, `-Z` floor), peak-shoulder compressed for `HalfFloatType` PMREM safety, rotatable around `+Z` (`studioEnvRotation`), and optionally displayed as a softly defocused environment backdrop (`studioBackdrop`) in both Orthographic and Perspective cameras.
    - **Exact Linear-Depth View-Space G-Buffer + Horizon-Based GTAO:** Renders opaque CAD bodies (`waffleType === 'model'`) into a dedicated view-space `(normal.xyz, linearDepth)` target (supporting both `OrthographicCamera` and `PerspectiveCamera`, `logarithmicDepthBuffer: true`, and `SectionCap` clipping planes without interfering with 1 px edge/sketch overlays), computes Jimenez et al. 2016 Ground Truth Ambient Occlusion, and denoises with a depth-and-normal-weighted bilateral filter.
    - **Multi-Bounce Diffuse AO + Ground-Truth Specular Occlusion (GTSO):** Injects screen-space AO directly into `MeshPhysicalMaterial` (`onBeforeCompile` with a shared `customProgramCacheKey`), applying multi-bounce albedo-tinted indirect diffuse occlusion and Lagarde/Jimenez specular occlusion (`computeSpecularOcclusion(dotNV, ao, roughness)`) so bright studio softboxes do not glow inside occluded holes, pockets, or gear roots.
    - **View-Space Screen-Space Reflections (SSR) → PMREM Fallback:** Ray-marches reflected view rays against the linear-depth G-buffer and previous lit HDR frame so polished shafts, flanges, and neighboring assembly parts reflect each other and fall back smoothly to the studio PMREM map.
@@ -28,7 +28,9 @@ Specifically:
 | Key | Type | Default | Valid Values | Description |
 |-----|------|---------|--------------|-------------|
 | `viewportShading` | `string` | `'shaded'` | `'shaded' \| 'studio'` | Active 3D viewport shading pipeline |
-| `studioEnvironment` | `string` | `'studio-softbox'` | `'studio-softbox' \| 'daylight-workshop' \| 'darkroom-rim'` | Procedural HDR PMREM rig in Studio mode |
+| `studioEnvironment` | `string` | `'studio-softbox'` | `'studio-softbox' \| 'daylight-workshop' \| 'darkroom-rim' \| 'hdri-outdoor-sunny' \| 'hdri-outdoor-plaza' \| 'hdri-workbench' \| 'hdri-machine-shop' \| 'hdri-office' \| 'custom'` | Active Studio HDR environment (procedural rig, bundled CC0 1K `.hdr`, or session custom `.hdr`/`.exr`) |
+| `studioEnvRotation` | `number` | `0` | `0..=360` | Azimuthal rotation in degrees of the Studio environment around world `+Z` |
+| `studioBackdrop` | `boolean` | `false` | `boolean` | Render softly defocused Z-up HDR environment backdrop behind the model |
 | `studioAO` | `boolean` | `true` | `boolean` | Enable GTAO + multi-bounce diffuse AO + GTSO specular occlusion |
 | `studioSSR` | `boolean` | `true` | `boolean` | Enable screen-space reflections blended into PBR IBL radiance |
 | `studioGroundShadow` | `boolean` | `true` | `boolean` | Enable Z-up ground contact-shadow catcher below model `minZ` |
@@ -64,6 +66,8 @@ Specifically:
 | `'studio'` | Any | `sketchMode.active` or `context` ghost | Any | Any | Any | Any | Transparent bodies (`opacity: 0.2` / `0.4`) excluded from opaque G-buffer and ground shadow hidden during sketch mode |
 | `'studio'` | Any | Normal | `false` | `false` | `false` | Any | Studio PMREM + `MeshPhysicalMaterial` + tone mapping run; G-buffer/AO/SSR skipped (`ao = 1.0`, `ssr = 0`), ground shadow mesh hidden |
 | `'studio'` | Any | Normal | `true` | `true` | `true` | `section.active` or `camZ < minZ` | G-buffer clips by active section plane; `SectionCap` stencil passes work via stencil-enabled `frameTarget`; ground shadow hides during section view or upward bottom view |
+| `'studio'` | Yes (Chrome / Brushed / Dielectric) | Normal | `true` | `true` | `true` | Built-in `.hdr` (`hdri-*`) or `custom`, `studioBackdrop: false` | Fetches & decodes 1K RGBE `.hdr` once, bakes Z-up PMREM + caches per renderer, rotates IBL by `studioEnvRotation`, preserves CSS `--viewport-bg` on background pixels |
+| `'studio'` | Any | Normal | `true` | `true` | `true` | `studioBackdrop: true` (Ortho or Perspective) | Renders softly defocused Z-up HDR environment dome behind model & beneath ground contact shadow in both Orthographic (synthetic FOV ray cone) and Perspective cameras |
 
 ---
 
@@ -77,6 +81,9 @@ Specifically:
 - **I6 (Background Color Preservation):** Empty background pixels (`alpha == 0`) bypass tone-mapping offsets so CSS `--viewport-bg` displays without color shift across all 8 dark and light themes.
 - **I7 (Progressive Idle Convergence):** After camera and scene inputs remain unchanged for `TARGET_SAMPLES` (`8`) frames in Studio mode, progressive accumulation converges (`converged === true`), projection view-offset jitter is cleared after every frame so picking raycasts are unjittered, and no further G-buffer/GTAO/SSR passes execute while idle.
 - **I8 (Non-Interfering Ground Catcher):** The Studio ground catcher sits at `z = bbox.min.z - margin`, uses `raycast = () => {}`, `depthWrite = false`, and hides when `meshes.length === 0`, `sketchMode.active`, `section.active`, or camera looks upward from below `bbox.min.z`.
+- **I9 (Z-Up Right-Handed Equirectangular Mapping):** Photographic equirectangular `.hdr`/`.exr` environments transform Y-up `(x, y, z)` to Waffle Iron's right-handed Z-up `(x, z, -y)` (`det = +1`) during PMREM and backdrop generation so `+Z` faces reflect the sky/ceiling (`v -> 1`) and `-Z` faces reflect the floor (`v -> 0`) without mirror reversal.
+- **I10 (HDR Firefly Shoulder & HalfFloat Safety):** Radiance samples exceeding `K = 32.0` are smoothly shoulder-compressed (`K + 8 ln(1 + (L - K)/8)`) before `HalfFloatType` conversion so `100,000+` nit solar discs never overflow `65504` (`NaN`/`Inf`) or produce PMREM cubemap ringing.
+- **I11 (Async HDRI Load Race & Settle Determinism):** Selecting an unloaded `.hdr` preset keeps a fallback PMREM active during fetch/decode, discards stale out-of-order completions via monotonic request sequencing, and holds `getStudioStats().environmentLoaded === false` / `settled === false` until the requested `studioEnvironment` itself is active and converged across `TARGET_SAMPLES`.
 
 ---
 

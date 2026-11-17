@@ -546,15 +546,87 @@ export function createCompositeMaterial() {
 		blending: THREE.NoBlending,
 		uniforms: {
 			tAccum: { value: null },
+			tEnvMap: { value: null },
+			uEnvCubeUVParams: { value: new THREE.Vector3(1 / 768, 1 / 1024, 8) },
+			uShowBackdrop: { value: 0.0 },
+			uIsOrtho: { value: 1.0 },
+			uProjParams: { value: new THREE.Vector4(1, 1, 0, 0) },
+			uCamWorldRot: { value: new THREE.Matrix3() },
+			uEnvRotMat: { value: new THREE.Matrix3() },
 			uToneMapping: { value: 0 }, // 0 = Khronos PBR Neutral, 1 = AgX
 			uExposure: { value: 1.05 }
 		},
 		vertexShader: FULLSCREEN_VERTEX,
 		fragmentShader: /* glsl */ `
 			uniform sampler2D tAccum;
+			uniform sampler2D tEnvMap;
+			uniform vec3 uEnvCubeUVParams;
+			uniform float uShowBackdrop;
+			uniform float uIsOrtho;
+			uniform vec4 uProjParams;
+			uniform mat3 uCamWorldRot;
+			uniform mat3 uEnvRotMat;
 			uniform int uToneMapping;
 			uniform float uExposure;
 			varying vec2 vUv;
+
+			float studioGetCubeFace(vec3 direction) {
+				vec3 absDir = abs(direction);
+				if (absDir.x > absDir.z) {
+					if (absDir.x > absDir.y) return direction.x > 0.0 ? 0.0 : 3.0;
+					return direction.y > 0.0 ? 1.0 : 4.0;
+				} else {
+					if (absDir.z > absDir.y) return direction.z > 0.0 ? 2.0 : 5.0;
+					return direction.y > 0.0 ? 1.0 : 4.0;
+				}
+			}
+
+			vec2 studioGetCubeUV(vec3 direction, float face) {
+				vec2 uv;
+				if (face == 0.0) uv = vec2(direction.z, direction.y) / abs(direction.x);
+				else if (face == 1.0) uv = vec2(-direction.x, -direction.z) / abs(direction.y);
+				else if (face == 2.0) uv = vec2(-direction.x, direction.y) / abs(direction.z);
+				else if (face == 3.0) uv = vec2(-direction.z, direction.y) / abs(direction.x);
+				else if (face == 4.0) uv = vec2(-direction.x, direction.z) / abs(direction.y);
+				else uv = vec2(direction.x, direction.y) / abs(direction.z);
+				return 0.5 * (uv + 1.0);
+			}
+
+			vec3 studioBilinearCubeUV(sampler2D envMap, vec3 direction, float mipInt) {
+				float face = studioGetCubeFace(direction);
+				float filterInt = max(4.0 - mipInt, 0.0);
+				mipInt = max(mipInt, 4.0);
+				float faceSize = exp2(mipInt);
+				highp vec2 uv = studioGetCubeUV(direction, face) * (faceSize - 2.0) + 1.0;
+				if (face > 2.0) {
+					uv.y += faceSize;
+					face -= 3.0;
+				}
+				uv.x += face * faceSize;
+				uv.x += filterInt * 3.0 * 16.0;
+				uv.y += 4.0 * (exp2(uEnvCubeUVParams.z) - faceSize);
+				uv.x *= uEnvCubeUVParams.x;
+				uv.y *= uEnvCubeUVParams.y;
+				return texture2D(envMap, uv).rgb;
+			}
+
+			float studioRoughnessToMip(float roughness) {
+				if (roughness >= 0.8) return (1.0 - roughness) * (-1.0 - (-2.0)) / (1.0 - 0.8) - 2.0;
+				if (roughness >= 0.4) return (0.8 - roughness) * (2.0 - (-1.0)) / (0.8 - 0.4) - 1.0;
+				if (roughness >= 0.305) return (0.4 - roughness) * (3.0 - 2.0) / (0.4 - 0.305) + 2.0;
+				if (roughness >= 0.21) return (0.305 - roughness) * (4.0 - 3.0) / (0.305 - 0.21) + 3.0;
+				return -2.0 * log2(max(1.16 * roughness, 1e-4));
+			}
+
+			vec3 studioSampleCubeUV(sampler2D envMap, vec3 sampleDir, float roughness) {
+				float mip = clamp(studioRoughnessToMip(roughness), -2.0, uEnvCubeUVParams.z);
+				float mipF = fract(mip);
+				float mipInt = floor(mip);
+				vec3 c0 = studioBilinearCubeUV(envMap, sampleDir, mipInt);
+				if (mipF == 0.0) return c0;
+				vec3 c1 = studioBilinearCubeUV(envMap, sampleDir, mipInt + 1.0);
+				return mix(c0, c1, mipF);
+			}
 
 			vec3 studioNeutralToneMap(vec3 color) {
 				const float StartCompression = 0.8 - 0.04;
@@ -612,12 +684,36 @@ export function createCompositeMaterial() {
 
 			void main() {
 				vec4 texel = texture2D(tAccum, vUv);
+				float a = clamp(texel.a, 0.0, 1.0);
+
+				if (uShowBackdrop > 0.5) {
+					vec2 ndc = vUv * 2.0 - 1.0;
+					vec3 viewRay;
+					if (uIsOrtho > 0.5) {
+						float aspect = abs(uProjParams.y) / max(abs(uProjParams.x), 1e-4);
+						viewRay = normalize(vec3(ndc.x * aspect * 0.42, ndc.y * 0.42, -1.0));
+					} else {
+						viewRay = normalize(vec3(
+							(ndc.x + uProjParams.z) / uProjParams.x,
+							(ndc.y + uProjParams.w) / uProjParams.y,
+							-1.0
+						));
+					}
+					vec3 worldRay = normalize(uCamWorldRot * viewRay);
+					vec3 envDir = normalize(uEnvRotMat * worldRay);
+					vec3 bgLinear = studioSampleCubeUV(tEnvMap, envDir, 0.24) * 0.92;
+					vec3 combined = (max(texel.rgb, vec3(0.0)) + bgLinear * (1.0 - a)) * uExposure;
+					vec3 mapped = uToneMapping == 1 ? studioAgxToneMap(combined) : studioNeutralToneMap(combined);
+					vec3 srgb = clamp(studioLinearToSrgb(mapped), 0.0, 1.0);
+					gl_FragColor = vec4(srgb, 1.0);
+					return;
+				}
+
 				// Invariant I6: pure background passes through untouched so CSS --viewport-bg is exact
 				if (texel.a <= 1e-5) {
 					gl_FragColor = vec4(0.0);
 					return;
 				}
-				float a = clamp(texel.a, 0.0, 1.0);
 				vec3 unpremul = max(texel.rgb / max(a, 1e-4), vec3(0.0)) * uExposure;
 				vec3 mapped = uToneMapping == 1 ? studioAgxToneMap(unpremul) : studioNeutralToneMap(unpremul);
 				vec3 srgb = clamp(studioLinearToSrgb(mapped), 0.0, 1.0);

@@ -21,6 +21,12 @@ export default {
 	define: {
 		__BUILD_INFO__: JSON.stringify(buildInfo())
 	},
+	optimizeDeps: {
+		include: [
+			'three/examples/jsm/loaders/RGBELoader.js',
+			'three/examples/jsm/loaders/EXRLoader.js'
+		]
+	},
 	plugins: [testCaseApiPlugin(), wasm(), topLevelAwait(), sveltekit()],
 	server: {
 		port: 5173,

@@ -6,7 +6,9 @@
 
 const stats = {
 	active: false,
+	environmentId: 'studio-softbox',
 	environmentLoaded: false,
+	environmentLoading: false,
 	sampleCount: 0,
 	targetSamples: 8,
 	settled: false,
@@ -14,6 +16,7 @@ const stats = {
 	aoEnabled: false,
 	ssrEnabled: false,
 	groundShadowVisible: false,
+	backdropVisible: false,
 	floatRenderable: false
 };
 
@@ -42,7 +45,7 @@ export function readStudioStats() {
 		return { ...stats, settled: false, sampleCount: 0 };
 	}
 	const isFresh = isCurrentCallback ? isCurrentCallback() : true;
-	if (!isFresh) {
+	if (!isFresh || stats.environmentLoading) {
 		return {
 			...stats,
 			sampleCount: 0,

@@ -17,9 +17,17 @@
 		getColorVersion,
 		COLOR_TOKENS
 	} from './settings.svelte.js';
+	import { onDestroy } from 'svelte';
 	import { THEMES, getTheme, setTheme } from './theme.svelte.js';
 	import { bumpColorVersion } from './settings.svelte.js';
 	import { showToast } from './toast.svelte.js';
+	import {
+		STUDIO_ENVIRONMENTS,
+		hasCustomStudioEnvironment,
+		getCustomStudioEnvironmentName,
+		subscribeCustomStudioEnvironment,
+		setCustomStudioEnvironmentFromFile
+	} from '$lib/viewport/studio/studioEnvironment.js';
 
 	/** @type {{ onclose: () => void }} */
 	let { onclose } = $props();
@@ -35,6 +43,38 @@
 	let settings = $derived(getSettings());
 	let theme = $derived(getTheme());
 	let colorVersion = $derived(getColorVersion());
+	let customEnvTick = $state(0);
+	/** @type {HTMLInputElement | null} */
+	let hdriFileInput = $state(null);
+
+	const unsubCustomEnv = subscribeCustomStudioEnvironment(() => {
+		customEnvTick += 1;
+	});
+	onDestroy(() => unsubCustomEnv());
+
+	let hasCustomEnv = $derived.by(() => {
+		void customEnvTick;
+		return hasCustomStudioEnvironment();
+	});
+	let customEnvName = $derived.by(() => {
+		void customEnvTick;
+		return getCustomStudioEnvironmentName() ?? 'Custom HDRI';
+	});
+	const hdriPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'hdri');
+	const rigPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'procedural');
+
+	async function handleCustomHdriUpload(e) {
+		const file = e.currentTarget.files?.[0];
+		e.currentTarget.value = '';
+		if (!file) return;
+		try {
+			await setCustomStudioEnvironmentFromFile(file);
+			updateSettings({ viewportShading: 'studio', studioEnvironment: 'custom' });
+			showToast('success', `Loaded HDRI "${file.name}"`);
+		} catch (err) {
+			showToast('error', `Could not decode HDRI: ${err?.message ?? err}`);
+		}
+	}
 
 	/**
 	 * Effective value of a token as shown in the editor: the override if set,
@@ -219,19 +259,73 @@
 				</label>
 				<label class="row">
 					<span class="row-text">
-						<span class="row-label">Studio lighting rig</span>
-						<span class="row-desc">Procedural HDR environment map used for metallic and dielectric reflections in Studio mode.</span>
+						<span class="row-label">Studio environment (HDRI / Rig)</span>
+						<span class="row-desc">Choose a real photographic 1K HDRI (outdoor park, plaza, workbench, machine shop, office), a procedural softbox rig, or load your own <code>.hdr</code> / <code>.exr</code> file.</span>
 					</span>
-					<select
-						class="row-select"
-						data-testid="setting-studio-environment"
-						value={settings.studioEnvironment}
-						onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
-					>
-						<option value="studio-softbox">Studio Softbox (3-Point)</option>
-						<option value="daylight-workshop">Daylight Workshop</option>
-						<option value="darkroom-rim">Darkroom Rim Contrast</option>
-					</select>
+					<span class="env-controls">
+						<select
+							class="row-select"
+							data-testid="setting-studio-environment"
+							value={settings.studioEnvironment === 'custom' && !hasCustomEnv
+								? 'studio-softbox'
+								: settings.studioEnvironment}
+							onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
+						>
+							<optgroup label="HDRI Environments">
+								{#each hdriPresets as env (env.id)}
+									<option value={env.id}>{env.label}</option>
+								{/each}
+								{#if hasCustomEnv}
+									<option value="custom">Custom: {customEnvName}</option>
+								{/if}
+							</optgroup>
+							<optgroup label="Studio Rigs">
+								{#each rigPresets as env (env.id)}
+									<option value={env.id}>{env.label}</option>
+								{/each}
+							</optgroup>
+						</select>
+						<button
+							type="button"
+							class="small-btn"
+							data-testid="setting-studio-upload-hdri"
+							onclick={() => hdriFileInput?.click()}
+						>Load .hdr/.exr…</button>
+						<input
+							bind:this={hdriFileInput}
+							type="file"
+							accept=".hdr,.exr"
+							style="display:none"
+							onchange={handleCustomHdriUpload}
+						/>
+					</span>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Environment rotation ({Math.round(settings.studioEnvRotation ?? 0)}°)</span>
+						<span class="row-desc">Rotates the HDRI sun, windows, and shop fixtures azimuthally around the vertical Z axis.</span>
+					</span>
+					<input
+						type="range"
+						min="0"
+						max="360"
+						step="5"
+						data-testid="setting-studio-env-rotation"
+						value={settings.studioEnvRotation ?? 0}
+						oninput={(e) => updateSettings({ studioEnvRotation: parseFloat(e.currentTarget.value) })}
+					/>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-studio-backdrop"
+						checked={settings.studioBackdrop}
+						onchange={(e) => updateSettings({ studioBackdrop: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Show environment backdrop</span>
+						<span class="row-desc">Displays the softly defocused 360° HDRI environment behind the model instead of the flat theme background.</span>
+					</span>
 				</label>
 				<label class="row">
 					<span class="row-text">
@@ -516,6 +610,7 @@
 	.reset-one:hover { color: var(--text-primary); }
 
 	.scheme-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+	.env-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 	.small-btn {
 		background: var(--bg-tertiary);
 		border: 1px solid var(--border-color);

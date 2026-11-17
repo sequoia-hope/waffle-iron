@@ -36,7 +36,14 @@
 	import { getTheme } from '$lib/ui/theme.svelte.js';
 	import { buildSectionClipPlane } from '../sectionPlane.js';
 	import { placementMatrix } from '../placement.js';
-	import { getStudioEnvironmentTarget, disposeStudioEnvironments } from './studioEnvironment.js';
+	import {
+		getStudioEnvironmentTarget,
+		loadStudioEnvironmentTarget,
+		getEnvCubeUVParams,
+		hasCustomStudioEnvironment,
+		subscribeCustomStudioEnvironment,
+		disposeStudioEnvironments
+	} from './studioEnvironment.js';
 	import {
 		STUDIO_SHARED_UNIFORMS,
 		FALLBACK_WHITE_AO_TEX,
@@ -115,9 +122,20 @@
 	let passCount = 0;
 	let lastSig = '';
 	let accumReadIsA = true;
+	/** @type {THREE.WebGLRenderTarget | null} */
+	let activeEnvTarget = null;
+	let loadedEnvId = 'studio-softbox';
+	let envLoading = false;
+	let envRequestSeq = 0;
+	let customEnvTick = $state(0);
+
+	const unsubCustomEnv = subscribeCustomStudioEnvironment(() => {
+		customEnvTick += 1;
+	});
 
 	const _drawSize = new THREE.Vector2();
 	const _savedClearColor = new THREE.Color();
+	const _envRotMat4 = new THREE.Matrix4();
 
 	function disposeTargets() {
 		for (const rt of [
@@ -258,7 +276,7 @@
 		const pm = cam.projectionMatrix.elements;
 		let camKey = '';
 		for (let i = 0; i < 16; i++) {
-			camKey += mw[i].toFixed(5) + ',' + pm[i].toFixed(5) + ';';
+			camKey += mw[i].toFixed(4) + ',' + pm[i].toFixed(4) + ';';
 		}
 		const meshes = getMeshes();
 		const meshKey = meshes
@@ -291,6 +309,10 @@
 			getTheme(),
 			getColorVersion(),
 			settings.studioEnvironment,
+			loadedEnvId,
+			customEnvTick,
+			(settings.studioEnvRotation ?? 0).toFixed(2),
+			settings.studioBackdrop ? 1 : 0,
 			settings.studioAO ? 1 : 0,
 			settings.studioSSR ? 1 : 0,
 			settings.studioGroundShadow ? 1 : 0,
@@ -355,28 +377,36 @@
 		}
 	}
 
-	// Reactively synchronize Threlte autoRender and scene.environment with mode & rig preset
+	// Reactively synchronize Threlte autoRender and scene.environment with mode & HDRI/rig preset
 	$effect(() => {
 		const active = studioActive;
 		const envPreset = settings.studioEnvironment;
+		void customEnvTick;
 
 		if (!renderer || !scene) return;
 
 		if (!active) {
+			envRequestSeq += 1;
+			envLoading = false;
+			activeEnvTarget = null;
 			autoRender.set(true);
 			scene.environment = null;
+			scene.environmentRotation.set(0, 0, 0);
 			resetStudioSharedUniforms();
 			lastSig = '';
 			sampleCount = 0;
 			prevLitValid = false;
 			updateStudioStats({
 				active: false,
+				environmentId: envPreset,
 				environmentLoaded: false,
+				environmentLoading: false,
 				sampleCount: 0,
 				settled: false,
 				aoEnabled: false,
 				ssrEnabled: false,
 				groundShadowVisible: false,
+				backdropVisible: false,
 				floatRenderable
 			});
 			invalidate();
@@ -384,26 +414,122 @@
 		}
 
 		autoRender.set(false);
-		const envTarget = getStudioEnvironmentTarget(renderer, envPreset);
-		scene.environment = envTarget.texture;
+		const reqId = ++envRequestSeq;
+		const syncTarget = getStudioEnvironmentTarget(renderer, envPreset);
+		if (syncTarget) {
+			const resolvedId =
+				envPreset === 'custom' && !hasCustomStudioEnvironment() ? 'studio-softbox' : envPreset;
+			activeEnvTarget = syncTarget;
+			loadedEnvId = resolvedId;
+			envLoading = false;
+			scene.environment = syncTarget.texture;
+			lastSig = '';
+			sampleCount = 0;
+			prevLitValid = false;
+			updateStudioStats({
+				active: true,
+				environmentId: resolvedId,
+				environmentLoaded: Boolean(syncTarget?.texture),
+				environmentLoading: false,
+				sampleCount: 0,
+				targetSamples: TARGET_SAMPLES,
+				settled: false,
+				aoEnabled: Boolean(settings.studioAO),
+				ssrEnabled: Boolean(settings.studioSSR),
+				groundShadowVisible: Boolean(settings.studioGroundShadow),
+				backdropVisible: Boolean(settings.studioBackdrop),
+				floatRenderable
+			});
+			invalidate();
+			return;
+		}
+
+		// Async .hdr load in flight (Invariant I11): keep fallback PMREM active so
+		// metallic parts never flash black, and hold settled=false until resolved.
+		if (!activeEnvTarget) {
+			activeEnvTarget = getStudioEnvironmentTarget(renderer, 'studio-softbox');
+			scene.environment = activeEnvTarget.texture;
+		}
+		envLoading = true;
 		lastSig = '';
 		sampleCount = 0;
+		prevLitValid = false;
 		updateStudioStats({
 			active: true,
-			environmentLoaded: Boolean(envTarget?.texture),
+			environmentId: envPreset,
+			environmentLoaded: false,
+			environmentLoading: true,
 			sampleCount: 0,
 			targetSamples: TARGET_SAMPLES,
 			settled: false,
 			aoEnabled: Boolean(settings.studioAO),
 			ssrEnabled: Boolean(settings.studioSSR),
 			groundShadowVisible: Boolean(settings.studioGroundShadow),
+			backdropVisible: Boolean(settings.studioBackdrop),
 			floatRenderable
 		});
+		invalidate();
+
+		loadStudioEnvironmentTarget(renderer, envPreset)
+			.then(({ target, resolvedId }) => {
+				if (reqId !== envRequestSeq || !studioActive) return;
+				activeEnvTarget = target;
+				loadedEnvId = resolvedId;
+				envLoading = false;
+				scene.environment = target.texture;
+				lastSig = '';
+				sampleCount = 0;
+				prevLitValid = false;
+				updateStudioStats({
+					active: true,
+					environmentId: resolvedId,
+					environmentLoaded: Boolean(target?.texture),
+					environmentLoading: false,
+					sampleCount: 0,
+					targetSamples: TARGET_SAMPLES,
+					settled: false
+				});
+				invalidate();
+			})
+			.catch(() => {
+				if (reqId !== envRequestSeq || !studioActive) return;
+				const fallback = getStudioEnvironmentTarget(renderer, 'studio-softbox');
+				activeEnvTarget = fallback;
+				loadedEnvId = 'studio-softbox';
+				envLoading = false;
+				scene.environment = fallback.texture;
+				lastSig = '';
+				sampleCount = 0;
+				prevLitValid = false;
+				updateStudioStats({
+					active: true,
+					environmentId: 'studio-softbox',
+					environmentLoaded: true,
+					environmentLoading: false,
+					sampleCount: 0,
+					settled: false
+				});
+				invalidate();
+			});
+	});
+
+	// Lightweight reactive sync for azimuthal environment rotation & backdrop toggle
+	$effect(() => {
+		const active = studioActive;
+		const rotDeg = settings.studioEnvRotation ?? 0;
+		void settings.studioBackdrop;
+		if (!active || !scene) return;
+		scene.environmentRotation.set(0, 0, (rotDeg * Math.PI) / 180);
 		invalidate();
 	});
 
 	setStudioFreshnessCheck(() => {
-		if (!studioActive || !renderer || !scene) return false;
+		if (!studioActive || !renderer || !scene || envLoading) return false;
+		const expectedId =
+			settings.studioEnvironment === 'custom' && !hasCustomStudioEnvironment()
+				? 'studio-softbox'
+				: settings.studioEnvironment;
+		if (loadedEnvId !== expectedId) return false;
 		const cam = camera.current;
 		if (!cam || !lastSig) return false;
 		renderer.getDrawingBufferSize(_drawSize);
@@ -448,6 +574,8 @@
 			renderer.getClearColor(_savedClearColor);
 
 			try {
+				const yawRad = ((settings.studioEnvRotation ?? 0) * Math.PI) / 180;
+				scene.environmentRotation.set(0, 0, yawRad);
 				const sceneRadius = getSceneRadius();
 				const needGBuffer = Boolean(settings.studioAO || settings.studioSSR);
 
@@ -565,8 +693,20 @@
 				renderFullscreenPass(accumMat, prevLitTarget);
 				prevLitValid = true;
 
-				// Pass F: Tone-map & output to canvas (preserving CSS --viewport-bg where alpha == 0)
+				// Pass F: Tone-map & output to canvas (preserving CSS --viewport-bg where alpha == 0
+				// unless studioBackdrop is enabled)
+				const unjitteredProj = extractCameraProjParams(cam);
+				_envRotMat4.makeRotationZ(-yawRad);
+
 				compositeMat.uniforms.tAccum.value = nextAccum.texture;
+				compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
+				compositeMat.uniforms.uEnvCubeUVParams.value.copy(getEnvCubeUVParams(activeEnvTarget));
+				compositeMat.uniforms.uShowBackdrop.value =
+					settings.studioBackdrop && Boolean(scene.environment) ? 1.0 : 0.0;
+				compositeMat.uniforms.uIsOrtho.value = unjitteredProj.isOrtho;
+				compositeMat.uniforms.uProjParams.value.copy(unjitteredProj.projParams);
+				compositeMat.uniforms.uCamWorldRot.value.setFromMatrix4(cam.matrixWorld);
+				compositeMat.uniforms.uEnvRotMat.value.setFromMatrix4(_envRotMat4);
 				compositeMat.uniforms.uToneMapping.value = settings.studioToneMapping === 'agx' ? 1 : 0;
 				compositeMat.uniforms.uExposure.value = 1.05;
 				renderer.setRenderTarget(null);
@@ -577,11 +717,13 @@
 
 				sampleCount += 1;
 				passCount += 1;
-				const settled = sampleCount >= TARGET_SAMPLES;
+				const settled = !envLoading && sampleCount >= TARGET_SAMPLES;
 
 				updateStudioStats({
 					active: true,
-					environmentLoaded: Boolean(scene.environment),
+					environmentId: loadedEnvId,
+					environmentLoaded: !envLoading && Boolean(scene.environment),
+					environmentLoading: envLoading,
 					sampleCount,
 					targetSamples: TARGET_SAMPLES,
 					settled,
@@ -589,6 +731,7 @@
 					aoEnabled: Boolean(settings.studioAO),
 					ssrEnabled: Boolean(settings.studioSSR),
 					groundShadowVisible: Boolean(settings.studioGroundShadow),
+					backdropVisible: Boolean(settings.studioBackdrop),
 					floatRenderable
 				});
 
@@ -606,9 +749,13 @@
 	);
 
 	onDestroy(() => {
+		unsubCustomEnv();
 		setStudioFreshnessCheck(null);
 		resetStudioSharedUniforms();
-		if (scene) scene.environment = null;
+		if (scene) {
+			scene.environment = null;
+			scene.environmentRotation.set(0, 0, 0);
+		}
 		if (renderer) disposeStudioEnvironments(renderer);
 		disposeTargets();
 		quadGeo.dispose();

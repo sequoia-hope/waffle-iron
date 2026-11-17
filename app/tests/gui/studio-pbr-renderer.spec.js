@@ -105,14 +105,14 @@ async function sampleCanvasPoints(page, points, radius = 2) {
 }
 
 /** Wait until the Studio progressive accumulator settles on the current view. */
-async function waitForStudioSettled(page) {
+async function waitForStudioSettled(page, timeout = 20000) {
 	await page.waitForFunction(
 		() => {
 			const st = window.__waffle?.getStudioStats?.();
 			return st && st.active === true && st.environmentLoaded === true && st.settled === true;
 		},
 		null,
-		{ timeout: 10000 }
+		{ timeout }
 	);
 }
 
@@ -662,6 +662,163 @@ test.describe('Studio PBR adversarial & cross-mode invariants', () => {
 		expect(asmMeta[0].material).toBe('Gold (24k)');
 		expect(asmMeta[0].appearance?.metalness).toBe(1.0);
 		await waitForStudioSettled(page);
+
+		expectNoAnyCrash(crashes);
+	});
+
+	test('Real 1K HDRI presets load Z-up (sky +Z vs ground -Z), rotate, and render backdrop in Ortho & Perspective', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+		await createCleanBlock(waffle, '30');
+
+		await page.evaluate(async () => {
+			const chrome = window.__waffle
+				.getMaterialPresets()
+				.find((p) => p.name === 'Polished Chrome');
+			await window.__waffle.upsertMaterial({
+				name: chrome.name,
+				density_kg_m3: chrome.density_kg_m3,
+				appearance: chrome.appearance
+			});
+			await window.__waffle.setBodyMaterial(
+				window.__waffle.getMeshes()[0].bodyId,
+				chrome.name
+			);
+		});
+
+		// Enable Studio via ViewCube dropdown and verify quick HDRI selector & backdrop toggle
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		await page.locator('[data-testid="viewcube-studio-toggle"]').check();
+		const envSelect = page.locator('[data-testid="viewcube-studio-env"]');
+		await expect(envSelect).toBeVisible();
+		await expect(page.locator('[data-testid="viewcube-studio-backdrop"]')).toBeVisible();
+
+		// Cycle all 5 bundled CC0 1K HDRIs (outside, workbench, machine shop, office)
+		for (const envId of [
+			'hdri-outdoor-sunny',
+			'hdri-outdoor-plaza',
+			'hdri-workbench',
+			'hdri-machine-shop',
+			'hdri-office'
+		]) {
+			await envSelect.selectOption(envId);
+			await waitForStudioSettled(page);
+			const stats = await page.evaluate(() => window.__waffle.getStudioStats());
+			expect(stats.environmentId).toBe(envId);
+			expect(stats.environmentLoaded).toBe(true);
+			const [px] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 3);
+			expect(px.lum, `${envId} should illuminate Polished Chrome`).toBeGreaterThan(40);
+		}
+		// Close ViewCube dropdown
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+
+		// Invariant I9: Z-up orientation on Outdoor Sunny Park — +Z top face reflects blue sky,
+		// whereas -Z bottom face reflects darker earth/grass
+		await page.evaluate(() => {
+			window.__waffle.updateSettings({
+				studioEnvironment: 'hdri-outdoor-sunny',
+				studioGroundShadow: false,
+				studioEnvRotation: 0
+			});
+			window.dispatchEvent(new CustomEvent('waffle-snap-view-and-fit', { detail: { view: 'top' } }));
+		});
+		await waitForStudioSettled(page);
+		const [skyReflectPx] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 4);
+
+		await page.evaluate(() => {
+			window.dispatchEvent(
+				new CustomEvent('waffle-snap-view-and-fit', { detail: { view: 'bottom' } })
+			);
+		});
+		await waitForStudioSettled(page);
+		const [groundReflectPx] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 4);
+
+		expect(
+			skyReflectPx.lum,
+			`+Z top face should reflect bright sky (${skyReflectPx.lum.toFixed(1)}) vs -Z bottom ground (${groundReflectPx.lum.toFixed(1)})`
+		).toBeGreaterThan(groundReflectPx.lum + 25);
+		expect(skyReflectPx.b).toBeGreaterThan(groundReflectPx.b + 20);
+
+		// Environment rotation around +Z shifts reflections in ISO view
+		await page.evaluate(() => {
+			window.dispatchEvent(new CustomEvent('waffle-snap-view-and-fit', { detail: { view: 'iso' } }));
+			window.__waffle.updateSettings({
+				studioEnvironment: 'hdri-office',
+				studioEnvRotation: 0
+			});
+		});
+		await waitForStudioSettled(page);
+		const [rot0Px] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 4);
+
+		await page.evaluate(() => window.__waffle.updateSettings({ studioEnvRotation: 135 }));
+		await waitForStudioSettled(page);
+		const [rot135Px] = await sampleCanvasPoints(page, [{ x: 0.5, y: 0.5 }], 4);
+
+		const rotDelta =
+			Math.abs(rot0Px.r - rot135Px.r) +
+			Math.abs(rot0Px.g - rot135Px.g) +
+			Math.abs(rot0Px.b - rot135Px.b);
+		expect(rotDelta, 'Rotating HDRI around +Z should shift reflected radiance').toBeGreaterThan(4);
+
+		// Environment Backdrop: off => exact CSS --viewport-bg parity with Classic Shaded (Invariant I6);
+		// on => visible Z-up sky/horizon HDRI dome in BOTH Orthographic & Perspective cameras
+		await page.evaluate(() => window.__waffle.updateSettings({ viewportShading: 'shaded' }));
+		await page.waitForTimeout(150);
+		const [shadedBgTop] = await sampleCanvasPoints(page, [{ x: 0.08, y: 0.08 }], 2);
+
+		await page.evaluate(() =>
+			window.__waffle.updateSettings({
+				viewportShading: 'studio',
+				studioEnvironment: 'hdri-outdoor-sunny',
+				studioBackdrop: false
+			})
+		);
+		await waitForStudioSettled(page);
+		const [bgOffTop] = await sampleCanvasPoints(page, [{ x: 0.08, y: 0.08 }], 2);
+		expect(Math.abs(bgOffTop.r - shadedBgTop.r)).toBeLessThanOrEqual(1);
+		expect(Math.abs(bgOffTop.g - shadedBgTop.g)).toBeLessThanOrEqual(1);
+		expect(Math.abs(bgOffTop.b - shadedBgTop.b)).toBeLessThanOrEqual(1);
+
+		for (const proj of ['orthographic', 'perspective']) {
+			await page.evaluate((p) => {
+				if (window.__waffle.getCameraProjection() !== p) {
+					window.__waffle.toggleCameraProjection();
+				}
+				window.__waffle.updateSettings({ studioBackdrop: true });
+			}, proj);
+			await waitForStudioSettled(page);
+			const [bgSky, bgLow] = await sampleCanvasPoints(
+				page,
+				[
+					{ x: 0.08, y: 0.08 },
+					{ x: 0.08, y: 0.92 }
+				],
+				2
+			);
+			const shiftFromCssBg =
+				Math.abs(bgSky.r - shadedBgTop.r) +
+				Math.abs(bgSky.g - shadedBgTop.g) +
+				Math.abs(bgSky.b - shadedBgTop.b);
+			expect(shiftFromCssBg, `Backdrop visible in ${proj}`).toBeGreaterThan(25);
+			expect(
+				Math.abs(bgSky.lum - bgLow.lum) + Math.abs(bgSky.b - bgLow.b),
+				`Backdrop in ${proj} should vary vertically rather than stretching 1 pixel`
+			).toBeGreaterThan(8);
+		}
+
+		// Custom .hdr upload in Settings -> Appearance decodes and activates 'custom' environment
+		await page.locator('[data-testid="toolbar-btn-settings"]').click();
+		await page.locator('[data-testid="settings-section-appearance"]').click();
+		await page
+			.locator('[data-testid="settings-modal"] input[type="file"][accept=".hdr,.exr"]')
+			.setInputFiles('static/hdri/indoor_workbench.hdr');
+		await page.locator('[data-testid="settings-close"]').click();
+		await waitForStudioSettled(page);
+		const customStats = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(customStats.environmentId).toBe('custom');
+		expect(customStats.environmentLoaded).toBe(true);
 
 		expectNoAnyCrash(crashes);
 	});

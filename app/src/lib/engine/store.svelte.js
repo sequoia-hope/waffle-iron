@@ -32,6 +32,7 @@ import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, del
 import { mapConstraintForBridge } from '$lib/sketch/bridgeConstraint.js';
 import { MATERIAL_PRESETS } from '$lib/viewport/materialPresets.js';
 import { readStudioStats } from '$lib/viewport/studio/studioState.js';
+import { STUDIO_ENVIRONMENTS } from '$lib/viewport/studio/studioEnvironment.js';
 
 /**
  * Generate a UUID, with fallback for non-secure contexts (e.g. HTTP without localhost).
@@ -1613,6 +1614,7 @@ export async function initEngine() {
 			},
 			getRenderStats: () => getRenderStats(),
 			getStudioStats: () => readStudioStats(),
+			getStudioEnvironments: () => STUDIO_ENVIRONMENTS,
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
 			toggleCameraProjection: () => toggleCameraProjection(),
