@@ -414,10 +414,11 @@ impl ParamSurface for Surface {
         }
         let span_u = rect.u1 - rect.u0;
         let span_v = rect.v1 - rect.v0;
+        // The azimuth must stay within one period (which copy of a seam
+        // straddle is meant is otherwise ambiguous). A torus tube-angle span
+        // past 2π is legal: the net then covers the tube more than once and
+        // every bound over it stays a bound (`tests/n2_dt_adversary.rs`).
         if span_u > TWO_PI {
-            return Err(SurfaceError::SpanExceedsPeriod);
-        }
-        if matches!(self, Surface::Torus { .. }) && span_v > TWO_PI {
             return Err(SurfaceError::SpanExceedsPeriod);
         }
         let (frame, profile) = revolution(self).ok_or(SurfaceError::InvalidSurface)?;

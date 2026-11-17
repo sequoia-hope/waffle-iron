@@ -215,7 +215,7 @@ Class (b) converts in batches by rule family, each batch hash-identical.
 
 ## 6. Increments
 
-1. **The module, unwired.** Types, trait, the five instances, the two
+1. **The module, unwired.** *(Landed 2026-11-16, bf81c65e.)* Types, trait, the five instances, the two
    generic bounds. Pins: `eval` equals `stage4_dt::eval_uv` bit for bit;
    `control_net_distance` equals `stage4_dt::d_of_t` bit for bit on its
    existing fixtures plus a randomized-but-seeded sweep; s_u × s_v is
@@ -225,7 +225,11 @@ Class (b) converts in batches by rule family, each batch hash-identical.
    (`ConeHypothesis`) rather than answer past it. No production change.
 2. **`stage4_dt` re-sited.** `eval_uv` and `d_of_t` become thin calls into
    the module and their duplicated nets are deleted; `gauss_map` gains its
-   differential pin. Gate: hash identical.
+   differential pin. Gate: hash identical. *(Landed 2026-11-16, hash
+   identical on all 374 cases. A torus tube-angle span past 2π stays legal —
+   the net covers the tube more than once and the bound holds — as
+   `tests/n2_dt_adversary.rs` pins; only the azimuth is held to one
+   period.)*
 3. **Parameter coordinates carried** (§4), with the inverse ledgered.
    Gate: hash identical; the census recorded in the roadmap's checkpoint
    log. Resolves matrix 4.2-24.

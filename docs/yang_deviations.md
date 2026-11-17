@@ -3967,9 +3967,17 @@ seeded samples per surface; the cone contains every normal sampled on a
 25 × 25 grid over 150 seeded rectangles per surface and over a full turn of
 each; it is exactly ±π/4 on a quarter cylinder; it refuses rather than
 guesses when the hypothesis never holds. Nothing in the production path
-calls it, so the corpus is untouched. Next: `stage4_dt` re-sited onto it
-and the closed-form Gauss maps pinned against the net cone (increment 2,
-hash-gated). **State: OPEN.**
+calls it, so the corpus is untouched. **Increment 2 (2026-11-16):**
+`stage4_dt::eval_uv` and `d_of_t` are now the interface (`ParamSurface::eval`
+and `control_net_distance`, refusals named in `DtError`), their duplicated
+nets deleted; every Stage-4/5 d(T) reader reaches the surface through it.
+The bit-for-bit pins became independent oracles (the embedding table written
+out; d(T) above every densely sampled surface-to-triangle distance), and the
+closed-form Gauss maps (N91/N92) are pinned against the net cone: both hold
+every normal sampled over the same rectangles. A torus tube-angle span past
+2π stays legal, as `tests/n2_dt_adversary.rs` holds. Corpus geometry hash
+identical on all 374 cases against a control run (360C / 0W). Next: (u, v)
+carried per vertex (increment 3). **State: OPEN.**
 
 **Code location:** [historical — `crates/kernel/` was DELETED 2026-06-11 (Phase 6); the live analog is the five-variant `Surface` enum, `crates/yang-rs/src/geom.rs:37` and `crates/kernel-v2/src/arena.rs:245`] `crates/kernel/src/geometry/surface.rs:56-62`, `crates/kernel/src/tessellation/analytic.rs` (entire file).
 

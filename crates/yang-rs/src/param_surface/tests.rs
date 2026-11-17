@@ -1,6 +1,7 @@
 //! Pins of the F5a increment-1 interface (spec
 //! `specs/yang_f5a_surface_interface.md` §6 item 1).
 
+use super::dist_point_tri;
 use super::*;
 use crate::stage4_dt::{d_of_t, eval_uv};
 use crate::Surface;
@@ -87,32 +88,111 @@ fn random_tri(s: &Surface, rng: &mut Lcg) -> [Uv; 3] {
     out
 }
 
+/// The embedding table written out directly — an oracle independent of
+/// `analytic.rs` (frames from `ortho_basis`, the sphere on world ẑ).
+fn table_eval(s: &Surface, p: Uv) -> [f64; 3] {
+    let (u, v) = (p.x(), p.y());
+    let ring = |datum: [f64; 3], axis: Vector3, rho: f64, z: f64| {
+        let a = crate::normalize3(axis.as_array());
+        let (e1, e2) = crate::ortho_basis(axis);
+        let r = add3(
+            scale3(e1.as_array(), u.cos()),
+            scale3(e2.as_array(), u.sin()),
+        );
+        add3(add3(datum, scale3(a, z)), scale3(r, rho))
+    };
+    match *s {
+        Surface::Plane { normal, d } => {
+            let n = crate::normalize3(normal.as_array());
+            let (e1, e2) = crate::ortho_basis(normal);
+            add3(
+                scale3(n, -d),
+                add3(scale3(e1.as_array(), u), scale3(e2.as_array(), v)),
+            )
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => ring(axis_point.as_array(), axis_dir, radius, v),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => ring(apex.as_array(), axis_dir, v * half_angle.tan(), v),
+        Surface::Sphere { center, radius } => ring(
+            center.as_array(),
+            Vector3::new(0.0, 0.0, 1.0),
+            radius * v.cos(),
+            radius * v.sin(),
+        ),
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => ring(
+            center.as_array(),
+            axis_dir,
+            major_radius + minor_radius * v.cos(),
+            minor_radius * v.sin(),
+        ),
+    }
+}
+
 #[test]
-fn eval_is_stage4_dt_embedding_bit_for_bit() {
+fn eval_is_the_embedding_table() {
     let mut rng = Lcg(1);
     for s in surfaces() {
         for _ in 0..2000 {
             let p = random_uv(&s, &mut rng);
             let ours = s.eval(p).unwrap();
-            let theirs = eval_uv(&s, p).unwrap().as_array();
-            assert_eq!(
-                ours.map(f64::to_bits),
-                theirs.map(f64::to_bits),
-                "{s:?} at {p:?}"
-            );
+            let want = table_eval(&s, p);
+            let err = dot3(sub3(ours, want), sub3(ours, want)).sqrt();
+            assert!(err < 1e-12, "{s:?} at {p:?}: {ours:?} vs {want:?}");
+            // `stage4_dt::eval_uv` is this evaluation.
+            assert_eq!(eval_uv(&s, p).unwrap().as_array(), ours);
         }
     }
 }
 
 #[test]
-fn control_net_distance_is_d_of_t_bit_for_bit() {
+fn control_net_distance_bounds_the_surface_over_the_triangle() {
+    // Theorem A.1: d(T) is an upper bound on the distance from the surface
+    // over the triangle's parameter footprint to the 3D triangle. Sample the
+    // footprint densely and check none exceeds it.
     let mut rng = Lcg(2);
     for s in surfaces() {
-        for _ in 0..2000 {
+        for _ in 0..400 {
             let tri = random_tri(&s, &mut rng);
-            let ours = control_net_distance(&s, tri).unwrap();
-            let theirs = d_of_t(&s, tri).unwrap();
-            assert_eq!(ours.to_bits(), theirs.to_bits(), "{s:?} at {tri:?}");
+            let bound = control_net_distance(&s, tri).unwrap();
+            assert_eq!(d_of_t(&s, tri).unwrap().to_bits(), bound.to_bits());
+            let corners = tri.map(|c| s.eval(c).unwrap());
+            let n = 12;
+            for i in 0..=n {
+                for j in 0..=(n - i) {
+                    let (a, b) = (i as f64 / n as f64, j as f64 / n as f64);
+                    let c = 1.0 - a - b;
+                    let p = uv(
+                        c * tri[0].x() + a * tri[1].x() + b * tri[2].x(),
+                        c * tri[0].y() + a * tri[1].y() + b * tri[2].y(),
+                    );
+                    // Rounding can carry a convex combination a hair past
+                    // a pole or the apex.
+                    let p = match s {
+                        Surface::Sphere { .. } => uv(p.x(), p.y().clamp(-FRAC_PI_2, FRAC_PI_2)),
+                        Surface::Cone { .. } => uv(p.x(), p.y().max(0.0)),
+                        _ => p,
+                    };
+                    let q = s.eval(p).unwrap();
+                    let d = dist_point_tri(q, &corners);
+                    assert!(
+                        d <= bound * (1.0 + 1e-12) + 1e-14,
+                        "{s:?} {tri:?}: surface point at {p:?} is {d:e} from the triangle, \
+                         bound {bound:e}"
+                    );
+                }
+            }
         }
     }
 }
@@ -140,6 +220,20 @@ fn control_net_distance_refuses_where_d_of_t_refuses() {
         assert!(control_net_distance(&s, tri).is_err(), "{s:?} {tri:?}");
         assert!(d_of_t(&s, tri).is_err(), "{s:?} {tri:?}");
     }
+    // `stage4_dt` names each refusal in its own vocabulary.
+    use crate::stage4_dt::DtError;
+    assert_eq!(
+        d_of_t(&sphere, [uv(0.0, 0.0), uv(0.1, 1.6), uv(0.2, 0.0)]),
+        Err(DtError::PolarRangeOutOfBounds)
+    );
+    assert_eq!(
+        d_of_t(&cone, [uv(0.0, -0.1), uv(0.1, 1.0), uv(0.2, 1.0)]),
+        Err(DtError::NegativeConeAxialRange)
+    );
+    assert_eq!(
+        d_of_t(&cyl, [uv(0.0, 0.0), uv(7.0, 0.0), uv(0.1, 0.1)]),
+        Err(DtError::AzimuthSpanTooLarge)
+    );
 }
 
 #[test]
@@ -470,6 +564,39 @@ fn cone_union_contains_both_cones() {
                     angle_between(u.axis, v) <= u.half_angle + 1e-12,
                     "{a:?} ∪ {b:?} = {u:?} misses {v:?}"
                 );
+            }
+        }
+    }
+}
+
+#[test]
+fn closed_form_gauss_maps_and_the_net_cone_hold_the_same_normals() {
+    // The closed-form Gauss maps (`gauss_map.rs`, N91/N92) are a recorded
+    // fast path for Theorem 4.1's net cone (spec §5). Both must hold every
+    // normal sampled over the same rectangle; a sample one of them misses is
+    // a defect in that one.
+    use crate::gauss_map::GaussMap;
+    let mut rng = Lcg(8);
+    for s in surfaces() {
+        for _ in 0..150 {
+            let tri = random_tri(&s, &mut rng);
+            let r = ParamRect::covering(&tri);
+            let closed = GaussMap::from_uv_rect(&s, [r.u0, r.u1], [r.v0, r.v1]);
+            let net = normal_cone(&s, r).unwrap();
+            let n = 12;
+            for i in 0..=n {
+                for j in 0..=n {
+                    let p = uv(
+                        r.u0 + (r.u1 - r.u0) * i as f64 / n as f64,
+                        r.v0 + (r.v1 - r.v0) * j as f64 / n as f64,
+                    );
+                    let Ok(nrm) = s.normal(p) else { continue };
+                    assert!(net.contains(nrm), "{s:?} {r:?}: net cone misses {nrm:?}");
+                    assert!(
+                        closed.overlaps(&GaussMap::from_normal(nrm)),
+                        "{s:?} {r:?}: closed-form map misses {nrm:?} at {p:?}"
+                    );
+                }
             }
         }
     }
