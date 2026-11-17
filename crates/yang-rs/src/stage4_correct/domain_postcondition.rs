@@ -143,6 +143,9 @@ pub(crate) fn boundary_domain_postcondition(
             Point3::new(post[0], post[1], post[2]),
         );
         for &(input, face) in faces {
+            if crate::n100_census::on() {
+                n100_item6_shadow(v, input, face, pre, post, a, b);
+            }
             let creases = creases_of(input, face);
             if let Some(fire) = boundary_crease_crossed(p, q, &creases) {
                 fires.push((v, input, face, fire.edge, fire.f_pre, fire.f_post));
@@ -1040,4 +1043,98 @@ pub(crate) fn curve_domain_postcondition(
         }
     }
     crate::boolean::failures::record_curve_domain_fires(&fires);
+}
+
+/// N100 item 6, print-only (`YANG_N100_CENSUS`): would T2 fire on a
+/// `SurfacePair` crease if it had a divider? The divider is the crease's
+/// other surface (as a conic's on a planar face); the extent test is the
+/// edge's endpoint span plus the step's travel — conservative, every hit is
+/// read by hand. No effect on any result.
+fn n100_item6_shadow(
+    v: u32,
+    input: InputId,
+    face: u32,
+    pre: [f64; 3],
+    post: [f64; 3],
+    a: &BRep,
+    b: &BRep,
+) {
+    use crate::geom::Curve;
+    let brep = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    let Some(f) = brep.faces().get(face as usize) else {
+        return;
+    };
+    let d3 = |x: [f64; 3], y: [f64; 3]| {
+        ((x[0] - y[0]).powi(2) + (x[1] - y[1]).powi(2) + (x[2] - y[2]).powi(2)).sqrt()
+    };
+    let travel = d3(pre, post);
+    for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        let Some(e) = brep.edges().get(ei as usize) else {
+            continue;
+        };
+        let Curve::SurfacePair { a: sa, b: sb } = e.curve else {
+            continue;
+        };
+        let other = if sa == f.surface { sb } else { sa };
+        if other == f.surface {
+            continue;
+        }
+        let val = |x: [f64; 3]| {
+            crate::geom::signed_distance_to_surface(other, Point3::new(x[0], x[1], x[2])).ok()
+        };
+        let (Some(f0), Some(f1)) = (val(pre), val(post)) else {
+            continue;
+        };
+        let scale = pre
+            .iter()
+            .chain(post.iter())
+            .fold(1.0f64, |m, c| m.max(c.abs()));
+        let band = 1e-9 * scale;
+        if !(f0.abs() > band && f1.abs() > band && (f0 < 0.0) != (f1 < 0.0)) {
+            continue;
+        }
+        let t = f0 / (f0 - f1);
+        let x = [
+            pre[0] + t * (post[0] - pre[0]),
+            pre[1] + t * (post[1] - pre[1]),
+            pre[2] + t * (post[2] - pre[2]),
+        ];
+        let (Some(p0), Some(p1)) = (
+            brep.vertices()
+                .get(e.start as usize)
+                .map(|w| w.point.as_array()),
+            brep.vertices()
+                .get(e.end as usize)
+                .map(|w| w.point.as_array()),
+        ) else {
+            continue;
+        };
+        let span = d3(p0, p1);
+        let near_end = d3(x, p0).min(d3(x, p1));
+        // On the intersection curve itself: the crossing point is on the
+        // other surface by construction; it must also be on this face's own.
+        let own = crate::geom::signed_distance_to_surface(f.surface, Point3::new(x[0], x[1], x[2]))
+            .map(f64::abs)
+            .unwrap_or(f64::INFINITY);
+        let closed = e.start == e.end;
+        // Open arc: within the endpoint span plus the step. Closed loop: no
+        // arc bound to test against — every crossing ON the curve counts.
+        let in_extent = if closed {
+            own <= travel + band
+        } else {
+            near_end <= span + travel
+        };
+        if !in_extent {
+            continue;
+        }
+        crate::n100_census::log(
+            6,
+            &format!(
+                "WOULD-FIRE v={v} {input:?}:{face} edge={ei} closed={closed} f_pre={f0:.3e} f_post={f1:.3e} own_at_x={own:.3e} near_end={near_end:.3e} travel={travel:.3e} span={span:.3e}"
+            ),
+        );
+    }
 }

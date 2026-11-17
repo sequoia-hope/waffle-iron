@@ -1293,6 +1293,11 @@ impl CreaseIndex {
                     continue; // a seam / split of ONE surface bounds no domain
                 }
                 let Some((divider, extent)) = crease_divider(e, verts, s_own, s_other) else {
+                    // N100 item 6: a `SurfacePair` crease is declined, so T2 /
+                    // T9 cannot see a step crossing it. Print-only census.
+                    if matches!(e.curve, Curve::SurfacePair { .. }) && crate::n100_census::on() {
+                        crate::n100_census::log(6, &format!("face={fi} edge={ei}"));
+                    }
                     continue;
                 };
                 list.push(FaceCrease {

@@ -122,7 +122,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 1 | exact-chain coverage (`assay_exact_coverage`) | corpus 355 / 374; seed 6 195 / 198 (main 592c813f) | no lower than baseline; every decline justified |
 | 1 | N100 items open | see ledger N100 | 0 |
 | 1 | independent-kernel (OCCT) disagreements not adjudicated | oracle not built (2026-11-12) | 0, over the corpus and two seeds |
-| 2 | ledger debt | 66 | 0 |
+| 2 | ledger debt | 75 | 0 |
 | 2 | matrix not-faithful | 157 of 194 | 0 MISSING/ORDER; rest PERMANENT-backed |
 | 2 | consecutive clean audits | 0 | 2 |
 | 3 | surface pairs with a CORRECT customer | **15 of 21** (`assay_pair_matrix` on 75f2f1be, 3 seeds: 135 / 135 CORRECT, 0 WRONG, 0 ERROR, 132 with exact-volume agreement); the 6 B-spline pairs are not buildable (F5) | 21 of 21 |
@@ -249,3 +249,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-17 | step 1, F5a increment 3: parameter coordinates carried per vertex per face (N109 ledgered: from the closed-form inverse) | corpus 360C/0W/9E/5EE/0T, geometry hash identical on 374 | 66 / 133 | (u, v) carried, unread | — | (this commit) |
 | 2026-11-17 | step 1, F5a increment 4: `Surface::` match inventory; 47 type tests converted to interface queries; 22 type-narrowed rules named against their milestones | corpus 360C/0W/9E/5EE/0T, geometry hash identical on 374 | 66 / 133 | — | — | (this commit) |
 | 2026-11-17 | matrix re-audit at `244bb484`: 27 rows re-graded after review, none to FAITHFUL; the NURBS rows N/A → MISSING/PARTIAL/DEVIATES under the reopened D14 | not re-run (no kernel change) | 66 / 157 | — | — | (this commit) |
+| 2026-11-17 | ledger catch-up: N110–N118, nine live mechanisms with no entry (found by the re-audit, each read in the code); N100 item 6 measured on the corpus, item 10 added | not re-run (print-only probes) | 75 / 157 | — | — | (this commit) |
