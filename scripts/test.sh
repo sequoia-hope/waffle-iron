@@ -203,6 +203,11 @@ GUI_FAST_SPECS=(
   # directional physical invariants over PMREM IBL, GTAO+GTSO, SSR, ground contact
   # shadow, progressive Halton settle, and engine material presets.
   studio-pbr-renderer.spec.js
+  # Opening a stored document from its home card: every feature comes back,
+  # and a document the engine refuses says so. The core open path had no
+  # gated oracle — home-page.spec.js only checks the URL (user report
+  # 2026-11-17: projects with thumbnails opening empty). Two tests, ~10 s.
+  home-open-content.spec.js
 )
 
 # ---------------------------------------------------------------------------

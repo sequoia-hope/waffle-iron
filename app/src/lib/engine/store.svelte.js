@@ -8287,7 +8287,17 @@ export async function loadPendingDocument() {
 			pendingRevProvider ?? null
 		);
 	} catch (err) {
+		// Loud: the page still shows the empty startup document, and a silent
+		// failure there reads as "the document opened empty".
+		const name = (() => {
+			try {
+				return JSON.parse(pendingJson)?.document?.name || 'the document';
+			} catch {
+				return 'the document';
+			}
+		})();
 		log('error', `Failed to load pending document: ${err}`);
+		showToast('error', `Couldn't open ${name}: ${err?.message || err}`);
 	} finally {
 		pendingHandoffInFlight = false;
 	}
