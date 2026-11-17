@@ -601,3 +601,145 @@ fn closed_form_gauss_maps_and_the_net_cone_hold_the_same_normals() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Increment 3: the analytic inverse (spec §5, ledger N109).
+// ---------------------------------------------------------------------------
+
+fn dist3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// `true` when `a` and `b` name the same parameter point modulo the
+/// periods of `s`'s domain.
+fn same_param(s: &Surface, a: Uv, b: Uv, tol: f64) -> bool {
+    let dom = s.domain();
+    let close = |x: f64, y: f64, period: Option<f64>| match period {
+        Some(p) => {
+            let d = (x - y).rem_euclid(p);
+            d.min(p - d) <= tol
+        }
+        None => (x - y).abs() <= tol,
+    };
+    close(a.x(), b.x(), dom.u.period) && close(a.y(), b.y(), dom.v.period)
+}
+
+/// Away from a degenerate iso-line (where u is free), the inverse of an
+/// evaluated point is the parameter point it came from, modulo the period
+/// without a seed and on the seed's branch with one.
+#[test]
+fn inverse_undoes_eval() {
+    let mut rng = Lcg(0x1_f5a3);
+    for s in surfaces() {
+        for _ in 0..2000 {
+            let q = random_uv(&s, &mut rng);
+            if matches!(s, Surface::Cone { .. }) && q.y() < 1e-3 {
+                continue;
+            }
+            if matches!(s, Surface::Sphere { .. }) && FRAC_PI_2 - q.y().abs() < 1e-3 {
+                continue;
+            }
+            let p = s.eval(q).unwrap();
+            let bare = s.inverse(p, None).unwrap();
+            assert!(same_param(&s, bare, q, 1e-9), "{s:?}: {q:?} -> {bare:?}");
+            let dom = s.domain();
+            if let Some(period) = dom.u.period {
+                assert!(bare.x() >= dom.u.lo && bare.x() < dom.u.lo + period);
+            }
+            if let Some(period) = dom.v.period {
+                assert!(bare.y() >= dom.v.lo && bare.y() < dom.v.lo + period);
+            }
+            // A seed near q, possibly whole periods away, picks its branch.
+            let k = (rng.range(-2.0, 2.0)).round() * 2.0 * PI;
+            let ku = if dom.u.period.is_some() { k } else { 0.0 };
+            let kv = if dom.v.period.is_some() { -k } else { 0.0 };
+            let seed = uv(q.x() + ku + rng.range(-1.0, 1.0), q.y() + kv);
+            let seeded = s.inverse(p, Some(seed)).unwrap();
+            assert!(
+                (seeded.x() - (q.x() + ku)).abs() <= 1e-9,
+                "{s:?}: seeded u {seeded:?} vs {q:?} + {ku}"
+            );
+            if dom.v.period.is_some() {
+                assert!((seeded.y() - (q.y() + kv)).abs() <= 1e-9);
+            }
+            assert!(dist3(s.eval(seeded).unwrap(), p) <= 1e-12 * (1.0 + dist3(p, [0.0; 3])));
+        }
+    }
+}
+
+/// Off the surface, the inverse names the CLOSEST point: `p − s(uv)` is
+/// normal to the surface there (orthogonal to `s_u` and `s_v`), and a point
+/// moved along the normal returns to where it left.
+#[test]
+fn inverse_is_the_closest_point() {
+    let mut rng = Lcg(0x2_f5a3);
+    for s in surfaces() {
+        for _ in 0..1000 {
+            let q = random_uv(&s, &mut rng);
+            let Ok(n) = s.normal(q) else { continue };
+            if matches!(s, Surface::Cone { .. }) && q.y() < 0.2 {
+                continue;
+            }
+            if matches!(s, Surface::Sphere { .. }) && FRAC_PI_2 - q.y().abs() < 1e-2 {
+                continue;
+            }
+            // Within half the smallest curvature radius there (0.8 on every
+            // fixture but the cone, whose azimuthal radius is ρ / cos α).
+            let reach = match s {
+                Surface::Cone { half_angle, .. } => (0.5 * q.y() * half_angle.tan()).min(0.3),
+                _ => 0.3,
+            };
+            let h = rng.range(-reach, reach);
+            let s0 = s.eval(q).unwrap();
+            let p = [s0[0] + h * n[0], s0[1] + h * n[1], s0[2] + h * n[2]];
+            let back = s.inverse(p, Some(q)).unwrap();
+            assert!(
+                (back.x() - q.x()).abs() <= 1e-9 && (back.y() - q.y()).abs() <= 1e-9,
+                "{s:?}: {q:?} moved {h} -> {back:?}"
+            );
+            let d = s.derivs(back).unwrap();
+            let w = [p[0] - d.s[0], p[1] - d.s[1], p[2] - d.s[2]];
+            let dot = |a: [f64; 3]| (w[0] * a[0] + w[1] * a[1] + w[2] * a[2]).abs();
+            let scale = 1e-9 * (1.0 + dist3(w, [0.0; 3]));
+            assert!(dot(d.su) <= scale * dist3(d.su, [0.0; 3]).max(1.0));
+            assert!(dot(d.sv) <= scale * dist3(d.sv, [0.0; 3]).max(1.0));
+        }
+    }
+}
+
+/// Where the closest point fixes no coordinate, the seed's is kept; a cone
+/// point nearer the nappe behind the apex is outside the domain; a
+/// non-finite point is refused.
+#[test]
+fn inverse_degenerate_points_and_refusals() {
+    let ss = surfaces();
+    let cone = ss[2];
+    let sphere = ss[3];
+    // The apex itself: v = 0, u from the seed.
+    let apex = cone.eval(uv(0.0, 0.0)).unwrap();
+    let at_apex = cone.inverse(apex, Some(uv(1.25, 0.5))).unwrap();
+    assert!(at_apex.y().abs() <= 1e-12);
+    // A point behind the apex, on the mirrored nappe.
+    let Surface::Cone { half_angle, .. } = cone else {
+        unreachable!()
+    };
+    let front = cone.eval(uv(0.7, 2.0)).unwrap();
+    let behind = [
+        2.0 * apex[0] - front[0],
+        2.0 * apex[1] - front[1],
+        2.0 * apex[2] - front[2],
+    ];
+    assert!(half_angle < std::f64::consts::FRAC_PI_4);
+    assert_eq!(cone.inverse(behind, None), Err(SurfaceError::OutsideDomain));
+    // The sphere's pole: u from the seed, latitude exact.
+    let pole = sphere.eval(uv(0.0, FRAC_PI_2)).unwrap();
+    let at_pole = sphere.inverse(pole, Some(uv(2.5, 1.0))).unwrap();
+    assert!((at_pole.y() - FRAC_PI_2).abs() <= 1e-12);
+    assert!(dist3(sphere.eval(at_pole).unwrap(), pole) <= 1e-12);
+    for s in &ss {
+        assert_eq!(
+            s.inverse([f64::NAN, 0.0, 0.0], None),
+            Err(SurfaceError::NonFiniteInput)
+        );
+    }
+}

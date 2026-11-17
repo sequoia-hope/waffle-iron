@@ -3042,6 +3042,7 @@ pub(crate) fn apply_rebuild_batch(
     side_labels: &mut crate::brep::TriangleSideLabelMap,
     tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
     rebuilds: &[PatchRebuild],
+    mut vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> Result<(), ConstructError> {
     debug_assert_eq!(
         side_labels.len(),
@@ -3051,6 +3052,9 @@ pub(crate) fn apply_rebuild_batch(
         mesh.tris.len(),
     );
     tri_bounds.assert_lockstep(mesh.tris.len(), "apply_rebuild_batch");
+    if let Some(vp) = vertex_params.as_deref() {
+        vp.assert_lockstep(mesh.verts.len(), "apply_rebuild_batch");
+    }
     let (n_verts, n_tris) = (mesh.verts.len() as u32, mesh.tris.len() as u32);
     let mut removed: BTreeSet<u32> = BTreeSet::new();
     let mut attrs_of: Vec<Option<TriangleAttribution>> = Vec::with_capacity(rebuilds.len());
@@ -3114,6 +3118,9 @@ pub(crate) fn apply_rebuild_batch(
         // the seed references.
         let seed_base = mesh.verts.len() as u32;
         mesh.verts.extend_from_slice(&r.new_verts);
+        if let Some(vp) = vertex_params.as_deref_mut() {
+            vp.push_bare(r.new_verts.len());
+        }
         for ti in 0..r.new_tris.len() {
             let mut out = r.new_tris[ti];
             let tb = r.new_tri_bounds[ti];
@@ -3135,6 +3142,11 @@ pub(crate) fn apply_rebuild_batch(
     side_labels.labels = labels;
     tri_bounds.bounds = bounds;
     tri_bounds.assert_lockstep(mesh.tris.len(), "apply_rebuild_batch exit");
+    // F5a: the seeds, and every vertex the rebuild put on a new face, get
+    // their (u, v) on the patch's face.
+    if let Some(vp) = vertex_params {
+        vp.settle(&mesh.verts, &mesh.tris, &attribution.attributions);
+    }
     Ok(())
 }
 
@@ -4364,6 +4376,7 @@ pub(crate) fn update_patches_ex(
         full_arrangement,
         moved,
         tangential_verts,
+        None,
     )
 }
 
@@ -4378,6 +4391,7 @@ pub(crate) fn update_patches_ex_with_bounds(
     full_arrangement: bool,
     moved: &std::collections::HashSet<u32>,
     tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+    vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> usize {
     tri_bounds.assert_lockstep(mesh.tris.len(), "update_patches_ex_with_bounds");
     let sl_opt = full_arrangement.then_some(&*side_labels);
@@ -4845,7 +4859,14 @@ pub(crate) fn update_patches_ex_with_bounds(
         return 0;
     }
     let mut batch_err = false;
-    let n = match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &plans) {
+    let n = match apply_rebuild_batch(
+        mesh,
+        attribution,
+        side_labels,
+        tri_bounds,
+        &plans,
+        vertex_params,
+    ) {
         Ok(()) => plans.len(),
         Err(_) => {
             batch_err = true;
@@ -6510,6 +6531,7 @@ mod tests {
             &mut side_labels,
             &mut tri_bounds,
             std::slice::from_ref(&r),
+            None,
         )
         .expect("write-back");
         assert_eq!(mesh.verts.len(), n_verts_before + n_seeds);
@@ -6618,6 +6640,7 @@ mod tests {
             &mut side_labels,
             &mut tri_bounds,
             &[r],
+            None,
         )
         .expect("write-back");
 
@@ -6667,6 +6690,7 @@ mod tests {
                 &mut grown_labels,
                 &mut grown_bounds,
                 std::slice::from_ref(&r),
+                None,
             ),
             Err(ConstructError::StalePlan { .. })
         ));
@@ -6679,6 +6703,7 @@ mod tests {
                 &mut side_labels,
                 &mut tri_bounds,
                 &[r.clone(), r],
+                None,
             ),
             Err(ConstructError::OverlappingBatch { .. })
         ));

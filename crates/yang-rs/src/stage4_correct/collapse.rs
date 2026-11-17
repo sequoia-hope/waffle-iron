@@ -2392,9 +2392,11 @@ pub(crate) fn collapse_subresolution_intersection_segments(
         intersection_curves,
         a,
         b,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collapse_subresolution_intersection_segments_with_bounds(
     mesh: &mut Mesh,
     attribution: &mut Vec<Option<TriangleAttribution>>,
@@ -2403,6 +2405,7 @@ pub(crate) fn collapse_subresolution_intersection_segments_with_bounds(
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     a: &BRep,
     b: &BRep,
+    vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> bool {
     collapse_subresolution_intersection_segments_ex_with_bounds(
         mesh,
@@ -2414,6 +2417,7 @@ pub(crate) fn collapse_subresolution_intersection_segments_with_bounds(
         b,
         false,
         None,
+        vertex_params,
     )
 }
 
@@ -2439,6 +2443,7 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex(
         b,
         scope_by_side_label,
         tangential_verts,
+        None,
     )
 }
 
@@ -2453,6 +2458,7 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex_with_bounds(
     b: &BRep,
     scope_by_side_label: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+    mut vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> bool {
     assert_eq!(
         tri_bounds.len(),
@@ -2529,7 +2535,11 @@ pub(crate) fn collapse_subresolution_intersection_segments_ex_with_bounds(
                 continue;
             }
             if survivor_in_victim && !victim_in_survivor {
-                mesh.verts[survivor as usize] = mesh.verts[victim as usize];
+                let p = mesh.verts[victim as usize];
+                mesh.verts[survivor as usize] = p;
+                if let Some(vp) = vertex_params.as_deref_mut() {
+                    vp.merged_into(survivor, victim, p);
+                }
             }
         }
         if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
@@ -2701,7 +2711,7 @@ pub(crate) fn compact_unreferenced_verts(
     side_labels: &[TriangleSideLabel],
 ) -> Option<Vec<Option<u32>>> {
     let dummy_bounds = vec![f64::NAN; mesh.tris.len()];
-    compact_unreferenced_verts_with_bounds(mesh, relocations, side_labels, &dummy_bounds)
+    compact_unreferenced_verts_with_bounds(mesh, relocations, side_labels, &dummy_bounds, None)
 }
 
 pub(crate) fn compact_unreferenced_verts_with_bounds(
@@ -2709,6 +2719,7 @@ pub(crate) fn compact_unreferenced_verts_with_bounds(
     relocations: &mut Vec<(u32, f64)>,
     side_labels: &[TriangleSideLabel],
     tri_bounds: &[f64],
+    vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> Option<Vec<Option<u32>>> {
     debug_assert_eq!(
         side_labels.len(),
@@ -2756,6 +2767,10 @@ pub(crate) fn compact_unreferenced_verts_with_bounds(
         })
         .collect();
     *mesh = Mesh::new(new_verts, new_tris);
+    if let Some(vp) = vertex_params {
+        vp.remap(&remap);
+        vp.assert_lockstep(mesh.verts.len(), "compact_unreferenced_verts");
+    }
     debug_assert_eq!(
         side_labels.len(),
         mesh.tris.len(),

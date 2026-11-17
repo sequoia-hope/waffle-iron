@@ -538,6 +538,7 @@ pub(crate) fn reconstruct_topology_stage4(
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut crate::brep::TriangleSideLabelMap,
     tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
+    vertex_params: &mut crate::param_surface::carried::VertexParamMap,
     a: &BRep,
     b: &BRep,
     op: BoolOp,
@@ -552,6 +553,7 @@ pub(crate) fn reconstruct_topology_stage4(
         mesh.tris.len(),
     );
     tri_bounds.assert_lockstep(mesh.tris.len(), "reconstruct_topology_stage4 entry");
+    vertex_params.assert_lockstep(mesh.verts.len(), "reconstruct_topology_stage4 entry");
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
     crate::stage4_correct::mesh_dump_probe("s4-reconstruct entry", mesh, attribution);
     // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
@@ -774,12 +776,16 @@ pub(crate) fn reconstruct_topology_stage4(
             attribution,
             side_labels,
             tri_bounds,
+            vertex_params,
             a,
             b,
             minted_junction_keys,
             edge_provenance,
         )?;
         crate::stage4_correct::s4_lap("s4-wrapper-returned", mesh);
+        vertex_params.assert_lockstep(mesh.verts.len(), "stage4_relocate_and_correct exit");
+        vertex_params.settle(&mesh.verts, &mesh.tris, &attribution.attributions);
+        crate::param_surface::carried::census_of("stage4-relocated", vertex_params, mesh, a, b);
         relocations = relocs;
         // A §4.5.3 collapse mutated the mesh topology + attribution, so the
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
@@ -821,6 +827,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 &side_labels.labels,
                 &tri_bounds.bounds,
+                Some(&mut *vertex_params),
             );
             let (i2, inc2, cv2) = compute_phase_a(
                 mesh,
@@ -869,6 +876,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 false,
                 None,
+                Some(&mut *vertex_params),
             )?;
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-construct"), &mesh.tris);
@@ -889,6 +897,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 false,
                 None,
+                Some(&mut *vertex_params),
             )?;
             if chi_audit_enabled() {
                 chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
@@ -990,6 +999,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &intersection_curves,
                 a,
                 b,
+                Some(&mut *vertex_params),
             );
             attribution.attributions = attr_vec;
             c
@@ -1000,6 +1010,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 &side_labels.labels,
                 &tri_bounds.bounds,
+                Some(&mut *vertex_params),
             );
             let (i3, inc3, cv3) = compute_phase_a(
                 mesh,
@@ -1043,6 +1054,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 &side_labels.labels,
                 &tri_bounds.bounds,
+                Some(&mut *vertex_params),
             );
             let (i4, inc4, cv4) = compute_phase_a(
                 mesh,
@@ -1072,6 +1084,7 @@ pub(crate) fn reconstruct_topology_stage4(
             a,
             b,
             false,
+            Some(&mut *vertex_params),
         )?;
         c441_log!(
             "[s434-decimate] runs={} dropped={} edges {}->{} declined_loop_floor={} declined_disc_patch={} declined_sphere={} declined_rebuild={} disc_loops={}",
@@ -1091,6 +1104,7 @@ pub(crate) fn reconstruct_topology_stage4(
                 &mut relocations,
                 &side_labels.labels,
                 &tri_bounds.bounds,
+                Some(&mut *vertex_params),
             );
             let (i5, inc5, cv5) = compute_phase_a(
                 mesh,

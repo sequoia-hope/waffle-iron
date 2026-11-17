@@ -980,6 +980,7 @@ pub(crate) fn stage4_relocate_and_correct(
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
     tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
+    vertex_params: &mut crate::param_surface::carried::VertexParamMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -991,6 +992,7 @@ pub(crate) fn stage4_relocate_and_correct(
         attribution,
         side_labels,
         tri_bounds,
+        vertex_params,
         a,
         b,
         minted_junction_keys,
@@ -1006,6 +1008,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
     tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
+    vertex_params: &mut crate::param_surface::carried::VertexParamMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -1080,6 +1083,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
             &side_labels.labels,
             &tri_bounds.bounds,
             true,
+            Some(&mut *vertex_params),
         );
         if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
             eprintln!("[edge-pinch] entry split {splits} vertex copies");
@@ -1096,6 +1100,7 @@ pub(crate) fn stage4_relocate_and_correct_ex(
         attribution,
         side_labels,
         tri_bounds,
+        vertex_params,
         a,
         b,
         minted_junction_keys,
@@ -1227,6 +1232,7 @@ fn stage4_relocate_and_correct_inner(
     attribution: &mut TriangleAttributionMap,
     side_labels: &mut TriangleSideLabelMap,
     tri_bounds: &mut crate::brep::TriangleErrorBoundMap,
+    vertex_params: &mut crate::param_surface::carried::VertexParamMap,
     a: &BRep,
     b: &BRep,
     minted_junction_keys: &std::collections::BTreeMap<[u64; 3], crate::boolean::MintProvenance>,
@@ -2844,7 +2850,7 @@ fn stage4_relocate_and_correct_inner(
             endpoints.retain(|&u| u != v);
             triple_resolved.insert(v);
             if rho > cad_primitives::TAU_WORK {
-                mesh.verts[v as usize] = proj;
+                crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
                 triple_moved.push(v);
             }
         }
@@ -3115,7 +3121,7 @@ fn stage4_relocate_and_correct_inner(
         let (proj, t) = project_onto_circle(p, center, normal, radius)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -3170,7 +3176,7 @@ fn stage4_relocate_and_correct_inner(
         let (proj, t) = project_onto_circle(j, c_a, n_a, r_a)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -3214,7 +3220,7 @@ fn stage4_relocate_and_correct_inner(
                          gate={gate:.3e} p={p:?} proj={proj:?}"
                     );
                 }
-                mesh.verts[v as usize] = proj;
+                crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
                 moved.insert(v);
                 probe_push(line!(), v, t, mesh.verts[v as usize]);
                 relocations.push((v, t));
@@ -3343,7 +3349,7 @@ fn stage4_relocate_and_correct_inner(
             (near_proj, near_t)
         };
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -3524,7 +3530,7 @@ fn stage4_relocate_and_correct_inner(
             e_a.minor_radius,
         );
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -3750,7 +3756,7 @@ fn stage4_relocate_and_correct_inner(
             continue;
         }
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         let t = sec.param(proj);
@@ -3792,7 +3798,7 @@ fn stage4_relocate_and_correct_inner(
             pt[2] + along * d[2],
         );
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, along, mesh.verts[v as usize]);
@@ -3898,7 +3904,7 @@ fn stage4_relocate_and_correct_inner(
         let (proj, t) = project_onto_circle(j, center, normal, radius)
             .map_err(|reason| YangError::stage4_region_invalid(v, reason))?;
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -3968,7 +3974,7 @@ fn stage4_relocate_and_correct_inner(
             );
         }
         if rho > cad_primitives::TAU_WORK {
-            mesh.verts[v as usize] = proj;
+            crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
             moved.insert(v);
         }
         probe_push(line!(), v, t, mesh.verts[v as usize]);
@@ -4082,7 +4088,7 @@ fn stage4_relocate_and_correct_inner(
         let proj = relocate_onto_implicit_pair(p, sa, sb).ok_or_else(|| {
             YangError::stage4_region_invalid(v, Stage4InvalidReason::LocalRefinementRequired)
         })?;
-        mesh.verts[v as usize] = proj;
+        crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
         moved.insert(v);
     }
 
@@ -4434,7 +4440,7 @@ fn stage4_relocate_and_correct_inner(
                 }
             }
             if rho > cad_primitives::TAU_WORK {
-                mesh.verts[v as usize] = proj;
+                crate::param_surface::carried::move_vertex(mesh, vertex_params, v, proj);
                 moved.insert(v);
             }
         }
@@ -4477,7 +4483,12 @@ fn stage4_relocate_and_correct_inner(
                                 Some(tangential_verts),
                             );
                         }
-                        mesh.verts[plan.survivor as usize] = plan.proj;
+                        crate::param_surface::carried::move_vertex(
+                            mesh,
+                            vertex_params,
+                            plan.survivor,
+                            plan.proj,
+                        );
                         moved.insert(plan.survivor);
                         if let Some(t) = plan.retag {
                             processed.insert(plan.survivor);
@@ -5167,6 +5178,7 @@ fn stage4_relocate_and_correct_inner(
         full_arrangement,
         &moved,
         Some(tangential_verts),
+        Some(&mut *vertex_params),
     ) > 0
     {
         collapsed_any = true;
@@ -5316,6 +5328,7 @@ fn stage4_relocate_and_correct_inner(
             &side_labels.labels,
             &tri_bounds.bounds,
             false,
+            Some(&mut *vertex_params),
         )
     };
     crate::repair_census::log("pinch_vertex_split", pinch_splits);
@@ -5713,7 +5726,11 @@ fn stage4_relocate_and_correct_inner(
                         &rim_curves,
                     );
                 }
-                let n = crate::stage4_boundary_curve::apply_boundary_relocations(mesh, &moves);
+                let n = crate::stage4_boundary_curve::apply_boundary_relocations(
+                    mesh,
+                    vertex_params,
+                    &moves,
+                );
                 if std::env::var_os("YANG_S4_RIM_SNAP_PROBE").is_some() {
                     eprintln!(
                         "[s4-rim-snap] rim_edges={} cross_excluded={} bound={bound:.6e} moved={n}",

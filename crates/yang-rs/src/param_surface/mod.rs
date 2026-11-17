@@ -21,6 +21,7 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 mod analytic;
+pub(crate) mod carried;
 #[cfg(test)]
 mod tests;
 
@@ -207,6 +208,42 @@ pub(crate) trait ParamSurface {
     /// The surface over `rect` as rational Bézier patches with positive
     /// weights whose union is the surface over `rect`.
     fn bezier_patches(&self, rect: ParamRect) -> Result<Vec<RationalBezierPatch>, SurfaceError>;
+}
+
+/// The closed-form inverse `p ↦ (u, v)` of an analytic instance: a recorded
+/// fast path, NOT part of [`ParamSurface`] (spec
+/// `specs/yang_f5a_surface_interface.md` §5; ledger N109). The paper never
+/// projects: Stage 1 samples in (u, v) and knows every vertex's parameters
+/// (`refs/text/yang2025_hybrid_boolean.txt:371-374`). The inverse only
+/// assigns coordinates to points the pipeline built in 3D.
+pub(crate) trait AnalyticInverse {
+    /// The parameters of the surface point closest to `p`.
+    ///
+    /// A periodic coordinate is returned on the branch nearest `seed`'s, or
+    /// in `[lo, lo + period)` without a seed. Where the closest point does
+    /// not fix a coordinate (`p` on a revolution axis, a sphere's centre, a
+    /// torus's tube circle) that coordinate is `seed`'s, or the axis's `lo`
+    /// (0 on an unbounded axis) without one. `Err(OutsideDomain)` when the
+    /// closest point of the implicit surface lies outside the domain (a cone
+    /// point nearer the nappe behind the apex); nothing clamps.
+    fn inverse(&self, p: [f64; 3], seed: Option<Uv>) -> Result<Uv, SurfaceError>;
+}
+
+/// `a` moved by whole periods onto the branch nearest `seed`, or into
+/// `[lo, lo + period)` without one.
+pub(crate) fn wrap_to_branch(a: f64, axis: &ParamAxis, seed: Option<f64>) -> f64 {
+    let Some(period) = axis.period else {
+        return a;
+    };
+    match seed {
+        Some(s) if s.is_finite() => a + period * ((s - a) / period).round(),
+        _ => {
+            let r = (a - axis.lo).rem_euclid(period);
+            // `rem_euclid` can round up to `period` itself for a tiny
+            // negative input; that is the seam, `lo`.
+            axis.lo + if r >= period { 0.0 } else { r }
+        }
+    }
 }
 
 /// d(T) of Yang 2025 §4.1.2 / Fig. 6 (`:358-378`): the largest distance from

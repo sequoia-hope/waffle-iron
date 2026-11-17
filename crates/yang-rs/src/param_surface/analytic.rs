@@ -23,8 +23,8 @@
 //! rational-quadratic arc for the sphere and torus.
 
 use super::{
-    ParamAxis, ParamDomain, ParamRect, ParamSurface, RationalBezierPatch, SurfaceDerivs,
-    SurfaceError, Uv,
+    wrap_to_branch, AnalyticInverse, ParamAxis, ParamDomain, ParamRect, ParamSurface,
+    RationalBezierPatch, SurfaceDerivs, SurfaceError, Uv,
 };
 use crate::{normalize3, ortho_basis, Surface};
 use cad_primitives::{Point3, Vector3};
@@ -462,5 +462,86 @@ impl ParamSurface for Surface {
             }
         }
         Ok(out)
+    }
+}
+
+impl RevFrame {
+    /// `(ρ, z, cos-coordinate, sin-coordinate)` of `p` in this frame.
+    fn local(&self, p: [f64; 3]) -> (f64, f64, f64, f64) {
+        let w = [
+            p[0] - self.datum[0],
+            p[1] - self.datum[1],
+            p[2] - self.datum[2],
+        ];
+        let dot = |a: [f64; 3]| w[0] * a[0] + w[1] * a[1] + w[2] * a[2];
+        let (x, y) = (dot(self.e1), dot(self.e2));
+        (x.hypot(y), dot(self.axis), x, y)
+    }
+}
+
+/// The azimuth of `(x, y)` on the branch `seed` names; `seed`'s azimuth (or
+/// 0) where `(x, y)` is the axis and fixes none.
+fn azimuth(x: f64, y: f64, axis: &ParamAxis, seed: Option<f64>) -> f64 {
+    if x == 0.0 && y == 0.0 {
+        return seed.filter(|s| s.is_finite()).unwrap_or(axis.lo);
+    }
+    wrap_to_branch(y.atan2(x), axis, seed)
+}
+
+impl AnalyticInverse for Surface {
+    fn inverse(&self, p: [f64; 3], seed: Option<Uv>) -> Result<Uv, SurfaceError> {
+        if !finite3(p) {
+            return Err(SurfaceError::NonFiniteInput);
+        }
+        self.validate()?;
+        let dom = self.domain();
+        let (su, sv) = (seed.map(|s| s.x()), seed.map(|s| s.y()));
+        if let Surface::Plane { normal, d } = *self {
+            let (o, e1, e2) = plane_frame(normal, d);
+            let w = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+            return Ok(Uv::new(
+                w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2],
+                w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2],
+            ));
+        }
+        let (frame, _) = revolution(self).ok_or(SurfaceError::InvalidSurface)?;
+        let (rho, z, x, y) = frame.local(p);
+        let u = azimuth(x, y, &dom.u, su);
+        let v = match *self {
+            Surface::Cylinder { .. } => z,
+            Surface::Cone { half_angle, .. } => {
+                // The generator through `p`'s azimuth is `t·(sin α, cos α)`
+                // in (ρ, z), t ≥ 0; its mirror behind the apex is
+                // `t·(sin α, −cos α)`. v = z = t·cos α.
+                let (sa, ca) = half_angle.sin_cos();
+                let t_front = rho * sa + z * ca;
+                let t_back = rho * sa - z * ca;
+                let dist2 = |t: f64, zs: f64| {
+                    let t = t.max(0.0);
+                    (rho - t * sa).powi(2) + (z - zs * t * ca).powi(2)
+                };
+                if t_back > 0.0 && dist2(t_back, -1.0) < dist2(t_front, 1.0) {
+                    return Err(SurfaceError::OutsideDomain);
+                }
+                t_front.max(0.0) * ca
+            }
+            Surface::Sphere { .. } => {
+                if rho == 0.0 && z == 0.0 {
+                    sv.filter(|s| s.is_finite()).unwrap_or(0.0)
+                } else {
+                    z.atan2(rho)
+                }
+            }
+            Surface::Torus { major_radius, .. } => {
+                let r = rho - major_radius;
+                if r == 0.0 && z == 0.0 {
+                    sv.filter(|s| s.is_finite()).unwrap_or(dom.v.lo)
+                } else {
+                    wrap_to_branch(z.atan2(r), &dom.v, sv)
+                }
+            }
+            Surface::Plane { .. } => return Err(SurfaceError::InvalidSurface),
+        };
+        Ok(Uv::new(u, v))
     }
 }

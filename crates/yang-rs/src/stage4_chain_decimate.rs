@@ -782,6 +782,7 @@ pub(crate) fn decimate_patch_chains_441(
         a,
         b,
         full_arrangement,
+        None,
     )
 }
 
@@ -796,6 +797,7 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
     a: &BRep,
     b: &BRep,
     full_arrangement: bool,
+    vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> Result<DecimateStats, YangError> {
     tri_bounds.assert_lockstep(mesh.tris.len(), "decimate_patch_chains_441_with_bounds");
     let edges_before: usize = infos
@@ -1559,7 +1561,14 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
         });
     }
 
-    if let Err(err) = apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
+    if let Err(err) = apply_rebuild_batch(
+        mesh,
+        attribution,
+        side_labels,
+        tri_bounds,
+        &rebuilds,
+        vertex_params,
+    ) {
         return Err(YangError::Stage4ChainDecimateFailed {
             reason: ChainDecimateError::BatchWritebackFailed {
                 detail: format!("{err:?}"),

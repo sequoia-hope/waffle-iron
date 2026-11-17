@@ -153,39 +153,58 @@ rectangle is one bilinear patch.
 ## 4. Parameter coordinates carried
 
 A per-vertex map in lockstep with `mesh.verts`, the vertex counterpart of
-the per-triangle `TriangleErrorBoundMap`:
+the per-triangle `TriangleErrorBoundMap` (`param_surface/carried.rs`):
 
 ```rust
 /// For each mesh vertex, its (u, v) on every face it lies on.
-pub(crate) struct VertexParamMap { pub params: Vec<Vec<(FaceRef, Uv)>> }
+pub(crate) struct VertexParamMap {
+    pub params: Vec<Vec<VertexParam>>,          // 1:1 with mesh.verts
+    pub refused: usize,                          // entries the inverse refused
+    pub settled: usize,                          // entries added by incidence
+    pub surfaces: BTreeMap<FaceRef, Surface>,    // every face's surface
+}
+pub(crate) struct VertexParam { pub face: FaceRef, pub surface: Surface, pub uv: Uv }
 pub(crate) struct FaceRef { pub input: InputId, pub face: u32 }
 ```
 
-- **Stage 1** assigns (u, v) where it samples: a face's interior samples on
-  that face; a rim sample on every face the rim bounds. A tessellator that
-  builds its points from its own angles writes those angles once the frame
-  is shown to be the pinned one. A point built only in 3D gets (u, v) from
-  the instance's closed-form inverse (§5). Stage 0's re-tessellations
-  follow the same rule.
-- **Stage 2** gives each new arrangement vertex its (u, v) by §4.2.3: for
-  each operand, the source triangle it lies in (`la.source`), its
-  barycentric coordinates there, and the corners' (u, v) interpolated, with
-  periodic corners unwrapped to the first corner's period before
-  interpolating. The paper calls these approximate (`:518-519`): they are
-  not on the surface to better than the triangle's d(T).
-- **Stages 4 and 5** keep the map in lockstep through every vertex mutator.
-  A vertex that moves gets its (u, v) re-assigned by the inverse, seeded
-  with its old (u, v) for the branch, until F2 and F4 move vertices in
-  (u, v) themselves. A vertex that is appended (a split, a CDT seed, a
-  junction) gets it from its construction.
-- **Nothing reads the map** in F5a. A release census
-  (`YANG_UV_CENSUS=<file>`) records, per stage, the largest
-  |eval(uv) − p| / d_ε, so F2 starts from a measured map.
+Each entry carries its surface, so a mutator re-inverts a moved vertex
+without the input solids; the face table lets `settle` work from a
+triangle's attribution alone.
 
-The lockstep is the bulk of the work: about 200 vertex-mutation sites in 30
-files (`verts.push` / `extend` / `truncate` / index writes, 2026-11-16),
-most in the Stage-0 and Stage-1 builders. The map asserts its length
-against `mesh.verts` at the same hand-offs `tri_bounds` asserts at.
+- **Stage 1 / Stage 0.** At the Stage-2 hand-off (after Stage 0 and the
+  small-loop splice), `for_operand` gives each operand vertex its (u, v) on
+  every face it is a triangle corner of (`tri_face`), by the closed-form
+  inverse (§5). The tessellators build their points from angles in frames
+  not yet shown to be the pinned embedding's, so they do not write those
+  angles; F5b's Stage 1 does (N109).
+- **Stage 2** (`for_arrangement`) is §4.2.3: for each arrangement triangle
+  and each of its source triangles (`la.source`), every corner gets its
+  (u, v) on the source's face by barycentric interpolation of the source
+  corners, periodic corners unwrapped to the first live corner's period, a
+  corner on a degenerate iso-line (pole, apex) left out of the azimuth. A
+  vertex bit-equal to a source corner takes the corner's (u, v). The
+  barycentrics are signed sub-areas against the triangle's normal: the Gram
+  normal equations square a sliver's condition number (R0003's gear caps
+  put a point on a long edge 4e-3 off). The kept submesh's vertex holds the
+  union of the arrangement vertices that welded onto it. The paper calls
+  these coordinates approximate (`:518-519`).
+- **Stages 4 and 5.** Every vertex mutator keeps the map in lockstep:
+  `move_vertex` / `moved` re-invert a moved vertex seeded with its old
+  (u, v) for the branch; a pinch split copies (`push_copy`); a collapse that
+  hands the survivor the victim's position merges both vertices' faces
+  (`merged_into`); a compaction remaps (`remap`); CDT seeds and on-curve
+  inserts are appended bare (`push_bare`) and truncated with the vertices.
+  `settle` then gives every vertex its (u, v) on any face it is now a
+  triangle corner of and has none for, by the inverse seeded with another
+  corner's (u, v) on that face: that is how a seed gets its patch's face,
+  and how a collapse survivor gets the victim's faces. It runs at the end of
+  every rebuild batch, after the Stage-4 relocation pass, and at the Stage-2
+  and Stage-5 hand-offs. The map asserts its length against `mesh.verts`
+  at the hand-offs `tri_bounds` asserts at, and at every compaction.
+- **Nothing reads the map** in F5a. `YANG_UV_CENSUS=<file>` (`census`)
+  records, per stage, the vertices with no (u, v), the refusals, the
+  entries settled by incidence, the largest |eval(uv) − p| / d_ε over curved
+  faces and the largest |eval(uv) − p| over planar ones.
 
 ## 5. Fast paths and the matches on surface type
 
@@ -194,10 +213,15 @@ closed forms the paper does not use. Each closed form that stays is a
 recorded fast path with the generic computation as its differential pin:
 
 - **The analytic inverse** p ↦ (u, v) (a separate trait,
-  `AnalyticInverse`, not part of `ParamSurface`): the paper never projects,
-  because it samples in (u, v). It is used only to assign coordinates to
-  points built in 3D (§4). It enters the ledger as a new entry when §4
-  wires it, in the same commit (P2).
+  `AnalyticInverse`, not part of `ParamSurface`; ledger N109): the paper
+  never projects, because it samples in (u, v). It assigns coordinates to
+  points the pipeline holds in 3D (§4). It returns the parameters of the
+  closest surface point, a periodic coordinate on the branch nearest a seed
+  (or in `[lo, lo + period)`), the seed's coordinate where the closest point
+  fixes none (an axis point, a sphere's centre, a torus's tube circle), and
+  `OutsideDomain` for a cone point nearer the nappe behind the apex. Pins:
+  `inverse_undoes_eval`, `inverse_is_the_closest_point`,
+  `inverse_degenerate_points_and_refusals`.
 - **The closed-form Gauss maps** of `gauss_map.rs` (N91/N92) stay as the
   §4.2.2 admission test and gain a pin that each closed-form region
   contains the net cone's sampled normals over the same rectangle.
@@ -230,9 +254,10 @@ Class (b) converts in batches by rule family, each batch hash-identical.
    the net covers the tube more than once and the bound holds — as
    `tests/n2_dt_adversary.rs` pins; only the azimuth is held to one
    period.)*
-3. **Parameter coordinates carried** (§4), with the inverse ledgered.
-   Gate: hash identical; the census recorded in the roadmap's checkpoint
-   log. Resolves matrix 4.2-24.
+3. **Parameter coordinates carried** (§4), with the inverse ledgered
+   (N109). Gate: hash identical; the census recorded in the roadmap's
+   checkpoint log. Matrix 4.2-24 DEVIATES → PARTIAL (the corners come from
+   the inverse, N109).
 4. **The inventory and class (b) conversions**, by rule family. Gate per
    batch: hash identical.
 

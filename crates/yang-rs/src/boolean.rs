@@ -1918,6 +1918,51 @@ fn boolean_once_timed(
             }
             None => (mesh_a, tri_face_a_init, mesh_b, tri_face_b_init),
         };
+    // F5a increment 3 (spec `yang_f5a_surface_interface.md` §4; Yang §4.1,
+    // `refs/text/yang2025_hybrid_boolean.txt:371-374`, and §4.2.3, `:510-519`):
+    // every operand vertex's (u, v) on its faces, then every arrangement
+    // vertex's by barycentric interpolation in its source triangles. Carried
+    // through Stage 4/5; nothing reads it yet (`YANG_UV_CENSUS` measures it).
+    let arrangement_params = {
+        use crate::param_surface::carried::{census_of, OperandParams, VertexParamMap};
+        let map_a = VertexParamMap::for_operand(
+            &mesh_a.verts,
+            &mesh_a.tris,
+            tri_face_a,
+            a.faces(),
+            InputId::A,
+        );
+        let map_b = VertexParamMap::for_operand(
+            &mesh_b.verts,
+            &mesh_b.tris,
+            tri_face_b,
+            b.faces(),
+            InputId::B,
+        );
+        census_of("stage1-A", &map_a, mesh_a, a, b);
+        census_of("stage1-B", &map_b, mesh_b, a, b);
+        VertexParamMap::for_arrangement(
+            &la,
+            [
+                OperandParams {
+                    input: InputId::A,
+                    verts: &mesh_a.verts,
+                    tris: &mesh_a.tris,
+                    tri_face: tri_face_a,
+                    faces: a.faces(),
+                    params: &map_a,
+                },
+                OperandParams {
+                    input: InputId::B,
+                    verts: &mesh_b.verts,
+                    tris: &mesh_b.tris,
+                    tri_face: tri_face_b,
+                    faces: b.faces(),
+                    params: &map_b,
+                },
+            ],
+        )
+    };
     // §4.3 trigger T6 (`boolean::failures`, spec `yang_452_refinement_loop.md`
     // §3 "T6"): "if the two meshes do not intersect but are within the
     // distance tolerance d_ε" — every cross-operand contact pair (exact
@@ -2632,6 +2677,18 @@ fn boolean_once_timed(
         }
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
+    // F5a: the kept submesh's vertex params — each compact vertex holds the
+    // union of the arrangement vertices that welded onto it.
+    let mut vertex_params = {
+        let mut members: Vec<Vec<u32>> = vec![Vec::new(); kept_submesh.verts.len()];
+        for (i, &wi) in weld.iter().enumerate() {
+            if let Some(c) = remap.get(wi as usize).copied().flatten() {
+                members[c as usize].push(i as u32);
+            }
+        }
+        arrangement_params.compacted(&members)
+    };
+    vertex_params.assert_lockstep(kept_submesh.verts.len(), "stage2 kept submesh");
     crate::stage5_topology::chi_audit_report("stage2-kept-submesh", &kept_submesh.tris);
     crate::stage5_topology::chi_audit_pinch_scan(
         "stage2-kept-submesh",
@@ -3084,18 +3141,35 @@ fn boolean_once_timed(
     // the attribution in lockstep — so both are passed by `&mut` and the
     // tessellation sources come back from `reconstruct_topology`.
     let mut kept_submesh = kept_submesh;
+    // F5a: a kept triangle's face is its attribution; a vertex that §4.2.3
+    // gave no (u, v) on it (an attribution that is not its source's face)
+    // gets the inverse's.
+    vertex_params.settle(
+        &kept_submesh.verts,
+        &kept_submesh.tris,
+        &triangle_attribution.attributions,
+    );
+    crate::param_surface::carried::census_of("stage2-kept", &vertex_params, &kept_submesh, a, b);
     StageTimer::mark(timer, "keep_resolve");
     let (vertices, edges, faces, sources, face_attribution) = reconstruct_topology_stage4(
         &mut kept_submesh,
         &mut triangle_attribution,
         &mut side_labels,
         &mut tri_bounds,
+        &mut vertex_params,
         a,
         b,
         op,
         &minted_junction_keys,
         &edge_provenance,
     )?;
+    vertex_params.assert_lockstep(kept_submesh.verts.len(), "stage 4/5 exit");
+    vertex_params.settle(
+        &kept_submesh.verts,
+        &kept_submesh.tris,
+        &triangle_attribution.attributions,
+    );
+    crate::param_surface::carried::census_of("stage5-exit", &vertex_params, &kept_submesh, a, b);
 
     StageTimer::mark(timer, "s4_emit");
     let tessellation = TessellationMap { sources };

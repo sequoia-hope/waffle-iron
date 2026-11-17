@@ -436,6 +436,7 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
             &mut side_labels,
             &mut tri_bounds,
             &[rebuild_a, rebuild_b],
+            None,
         )
         .expect("batch apply must succeed");
         tri_bounds.assert_lockstep(mesh.tris.len(), "after apply_rebuild_batch");
@@ -484,8 +485,13 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
         assert_eq!(mesh.tris, vec![[0, 3, 4], [0, 4, 6]]);
         assert_eq!(bounds_vec, vec![11.5, 44.5]);
         let mut relocs = vec![(0u32, 0.5), (1u32, 0.7)];
-        let remap =
-            compact_unreferenced_verts_with_bounds(&mut mesh, &mut relocs, &lbl_vec, &bounds_vec);
+        let remap = compact_unreferenced_verts_with_bounds(
+            &mut mesh,
+            &mut relocs,
+            &lbl_vec,
+            &bounds_vec,
+            None,
+        );
         assert!(remap.is_some(), "unreferenced vertices 1, 2, 5 compacted");
         assert_eq!(bounds_vec.len(), mesh.tris.len());
     }
@@ -570,6 +576,7 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
             &pinch_lbls,
             &pinch_bounds,
             true,
+            None,
         );
         assert_eq!(splits, 1);
         assert_eq!(pinch_mesh.tris.len(), pinch_bounds.len());
@@ -673,6 +680,7 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
             &curves,
             &brep_a,
             &brep_b,
+            None,
         ));
         assert_eq!(mesh.tris, vec![[0, 3, 2]]);
         assert_eq!(bounds_vec, vec![88.0]);
@@ -856,6 +864,7 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
             false,
             &HashSet::from([1u32]),
             None,
+            None,
         );
         assert_eq!(applied, 1);
         assert_eq!(tri_bounds.len(), mesh.tris.len());
@@ -927,6 +936,7 @@ fn n106_d2_pin_c_apply_rebuild_batch_panics_on_tri_bounds_mismatch() {
         &mut side_labels,
         &mut bad_bounds,
         &[],
+        None,
     );
 }
 
@@ -963,6 +973,7 @@ fn n106_d2_pin_c_apply_rebuild_batch_panics_on_rebuild_bounds_mismatch() {
         &mut side_labels,
         &mut bounds,
         &[bad_rebuild],
+        None,
     );
 }
 
@@ -1636,6 +1647,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
             false,
             &HashSet::from([1u32]),
             None,
+            None,
         );
         assert!(
             applied >= 1,
@@ -1743,6 +1755,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
             &cyl5,
             &plane_y0,
             false,
+            None,
         )
         .expect("decimate_patch_chains_441_with_bounds");
         assert!(
@@ -1821,6 +1834,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
             &mut lbl_map,
             &mut tri_bounds,
             &[fan_rebuild],
+            None,
         )
         .expect("apply_rebuild_batch for curved rebuild_merge_fan");
         assert_eq!(fan_mesh.tris.len(), 3);
@@ -1885,6 +1899,7 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
             &mut lbl_map,
             &mut tri_bounds,
             &[split_rebuild],
+            None,
         )
         .expect("apply_rebuild_batch for curved split_boundary_edge");
         assert_eq!(split_mesh.tris.len(), 3);

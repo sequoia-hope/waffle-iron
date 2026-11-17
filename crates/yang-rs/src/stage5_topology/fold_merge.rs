@@ -60,6 +60,7 @@ pub(super) fn run_fold_merge_passes(
     relocations: &mut Vec<(u32, f64)>,
     full_arrangement: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+    mut vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> Result<usize, YangError> {
     use crate::stage4_construct::{apply_rebuild_batch, rebuild_merge_fan};
     use crate::stage4_fold_risk::fold_merge_sites_censused;
@@ -398,13 +399,23 @@ pub(super) fn run_fold_merge_passes(
         // upstream stages.
         let chi_pre =
             (chi_audit_enabled() && pre_uses.is_none()).then(|| tris_complex_stats(&mesh.tris));
-        match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
+        match apply_rebuild_batch(
+            mesh,
+            attribution,
+            side_labels,
+            tri_bounds,
+            &rebuilds,
+            vertex_params.as_deref_mut(),
+        ) {
             Ok(()) => {
                 // §I13(f) f2: the re-homed corner's mint position — the fans
                 // in `rebuilds` were planned against it, so it lands only
                 // with them (a refused batch leaves the mesh untouched).
                 if let Some((v, p)) = rehome_reloc {
                     mesh.verts[v as usize] = p;
+                    if let Some(vp) = vertex_params.as_deref_mut() {
+                        vp.moved(v, p);
+                    }
                 }
                 if let Some(pre) = &pre_uses {
                     let post = edge_uses(mesh);
@@ -545,6 +556,7 @@ pub(super) fn run_fold_merge_passes(
             relocations,
             &side_labels.labels,
             &tri_bounds.bounds,
+            vertex_params.as_deref_mut(),
         );
         if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
             crate::stage4_correct::remap_vert_set(tv, map);

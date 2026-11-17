@@ -668,6 +668,7 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
         &mut side_labels,
         &mut tri_bounds,
         &[rebuild_a, rebuild_b],
+        None,
     )
     .expect("multi-patch batch write-back must succeed");
 

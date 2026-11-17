@@ -14,6 +14,7 @@ pub(super) fn run_construct_passes(
     relocations: &mut Vec<(u32, f64)>,
     full_arrangement: bool,
     mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+    mut vertex_params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> Result<usize, YangError> {
     use crate::stage4_construct::{apply_rebuild_batch, replace_seam_run, seam_groups};
     use crate::stage4_splice::{ordered_seam_side, Side, SplicePatch};
@@ -263,6 +264,9 @@ pub(super) fn run_construct_passes(
                         pts.len()
                     );
                     mesh.verts.extend_from_slice(&pts);
+                    if let Some(vp) = vertex_params.as_deref_mut() {
+                        vp.push_bare(pts.len());
+                    }
                     SeamAction::RefineConic { ordered, refined }
                 } else {
                     // The construction's fixed point is a chain that is
@@ -990,7 +994,14 @@ pub(super) fn run_construct_passes(
                 break;
             }
         }
-        match apply_rebuild_batch(mesh, attribution, side_labels, tri_bounds, &rebuilds) {
+        match apply_rebuild_batch(
+            mesh,
+            attribution,
+            side_labels,
+            tri_bounds,
+            &rebuilds,
+            vertex_params.as_deref_mut(),
+        ) {
             Ok(()) => {
                 for &ei in &active {
                     let e = &eligible[ei];
@@ -1037,6 +1048,7 @@ pub(super) fn run_construct_passes(
             relocations,
             &side_labels.labels,
             &tri_bounds.bounds,
+            vertex_params.as_deref_mut(),
         );
         if let (Some(tv), Some(map)) = (tangential_verts.as_deref_mut(), remap.as_ref()) {
             crate::stage4_correct::remap_vert_set(tv, map);
@@ -1071,6 +1083,9 @@ pub(super) fn run_construct_passes(
             mesh.verts.len() - verts_floor
         );
         mesh.verts.truncate(verts_floor);
+        if let Some(vp) = vertex_params {
+            vp.truncate(verts_floor);
+        }
     }
     Ok(applied_total)
 }

@@ -2492,6 +2492,7 @@ pub(crate) fn split_pinch_vertices(
         side_labels,
         &dummy_bounds,
         edge_pinch,
+        None,
     )
 }
 
@@ -2502,6 +2503,7 @@ pub(crate) fn split_pinch_vertices_with_bounds(
     side_labels: &[crate::brep::TriangleSideLabel],
     tri_bounds: &[f64],
     edge_pinch: bool,
+    params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> usize {
     if edge_pinch {
         split_pinch_vertices_scoped_with_bounds(
@@ -2511,6 +2513,7 @@ pub(crate) fn split_pinch_vertices_with_bounds(
             side_labels,
             tri_bounds,
             None,
+            params,
         )
     } else {
         let empty = std::collections::BTreeSet::new();
@@ -2521,6 +2524,7 @@ pub(crate) fn split_pinch_vertices_with_bounds(
             side_labels,
             tri_bounds,
             Some(&empty),
+            params,
         )
     }
 }
@@ -2545,6 +2549,7 @@ pub(crate) fn split_pinch_vertices_scoped(
         side_labels,
         &dummy_bounds,
         allowed_edge_pinch_verts,
+        None,
     )
 }
 
@@ -2555,6 +2560,7 @@ pub(crate) fn split_pinch_vertices_scoped_with_bounds(
     side_labels: &[crate::brep::TriangleSideLabel],
     tri_bounds: &[f64],
     allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
+    mut params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> usize {
     debug_assert_eq!(
         side_labels.len(),
@@ -2675,6 +2681,9 @@ pub(crate) fn split_pinch_vertices_scoped_with_bounds(
             let nv = mesh.verts.len() as u32;
             let pos = mesh.verts[v as usize];
             mesh.verts.push(pos);
+            if let Some(params) = params.as_deref_mut() {
+                params.push_copy(v);
+            }
             for &li in &comp {
                 let ti = star[li] as usize;
                 for slot in mesh.tris[ti].iter_mut() {

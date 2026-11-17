@@ -339,11 +339,16 @@ pub(crate) fn collect_rim_curves(
 }
 
 /// Apply planned relocations in place. Returns the number of vertices moved.
-pub(crate) fn apply_boundary_relocations(mesh: &mut Mesh, moves: &[(u32, Point3)]) -> usize {
+/// The moved vertices' parameters are re-inverted in `params` (F5a).
+pub(crate) fn apply_boundary_relocations(
+    mesh: &mut Mesh,
+    params: &mut crate::param_surface::carried::VertexParamMap,
+    moves: &[(u32, Point3)],
+) -> usize {
     let mut n = 0;
     for &(v, q) in moves {
-        if let Some(slot) = mesh.verts.get_mut(v as usize) {
-            *slot = q;
+        if (v as usize) < mesh.verts.len() {
+            crate::param_surface::carried::move_vertex(mesh, params, v, q);
             n += 1;
         }
     }
