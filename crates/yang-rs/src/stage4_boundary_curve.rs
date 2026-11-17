@@ -29,6 +29,7 @@
 
 use crate::errors::{Stage4InvalidReason, YangError};
 use crate::geom::{Curve, Surface};
+use crate::param_surface::ParamSurface;
 use crate::InputId;
 use crate::Mesh;
 use cad_primitives::{Point3, TAU_WORK};
@@ -866,7 +867,7 @@ pub(crate) fn crease_divider_for(
                 })
             }
             Curve::Ellipse { .. } | Curve::Hyperbola { .. } | Curve::Parabola { .. } => {
-                s_other.filter(|s| !matches!(s, Surface::Plane { .. }))
+                s_other.filter(|s| !s.is_affine())
             }
             Curve::LineSegment | Curve::SurfacePair { .. } => None,
         };

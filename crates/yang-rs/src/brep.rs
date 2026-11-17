@@ -2,6 +2,7 @@
 //! attribution, and the `BRep` container (extracted verbatim from
 //! lib.rs — spec `specs/yang_rs_lib_decomposition.md`, increment 3).
 
+use crate::param_surface::ParamSurface;
 use crate::stage1_tessellate_inner_overrides;
 use crate::{ellipse_point, hyperbola_point, normalize3, ortho_basis, parabola_point};
 use crate::{Curve, Point3, Surface, YangError};
@@ -686,7 +687,7 @@ impl TriangleErrorBoundMap {
                 bounds.push(f64::NAN);
                 continue;
             };
-            if matches!(brep_face.surface, Surface::Plane { .. }) {
+            if brep_face.surface.is_affine() {
                 bounds.push(0.0);
                 continue;
             }
@@ -740,7 +741,7 @@ impl TriangleErrorBoundMap {
 /// face at density multiplier `k > 1`.
 pub(crate) fn face_error_budget(brep: &BRep, face_idx: usize) -> Option<f64> {
     let f = brep.faces.get(face_idx)?;
-    if matches!(f.surface, Surface::Plane { .. }) {
+    if f.surface.is_affine() {
         return Some(0.0);
     }
     let base = crate::stage4_correct::face_chord_bound(f, &brep.edges)
@@ -760,7 +761,7 @@ pub(crate) fn face_error_budget(brep: &BRep, face_idx: usize) -> Option<f64> {
 /// projection + [`crate::stage4_dt::d_of_t`] (Yang 2025 §4.1.2 / §4.4.1,
 /// `refs/text/yang2025_hybrid_boolean.txt:357-378, 566-571`).
 pub(crate) fn recompute_tri_bound_from_world(surface: Surface, pts: [Point3; 3]) -> f64 {
-    if matches!(surface, Surface::Plane { .. }) {
+    if surface.is_affine() {
         return 0.0;
     }
     let (eff_surf, uv) = crate::stage1_tessellate::stage1_tri_surface_and_uv(surface, pts);

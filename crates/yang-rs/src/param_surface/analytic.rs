@@ -321,6 +321,13 @@ impl ParamSurface for Surface {
         matches!(self, Surface::Plane { .. })
     }
 
+    fn affine_plane(&self) -> Option<(Vector3, f64)> {
+        match *self {
+            Surface::Plane { normal, d } => Some((normal, d)),
+            _ => None,
+        }
+    }
+
     fn eval(&self, uv: Uv) -> Result<[f64; 3], SurfaceError> {
         self.check_point(uv)?;
         let (u, v) = (uv.x(), uv.y());

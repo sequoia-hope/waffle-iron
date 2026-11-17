@@ -24,12 +24,13 @@
 //! (conforming); the lifted vertex is a `BRepFace` source of this face.
 
 use super::*;
+use crate::param_surface::ParamSurface;
 
 /// For every B-Rep edge, the (up to two) PLANAR faces it bounds.
 pub(crate) fn edge_planar_faces(faces: &[BRepFace], n_edges: usize) -> Vec<[Option<u32>; 2]> {
     let mut out = vec![[None, None]; n_edges];
     for (fi, f) in faces.iter().enumerate() {
-        if !matches!(f.surface, Surface::Plane { .. }) {
+        if !f.surface.is_affine() {
             continue;
         }
         for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {

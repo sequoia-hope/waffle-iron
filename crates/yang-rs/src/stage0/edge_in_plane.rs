@@ -51,6 +51,7 @@
 //! `YANG_EDGE_IN_PLANE_PROBE=1` prints every identification, contact, decline
 //! and the census of gaps in the would-be STOP window `(band/100, band]`.
 
+use crate::param_surface::ParamSurface;
 use std::collections::{BTreeMap, BTreeSet};
 
 use cad_primitives::{Point3, TAU_MODEL, TAU_WORK};
@@ -599,7 +600,7 @@ fn side_contacts(x: &BRep, y: &BRep, paired_x: &BTreeSet<usize>, tag: InputId) -
         // counted, and left to the arrangement (status quo).
         if incident
             .iter()
-            .any(|&fi| !matches!(x.faces()[fi].surface, Surface::Plane { .. }))
+            .any(|&fi| !x.faces()[fi].surface.is_affine())
         {
             sc.declined += 1;
             if probe() {

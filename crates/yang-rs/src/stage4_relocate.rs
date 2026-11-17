@@ -4,6 +4,7 @@
 //! `specs/yang_rs_lib_decomposition.md`, increment 5).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 // =========================================================================
@@ -561,9 +562,9 @@ pub(crate) fn junction_line_divergence(surfs: [Surface; 3], q: [f64; 3]) -> Opti
     let mut planes: Vec<[f64; 3]> = Vec::with_capacity(2);
     let mut third: Option<Surface> = None;
     for s in surfs {
-        match s {
-            Surface::Plane { normal, .. } => planes.push(normalize3(normal.as_array())),
-            other => third = Some(other),
+        match s.affine_plane() {
+            Some((normal, _)) => planes.push(normalize3(normal.as_array())),
+            None => third = Some(s),
         }
     }
     if planes.len() != 2 {

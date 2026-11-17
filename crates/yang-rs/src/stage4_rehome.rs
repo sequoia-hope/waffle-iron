@@ -18,6 +18,7 @@
 //! the apply increments (f2/f3) splice the cycles.
 
 use crate::geom::signed_distance_to_surface;
+use crate::param_surface::ParamSurface;
 use crate::{Curve, Surface};
 use cad_primitives::{Point3, Vector3};
 
@@ -295,7 +296,7 @@ pub(crate) fn view_material_verdict(
     rim_j: u32,
     victim: [f64; 3],
 ) -> Result<MaterialVerdict, RehomeDecline> {
-    let Surface::Plane { normal, d } = *cut else {
+    let Some((normal, d)) = cut.affine_plane() else {
         return Err(RehomeDecline::ShapeMismatch);
     };
     let n = normal.as_array();

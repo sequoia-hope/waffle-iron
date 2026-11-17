@@ -743,3 +743,20 @@ fn inverse_degenerate_points_and_refusals() {
         );
     }
 }
+
+/// Increment 4: `affine_plane` is `Some` exactly when `is_affine()`, and
+/// hands back the plane as the instance stores it, bit for bit.
+#[test]
+fn affine_plane_is_the_stored_plane_of_an_affine_surface() {
+    for s in surfaces() {
+        assert_eq!(s.affine_plane().is_some(), s.is_affine(), "{s:?}");
+        if let Surface::Plane { normal, d } = s {
+            let (n, dd) = s.affine_plane().unwrap();
+            assert_eq!(
+                n.as_array().map(f64::to_bits),
+                normal.as_array().map(f64::to_bits)
+            );
+            assert_eq!(dd.to_bits(), d.to_bits());
+        }
+    }
+}

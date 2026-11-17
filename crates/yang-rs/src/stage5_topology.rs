@@ -4,6 +4,7 @@
 //! `specs/yang_rs_lib_decomposition.md`, increment 8).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 /// Diagnostic only: per-vertex incident surfaces, each with its operand-qualified
@@ -644,11 +645,9 @@ pub(crate) fn reconstruct_topology_stage4(
                 // register it so Stage 4 runs for pure surface-pair results.
                 | Curve::SurfacePair { .. }
         ) || (matches!(c, Curve::LineSegment)
-            && incidence.get(key).is_some_and(|entries| {
-                entries
-                    .iter()
-                    .any(|&(_, s)| !matches!(s, Surface::Plane { .. }))
-            }))
+            && incidence
+                .get(key)
+                .is_some_and(|entries| entries.iter().any(|&(_, s)| !s.is_affine())))
     });
     // KV6d Tier B: a TORUS intersection edge is degree-4 (never conic), so it
     // does not register above — but its endpoints sit on Stage-1 chords off the

@@ -1,5 +1,6 @@
-#[allow(clippy::wildcard_imports)]
 use super::*;
+#[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 
 /// PR-YR5/YR9 Phase-B emission (factored out in PR-YR10 so both
 /// [`reconstruct_topology`] and [`reconstruct_topology_stage4`] share ONE copy):
@@ -216,13 +217,7 @@ pub(crate) fn emit_topology(
         // winding are provably consistent (Union → no cavity → `reversed`
         // false). `patch_boundary_cycle` (called above) is surface-agnostic, so
         // we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
-        if matches!(
-            inherited,
-            Surface::Cylinder { .. }
-                | Surface::Sphere { .. }
-                | Surface::Cone { .. }
-                | Surface::Torus { .. }
-        ) {
+        if !inherited.is_affine() {
             // #188 inc-0 (spec yang_188_f0082_j3_envelope_selection §5):
             // read-only osculating-boundary-pair probe. Byte-identical unset.
             if std::env::var_os("YANG_S5_OSCULATION_PROBE").is_some() {

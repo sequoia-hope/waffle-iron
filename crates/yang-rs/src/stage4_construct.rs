@@ -50,6 +50,7 @@
 //! chain is reproduced edge-for-edge by the CDT, so interfaces to
 //! non-rebuilt neighbours are byte-identical.
 
+use crate::param_surface::ParamSurface;
 use std::collections::{BTreeMap, BTreeSet};
 
 use cad_primitives::{Point2, Point3};
@@ -752,7 +753,7 @@ fn rebuild_patch_inner(
     let mut interior_back: Vec<u32> = Vec::new();
     let mut pool = p2.verts.clone();
     let mut interior_idx: Vec<u32> = Vec::new();
-    let theta_span: Option<(f64, f64)> = if !matches!(patch.surface, Surface::Plane { .. }) {
+    let theta_span: Option<(f64, f64)> = if !patch.surface.is_affine() {
         Some(
             pool.iter()
                 .take(back.len())
@@ -1538,10 +1539,7 @@ pub(crate) fn rebuild_merge_fan(
     // Chart coordinates, θ-unwrapped against the VICTIM's own branch: the fan is
     // local, so every link vertex is within π of it and the branch is unique.
     let base = chart.project(mesh.verts[victim as usize]);
-    let periodic = matches!(
-        patch.surface,
-        Surface::Cylinder { .. } | Surface::Cone { .. }
-    );
+    let period = chart.u_period();
     // I13a apex guard, fan form: the cone chart is injective only strictly
     // beyond the apex — refuse a fan any of whose vertices sits at or behind
     // the apex station (same contract as the whole-patch rebuild).
@@ -1554,9 +1552,9 @@ pub(crate) fn rebuild_merge_fan(
     }
     let uv_of = |v: u32| -> Point2 {
         let uv = chart.project(mesh.verts[v as usize]);
-        if periodic {
-            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
-            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        if let Some(period) = period {
+            let k = ((base.x() - uv.x()) / period).round();
+            Point2::new(uv.x() + k * period, uv.y())
         } else {
             uv
         }
@@ -1601,7 +1599,7 @@ pub(crate) fn rebuild_merge_fan(
             t.swap(1, 2);
         }
     }
-    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+    let new_tri_bounds: Vec<f64> = if patch.surface.is_affine() {
         vec![0.0; tris2.len()]
     } else {
         tris2
@@ -2603,10 +2601,7 @@ fn fan_rebuild_core(
     // Chart coordinates, θ-unwrapped against the SURVIVOR's branch (the
     // region is local: every link vertex is within π of the junction).
     let base = chart.project(vert_pos(survivor));
-    let periodic = matches!(
-        patch.surface,
-        Surface::Cylinder { .. } | Surface::Cone { .. }
-    );
+    let period = chart.u_period();
     if matches!(chart, SurfaceChart::Cone { .. })
         && victims
             .iter()
@@ -2618,9 +2613,9 @@ fn fan_rebuild_core(
     }
     let uv_of = |v: u32| -> Point2 {
         let uv = chart.project(vert_pos(v));
-        if periodic {
-            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
-            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        if let Some(period) = period {
+            let k = ((base.x() - uv.x()) / period).round();
+            Point2::new(uv.x() + k * period, uv.y())
         } else {
             uv
         }
@@ -2652,7 +2647,7 @@ fn fan_rebuild_core(
             t.swap(1, 2);
         }
     }
-    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+    let new_tri_bounds: Vec<f64> = if patch.surface.is_affine() {
         vec![0.0; tris2.len()]
     } else {
         tris2
@@ -2934,10 +2929,7 @@ pub(crate) fn rebuild_group_fan(
     };
     let base_v = sites[base_si].1;
     let base = chart.project(mesh.verts[base_v as usize]);
-    let periodic = matches!(
-        patch.surface,
-        Surface::Cylinder { .. } | Surface::Cone { .. }
-    );
+    let period = chart.u_period();
     if matches!(chart, SurfaceChart::Cone { .. })
         && site_of
             .keys()
@@ -2949,9 +2941,9 @@ pub(crate) fn rebuild_group_fan(
     }
     let uv_of = |v: u32| -> Point2 {
         let uv = chart.project(mesh.verts[v as usize]);
-        if periodic {
-            let k = ((base.x() - uv.x()) / std::f64::consts::TAU).round();
-            Point2::new(uv.x() + k * std::f64::consts::TAU, uv.y())
+        if let Some(period) = period {
+            let k = ((base.x() - uv.x()) / period).round();
+            Point2::new(uv.x() + k * period, uv.y())
         } else {
             uv
         }
@@ -2980,7 +2972,7 @@ pub(crate) fn rebuild_group_fan(
             t.swap(1, 2);
         }
     }
-    let new_tri_bounds: Vec<f64> = if matches!(patch.surface, Surface::Plane { .. }) {
+    let new_tri_bounds: Vec<f64> = if patch.surface.is_affine() {
         vec![0.0; tris2.len()]
     } else {
         tris2
@@ -4989,7 +4981,7 @@ fn separate_coincident_simplices(
             let Some(Some((sp, _))) = separable.get(r.patch) else {
                 continue;
             };
-            if matches!(sp.surface, Surface::Plane { .. }) {
+            if sp.surface.is_affine() {
                 continue;
             }
             let Some(op) = r.old_tris.first().and_then(|&t| op_of(t)) else {

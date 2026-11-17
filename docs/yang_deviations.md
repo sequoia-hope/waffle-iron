@@ -100,7 +100,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | D11 | HISTORICAL | `d_ε` computed from combined-AABB across both solids |
 | D12 | HISTORICAL | O(n²) broad-phase intersection detection vs octree |
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
-| D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5a — the surface interface and carried parameter coordinates — and F5b's first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives |
+| D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5a — the surface interface and carried parameter coordinates — and F5b's first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives. The analytic-only code is inventoried in `docs/audits/f5a_surface_matches.md` (2026-11-17, F5a increment 4): the class-(c) closed forms (implicit evaluation, projection, per-type bounds, closed-form curves) a B-spline instance cannot take, and the class-(b) rules still narrowed by surface type, each named against the milestone that answers it |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
 | N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open; apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |

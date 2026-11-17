@@ -3,8 +3,9 @@
 //! collectors (extracted verbatim from stage0/mod.rs — spec
 //! `specs/stage0_decomposition.md`, increment 5).
 
-#[allow(clippy::wildcard_imports)]
 use super::*;
+#[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 
 /// N2-3a (spec `n2_stage4_junction_cluster_merge` §3): exact resolution
 /// context for one disc face's rim chords, built once per handled pair.
@@ -84,9 +85,7 @@ impl RimChordCtx {
     /// face's plane). `None` for a circle/ellipse, or a pair of two planes.
     fn pair_partner(&self) -> Option<Surface> {
         match self.curve {
-            RimCurve::Pair { a, b } => [a, b]
-                .into_iter()
-                .find(|s| !matches!(s, Surface::Plane { .. })),
+            RimCurve::Pair { a, b } => [a, b].into_iter().find(|s| !s.is_affine()),
             RimCurve::Circle { .. } | RimCurve::Ellipse { .. } => None,
         }
     }

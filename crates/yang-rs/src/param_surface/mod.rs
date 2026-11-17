@@ -191,6 +191,11 @@ pub(crate) trait ParamSurface {
     fn is_affine(&self) -> bool {
         false
     }
+    /// The plane `n·x + d = 0` an affine surface spans, as the instance
+    /// stores it (`n` need not be unit); `None` exactly when `!is_affine()`.
+    fn affine_plane(&self) -> Option<(cad_primitives::Vector3, f64)> {
+        None
+    }
     fn eval(&self, uv: Uv) -> Result<[f64; 3], SurfaceError>;
     fn derivs(&self, uv: Uv) -> Result<SurfaceDerivs, SurfaceError>;
     /// Unit `s_u × s_v`. For every analytic instance this is the OUTWARD

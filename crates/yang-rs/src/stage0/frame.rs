@@ -4,8 +4,9 @@
 //! verbatim from stage0/mod.rs — spec `specs/stage0_decomposition.md`,
 //! increment 7).
 
-#[allow(clippy::wildcard_imports)]
 use super::*;
+#[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 
 // ════════════════════════════════════════════════════════════════════════
 // canonical frame
@@ -93,7 +94,7 @@ pub(crate) fn canonical_frame(a: &BRep, face_a: usize) -> Option<Frame> {
 /// Stage 1 uses, then routing it through the existing polygon overlay.
 pub(crate) fn overlay_face_supported(brep: &BRep, fi: usize) -> bool {
     let f = &brep.faces()[fi];
-    if !matches!(f.surface, Surface::Plane { .. }) {
+    if !f.surface.is_affine() {
         return false;
     }
     if disc_circle_edge(brep, fi).is_some() {
@@ -124,7 +125,7 @@ pub(crate) fn overlay_face_supported(brep: &BRep, fi: usize) -> bool {
 /// that circle edge's index. Else `None`.
 pub(crate) fn disc_circle_edge(brep: &BRep, fi: usize) -> Option<u32> {
     let f = &brep.faces()[fi];
-    if !matches!(f.surface, Surface::Plane { .. }) || !f.inner_loops.is_empty() {
+    if !f.surface.is_affine() || !f.inner_loops.is_empty() {
         return None;
     }
     if f.outer_loop.len() != 1 {
@@ -142,7 +143,7 @@ pub(crate) fn disc_circle_edge(brep: &BRep, fi: usize) -> Option<u32> {
 /// circle geometry downstream). Spec `m8_holed_disc_coplanar_overlay` §1.
 pub(crate) fn annular_disc_face(brep: &BRep, fi: usize) -> Option<(u32, Vec<u32>)> {
     let f = &brep.faces()[fi];
-    if !matches!(f.surface, Surface::Plane { .. }) || f.inner_loops.is_empty() {
+    if !f.surface.is_affine() || f.inner_loops.is_empty() {
         return None;
     }
     let is_full_circle = |loop_edges: &[u32]| -> Option<u32> {
@@ -1016,7 +1017,7 @@ pub(crate) fn face_polygon_2d_tessellated(
 /// at least one curved edge.
 pub(crate) fn mixed_planar_face(brep: &BRep, fi: usize) -> bool {
     let f = &brep.faces()[fi];
-    if !matches!(f.surface, Surface::Plane { .. }) {
+    if !f.surface.is_affine() {
         return false;
     }
     if disc_circle_edge(brep, fi).is_some() || annular_disc_face(brep, fi).is_some() {

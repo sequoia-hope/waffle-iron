@@ -3,8 +3,9 @@
 //! (extracted verbatim from stage0/mod.rs — spec
 //! `specs/stage0_decomposition.md`, increment 3).
 
-#[allow(clippy::wildcard_imports)]
 use super::*;
+#[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 
 // ════════════════════════════════════════════════════════════════════════
 // boundary-split propagation (§4.5.5 shared sampling points)
@@ -1063,7 +1064,7 @@ pub(crate) fn build_stage0_mesh(
 
         // Neighbor re-triangulation with the subdivided ring. Scope: planar,
         // all-LineSegment, hole-free, continuous outer loop.
-        let Surface::Plane { normal, .. } = f.surface else {
+        let Some((normal, _)) = f.surface.affine_plane() else {
             // M8 curved-neighbour (R0015): a CURVED face whose subdivided
             // boundary edges are ALL STRAIGHT line generators — e.g. a
             // partial-revolve cap shares a generator with the cylinder lateral,

@@ -26,6 +26,7 @@
 //!   incident surfaces (loud contract: a line edge lies ON both by
 //!   construction, so a violation is a producer fault, not a near-miss).
 
+use crate::param_surface::ParamSurface;
 use crate::*;
 use std::collections::BTreeMap;
 
@@ -361,8 +362,7 @@ pub(crate) fn junction_pierce_points(
             let [s1, s2] = surfs.as_slice() else {
                 continue; // border/defective incidence — not a 2-surface edge
             };
-            let owner_planar =
-                matches!(s1, Surface::Plane { .. }) && matches!(s2, Surface::Plane { .. });
+            let owner_planar = s1.is_affine() && s2.is_affine();
             // P3b scope-sizing probe (read-only): enumerate curved-partner
             // pierce CANDIDATES this increment's planar scope skips — the
             // F0082 ellipse×wall corner class. Mints nothing.

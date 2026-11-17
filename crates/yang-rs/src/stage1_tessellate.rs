@@ -4,6 +4,7 @@
 //! `specs/yang_rs_lib_decomposition.md`, increment 4).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 /// Stage-1 tessellation output (PR-YR26 extraction of the `BRep::new` body):
@@ -1833,7 +1834,7 @@ pub(crate) fn stage1_tessellate_once(
                                  residual on {s:?} (an axis)"
                             )));
                         };
-                        if matches!(s, Surface::Plane { .. }) {
+                        if s.is_affine() {
                             if off > band {
                                 return Err(YangError::MalformedTopology(format!(
                                     "surface-pair edge {e_idx}: chain override {pa:?} is not \
@@ -2125,7 +2126,7 @@ pub(crate) fn stage1_tessellate_once(
             // rather than silently dropping the insertion on one side (the
             // exact conformality break this pass exists to prevent).
             for (f_idx, f) in faces.iter().enumerate() {
-                if matches!(f.surface, Surface::Plane { .. }) {
+                if f.surface.is_affine() {
                     continue;
                 }
                 if let Some(&e_idx) = f

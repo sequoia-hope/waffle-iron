@@ -3,6 +3,7 @@
 //! `specs/yang_rs_lib_decomposition.md`, increment 6).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 // =========================================================================
@@ -974,7 +975,7 @@ pub(crate) fn build_intersection_curves(
         // curves between the two models"), where `ssi_rs::intersect`
         // correctly refuses the parallel-plane pair (`DegenerateInput`) —
         // the curve comes from the 2D overlay, not from SSI.
-        if matches!(surf0, Surface::Plane { .. }) && matches!(surf1, Surface::Plane { .. }) {
+        if surf0.is_affine() && surf1.is_affine() {
             out.insert((s, e), Curve::LineSegment);
             continue;
         }

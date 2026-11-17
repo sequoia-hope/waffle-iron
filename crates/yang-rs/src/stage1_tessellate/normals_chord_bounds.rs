@@ -3,6 +3,7 @@
 //! Extracted move-only from stage1_tessellate.rs (#159 F9 decomposition).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 /// PR-YR12 (P2b): full outward radial normal of a sphere face at the centroid of
@@ -416,7 +417,7 @@ pub(crate) fn surface_pair_chain_bound(
         // 3) has no curvature of its own: it constrains nothing, the partner's
         // local radius is the bound. Any other operand without a local scale
         // is not a pair surface.
-        if matches!(s, Surface::Plane { .. }) {
+        if s.is_affine() {
             continue;
         }
         for p in [p0, p1] {

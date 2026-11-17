@@ -43,6 +43,7 @@
 
 use crate::brep::{BRep, InputId};
 use crate::geom::Surface;
+use crate::param_surface::ParamSurface;
 use crate::Curve;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -472,7 +473,7 @@ pub(crate) fn classify_claims(
                                 ));
                             }
                             if roots.is_empty() {
-                                if matches!(target, Surface::Plane { .. }) {
+                                if target.is_affine() {
                                     // Parallel/in-plane edge: a contact, not
                                     // a refuted pierce (F0064/F0067 measured).
                                     any_parallel = true;

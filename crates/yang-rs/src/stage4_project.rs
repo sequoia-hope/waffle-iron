@@ -196,6 +196,18 @@ impl SurfaceChart {
         }
     }
 
+    /// The period of the chart's first coordinate: `Some(2π)` where it is an
+    /// azimuth (cylinder, cone, torus), `None` on a plane. A caller unwraps a
+    /// periodic coordinate onto one branch before triangulating.
+    pub(crate) fn u_period(&self) -> Option<f64> {
+        match self {
+            SurfaceChart::Plane { .. } => None,
+            SurfaceChart::Cylinder { .. }
+            | SurfaceChart::Cone { .. }
+            | SurfaceChart::Torus { .. } => Some(std::f64::consts::TAU),
+        }
+    }
+
     /// Project a world point (assumed on/near the surface) to parametric space.
     pub(crate) fn project(&self, p: Point3) -> Point2 {
         let x = p.as_array();
@@ -773,6 +785,37 @@ pub(crate) fn point_in_polygon(pt: Point2, lp: &[u32], pool: &[Point2]) -> bool 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A chart's first coordinate is periodic exactly when it is an azimuth.
+    #[test]
+    fn u_period_is_the_azimuth_period() {
+        let z = Vector3::new(0.0, 0.0, 1.0);
+        let o = Point3::new(0.0, 0.0, 0.0);
+        let plane = SurfaceChart::new(Surface::Plane { normal: z, d: 0.0 }).unwrap();
+        let cyl = SurfaceChart::new(Surface::Cylinder {
+            axis_point: o,
+            axis_dir: z,
+            radius: 1.0,
+        })
+        .unwrap();
+        let cone = SurfaceChart::new(Surface::Cone {
+            apex: o,
+            axis_dir: z,
+            half_angle: 0.5,
+        })
+        .unwrap();
+        let torus = SurfaceChart::new_local(Surface::Torus {
+            center: o,
+            axis_dir: z,
+            major_radius: 2.0,
+            minor_radius: 0.5,
+        })
+        .unwrap();
+        assert_eq!(plane.u_period(), None);
+        for c in [cyl, cone, torus] {
+            assert_eq!(c.u_period(), Some(std::f64::consts::TAU));
+        }
+    }
     use crate::Vector3;
 
     fn dist3(a: Point3, b: Point3) -> f64 {

@@ -157,10 +157,10 @@ route the paper never takes.
 Every item here is result-neutral: the gate is the canonical geometry hash
 (`WAFFLE_GEOMETRY_HASH_OUT`) identical on all 374 corpus cases.
 
-- [ ] **Design session** — the choice in "How the conversion is carried
+- [x] **Design session** — the choice in "How the conversion is carried
       out" above (made 2026-11-16: in place), and the spec for the items
       below (`specs/yang_f5a_surface_interface.md`).
-- [ ] **The surface interface.** One trait every stage reaches a surface
+- [x] **The surface interface.** One trait every stage reaches a surface
       through: evaluate s(u, v), first and second derivatives, normal, the
       parameter domain with its periodicity and seams, and the two bounding
       operations the paper's guarantees rest on — the control-net distance
@@ -172,12 +172,16 @@ Every item here is result-neutral: the gate is the canonical geometry hash
       `nurbs-rs` gives them for a B-spline by knot insertion. Pointwise
       evaluation alone cannot give a conservative bound. Closest-point
       projection is not part of the interface's required path.
-- [ ] **The five analytic surfaces are its instances.** No new code matches
+- [x] **The five analytic surfaces are its instances.** No new code matches
       on the surface type inside a general geometric rule. The existing
       matches (686 uses of a `Surface::` variant in 47 non-test files of
       yang-rs, 2026-11-12) are inventoried by rule, and each is either an
       instance method or a recorded closed-form fast path under N7.
-- [ ] **Parameter coordinates carried.** Each mesh vertex holds (u, v) on
+      *(Inventory 2026-11-17, increment 4: `docs/audits/f5a_surface_matches.md`;
+      47 class-(b) sites converted to `is_affine()`, `affine_plane()` and
+      `SurfaceChart::u_period()`; 22 functions keep a class-(b) part, each
+      named against F2, F3, F4, F5b or F6.)*
+- [x] **Parameter coordinates carried.** Each mesh vertex holds (u, v) on
       every face it lies on, assigned at Stage 1, interpolated at Stage 2
       from the implicit points' barycentric coordinates (§4.2.3), and kept
       in lockstep through every Stage-4/5 mutator, as the per-triangle
@@ -425,4 +429,5 @@ the first known item.
 | 2026-11-16 | F5a design session, the choice: the core converts in place, in roadmap order (owner: *"in place, go ahead"*). `specs/yang_paper_path.md` §6 records why — the combined core trial needs the uncommitted I3b and N85 trials rebuilt, and every recorded trial loss names an earlier milestone. The hold on wiring Stage-4 increments is lifted. No geometry changed | 65 | 133 | not re-run (no kernel change) | (this commit) |
 | 2026-11-16 | F5a increments 1–2 (`specs/yang_f5a_surface_interface.md`): `param_surface` — the `ParamSurface` interface, the five analytic instances, d(T) and the Theorem 4.1 normal cone generic over rational Bézier patches; `stage4_dt` now runs on it and the closed-form Gauss maps are pinned against the net cone. Result-neutral: geometry hash identical on all 374 cases against a control | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-17 | F5a increment 3: (u, v) carried on every mesh vertex on every face it lies on — operand vertices by the closed-form inverse (N109 OPEN), arrangement vertices by §4.2.3 barycentrics in their source triangles, kept in lockstep through every Stage-4/5 vertex mutator, `settle` by incidence. Result-neutral: geometry hash identical on all 374 cases against a control. Census (`YANG_UV_CENSUS`, 315 cases): complete at every stage; largest \|s(u,v) − p\| / d_ε 0.999 at Stage 1 (Stage-0 chord corners), 23.3 at Stage 2, 1.005 at the Stage-5 exit. 4.2-24 DEVIATES → PARTIAL | 66 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-17 | F5a increment 4: the `Surface::` match inventory (`docs/audits/f5a_surface_matches.md`, generated, `--check` gates an unclassified site); 47 class-(b) sites converted in three batches — planarity → `is_affine()`, planar rules that read the plane → `affine_plane()`, the fan-rebuild θ unwrap → `SurfaceChart::u_period()`. Geometry hash identical on all 374 cases after batch 1 and after batches 1–3. 22 functions keep a class-(b) part, each named against F2/F3/F4/F5b/F6 | 66 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-15 | Not a milestone step — the quiet rotation mismatches read. R0057 moved is the unmoved solid (every edge on the unmoved curves to 7e-14; its torus face is rebuilt without a seam, which `signed_volume` does not read). The sweep probe reads place (`geo`): no mesh-only `OK` row is off by more than 1.2e-3 of its body. F0094 moved is two bodies because a crossing disc pair has no §4.5.5 overlay and the arrangement sees coplanar caps only on an axis-aligned plane — **N108 ledgered, OPEN, an F6 item**; matrix 4.5.5-07 FAITHFUL → PARTIAL. No kernel change | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

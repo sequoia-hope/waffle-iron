@@ -19,6 +19,7 @@
 //! through [`failures`] and refines [`region`] (spec §6).
 
 use crate::brep::{BRep, InputId, TriangleAttribution, TriangleAttributionMap};
+use crate::param_surface::ParamSurface;
 use crate::stage4_correct::DomainFire;
 use crate::{Mesh, YangError};
 use std::collections::BTreeSet;
@@ -1335,7 +1336,6 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
 pub(crate) fn output_curve_crossings(out: &BRep) -> Vec<FailureSite> {
     use crate::geom::curve_plane;
     use crate::stage4_correct::conic_param;
-    use crate::Surface;
     let faces = out.faces();
     let edges = out.edges();
     let verts = out.vertices();
@@ -1386,7 +1386,7 @@ pub(crate) fn output_curve_crossings(out: &BRep) -> Vec<FailureSite> {
     let mut sites = Vec::new();
     for fi in 0..faces.len() {
         let surf = faces[fi].surface;
-        if matches!(surf, Surface::Plane { .. }) {
+        if surf.is_affine() {
             continue;
         }
         for fj in (fi + 1)..faces.len() {

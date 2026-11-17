@@ -4,6 +4,7 @@
 //! spec `specs/yang_rs_lib_decomposition.md`, increment 9).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 mod coplanar_scan;
@@ -1982,7 +1983,7 @@ fn boolean_once_timed(
         .faces()
         .iter()
         .chain(b.faces().iter())
-        .all(|f| matches!(f.surface, Surface::Plane { .. }));
+        .all(|f| f.surface.is_affine());
     let weld: Vec<u32> = if all_planar {
         use std::collections::HashMap;
         let verts = &la.mesh.verts;
@@ -2073,9 +2074,7 @@ fn boolean_once_timed(
         {
             let face_planar = |k: u32, fi: u32| -> Option<bool> {
                 let brep: &BRep = if k == 0 { a } else { b };
-                brep.faces()
-                    .get(fi as usize)
-                    .map(|f| matches!(f.surface, Surface::Plane { .. }))
+                brep.faces().get(fi as usize).map(|f| f.surface.is_affine())
             };
             let curved = kv15_curved_touch(
                 la.mesh.verts.len(),
@@ -2836,7 +2835,7 @@ fn boolean_once_timed(
             // distance basis there, NOT a straddle). Curved faces keep the
             // centroid (a wall/cap triangle sits `d_ε` inside the surface BY
             // CONSTRUCTION; per-vertex distance would mis-tier it).
-            if let Surface::Plane { normal, d } = face.surface {
+            if let Some((normal, d)) = face.surface.affine_plane() {
                 let n = normal.as_array();
                 let dist = |q: [f64; 3]| (q[0] * n[0] + q[1] * n[1] + q[2] * n[2] + d).abs();
                 return Ok(dist(p0).max(dist(p1)).max(dist(p2)));

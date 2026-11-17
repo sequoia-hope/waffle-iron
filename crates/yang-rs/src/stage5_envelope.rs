@@ -31,6 +31,7 @@
 
 use crate::brep::InputId;
 use crate::geom::Surface;
+use crate::param_surface::ParamSurface;
 use cad_primitives::{BoolOp, TAU_MODEL, TAU_WORK};
 
 /// Angular dedup floor for boundary candidates (radians). Two candidates
@@ -1643,7 +1644,7 @@ pub(crate) fn envelope_prepass(
     // (b) Planarity: watched verts in rewritten PLANAR loops must satisfy
     //     the s6 emission band (defensive mirror of the producer gate).
     for (j, cycles_j) in &work {
-        let Surface::Plane { normal, d } = infos[*j].inherited else {
+        let Some((normal, d)) = infos[*j].inherited.affine_plane() else {
             continue;
         };
         let n = normal.as_array();
@@ -1776,7 +1777,7 @@ fn rewrite_neighbor_cycle(
         ));
         return NeighborRewrite::Bail;
     }
-    let Surface::Plane { normal, d } = infos[j].inherited else {
+    let Some((normal, d)) = infos[j].inherited.affine_plane() else {
         probe(format_args!(
             "prepass BAIL: chain run in non-planar neighbor info={j}"
         ));

@@ -4,6 +4,7 @@
 //! lib.rs — spec `specs/yang_rs_lib_decomposition.md`, increment 7).
 
 #[allow(clippy::wildcard_imports)]
+use crate::param_surface::ParamSurface;
 use crate::*;
 
 /// §4.4.2 tangent-plane corridor half-width. The two surfaces at a
@@ -240,9 +241,9 @@ pub(crate) fn planar_partner_hull_contains(
     pos: [f64; 3],
     d_eps: f64,
 ) -> Option<bool> {
-    let Surface::Plane { .. } = partner else {
+    if !partner.is_affine() {
         return None;
-    };
+    }
     // Faces "on the partner plane" are the ones `merge_same_plane_patches`
     // folds into one output face — the same-plane-same-orientation reading
     // (`unit_planes_coincide`), NOT bit-equality: a coplanar pair's B face

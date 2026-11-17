@@ -35,6 +35,7 @@
 //! guard), curve-map status, and the carried input-circle match. The
 //! measurement that decided this design.
 
+use crate::param_surface::ParamSurface;
 use std::collections::BTreeMap;
 
 use cad_primitives::Point3;
@@ -871,8 +872,7 @@ pub(crate) fn certified_output_edge_curve(
     stats: &mut RestoreStats,
 ) -> Option<(Curve, bool)> {
     let carried = carried_input.is_some();
-    let curved_pair = surface_bits(&s0) != surface_bits(&s1)
-        && !(matches!(s0, Surface::Plane { .. }) && matches!(s1, Surface::Plane { .. }));
+    let curved_pair = surface_bits(&s0) != surface_bits(&s1) && !(s0.is_affine() && s1.is_affine());
     if !carried && !curved_pair {
         return None;
     }
