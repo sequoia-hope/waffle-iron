@@ -79,43 +79,18 @@ per-patch update, the §4.3 optimization and the B-spline instance all need
 the same substrate, and building F2 on charts derived from 3D positions
 means building it twice.
 
-**How the conversion is carried out.** The substitutes are tuned to each
-other. Each in-place change so far has regressed cases a substitute protects
-on the old substrate: the N85 trial lost four cases, the I3b flip stopped on
-three, and the N106 retirement lost two volume pins. A coupled system cannot
-be converted one mechanism at a time while the corpus is held at every
-commit. Since 2026-11-13 a retirement may cost a named dip (§1 item 4),
-which removes that obstacle for the substitutes; the trials above changed
-the core, and their losses were not all loud (the N106 retirement lost
-volume pins). F5a therefore opens with one design session that chooses
-between:
-
-- **in place** — today's method, one wired increment at a time on the
-  production path, each holding the corpus less its named dips; or
-- **a second path** — the paper's order assembled from the primitives that
-  already exist (`update_patches_ex`, `boolean::refine_loop`, the I3a
-  full-arrangement primitives, `d_of_t`, the F4 Newton and Gauss-map code)
-  behind one switch, with the production path as its differential oracle on
-  the corpus and the seeds. The corpus is required of the second path at the
-  flip, not at each commit; at the flip the old path and every substitute on
-  it are deleted together. This is how `cherchi-rs` replaced the C++
-  sidecar.
-
-The session's output goes in `specs/yang_paper_path.md`: the choice, its
-reasons from the code, and the gate for the flip. Until that spec records
-the choice, no new increment is wired into the production Stage 4.
-
-The spec holds one measurement so far. With the outer substitutes switched
-off (the Stage-1 pre-emptive arms, the Stage-4/5 repair passes, the transits
-and the cross-patch folds; branch `exp/paper-skeleton`), the corpus keeps
-354 of 360 CORRECT with no WRONG, the losses add across groups with one
-exception, and four of the mechanisms have no corpus customer. That layer
-can be retired in place. Three of the four are deleted (the rim boost, the
-cross-patch folds, the transits). The fourth, edge-in-plane arm 2, stays:
-it has a customer the corpus does not hold, found by moving its anchoring
-case rigidly, and that check now precedes each removal. The core (the construct pass, Stage-0 relocation,
-Stage-1 meshing, the d(T) refusal, the classify order, the representation)
-was left on and is the open half of the question.
+**How the conversion is carried out: in place, in this order** (owner,
+2026-11-16; reasons in `specs/yang_paper_path.md` §6). Each milestone lands
+as wired increments on the production path. An increment holds the corpus
+less its named dips (§1 item 4), runs the rigid-motion sweep of the cases its
+mechanism touches first, and never admits a WRONG. The core changes tried
+early each lost cases to a mechanism the paper puts in front of them (the
+N85 d_ε scale and the I3b flip to F2/F3, the I2d retirement to F5b), so the
+order above is what makes them land: F5a's substrate, then F2's update on
+it, then I3b. The outer substitutes are retired in place on the same terms;
+the rim boost, the cross-patch folds and the transits are gone, and
+edge-in-plane arm 2 stays (it has a customer the corpus does not hold,
+found by moving its anchoring case rigidly).
 
 ### F0 — Bookkeeping (no geometry change)
 
@@ -183,7 +158,8 @@ Every item here is result-neutral: the gate is the canonical geometry hash
 (`WAFFLE_GEOMETRY_HASH_OUT`) identical on all 374 corpus cases.
 
 - [ ] **Design session** — the choice in "How the conversion is carried
-      out" above, and the spec for the items below.
+      out" above (made 2026-11-16: in place), and the spec for the items
+      below (`specs/yang_f5a_surface_interface.md`).
 - [ ] **The surface interface.** One trait every stage reaches a surface
       through: evaluate s(u, v), first and second derivatives, normal, the
       parameter domain with its periodicity and seams, and the two bounding
@@ -443,4 +419,5 @@ the first known item.
 | 2026-11-13 | Rigid-motion sweep committed (`crates/test-harness/tests/rigid_motion_sweep.rs`) and run on the whole corpus at this tip: 1,371 of 1,440 rotated runs of CORRECT cases reproduce the unmoved result, 69 do not (62 loud, 7 quiet). **Named dip, late: C0117 stops at the §4.5.2 ceiling in 4 of 4 rigid motions without the rim boost** (retirement 1; the corpus holds it in one orientation), customer of F3 item I2. A wrong model found and fixed on the way (P0054 rotated; kernel-v2 `extent_along`, not a Yang mechanism) | 63 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-14 | Not a milestone step — a silent wrong model preempts: F0076 moved rigidly held material neither operand has (the Stage-1 mints, N82, turn a crossing into a touch; Stage 3 typed the touching chord as an arc outside the cylinder face). Trigger T9, `curve_domain_postcondition`, holds each typed intersection edge's arc to its faces' creases (§4.3.3 `:528-532` at §4.3.4's points) and the §4.5.2 loop builds the right solid; a certificate, not domain membership — N107 OPEN, F5a's parameter domain replaces it. Sweep: 1,372 of 1,440 reproduce (62 loud, 6 quiet), one verdict moved | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | `fe13dfaf` |
 | 2026-11-15 | Not a milestone step — T9 refused a correct build (CI red on `fe13dfaf`: test-harness `board_shape_kv2`, a hole beside a rounded plate corner). `face_sides` read a face's side of a curved divider from its mesh vertices; it now confirms the side against the mesh triangles (`divider_range_on_triangle`) and gives none where they extend to the other side. Withdraws certificates only; corpus `results.json` and all 374 sweep verdict files identical. N107 corrected, still OPEN | 64 | 132 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-16 | F5a design session, the choice: the core converts in place, in roadmap order (owner: *"in place, go ahead"*). `specs/yang_paper_path.md` §6 records why — the combined core trial needs the uncommitted I3b and N85 trials rebuilt, and every recorded trial loss names an earlier milestone. The hold on wiring Stage-4 increments is lifted. No geometry changed | 65 | 133 | not re-run (no kernel change) | (this commit) |
 | 2026-11-15 | Not a milestone step — the quiet rotation mismatches read. R0057 moved is the unmoved solid (every edge on the unmoved curves to 7e-14; its torus face is rebuilt without a seam, which `signed_volume` does not read). The sweep probe reads place (`geo`): no mesh-only `OK` row is off by more than 1.2e-3 of its body. F0094 moved is two bodies because a crossing disc pair has no §4.5.5 overlay and the arrangement sees coplanar caps only on an axis-aligned plane — **N108 ledgered, OPEN, an F6 item**; matrix 4.5.5-07 FAITHFUL → PARTIAL. No kernel change | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

@@ -122,10 +122,10 @@ off-surface vertex.
    result-neutral → F2 §4.4.1 one per-patch update → F1's flip,
    classify-after-update N80 → F3 §4.5 locality / collection / Case-IV
    rule-out → F4 §4.3 → F5b Stage 1 as §4.1 and the B-spline
-   instance → F6 Stage 0 & emission → F7 adjudication). F5a opens with a
-   design session that decides in-place conversion versus a second,
-   paper-ordered path (roadmap §3); no new increment is wired into the
-   production Stage 4 until `specs/yang_paper_path.md` records that choice. Progress is the roadmap's scoreboard **with the corpus held**, never
+   instance → F6 Stage 0 & emission → F7 adjudication). Every milestone
+   converts the production path **in place**, in that order (owner,
+   2026-11-16; `specs/yang_paper_path.md` §6); F5a's spec is
+   `specs/yang_f5a_surface_interface.md`. Progress is the roadmap's scoreboard **with the corpus held**, never
    the corpus score alone. Held means WRONG = 0 and no loss except a *named
    dip*: removing a substitute or an unfaithful mechanism may turn a few
    cases into typed ERRORs, each named against the milestone that answers

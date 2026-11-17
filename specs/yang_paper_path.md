@@ -1,14 +1,14 @@
 # Yang paper path — in place, or a second path
 
-**Status:** for the core the choice is OPEN and is the owner's. For the outer
-layer of substitutes it is made: they are retired in place (§6), on the
+**Status: DECIDED — in place, in roadmap order** (owner, 2026-11-16: "in
+place, go ahead"). The outer layer of substitutes is retired in place on the
 owner's ruling of 2026-11-13 that a small, loud drop in the corpus score is
-acceptable when what was removed was not faithful to the paper. This spec
-holds the question, one experiment (2026-11-12) and what it settles, and what
-the F5a design session still has to measure. The roadmap's hold stays in
-force for the core until §6 records that choice: no new increment is wired
-into the production Stage 4 (`docs/yang_faithfulness_roadmap.md` §3). A
-retirement is not an increment.
+acceptable when what was removed was not faithful to the paper (§6). The core
+converts in place too, in the roadmap's order F5a → F2 → I3b → F3 → …, each
+increment held to the corpus less its named dips (§6, "The core"). The
+roadmap's hold on wiring new increments into the production Stage 4 is
+lifted. This spec holds the question, one experiment (2026-11-12) and what it
+settles, and the reasons for the choice.
 
 ## 1. The question
 
@@ -215,12 +215,45 @@ in the order §3 gives:
    site before its mechanism goes, so the dip is loud at the stage that
    causes it.
 
-**For the core the question is still open, and the same method answers it
-cheaply.** Put the paper-order changes that have each been tried alone (the
-I3b flip, the I2d refusal off, N85's d_ε scale) behind the same switch, run them together,
-and count. If the losses add as they do here, convert in place against a named
-customer list. If they compound, or a SUPPORTED_WRONG appears, build the
-second path. That run is the first item of the F5a design session.
+**The core: in place, in roadmap order (owner, 2026-11-16).** This section
+had proposed answering the core question the same way: put the three
+paper-order changes that had each been tried alone (the I3b flip, the I2d
+refusal off, N85's d_ε scale) behind the switch, run them together, and
+count. That run is not cheap, and it would not answer the question:
+
+- Two of the three trials were never committed. The I3b trial
+  (2026-10-27/30) lived in a working tree; `agy/f1-i3-full-arrangement`
+  holds only the unwired I3a primitives. Rebuilding it is the F1 I3 item
+  itself: Stage 4 on the full arrangement with the keep, flip and membrane
+  rule after it, the flood keyed by side label, and `full_arrangement`
+  passed true through the construct, fold-merge and decimation passes that
+  `reconstruct_topology_stage4` calls with `false`. The N85 trial
+  (`specs/yang_41_deps_from_bbox.md` §5) was reverted; its wiring reaches
+  49 call sites of the chord-bound functions, and the scalar ones (sphere,
+  torus, cone, ellipse) are given no model to scale by. Only I2d is a
+  one-line switch.
+- Each trial's recorded losses already name their cause, and in every case
+  it is a missing earlier milestone, not another core change:
+
+  | Trial alone | Losses | Named against |
+  |---|---|---|
+  | N85, model-AABB d_ε (2026-10-27) | P0046, R0032, P0007, F0084 CORRECT → ERROR | F2 (§4.4.1 update, N2), F3 (§4.5.2 locality, N62; §4.5.4, N83) |
+  | I3b, classify after update (2026-10-30) | the c0058 pin; F0060 WRONG in the smoke corpus | F2 (pre-CDT 2D relabelling, N2), N74/N78 |
+  | I2d off (2026-11-06) | corpus held, 0 WRONG; two yang-mesh volume pins lose 20–23 % | F5b (Stage-1 interior samples, N5) |
+
+The dependency the record shows is one of ORDER: each core change was tried
+before the mechanism the paper puts in front of it. That is what the
+roadmap's sequence encodes, and it is what an in-place conversion follows.
+A combined run before F2 exists would re-measure "F2 is missing". The F0060
+WRONG under I3b is the exception that would have argued for a second path
+under the rule this section first wrote; it was recorded before F2 Steps
+1–2 and N106 increment 2 landed, traces to a named F2 gap, and is re-read
+when I3b is wired — a WRONG there still stops that increment.
+
+So every core milestone lands in place, in order: F5a (result-neutral, gated
+by the canonical hash), then F2, then I3b, then F3 and on. Each increment
+holds the corpus less its named dips, runs the rigid-motion sweep of the
+cases its mechanism touches, and never admits a WRONG.
 
 ## 7. Reproduce
 

@@ -155,10 +155,9 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
   the surface interface and per-vertex parameter coordinates, result-neutral)
   → F2 (§4.4.1 on that substrate) → F1's flip → F3 → F4's open items → F5b
   (§4.1 Stage 1, one CDT per face, the B-spline instance) → F6 → F7. One
-  owner holds F5a, F2 and F1's flip (D-2). F5a opens with one design session
-  that decides whether these milestones convert the production path in place
-  or on a second, paper-ordered path behind a switch (roadmap §3, "How the
-  conversion is carried out").
+  owner holds F5a, F2 and F1's flip (D-2). Every milestone converts the
+  production path in place, in this order (owner, 2026-11-16; reasons in
+  `specs/yang_paper_path.md` §6).
 - **Step 1, in parallel (non-kernel lanes).** Gate 1.4's OCCT oracle, gate
   3.1's pair matrix, gate 3.7's contact matrix, gate 4's K7 and K10, and the
   consumer contract (§3a). None of these waits for a milestone.
@@ -245,3 +244,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-14 | a silent wrong model under rotation found and closed: F0076 moved rigidly (extra material, no error). yang-rs trigger T9 holds an intersection curve's interior to its faces' domains (N107 OPEN: a certificate until F5a) | corpus 360C/0W/9E/5EE/0T held, every result line identical but F0064's error text | 64 / 132 | rotation: 68 of 1,440 rotated runs of CORRECT cases do not reproduce the unrotated result (62 loud, 6 a different body, face or vertex count); F0076 now reproduces in 4 of 4 | — | `fe13dfaf` |
 | 2026-11-15 | T9 refused a correct build — a mounting hole beside a board's rounded corner (CI red on `fe13dfaf`, test-harness `board_shape_kv2`). The certificate now reads a face's side of a crease from its mesh triangles, not its vertices alone (N107 corrected, still OPEN) | corpus 360C/0W/9E/5EE/0T held, `results.json` byte-identical | 64 / 132 | rotation: all 374 sweep verdict files identical to 2026-11-14 (68 of 1,440 do not reproduce: 62 loud, 6 quiet) | — | (this commit) |
 | 2026-11-15 | the quiet rotation mismatches read, no kernel change: R0057 moved is the same solid; F0094 moved is two bodies for want of a §4.5.5 overlay on a crossing disc pair (N108 ledgered, OPEN, roadmap F6; matrix 4.5.5-07 → PARTIAL) | corpus 360C/0W/9E/5EE/0T held | 65 / 133 | rotation: the sweep probe now reads where the moved body is (`geo`); the six quiet mismatches are all the unmoved solid in place, grouped differently | — | (this commit) |
+| 2026-11-16 | owner decision: the core converts in place, in roadmap order (F5a → F2 → I3b → …). The combined core trial `specs/yang_paper_path.md` §6 proposed is not cheap (the I3b and N85 trials were never committed) and each recorded trial loss names a missing earlier milestone, not another core change | not re-run (no kernel change) | 65 / 133 | — | — | (this commit) |
