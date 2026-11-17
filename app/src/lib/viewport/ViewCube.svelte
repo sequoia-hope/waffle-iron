@@ -6,6 +6,8 @@
 	import { getSettings, updateSettings } from '$lib/ui/settings.svelte.js';
 	import {
 		STUDIO_ENVIRONMENTS,
+		STUDIO_SURFACES,
+		getStudioPresetMeta,
 		hasCustomStudioEnvironment,
 		getCustomStudioEnvironmentName,
 		subscribeCustomStudioEnvironment
@@ -65,6 +67,16 @@
 
 	function handleToggleStudio() {
 		updateSettings({ viewportShading: isStudio ? 'shaded' : 'studio' });
+	}
+
+	function handleSceneSelect(e) {
+		const nextId = e.currentTarget.value;
+		const meta = getStudioPresetMeta(nextId);
+		updateSettings({
+			studioEnvironment: nextId,
+			studioBackdrop: nextId === 'custom' ? true : Boolean(meta?.defaultBackdrop),
+			studioSurface: 'auto'
+		});
 	}
 
 	function toggleDropdown() {
@@ -162,6 +174,25 @@
 				<input type="checkbox" checked={isOrtho} onchange={handleToggleProjection} data-testid="viewcube-ortho-toggle" />
 				Ortho
 			</label>
+			<label class="dropdown-label" title="Show B-Rep wireframe edges on 3D bodies">
+				<input
+					type="checkbox"
+					checked={settings.showModelEdges}
+					onchange={(e) => updateSettings({ showModelEdges: e.currentTarget.checked })}
+					data-testid="viewcube-edges-toggle"
+				/>
+				Edges
+			</label>
+			<label class="dropdown-label" title="Show B-Rep vertex dots on 3D bodies">
+				<input
+					type="checkbox"
+					checked={settings.showModelVertices}
+					onchange={(e) => updateSettings({ showModelVertices: e.currentTarget.checked })}
+					data-testid="viewcube-vertices-toggle"
+				/>
+				Vertices
+			</label>
+			<div class="dropdown-sep"></div>
 			<label class="dropdown-label" title="Physically based Studio lighting (HDRI / PMREM + GTAO + GTSO + SSR)">
 				<input type="checkbox" checked={isStudio} onchange={handleToggleStudio} data-testid="viewcube-studio-toggle" />
 				Studio
@@ -171,13 +202,14 @@
 					<select
 						class="dropdown-select"
 						data-testid="viewcube-studio-env"
-						aria-label="Studio environment"
+						aria-label="Studio scene"
+						title="Studio scene (lighting + backdrop + tabletop)"
 						value={settings.studioEnvironment === 'custom' && !hasCustomEnv
 							? 'studio-softbox'
 							: settings.studioEnvironment}
-						onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
+						onchange={handleSceneSelect}
 					>
-						<optgroup label="HDRI Environments">
+						<optgroup label="Real-World Scenes">
 							{#each hdriPresets as env (env.id)}
 								<option value={env.id}>{env.label}</option>
 							{/each}
@@ -185,14 +217,28 @@
 								<option value="custom">Custom: {customEnvLabel}</option>
 							{/if}
 						</optgroup>
-						<optgroup label="Studio Rigs">
+						<optgroup label="Clean Studio Rigs">
 							{#each rigPresets as env (env.id)}
 								<option value={env.id}>{env.label}</option>
 							{/each}
 						</optgroup>
 					</select>
 				</div>
-				<label class="dropdown-label" title="Show softly defocused HDRI environment dome behind the part">
+				<div class="dropdown-sub">
+					<select
+						class="dropdown-select"
+						data-testid="viewcube-studio-surface"
+						aria-label="Tabletop surface"
+						title="Physical tabletop surface beneath the model"
+						value={settings.studioSurface}
+						onchange={(e) => updateSettings({ studioSurface: e.currentTarget.value })}
+					>
+						{#each STUDIO_SURFACES as surf (surf.id)}
+							<option value={surf.id}>Surface: {surf.label}</option>
+						{/each}
+					</select>
+				</div>
+				<label class="dropdown-label" title="Show crisp 4K 360° HDRI environment behind the part">
 					<input
 						type="checkbox"
 						checked={settings.studioBackdrop}

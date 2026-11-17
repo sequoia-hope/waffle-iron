@@ -47,12 +47,20 @@ export const SETTINGS_DEFAULTS = Object.freeze({
 	 * 'shaded' (default classic CAD lighting) or 'studio' (PBR PMREM + GTAO + GTSO + SSR).
 	 */
 	viewportShading: 'shaded',
-	/** HDR environment preset id used when `viewportShading === 'studio'`. */
+	/** HDR environment / scene preset id used when `viewportShading === 'studio'`. */
 	studioEnvironment: 'studio-softbox',
+	/** Physical 3D tabletop slab beneath `bbox.min.z`: 'auto' | 'none' | 'workbench' | 'desk' | 'granite' | 'cutting-mat'. */
+	studioSurface: 'auto',
 	/** Azimuthal rotation (degrees 0..360 around world +Z) of the Studio HDR environment. */
 	studioEnvRotation: 0,
-	/** Render softly defocused Z-up HDR environment dome behind the CAD model in Studio mode. */
+	/** Render high-resolution 4K Z-up HDR environment dome behind the CAD model in Studio mode. */
 	studioBackdrop: false,
+	/** Optional mipmap optical defocus (0 = crisp 4K photo, 1 = soft bokeh) on the Studio backdrop. */
+	studioBackdropBlur: 0,
+	/** Render & pick 3D B-Rep edge wireframe lines (`EdgeOverlay.svelte`). */
+	showModelEdges: true,
+	/** Render & pick 3D B-Rep vertex dots (`VertexOverlay.svelte`). */
+	showModelVertices: true,
 	/** Enable Ground Truth Ambient Occlusion + multi-bounce AO + GTSO in Studio mode. */
 	studioAO: true,
 	/** Enable Screen-Space Reflections blended into PBR radiance in Studio mode. */
@@ -87,13 +95,23 @@ export const STUDIO_ENVIRONMENT_IDS = Object.freeze([
 	'hdri-workbench',
 	'hdri-machine-shop',
 	'hdri-office',
+	'hdri-granite',
 	'custom'
+]);
+export const STUDIO_SURFACE_IDS = Object.freeze([
+	'auto',
+	'none',
+	'workbench',
+	'desk',
+	'granite',
+	'cutting-mat'
 ]);
 export const STUDIO_TONE_MAPPINGS = Object.freeze(['neutral', 'agx']);
 const ENUMS = {
 	restoreOnReload: RESTORE_ON_RELOAD,
 	viewportShading: VIEWPORT_SHADING_MODES,
 	studioEnvironment: STUDIO_ENVIRONMENT_IDS,
+	studioSurface: STUDIO_SURFACE_IDS,
 	studioToneMapping: STUDIO_TONE_MAPPINGS
 };
 
@@ -180,7 +198,13 @@ function normalize(raw) {
 			if (!(k in raw) || typeof raw[k] !== typeof SETTINGS_DEFAULTS[k]) continue;
 			if (typeof raw[k] === 'number' && !Number.isFinite(raw[k])) continue;
 			if (k in ENUMS && !ENUMS[k].includes(raw[k])) continue;
-			s[k] = k === 'studioEnvRotation' ? ((raw[k] % 360) + 360) % 360 : raw[k];
+			if (k === 'studioEnvRotation') {
+				s[k] = ((raw[k] % 360) + 360) % 360;
+			} else if (k === 'studioBackdropBlur') {
+				s[k] = Math.min(1, Math.max(0, raw[k]));
+			} else {
+				s[k] = raw[k];
+			}
 		}
 		s.colors = sanitizeColors(raw.colors);
 		// Migrations (SETTINGS_VERSION): a value that was only the old default.

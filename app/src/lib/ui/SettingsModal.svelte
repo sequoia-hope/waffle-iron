@@ -23,6 +23,8 @@
 	import { showToast } from './toast.svelte.js';
 	import {
 		STUDIO_ENVIRONMENTS,
+		STUDIO_SURFACES,
+		getStudioPresetMeta,
 		hasCustomStudioEnvironment,
 		getCustomStudioEnvironmentName,
 		subscribeCustomStudioEnvironment,
@@ -63,13 +65,27 @@
 	const hdriPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'hdri');
 	const rigPresets = STUDIO_ENVIRONMENTS.filter((e) => e.kind === 'procedural');
 
+	function handleSceneSelect(e) {
+		const nextId = e.currentTarget.value;
+		const meta = getStudioPresetMeta(nextId);
+		updateSettings({
+			studioEnvironment: nextId,
+			studioBackdrop: nextId === 'custom' ? true : Boolean(meta?.defaultBackdrop),
+			studioSurface: 'auto'
+		});
+	}
+
 	async function handleCustomHdriUpload(e) {
 		const file = e.currentTarget.files?.[0];
 		e.currentTarget.value = '';
 		if (!file) return;
 		try {
 			await setCustomStudioEnvironmentFromFile(file);
-			updateSettings({ viewportShading: 'studio', studioEnvironment: 'custom' });
+			updateSettings({
+				viewportShading: 'studio',
+				studioEnvironment: 'custom',
+				studioBackdrop: true
+			});
 			showToast('success', `Loaded HDRI "${file.name}"`);
 		} catch (err) {
 			showToast('error', `Could not decode HDRI: ${err?.message ?? err}`);
@@ -259,8 +275,8 @@
 				</label>
 				<label class="row">
 					<span class="row-text">
-						<span class="row-label">Studio environment (HDRI / Rig)</span>
-						<span class="row-desc">Choose a real photographic 1K HDRI (outdoor park, plaza, workbench, machine shop, office), a procedural softbox rig, or load your own <code>.hdr</code> / <code>.exr</code> file.</span>
+						<span class="row-label">Studio scene (HDRI / Rig)</span>
+						<span class="row-desc">Choose a real-world photographic scene (wooden workbench, walnut office desk, granite countertop, cutting mat, floating outdoor park/plaza), a clean studio rig, or load your own <code>.hdr</code> / <code>.exr</code> file.</span>
 					</span>
 					<span class="env-controls">
 						<select
@@ -269,9 +285,9 @@
 							value={settings.studioEnvironment === 'custom' && !hasCustomEnv
 								? 'studio-softbox'
 								: settings.studioEnvironment}
-							onchange={(e) => updateSettings({ studioEnvironment: e.currentTarget.value })}
+							onchange={handleSceneSelect}
 						>
-							<optgroup label="HDRI Environments">
+							<optgroup label="Real-World Scenes">
 								{#each hdriPresets as env (env.id)}
 									<option value={env.id}>{env.label}</option>
 								{/each}
@@ -279,7 +295,7 @@
 									<option value="custom">Custom: {customEnvName}</option>
 								{/if}
 							</optgroup>
-							<optgroup label="Studio Rigs">
+							<optgroup label="Clean Studio Rigs">
 								{#each rigPresets as env (env.id)}
 									<option value={env.id}>{env.label}</option>
 								{/each}
@@ -299,6 +315,22 @@
 							onchange={handleCustomHdriUpload}
 						/>
 					</span>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Tabletop stage surface</span>
+						<span class="row-desc">Places a 3D beveled workbench, walnut desk, polished granite countertop, or cutting mat flush beneath the model's base (with GTAO contact shadows and SSR reflections), or floats the part in air.</span>
+					</span>
+					<select
+						class="row-select"
+						data-testid="setting-studio-surface"
+						value={settings.studioSurface}
+						onchange={(e) => updateSettings({ studioSurface: e.currentTarget.value })}
+					>
+						{#each STUDIO_SURFACES as surf (surf.id)}
+							<option value={surf.id}>{surf.label}</option>
+						{/each}
+					</select>
 				</label>
 				<label class="row">
 					<span class="row-text">
@@ -323,8 +355,47 @@
 						onchange={(e) => updateSettings({ studioBackdrop: e.currentTarget.checked })}
 					/>
 					<span class="row-text">
-						<span class="row-label">Show environment backdrop</span>
-						<span class="row-desc">Displays the softly defocused 360° HDRI environment behind the model instead of the flat theme background.</span>
+						<span class="row-label">Show 4K environment backdrop</span>
+						<span class="row-desc">Displays the high-resolution 4096×2048 360° HDRI environment behind the model instead of the flat theme background.</span>
+					</span>
+				</label>
+				<label class="row">
+					<span class="row-text">
+						<span class="row-label">Backdrop depth-of-field blur ({Math.round((settings.studioBackdropBlur ?? 0) * 100)}%)</span>
+						<span class="row-desc">0% keeps the 4K park, workshop, or office photo completely crisp; raise it for shallow-depth-of-field optical bokeh.</span>
+					</span>
+					<input
+						type="range"
+						min="0"
+						max="1"
+						step="0.05"
+						data-testid="setting-studio-backdrop-blur"
+						value={settings.studioBackdropBlur ?? 0}
+						oninput={(e) => updateSettings({ studioBackdropBlur: parseFloat(e.currentTarget.value) })}
+					/>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-show-edges"
+						checked={settings.showModelEdges}
+						onchange={(e) => updateSettings({ showModelEdges: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Show B-Rep model edges</span>
+						<span class="row-desc">Draws topological wireframe edge lines on 3D solids. Uncheck in Studio mode for clean photorealistic part rendering.</span>
+					</span>
+				</label>
+				<label class="row">
+					<input
+						type="checkbox"
+						data-testid="setting-show-vertices"
+						checked={settings.showModelVertices}
+						onchange={(e) => updateSettings({ showModelVertices: e.currentTarget.checked })}
+					/>
+					<span class="row-text">
+						<span class="row-label">Show B-Rep model vertices</span>
+						<span class="row-desc">Draws topological corner vertex dots on 3D solids. Uncheck alongside model edges for clean photorealistic rendering.</span>
 					</span>
 				</label>
 				<label class="row">

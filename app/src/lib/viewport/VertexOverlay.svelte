@@ -15,12 +15,13 @@
 		setRenderedVertexCount,
 		isBodyPickingEnabled,
 		proposeHoverRef,
+		setHoveredRef,
 		proposeEntityCard,
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
-	import { getColorVersion } from '$lib/ui/settings.svelte.js';
+	import { getSettings, getColorVersion } from '$lib/ui/settings.svelte.js';
 	import { extractBodyVertices } from './bodyVertices.js';
 
 	const { renderer } = useThrelte();
@@ -71,8 +72,16 @@
 		};
 	}
 
+	let showVertices = $derived(Boolean(getSettings().showModelVertices));
+
+	$effect(() => {
+		if (!showVertices && getHoveredRef()?.kind?.type === 'Vertex') {
+			setHoveredRef(null);
+		}
+	});
+
 	// Publish the real rendered vertex count for GUI test introspection.
-	$effect(() => setRenderedVertexCount(vertices.length));
+	$effect(() => setRenderedVertexCount(showVertices ? vertices.length : 0));
 
 	/**
 	 * Build Points geometry from extracted vertices with hover/selection colors.
@@ -152,7 +161,7 @@
 	export { pickVertexAtScreen };
 
 	function handlePointerMove(e) {
-		if (!isBodyPickingEnabled()) return;
+		if (!showVertices || !isBodyPickingEnabled()) return;
 		// Invariant I1: a sketch entity under the pointer wins over the body.
 		if (getSketchMode()?.active && getSketchHover() != null) return;
 
@@ -167,7 +176,7 @@
 	}
 
 	function handleClick(e) {
-		if (!isBodyPickingEnabled()) return;
+		if (!showVertices || !isBodyPickingEnabled()) return;
 		// In a sketch the select tool's pointerdown owns Vertex/Edge picks
 		// (tools.js handleSelectTool); see EdgeOverlay.handleEdgeClick.
 		if (getSketchMode()?.active) return;
@@ -215,7 +224,7 @@
 	     vertices and hides every other overlay (specs/agent_mechanical_design.md
 	     §9.4). Without a name it could only be found by type, which would also
 	     match a sketch's points. -->
-	<T.Points geometry={pointsGeometry} renderOrder={10} userData={{ waffleType: 'vertices' }}>
+	<T.Points visible={showVertices} geometry={pointsGeometry} renderOrder={10} userData={{ waffleType: 'vertices' }}>
 		<T.PointsMaterial
 			bind:ref={pointsMaterial}
 			size={4}

@@ -547,6 +547,10 @@ export function createCompositeMaterial() {
 		uniforms: {
 			tAccum: { value: null },
 			tEnvMap: { value: null },
+			tSharpBackdrop: { value: null },
+			uSharpBackdropMode: { value: 0 }, // 0 = CubeUV fallback, 1 = 4K gamma-2 HDR WebP, 2 = custom linear HDR
+			uBackdropBaseYaw: { value: 0.0 },
+			uBackdropBlur: { value: 0.0 },
 			uEnvCubeUVParams: { value: new THREE.Vector3(1 / 768, 1 / 1024, 8) },
 			uShowBackdrop: { value: 0.0 },
 			uIsOrtho: { value: 1.0 },
@@ -560,6 +564,10 @@ export function createCompositeMaterial() {
 		fragmentShader: /* glsl */ `
 			uniform sampler2D tAccum;
 			uniform sampler2D tEnvMap;
+			uniform sampler2D tSharpBackdrop;
+			uniform int uSharpBackdropMode;
+			uniform float uBackdropBaseYaw;
+			uniform float uBackdropBlur;
 			uniform vec3 uEnvCubeUVParams;
 			uniform float uShowBackdrop;
 			uniform float uIsOrtho;
@@ -701,7 +709,27 @@ export function createCompositeMaterial() {
 					}
 					vec3 worldRay = normalize(uCamWorldRot * viewRay);
 					vec3 envDir = normalize(uEnvRotMat * worldRay);
-					vec3 bgLinear = studioSampleCubeUV(tEnvMap, envDir, 0.24) * 0.92;
+					vec3 bgLinear;
+					if (uSharpBackdropMode == 1) {
+						float phi = atan(-envDir.y, envDir.x) + uBackdropBaseYaw;
+						float u = phi * 0.15915494309189535 + 0.5;
+						float v = clamp(asin(clamp(envDir.z, -1.0, 1.0)) * 0.3183098861837907 + 0.5, 0.0, 1.0);
+						float lod = clamp(uBackdropBlur, 0.0, 1.0) * 6.5;
+						vec3 enc = texture2DLodEXT(tSharpBackdrop, vec2(u, v), lod).rgb;
+						bgLinear = enc * enc * 6.25 * 0.94;
+					} else if (uSharpBackdropMode == 2) {
+						float phi = atan(-envDir.y, envDir.x) + uBackdropBaseYaw;
+						float u = phi * 0.15915494309189535 + 0.5;
+						float v = clamp(asin(clamp(envDir.z, -1.0, 1.0)) * 0.3183098861837907 + 0.5, 0.0, 1.0);
+						if (uBackdropBlur > 0.02) {
+							bgLinear = studioSampleCubeUV(tEnvMap, envDir, clamp(uBackdropBlur * 0.45, 0.02, 0.5)) * 0.94;
+						} else {
+							bgLinear = texture2D(tSharpBackdrop, vec2(u, v)).rgb * 0.94;
+						}
+					} else {
+						float fallbackRough = mix(0.03, 0.38, clamp(uBackdropBlur, 0.0, 1.0));
+						bgLinear = studioSampleCubeUV(tEnvMap, envDir, fallbackRough) * 0.92;
+					}
 					vec3 combined = (max(texel.rgb, vec3(0.0)) + bgLinear * (1.0 - a)) * uExposure;
 					vec3 mapped = uToneMapping == 1 ? studioAgxToneMap(combined) : studioNeutralToneMap(combined);
 					vec3 srgb = clamp(studioLinearToSrgb(mapped), 0.0, 1.0);

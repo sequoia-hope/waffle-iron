@@ -15,12 +15,13 @@
 		setRenderedEdgeBodyCount,
 		isBodyPickingEnabled,
 		proposeHoverRef,
+		setHoveredRef,
 		proposeEntityCard,
 		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 	import { getTheme } from '$lib/ui/theme.svelte.js';
-	import { getColorVersion } from '$lib/ui/settings.svelte.js';
+	import { getSettings, getColorVersion } from '$lib/ui/settings.svelte.js';
 	import { worldPerPixel, faceOccludes, OCCLUSION_DEPTH_EPS_PX } from './picking.js';
 	import { placementProps } from './placement.js';
 	import { edgeViewportHeight, withEdgeDepthBias } from './edgeDepthBias.js';
@@ -251,8 +252,16 @@
 	 * Only fires if no face or vertex is under the cursor (they take priority).
 	 * @param {MouseEvent} e
 	 */
+	let showEdges = $derived(Boolean(getSettings().showModelEdges));
+
+	$effect(() => {
+		if (!showEdges && getHoveredRef()?.kind?.type === 'Edge') {
+			setHoveredRef(null);
+		}
+	});
+
 	function handleEdgePointerMove(e) {
-		if (!isBodyPickingEnabled()) return;
+		if (!showEdges || !isBodyPickingEnabled()) return;
 		// Invariant I1: a sketch entity under the pointer wins over the body.
 		if (getSketchMode()?.active && getSketchHover() != null) return;
 
@@ -275,7 +284,7 @@
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgeClick(e) {
-		if (!isBodyPickingEnabled()) return;
+		if (!showEdges || !isBodyPickingEnabled()) return;
 		// In a sketch the select tool's pointerdown owns Vertex/Edge picks
 		// (tools.js handleSelectTool, where they accumulate). This DOM click
 		// only sometimes survives the orbit pointer capture, and when it did it
@@ -321,7 +330,7 @@
 	});
 
 	// Publish the real rendered edge-body count for GUI test introspection.
-	$effect(() => setRenderedEdgeBodyCount(edgeGeometries.length));
+	$effect(() => setRenderedEdgeBodyCount(showEdges ? edgeGeometries.length : 0));
 
 	// Build material arrays reactively based on hover/selection state
 	let edgeMaterials = $derived.by(() => {
@@ -388,6 +397,7 @@
 
 {#each edgeGeometries as edge, i (edge.bodyId)}
 	<T.LineSegments
+		visible={showEdges}
 		geometry={edge.geometry}
 		material={edgeMaterials[i]?.length > 1 ? edgeMaterials[i] : edgeMaterials[i]?.[0]}
 		position={edge.position}

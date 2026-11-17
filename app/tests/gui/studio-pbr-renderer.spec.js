@@ -105,7 +105,7 @@ async function sampleCanvasPoints(page, points, radius = 2) {
 }
 
 /** Wait until the Studio progressive accumulator settles on the current view. */
-async function waitForStudioSettled(page, timeout = 20000) {
+async function waitForStudioSettled(page, timeout = 30000) {
 	await page.waitForFunction(
 		() => {
 			const st = window.__waffle?.getStudioStats?.();
@@ -117,6 +117,9 @@ async function waitForStudioSettled(page, timeout = 20000) {
 }
 
 test.describe('Studio PBR Renderer & Real Materials', () => {
+	// Multi-pass WebGL2 Studio pipelines (PMREM + GTAO + SSR + 8x Halton settle)
+	// run on CPU SwiftShader on 4-vCPU CI runners; cover hooks + body generously.
+	test.describe.configure({ timeout: 180000 });
 	test('defaults to classic Shaded mode and persists Studio settings across reload', async ({
 		waffle
 	}) => {
@@ -567,6 +570,7 @@ test.describe('Studio PBR Renderer & Real Materials', () => {
 });
 
 test.describe('Studio PBR adversarial & cross-mode invariants', () => {
+	test.describe.configure({ timeout: 180000 });
 	test('handles empty scene, invalid material refusals, rig cycling, context-menu toggle, sketch transparency, section cap, and assembly instances cleanly', async ({
 		waffle
 	}) => {
@@ -819,6 +823,220 @@ test.describe('Studio PBR adversarial & cross-mode invariants', () => {
 		const customStats = await page.evaluate(() => window.__waffle.getStudioStats());
 		expect(customStats.environmentId).toBe('custom');
 		expect(customStats.environmentLoaded).toBe(true);
+
+		expectNoAnyCrash(crashes);
+	});
+
+	test('Crisp 4K backdrop focus & grounded 3D tabletop stages (workbench, desk, granite, cutting mat, floating park)', async ({
+		waffle
+	}) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+		await createCleanBlock(waffle, '25');
+
+		// Compute projected screen point on the tabletop just in front of the part's -Y/+X base
+		const tableProbe = await page.evaluate(() => {
+			const v = window.__waffle.getMeshes()[0].vertices;
+			let minX = Infinity, maxX = -Infinity;
+			let minY = Infinity, maxY = -Infinity;
+			let minZ = Infinity;
+			for (let i = 0; i < v.length; i += 3) {
+				if (v[i] < minX) minX = v[i];
+				if (v[i] > maxX) maxX = v[i];
+				if (v[i + 1] < minY) minY = v[i + 1];
+				if (v[i + 1] > maxY) maxY = v[i + 1];
+				if (v[i + 2] < minZ) minZ = v[i + 2];
+			}
+			const span = Math.max(maxX - minX, maxY - minY);
+			return window.__waffle.projectWorldPoint([
+				(minX + maxX) * 0.5 + span * 0.25,
+				minY - span * 0.42,
+				minZ
+			]);
+		});
+
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		await page.locator('[data-testid="viewcube-studio-toggle"]').check();
+		const envSelect = page.locator('[data-testid="viewcube-studio-env"]');
+		const surfSelect = page.locator('[data-testid="viewcube-studio-surface"]');
+		await expect(surfSelect).toBeVisible();
+
+		// 1. Picking Wooden Workbench auto-enables crisp 4K backdrop + 'workbench' slab
+		await envSelect.selectOption('hdri-workbench');
+		await waitForStudioSettled(page);
+		let st = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(st.surfaceId).toBe('workbench');
+		expect(st.surfaceLoaded).toBe(true);
+		expect(st.backdropSharpLoaded).toBe(true);
+		expect(st.backdropVisible).toBe(true);
+		const [woodPx] = await sampleCanvasPoints(page, [tableProbe], 2);
+		expect(woodPx.r, 'Wooden workbench is warm brown (R > B)').toBeGreaterThan(woodPx.b + 10);
+
+		// 2. Picking Cutting Mat switches slab to green gridded mat (G > R)
+		await envSelect.selectOption('hdri-machine-shop');
+		await waitForStudioSettled(page);
+		st = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(st.surfaceId).toBe('cutting-mat');
+		expect(st.surfaceLoaded).toBe(true);
+		const [matPx] = await sampleCanvasPoints(page, [tableProbe], 2);
+		expect(matPx.g, 'Green cutting mat has G > R').toBeGreaterThan(matPx.r + 12);
+
+		// 3. Picking Granite Countertop & Walnut Office Desk load cleanly
+		await envSelect.selectOption('hdri-granite');
+		await waitForStudioSettled(page);
+		st = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(st.surfaceId).toBe('granite');
+		expect(st.surfaceLoaded).toBe(true);
+		const [granitePx] = await sampleCanvasPoints(page, [tableProbe], 2);
+		expect(
+			Math.abs(granitePx.r - woodPx.r) + Math.abs(granitePx.g - matPx.g),
+			'Granite slab differs from wood & green mat'
+		).toBeGreaterThan(18);
+
+		await envSelect.selectOption('hdri-office');
+		await waitForStudioSettled(page);
+		st = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(st.surfaceId).toBe('desk');
+		expect(st.surfaceLoaded).toBe(true);
+
+		// Close ViewCube dropdown and verify tabletop never intercepts clicks or Fit-All framing
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		const box = await page.locator('[data-testid="viewport"] canvas').boundingBox();
+		await page.mouse.click(
+			Math.round(box.x + tableProbe.x * box.width),
+			Math.round(box.y + tableProbe.y * box.height)
+		);
+		expect(await page.evaluate(() => window.__waffle.getSelectedRefs().length)).toBe(0);
+
+		const projWithTable = await page.evaluate(() => {
+			window.dispatchEvent(new Event('waffle-fit-all'));
+			return window.__waffle.projectWorldPoint([0.05, 0.05, 0.01]);
+		});
+		await page.evaluate(() => window.__waffle.updateSettings({ studioSurface: 'none' }));
+		await waitForStudioSettled(page);
+		const projNoTable = await page.evaluate(() => {
+			window.dispatchEvent(new Event('waffle-fit-all'));
+			return window.__waffle.projectWorldPoint([0.05, 0.05, 0.01]);
+		});
+		expect(Math.abs(projWithTable.x - projNoTable.x)).toBeLessThan(1e-4);
+		expect(Math.abs(projWithTable.y - projNoTable.y)).toBeLessThan(1e-4);
+
+		// 4. Outdoor Park (Floating) + Invariant I12 4K Sharpness vs Bokeh Blur Oracle
+		await page.evaluate(() =>
+			window.__waffle.updateSettings({
+				studioEnvironment: 'hdri-outdoor-sunny',
+				studioSurface: 'auto',
+				studioBackdrop: true,
+				studioBackdropBlur: 0
+			})
+		);
+		await waitForStudioSettled(page);
+		st = await page.evaluate(() => window.__waffle.getStudioStats());
+		expect(st.surfaceId).toBe('none');
+		expect(st.backdropSharpLoaded).toBe(true);
+
+		const measureBackdropSharpness = async () => {
+			const buf = await page.locator('[data-testid="viewport"] canvas').screenshot();
+			const b64 = buf.toString('base64');
+			return page.evaluate(async (dataB64) => {
+				const img = new Image();
+				img.src = `data:image/png;base64,${dataB64}`;
+				await img.decode();
+				const c = document.createElement('canvas');
+				c.width = img.width;
+				c.height = img.height;
+				const ctx = c.getContext('2d');
+				ctx.drawImage(img, 0, 0);
+				// Sample top-left tree/horizon region (pure backdrop, away from center part & ViewCube)
+				const x0 = Math.floor(img.width * 0.05);
+				const y0 = Math.floor(img.height * 0.25);
+				const rw = Math.floor(img.width * 0.22);
+				const rh = Math.floor(img.height * 0.45);
+				const d = ctx.getImageData(x0, y0, rw, rh).data;
+				let gradSum = 0;
+				let count = 0;
+				for (let y = 0; y < rh - 1; y++) {
+					for (let x = 0; x < rw - 1; x++) {
+						const i = (y * rw + x) * 4;
+						const ir = i + 4;
+						const id = i + rw * 4;
+						gradSum +=
+							Math.abs(d[i] - d[ir]) +
+							Math.abs(d[i + 1] - d[ir + 1]) +
+							Math.abs(d[i + 2] - d[ir + 2]) +
+							Math.abs(d[i] - d[id]) +
+							Math.abs(d[i + 1] - d[id + 1]) +
+							Math.abs(d[i + 2] - d[id + 2]);
+						count++;
+					}
+				}
+				return gradSum / Math.max(1, count);
+			}, b64);
+		};
+
+		const sharpGrad = await measureBackdropSharpness();
+		await page.evaluate(() => window.__waffle.updateSettings({ studioBackdropBlur: 0.9 }));
+		await waitForStudioSettled(page);
+		const blurredGrad = await measureBackdropSharpness();
+
+		expect(
+			sharpGrad,
+			`4K crisp backdrop (grad=${sharpGrad.toFixed(2)}) must have markedly higher detail than blurred bokeh (grad=${blurredGrad.toFixed(2)})`
+		).toBeGreaterThan(blurredGrad * 1.8);
+
+		// 5. Hiding model Edges & Vertices (Invariant I14): ViewCube & context menu toggles
+		// hide wireframe lines/dots for clean photorealistic rendering while keeping face picking intact
+		const cornerScreenPt = await page.evaluate(() => {
+			const v = window.__waffle.getMeshes()[0].vertices;
+			let maxX = -Infinity, minY = Infinity, maxZ = -Infinity;
+			for (let i = 0; i < v.length; i += 3) {
+				if (v[i] > maxX) maxX = v[i];
+				if (v[i + 1] < minY) minY = v[i + 1];
+				if (v[i + 2] > maxZ) maxZ = v[i + 2];
+			}
+			return window.__waffle.projectWorldPoint([maxX, minY, maxZ]);
+		});
+
+		await page.evaluate(() =>
+			window.__waffle.updateSettings({
+				studioBackdrop: false,
+				studioSurface: 'none',
+				showModelEdges: true,
+				showModelVertices: true
+			})
+		);
+		await waitForStudioSettled(page);
+		const [cornerWithOverlays] = await sampleCanvasPoints(page, [cornerScreenPt], 1);
+
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		await page.locator('[data-testid="viewcube-edges-toggle"]').uncheck();
+		await page.locator('[data-testid="viewcube-vertices-toggle"]').uncheck();
+		await page.locator('[data-testid="viewcube-overlay"] .dropdown-toggle').click();
+		await waitForStudioSettled(page);
+
+		const overlayState = await page.evaluate(() => ({
+			settings: window.__waffle.getSettings(),
+			counts: window.__waffle.getRenderedOverlayCounts()
+		}));
+		expect(overlayState.settings.showModelEdges).toBe(false);
+		expect(overlayState.settings.showModelVertices).toBe(false);
+		expect(overlayState.counts.edgeBodies).toBe(0);
+		expect(overlayState.counts.vertices).toBe(0);
+
+		const [cornerWithoutOverlays] = await sampleCanvasPoints(page, [cornerScreenPt], 1);
+		const overlayDelta =
+			Math.abs(cornerWithOverlays.r - cornerWithoutOverlays.r) +
+			Math.abs(cornerWithOverlays.g - cornerWithoutOverlays.g) +
+			Math.abs(cornerWithOverlays.b - cornerWithoutOverlays.b);
+		expect(overlayDelta, 'Hiding edges & vertices removes bright wireframe corner dot/lines').toBeGreaterThan(8);
+
+		// Clicking center of the part still selects a Face cleanly when edges/vertices are hidden
+		await page.mouse.click(
+			Math.round(box.x + 0.5 * box.width),
+			Math.round(box.y + 0.5 * box.height)
+		);
+		const pickedKind = await page.evaluate(() => window.__waffle.getSelectedRefs()[0]?.kind?.type ?? null);
+		expect(pickedKind).toBe('Face');
 
 		expectNoAnyCrash(crashes);
 	});

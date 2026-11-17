@@ -1,90 +1,162 @@
 /**
- * Studio HDR Lighting Environments (`specs/studio_pbr_renderer.md` §1, §2.1, I9–I11).
+ * Studio HDR Lighting Environments, 4K Sharp Backdrops & Stage Metadata
+ * (`specs/studio_pbr_renderer.md` §1, §2.1, I9–I13).
  *
- * Provides both:
- *   1. Zero-latency procedural HDR 3-point softbox rigs (`studio-softbox`,
- *      `daylight-workshop`, `darkroom-rim`), and
- *   2. Self-hosted CC0 1K (1024×512) Radiance `.hdr` environment maps
- *      (`hdri-outdoor-sunny`, `hdri-outdoor-plaza`, `hdri-workbench`,
- *      `hdri-machine-shop`, `hdri-office`) plus user-loaded `.hdr` / `.exr` files.
- *
- * Every environment is baked into a prefiltered mipmapped radiance cubemap (`PMREM`)
- * in Waffle Iron's right-handed Z-up world frame (`+Z` sky/ceiling, `-Z` floor,
- * `det = +1`) and cached per `(renderer, presetId)`.
+ * Provides:
+ *   1. Six real-world photographic scenes (1K Radiance `.hdr` for exact PMREM IBL +
+ *      `4096×2048` 4K HDR-encoded `.webp` for tack-sharp backgrounds + curated
+ *      default 3D tabletop surfaces):
+ *        - Wooden Workbench (Shop)
+ *        - Walnut Office Desk
+ *        - Granite Countertop
+ *        - Cutting Mat (Machine Shop)
+ *        - Outdoor Park (Floating)
+ *        - Urban Plaza (Floating)
+ *   2. Three zero-latency procedural Studio softbox rigs (clean `--viewport-bg` default)
+ *   3. User-uploaded `.hdr` / `.exr` session environments (`'custom'`)
  */
 import * as THREE from 'three';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 
 export const STUDIO_ENVIRONMENTS = Object.freeze([
-	// Curated CC0 1K photographic HDRIs (`app/static/hdri/ATTRIBUTION.md`)
-	{
-		id: 'hdri-outdoor-sunny',
-		label: 'Outdoor Sunny Park',
-		group: 'HDRI Environments',
-		kind: 'hdri',
-		url: '/hdri/outdoor_sunny.hdr',
-		exposure: 2.35,
-		baseYawDeg: -35
-	},
-	{
-		id: 'hdri-outdoor-plaza',
-		label: 'Outdoor Overcast Plaza',
-		group: 'HDRI Environments',
-		kind: 'hdri',
-		url: '/hdri/outdoor_plaza.hdr',
-		exposure: 1.25,
-		baseYawDeg: -110
-	},
 	{
 		id: 'hdri-workbench',
-		label: 'Indoor Workbench',
-		group: 'HDRI Environments',
+		label: 'Wooden Workbench (Shop)',
+		group: 'Real-World Scenes',
 		kind: 'hdri',
 		url: '/hdri/indoor_workbench.hdr',
+		backdropUrl: '/hdri/indoor_workbench_4k.webp',
 		exposure: 1.25,
-		baseYawDeg: -75
-	},
-	{
-		id: 'hdri-machine-shop',
-		label: 'Machine Shop',
-		group: 'HDRI Environments',
-		kind: 'hdri',
-		url: '/hdri/machine_shop.hdr',
-		exposure: 1.55,
-		baseYawDeg: -45
+		baseYawDeg: -75,
+		defaultSurface: 'workbench',
+		defaultBackdrop: true
 	},
 	{
 		id: 'hdri-office',
-		label: 'Indoor Office',
-		group: 'HDRI Environments',
+		label: 'Walnut Office Desk',
+		group: 'Real-World Scenes',
 		kind: 'hdri',
 		url: '/hdri/indoor_office.hdr',
+		backdropUrl: '/hdri/indoor_office_4k.webp',
 		exposure: 1.45,
-		baseYawDeg: -85
+		baseYawDeg: -85,
+		defaultSurface: 'desk',
+		defaultBackdrop: true
 	},
-	// Zero-latency procedural studio softbox rigs
+	{
+		id: 'hdri-granite',
+		label: 'Granite Countertop',
+		group: 'Real-World Scenes',
+		kind: 'hdri',
+		url: '/hdri/indoor_home.hdr',
+		backdropUrl: '/hdri/indoor_home_4k.webp',
+		exposure: 1.35,
+		baseYawDeg: -60,
+		defaultSurface: 'granite',
+		defaultBackdrop: true
+	},
+	{
+		id: 'hdri-machine-shop',
+		label: 'Cutting Mat (Machine Shop)',
+		group: 'Real-World Scenes',
+		kind: 'hdri',
+		url: '/hdri/machine_shop.hdr',
+		backdropUrl: '/hdri/machine_shop_4k.webp',
+		exposure: 1.55,
+		baseYawDeg: -45,
+		defaultSurface: 'cutting-mat',
+		defaultBackdrop: true
+	},
+	{
+		id: 'hdri-outdoor-sunny',
+		label: 'Outdoor Park (Floating)',
+		group: 'Real-World Scenes',
+		kind: 'hdri',
+		url: '/hdri/outdoor_sunny.hdr',
+		backdropUrl: '/hdri/outdoor_sunny_4k.webp',
+		exposure: 2.35,
+		baseYawDeg: -35,
+		defaultSurface: 'none',
+		defaultBackdrop: true
+	},
+	{
+		id: 'hdri-outdoor-plaza',
+		label: 'Urban Plaza (Floating)',
+		group: 'Real-World Scenes',
+		kind: 'hdri',
+		url: '/hdri/outdoor_plaza.hdr',
+		backdropUrl: '/hdri/outdoor_plaza_4k.webp',
+		exposure: 1.25,
+		baseYawDeg: -110,
+		defaultSurface: 'none',
+		defaultBackdrop: true
+	},
 	{
 		id: 'studio-softbox',
-		label: 'Studio Softbox (3-Point)',
+		label: 'Studio Softbox (Clean BG)',
 		group: 'Studio Rigs',
-		kind: 'procedural'
+		kind: 'procedural',
+		defaultSurface: 'none',
+		defaultBackdrop: false
 	},
 	{
 		id: 'daylight-workshop',
-		label: 'Daylight Workshop (Rig)',
+		label: 'Daylight Skylight (Clean BG)',
 		group: 'Studio Rigs',
-		kind: 'procedural'
+		kind: 'procedural',
+		defaultSurface: 'none',
+		defaultBackdrop: false
 	},
 	{
 		id: 'darkroom-rim',
-		label: 'Darkroom Rim Contrast',
+		label: 'Darkroom Rim (Clean BG)',
 		group: 'Studio Rigs',
-		kind: 'procedural'
+		kind: 'procedural',
+		defaultSurface: 'none',
+		defaultBackdrop: false
 	}
 ]);
 
+export const STUDIO_SURFACES = Object.freeze([
+	{ id: 'auto', label: 'Auto (Match Scene)' },
+	{ id: 'none', label: 'None (Floating)' },
+	{ id: 'workbench', label: 'Wooden Workbench' },
+	{ id: 'desk', label: 'Walnut Office Desk' },
+	{ id: 'granite', label: 'Granite Countertop' },
+	{ id: 'cutting-mat', label: 'Green Cutting Mat' }
+]);
+
 const PRESET_BY_ID = new Map(STUDIO_ENVIRONMENTS.map((e) => [e.id, e]));
+
+export function getStudioPresetMeta(presetId) {
+	return PRESET_BY_ID.get(presetId) ?? null;
+}
+
+/**
+ * Resolve `'auto'` surface setting against the active `studioEnvironment`.
+ * @param {string} studioSurface
+ * @param {string} studioEnvironment
+ * @returns {'none' | 'workbench' | 'desk' | 'granite' | 'cutting-mat'}
+ */
+export function resolveStudioSurface(studioSurface, studioEnvironment) {
+	if (
+		studioSurface === 'none' ||
+		studioSurface === 'workbench' ||
+		studioSurface === 'desk' ||
+		studioSurface === 'granite' ||
+		studioSurface === 'cutting-mat'
+	) {
+		return studioSurface;
+	}
+	const meta = PRESET_BY_ID.get(studioEnvironment);
+	return /** @type {any} */ (meta?.defaultSurface ?? 'none');
+}
+
+export function getPresetBaseYawRad(presetId) {
+	const deg = PRESET_BY_ID.get(presetId)?.baseYawDeg ?? 0;
+	return (deg * Math.PI) / 180;
+}
 
 /**
  * Whether `presetId` refers to a photographic HDRI (built-in or session custom)
@@ -99,7 +171,6 @@ export function isHdriEnvironment(presetId) {
 /**
  * Compute Three.js CubeUV atlas sampling constants (`CUBEUV_TEXEL_WIDTH`,
  * `CUBEUV_TEXEL_HEIGHT`, `CUBEUV_MAX_MIP`) for a PMREM `WebGLRenderTarget`.
- * Matches `generateCubeUVSize` in Three.js `WebGLProgram.js`.
  *
  * @param {THREE.WebGLRenderTarget | null | undefined} envTarget
  * @returns {THREE.Vector3}
@@ -211,8 +282,6 @@ function makeZUpEquirectDome(hdrTexture, baseYawDeg = 0) {
 			varying vec3 vWorldDir;
 			void main() {
 				vec3 d = normalize(vWorldDir);
-				// Right-handed Z-up (+X right, -Y front, +Z up) -> equirect (phi, z):
-				// det([[1, 0, 0], [0, 0, 1], [0, -1, 0]]) = +1.
 				float phi = atan(-d.y, d.x) + uBaseYaw;
 				float u = phi * 0.15915494309189535 + 0.5;
 				float v = clamp(asin(clamp(d.z, -1.0, 1.0)) * 0.3183098861837907 + 0.5, 0.0, 1.0);
@@ -280,10 +349,7 @@ function proceduralPresetConfig(presetId) {
 /**
  * Parse an `.hdr` or `.exr` ArrayBuffer into a normalized `HalfFloatType`
  * equirectangular `DataTexture` with row `height - 1` = Zenith (`v = 1`)
- * and row `0` = Nadir (`v = 0`), independent of WebGL `UNPACK_FLIP_Y_WEBGL`.
- *
- * Applies smooth logarithmic shoulder compression above `K = 32.0` (Invariant I10)
- * so `100,000+` nit solar discs never overflow `HalfFloat` (`65504`) or ring in PMREM.
+ * and row `0` = Nadir (`v = 0`).
  *
  * @param {ArrayBuffer} arrayBuffer
  * @param {'hdr' | 'exr'} format
@@ -300,7 +366,6 @@ export function decodeEquirectHdrBuffer(arrayBuffer, format = 'hdr', opts = {}) 
 	const h = parsed.height;
 	const src = /** @type {Float32Array} */ (parsed.data);
 	const stride = parsed.format === THREE.RedFormat ? 1 : 4;
-	// RGBELoader.parse stores Zenith at srcY = 0; EXRLoader.parse stores Zenith at srcY = h - 1.
 	const flipRows = !isExr;
 
 	let exposure = opts.exposure ?? 1.0;
@@ -369,14 +434,20 @@ export function decodeEquirectHdrBuffer(arrayBuffer, format = 'hdr', opts = {}) 
 }
 
 // ---------------------------------------------------------------------------
-// Caching, Async HDRI Loader & Session Custom HDRI
+// Caching, 4K Sharp Backdrops, Async HDRI Loader & Session Custom HDRI
 // ---------------------------------------------------------------------------
 
 /** @type {WeakMap<THREE.WebGLRenderer, Map<string, THREE.WebGLRenderTarget>>} */
 const ENV_CACHE = new WeakMap();
 
-/** Shared decoded equirectangular DataTextures across renderers by preset id. @type {Map<string, Promise<THREE.DataTexture>>} */
+/** @type {Map<string, Promise<THREE.DataTexture>>} */
 const HDRI_TEX_PROMISES = new Map();
+
+/** @type {Map<string, THREE.Texture>} */
+const SHARP_BACKDROP_CACHE = new Map();
+
+/** @type {Map<string, Promise<THREE.Texture>>} */
+const SHARP_BACKDROP_PROMISES = new Map();
 
 /** Session-scoped custom uploaded HDRI. @type {{ name: string, tex: THREE.DataTexture, version: number } | null} */
 let customEnvRecord = null;
@@ -402,9 +473,7 @@ export function subscribeCustomStudioEnvironment(fn) {
 }
 
 /**
- * Decode a user-selected `.hdr` or `.exr` `File` (or `{ name, arrayBuffer }`)
- * and register it as the session `'custom'` Studio environment.
- *
+ * Decode a user-selected `.hdr` or `.exr` `File` and register it as `'custom'`.
  * @param {{ name: string, arrayBuffer: () => Promise<ArrayBuffer> }} file
  */
 export async function setCustomStudioEnvironmentFromFile(file) {
@@ -421,6 +490,82 @@ export async function setCustomStudioEnvironmentFromFile(file) {
 		fn();
 	}
 	return { id: 'custom', name, version: customEnvCounter };
+}
+
+/**
+ * Synchronous lookup of a sharp equirectangular backdrop texture (`4096×2048` WebP
+ * for built-in scenes, or full-res `DataTexture` for session `'custom'`).
+ *
+ * `mode`:
+ *   - `0`: none (use PMREM CubeUV fallback)
+ *   - `1`: `4096×2048` gamma-2.0 HDR WebP (`linear = enc * enc * 6.25`, mipmapped)
+ *   - `2`: custom linear HDR `DataTexture` (`linear = texel.rgb`)
+ *
+ * @param {string} presetId
+ * @returns {{ tex: THREE.Texture | null, mode: 0 | 1 | 2, baseYawRad: number }}
+ */
+export function getSharpBackdropInfo(presetId) {
+	if (presetId === 'custom' && customEnvRecord) {
+		return { tex: customEnvRecord.tex, mode: 2, baseYawRad: 0 };
+	}
+	const meta = PRESET_BY_ID.get(presetId);
+	if (!meta?.backdropUrl) {
+		return { tex: null, mode: 0, baseYawRad: 0 };
+	}
+	const cached = SHARP_BACKDROP_CACHE.get(meta.id);
+	if (cached) {
+		return { tex: cached, mode: 1, baseYawRad: getPresetBaseYawRad(meta.id) };
+	}
+	return { tex: null, mode: 0, baseYawRad: getPresetBaseYawRad(meta.id) };
+}
+
+/**
+ * Load (or retrieve from cache) the `4096×2048` sharp equirectangular backdrop
+ * texture for `presetId`, enabling full mipmap pyramid + hardware anisotropy.
+ *
+ * @param {THREE.WebGLRenderer} renderer
+ * @param {string} presetId
+ * @returns {Promise<{ tex: THREE.Texture | null, mode: 0 | 1 | 2, baseYawRad: number }>}
+ */
+export async function loadSharpBackdropTexture(renderer, presetId) {
+	const sync = getSharpBackdropInfo(presetId);
+	if (sync.tex) return sync;
+
+	const meta = PRESET_BY_ID.get(presetId);
+	if (!meta?.backdropUrl) {
+		return { tex: null, mode: 0, baseYawRad: 0 };
+	}
+
+	let pending = SHARP_BACKDROP_PROMISES.get(meta.id);
+	if (!pending) {
+		const loader = new THREE.TextureLoader();
+		pending = new Promise((resolve, reject) => {
+			loader.load(
+				meta.backdropUrl,
+				(tex) => {
+					tex.colorSpace = THREE.NoColorSpace;
+					tex.wrapS = THREE.RepeatWrapping;
+					tex.wrapT = THREE.ClampToEdgeWrapping;
+					tex.generateMipmaps = true;
+					tex.minFilter = THREE.LinearMipmapLinearFilter;
+					tex.magFilter = THREE.LinearFilter;
+					tex.anisotropy = Math.min(16, renderer?.capabilities?.getMaxAnisotropy?.() || 4);
+					tex.needsUpdate = true;
+					SHARP_BACKDROP_CACHE.set(meta.id, tex);
+					resolve(tex);
+				},
+				undefined,
+				(err) => {
+					SHARP_BACKDROP_PROMISES.delete(meta.id);
+					reject(err);
+				}
+			);
+		});
+		SHARP_BACKDROP_PROMISES.set(meta.id, pending);
+	}
+
+	const tex = await pending;
+	return { tex, mode: 1, baseYawRad: getPresetBaseYawRad(meta.id) };
 }
 
 function getCacheMap(renderer) {
@@ -514,10 +659,7 @@ function fetchPresetHdrTexture(preset) {
 }
 
 /**
- * Synchronous lookup: returns the cached `WebGLRenderTarget` if already built
- * (or builds immediately when `presetId` is procedural or an already-uploaded custom HDRI),
- * otherwise returns `null` so the caller can keep a fallback PMREM while
- * `loadStudioEnvironmentTarget` resolves.
+ * Synchronous lookup of cached PMREM target (or immediate build for procedural / custom).
  *
  * @param {THREE.WebGLRenderer} renderer
  * @param {string} presetId
@@ -549,8 +691,7 @@ export function getStudioEnvironmentTarget(renderer, presetId = 'studio-softbox'
 }
 
 /**
- * Load (or retrieve from cache) the PMREM target for any Studio environment preset,
- * including asynchronous `.hdr` fetches.
+ * Load (or retrieve from cache) the PMREM target for any Studio environment preset.
  *
  * @param {THREE.WebGLRenderer} renderer
  * @param {string} presetId

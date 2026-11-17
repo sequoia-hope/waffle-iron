@@ -1,7 +1,7 @@
 /**
  * Live diagnostic state of the Studio PBR Pipeline (`window.__waffle.getStudioStats()`).
- * Kept in a plain JS module so `store.svelte.js` and `StudioPipeline.svelte`
- * share it without circular component imports.
+ * Kept in a plain JS module so `store.svelte.js`, `StudioStageSurface.svelte`,
+ * and `StudioPipeline.svelte` share it without circular component imports.
  */
 
 const stats = {
@@ -9,6 +9,12 @@ const stats = {
 	environmentId: 'studio-softbox',
 	environmentLoaded: false,
 	environmentLoading: false,
+	surfaceId: 'none',
+	surfaceLoaded: true,
+	surfaceLoading: false,
+	backdropVisible: false,
+	backdropSharpLoaded: false,
+	backdropSharpLoading: false,
 	sampleCount: 0,
 	targetSamples: 8,
 	settled: false,
@@ -16,18 +22,24 @@ const stats = {
 	aoEnabled: false,
 	ssrEnabled: false,
 	groundShadowVisible: false,
-	backdropVisible: false,
 	floatRenderable: false
 };
+
+let surfaceRevision = 0;
+
+export function getStudioSurfaceRevision() {
+	return surfaceRevision;
+}
+
+export function bumpStudioSurfaceRevision() {
+	surfaceRevision += 1;
+}
 
 /** @type {(() => boolean) | null} */
 let isCurrentCallback = null;
 
 /**
- * Register a synchronous freshness predicate from `StudioPipeline.svelte` so
- * callers polling `getStudioStats().settled` immediately after mutating settings,
- * materials, or camera state never observe a stale `settled: true` from a
- * previous frame before the next animation frame runs.
+ * Register a synchronous freshness predicate from `StudioPipeline.svelte`.
  * @param {(() => boolean) | null} fn
  */
 export function setStudioFreshnessCheck(fn) {
@@ -45,7 +57,7 @@ export function readStudioStats() {
 		return { ...stats, settled: false, sampleCount: 0 };
 	}
 	const isFresh = isCurrentCallback ? isCurrentCallback() : true;
-	if (!isFresh || stats.environmentLoading) {
+	if (!isFresh || stats.environmentLoading || stats.surfaceLoading || stats.backdropSharpLoading) {
 		return {
 			...stats,
 			sampleCount: 0,

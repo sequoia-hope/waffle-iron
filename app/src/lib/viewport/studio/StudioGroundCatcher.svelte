@@ -17,6 +17,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { getSettings } from '$lib/ui/settings.svelte.js';
 	import { placementMatrix } from '../placement.js';
+	import { resolveStudioSurface } from './studioEnvironment.js';
 
 	const { camera } = useThrelte();
 
@@ -67,6 +68,10 @@
 	 */
 	let shadowData = $derived.by(() => {
 		if (settings.viewportShading !== 'studio' || !settings.studioGroundShadow) return null;
+		// When floating in a visible outdoor/360° backdrop with no tabletop ('none'),
+		// omit the infinity floor shadow so the part genuinely floats in mid-air.
+		const resolvedSurface = resolveStudioSurface(settings.studioSurface, settings.studioEnvironment);
+		if (settings.studioBackdrop && resolvedSurface === 'none') return null;
 		const rawMeshes = getMeshes();
 		if (!rawMeshes || rawMeshes.length === 0) return null;
 		const visible = rawMeshes.filter((m) => !m.context && isBodyVisible(m.bodyId) && m.vertices?.length >= 9);
@@ -223,11 +228,14 @@
 			map: texture,
 			transparent: true,
 			depthWrite: false,
+			polygonOffset: true,
+			polygonOffsetFactor: -1,
+			polygonOffsetUnits: -1,
 			toneMapped: false,
 			side: THREE.FrontSide
 		});
 
-		const floorZ = minZ - maxSpan * 0.0015;
+		const floorZ = minZ - maxSpan * 0.0003;
 		return {
 			geometry,
 			material,

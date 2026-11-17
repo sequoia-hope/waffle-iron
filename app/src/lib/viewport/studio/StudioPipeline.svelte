@@ -39,7 +39,10 @@
 	import {
 		getStudioEnvironmentTarget,
 		loadStudioEnvironmentTarget,
+		getSharpBackdropInfo,
+		loadSharpBackdropTexture,
 		getEnvCubeUVParams,
+		getStudioPresetMeta,
 		hasCustomStudioEnvironment,
 		subscribeCustomStudioEnvironment,
 		disposeStudioEnvironments
@@ -60,7 +63,11 @@
 		createAccumulateMaterial,
 		createCompositeMaterial
 	} from './studioShaders.js';
-	import { updateStudioStats, setStudioFreshnessCheck } from './studioState.js';
+	import {
+		updateStudioStats,
+		setStudioFreshnessCheck,
+		getStudioSurfaceRevision
+	} from './studioState.js';
 
 	const TARGET_SAMPLES = 8;
 
@@ -127,6 +134,9 @@
 	let loadedEnvId = 'studio-softbox';
 	let envLoading = false;
 	let envRequestSeq = 0;
+	let backdropLoading = false;
+	let backdropRequestSeq = 0;
+	let sharpBackdropTick = $state(0);
 	let customEnvTick = $state(0);
 
 	const unsubCustomEnv = subscribeCustomStudioEnvironment(() => {
@@ -306,13 +316,19 @@
 			sec?.active ? `${sec.flipped}:${sec.offset}:${JSON.stringify(sec.plane)}` : '0',
 			getShowDatumPlanes() ? 1 : 0,
 			getShowOriginTriad() ? 1 : 0,
+			settings.showModelEdges ? 1 : 0,
+			settings.showModelVertices ? 1 : 0,
 			getTheme(),
 			getColorVersion(),
 			settings.studioEnvironment,
 			loadedEnvId,
 			customEnvTick,
+			sharpBackdropTick,
+			getStudioSurfaceRevision(),
+			settings.studioSurface,
 			(settings.studioEnvRotation ?? 0).toFixed(2),
 			settings.studioBackdrop ? 1 : 0,
+			(settings.studioBackdropBlur ?? 0).toFixed(3),
 			settings.studioAO ? 1 : 0,
 			settings.studioSSR ? 1 : 0,
 			settings.studioGroundShadow ? 1 : 0,
@@ -347,7 +363,8 @@
 				/** @type {any} */ (obj).isPoints;
 			if (!isRenderableLeaf) return;
 
-			if (obj.userData?.waffleType !== 'model' || !/** @type {any} */ (obj).isMesh) {
+			const wt = obj.userData?.waffleType;
+			if ((wt !== 'model' && wt !== 'studio-stage') || !/** @type {any} */ (obj).isMesh) {
 				obj.visible = false;
 				hidden.push(obj);
 				return;
@@ -513,18 +530,92 @@
 			});
 	});
 
-	// Lightweight reactive sync for azimuthal environment rotation & backdrop toggle
+	// Load 4K sharp equirectangular backdrop texture on-demand when studioBackdrop is enabled
+	$effect(() => {
+		const active = studioActive;
+		const showBg = Boolean(settings.studioBackdrop);
+		const envPreset = settings.studioEnvironment;
+		void customEnvTick;
+
+		if (!active || !showBg || !renderer) {
+			backdropRequestSeq += 1;
+			backdropLoading = false;
+			updateStudioStats({
+				backdropSharpLoaded: false,
+				backdropSharpLoading: false
+			});
+			return;
+		}
+
+		const syncInfo = getSharpBackdropInfo(envPreset);
+		if (syncInfo.tex) {
+			backdropLoading = false;
+			updateStudioStats({
+				backdropSharpLoaded: true,
+				backdropSharpLoading: false
+			});
+			invalidate();
+			return;
+		}
+
+		const meta = getStudioPresetMeta(envPreset);
+		if (!meta?.backdropUrl) {
+			backdropLoading = false;
+			updateStudioStats({
+				backdropSharpLoaded: false,
+				backdropSharpLoading: false
+			});
+			invalidate();
+			return;
+		}
+
+		const req = ++backdropRequestSeq;
+		backdropLoading = true;
+		updateStudioStats({
+			backdropSharpLoaded: false,
+			backdropSharpLoading: true
+		});
+		invalidate();
+
+		loadSharpBackdropTexture(renderer, envPreset)
+			.then((res) => {
+				if (req !== backdropRequestSeq || !studioActive) return;
+				backdropLoading = false;
+				sharpBackdropTick += 1;
+				updateStudioStats({
+					backdropSharpLoaded: Boolean(res.tex),
+					backdropSharpLoading: false
+				});
+				invalidate();
+			})
+			.catch(() => {
+				if (req !== backdropRequestSeq || !studioActive) return;
+				backdropLoading = false;
+				sharpBackdropTick += 1;
+				updateStudioStats({
+					backdropSharpLoaded: false,
+					backdropSharpLoading: false
+				});
+				invalidate();
+			});
+	});
+
+	// Lightweight reactive sync for azimuthal environment rotation, backdrop & blur
 	$effect(() => {
 		const active = studioActive;
 		const rotDeg = settings.studioEnvRotation ?? 0;
 		void settings.studioBackdrop;
+		void settings.studioBackdropBlur;
+		void settings.studioSurface;
+		void settings.showModelEdges;
+		void settings.showModelVertices;
 		if (!active || !scene) return;
 		scene.environmentRotation.set(0, 0, (rotDeg * Math.PI) / 180);
 		invalidate();
 	});
 
 	setStudioFreshnessCheck(() => {
-		if (!studioActive || !renderer || !scene || envLoading) return false;
+		if (!studioActive || !renderer || !scene || envLoading || backdropLoading) return false;
 		const expectedId =
 			settings.studioEnvironment === 'custom' && !hasCustomStudioEnvironment()
 				? 'studio-softbox'
@@ -697,9 +788,14 @@
 				// unless studioBackdrop is enabled)
 				const unjitteredProj = extractCameraProjParams(cam);
 				_envRotMat4.makeRotationZ(-yawRad);
+				const sharpBg = getSharpBackdropInfo(loadedEnvId);
 
 				compositeMat.uniforms.tAccum.value = nextAccum.texture;
 				compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
+				compositeMat.uniforms.tSharpBackdrop.value = sharpBg.tex ?? FALLBACK_WHITE_AO_TEX;
+				compositeMat.uniforms.uSharpBackdropMode.value = sharpBg.tex ? sharpBg.mode : 0;
+				compositeMat.uniforms.uBackdropBaseYaw.value = sharpBg.baseYawRad;
+				compositeMat.uniforms.uBackdropBlur.value = settings.studioBackdropBlur ?? 0;
 				compositeMat.uniforms.uEnvCubeUVParams.value.copy(getEnvCubeUVParams(activeEnvTarget));
 				compositeMat.uniforms.uShowBackdrop.value =
 					settings.studioBackdrop && Boolean(scene.environment) ? 1.0 : 0.0;
@@ -717,13 +813,15 @@
 
 				sampleCount += 1;
 				passCount += 1;
-				const settled = !envLoading && sampleCount >= TARGET_SAMPLES;
+				const settled = !envLoading && !backdropLoading && sampleCount >= TARGET_SAMPLES;
 
 				updateStudioStats({
 					active: true,
 					environmentId: loadedEnvId,
 					environmentLoaded: !envLoading && Boolean(scene.environment),
 					environmentLoading: envLoading,
+					backdropSharpLoaded: Boolean(sharpBg.tex),
+					backdropSharpLoading: backdropLoading,
 					sampleCount,
 					targetSamples: TARGET_SAMPLES,
 					settled,

@@ -185,3 +185,56 @@ export function createStudioPhysicalMaterial({
 
 	return mat;
 }
+
+/**
+ * Build a UV-mapped PBR `THREE.MeshPhysicalMaterial` for physical 3D tabletop
+ * stages (`StudioStageSurface.svelte`: wooden workbench, walnut desk, granite
+ * countertop, cutting mat). Keeps Three.js's standard UV tangent frame so
+ * `normalMap` relief renders cleanly while still receiving Studio GTAO + SSR!
+ */
+export function createStudioStageMaterial({
+	map,
+	normalMap = null,
+	roughnessMap = null,
+	roughness = 0.65,
+	metalness = 0.0,
+	clearcoat = 0.15,
+	clearcoatRoughness = 0.25,
+	normalScale = 0.7
+}) {
+	const mat = new THREE.MeshPhysicalMaterial({
+		color: 0xffffff,
+		map,
+		normalMap,
+		normalScale: new THREE.Vector2(normalScale, normalScale),
+		roughnessMap,
+		roughness,
+		metalness,
+		clearcoat,
+		clearcoatRoughness,
+		envMapIntensity: 1.05,
+		side: THREE.FrontSide
+	});
+
+	const ccFlag = clearcoat > 0 ? 1 : 0;
+	const nmFlag = normalMap ? 1 : 0;
+	const rmFlag = roughnessMap ? 1 : 0;
+	mat.customProgramCacheKey = () =>
+		`waffle-studio-stage-v1|cc:${ccFlag}|nm:${nmFlag}|rm:${rmFlag}`;
+
+	mat.onBeforeCompile = (shader) => {
+		shader.uniforms.uStudioAOTex = STUDIO_SHARED_UNIFORMS.uStudioAOTex;
+		shader.uniforms.uStudioSSRTex = STUDIO_SHARED_UNIFORMS.uStudioSSRTex;
+		shader.uniforms.uStudioResolution = STUDIO_SHARED_UNIFORMS.uStudioResolution;
+		shader.uniforms.uStudioAOEnabled = STUDIO_SHARED_UNIFORMS.uStudioAOEnabled;
+		shader.uniforms.uStudioSSREnabled = STUDIO_SHARED_UNIFORMS.uStudioSSREnabled;
+
+		shader.fragmentShader =
+			STUDIO_PARS_FRAGMENT +
+			shader.fragmentShader
+				.replace('#include <lights_fragment_maps>', STUDIO_SSR_INJECTION)
+				.replace('#include <aomap_fragment>', STUDIO_AO_INJECTION);
+	};
+
+	return mat;
+}

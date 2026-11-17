@@ -12,10 +12,21 @@
 	let { visible = $bindable(false), pos = $bindable({ x: 0, y: 0 }) } = $props();
 
 	let ready = $derived(isEngineReady());
-	let isStudio = $derived(getSettings().viewportShading === 'studio');
+	let settings = $derived(getSettings());
+	let isStudio = $derived(settings.viewportShading === 'studio');
 
 	function handleToggleStudio() {
 		updateSettings({ viewportShading: isStudio ? 'shaded' : 'studio' });
+		visible = false;
+	}
+
+	function handleToggleEdges() {
+		updateSettings({ showModelEdges: !settings.showModelEdges });
+		visible = false;
+	}
+
+	function handleToggleVertices() {
+		updateSettings({ showModelVertices: !settings.showModelVertices });
 		visible = false;
 	}
 
@@ -23,8 +34,8 @@
 		parseFloat(getComputedStyle(document.documentElement).getPropertyValue(prop)) || 0;
 
 	let clampedPos = $derived.by(() => {
-		const menuWidth = 160;
-		const menuHeight = 200;
+		const menuWidth = 170;
+		const menuHeight = 260;
 		const saiRight = getSafeInset('--sai-right');
 		const saiLeft = getSafeInset('--sai-left');
 		const maxX = window.innerWidth - menuWidth - 8 - saiRight;
@@ -95,6 +106,8 @@
 		<button class="ctx-item" data-testid="ctx-view-iso" onclick={() => handleSnapView('iso')}><Icon name="view-iso" />Isometric</button>
 		<div class="ctx-separator"></div>
 		<button class="ctx-item" data-testid="ctx-studio-shading" onclick={handleToggleStudio}><Icon name="sparkles" />{isStudio ? 'Classic Shading' : 'Studio Shading'}</button>
+		<button class="ctx-item" data-testid="ctx-toggle-edges" onclick={handleToggleEdges}><Icon name={settings.showModelEdges ? 'eye-off' : 'eye'} />{settings.showModelEdges ? 'Hide Edges' : 'Show Edges'}</button>
+		<button class="ctx-item" data-testid="ctx-toggle-vertices" onclick={handleToggleVertices}><Icon name={settings.showModelVertices ? 'eye-off' : 'eye'} />{settings.showModelVertices ? 'Hide Vertices' : 'Show Vertices'}</button>
 	</div>
 {/if}
 

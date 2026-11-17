@@ -512,7 +512,10 @@ export function renderCapture({ renderer, scene, liveCamera, liveTarget, bodies,
 					})
 				);
 				disposable.push(edgeMat);
-				for (const obj of parts.edges) setMaterial(obj, edgeMat);
+				for (const obj of parts.edges) {
+					if (!hidden(obj)) setVisible(obj, true);
+					setMaterial(obj, edgeMat);
+				}
 			}
 			// Vertices: enlarged, and drawn FLAT in the edge colour. The overlay
 			// bakes the theme's vertex colour and the user's hover and selection
@@ -522,6 +525,7 @@ export function renderCapture({ renderer, scene, liveCamera, liveTarget, bodies,
 			// is behind it and puts a colour in the picture that the legend
 			// cannot explain.
 			for (const pts of parts.vertices) {
+				setVisible(pts, true);
 				const mat = /** @type {any} */ (pts).material;
 				if (!mat) continue;
 				const was = {

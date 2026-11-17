@@ -19,6 +19,7 @@
 	import ConnectorFrames from './ConnectorFrames.svelte';
 	import AgentCapture from './AgentCapture.svelte';
 	import RotationCenter from './RotationCenter.svelte';
+	import StudioStageSurface from './studio/StudioStageSurface.svelte';
 	import StudioGroundCatcher from './studio/StudioGroundCatcher.svelte';
 	import StudioPipeline from './studio/StudioPipeline.svelte';
 
@@ -54,6 +55,7 @@
 <SketchInteraction />
 <DimensionLabels />
 <RotationCenter />
+<StudioStageSurface />
 <StudioGroundCatcher />
 <StudioPipeline />
 <AgentCapture />

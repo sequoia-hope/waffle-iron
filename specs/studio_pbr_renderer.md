@@ -28,9 +28,13 @@ Specifically:
 | Key | Type | Default | Valid Values | Description |
 |-----|------|---------|--------------|-------------|
 | `viewportShading` | `string` | `'shaded'` | `'shaded' \| 'studio'` | Active 3D viewport shading pipeline |
-| `studioEnvironment` | `string` | `'studio-softbox'` | `'studio-softbox' \| 'daylight-workshop' \| 'darkroom-rim' \| 'hdri-outdoor-sunny' \| 'hdri-outdoor-plaza' \| 'hdri-workbench' \| 'hdri-machine-shop' \| 'hdri-office' \| 'custom'` | Active Studio HDR environment (procedural rig, bundled CC0 1K `.hdr`, or session custom `.hdr`/`.exr`) |
+| `studioEnvironment` | `string` | `'studio-softbox'` | `'studio-softbox' \| 'daylight-workshop' \| 'darkroom-rim' \| 'hdri-outdoor-sunny' \| 'hdri-outdoor-plaza' \| 'hdri-workbench' \| 'hdri-machine-shop' \| 'hdri-office' \| 'hdri-granite' \| 'custom'` | Active Studio HDR environment / scene preset |
+| `studioSurface` | `string` | `'auto'` | `'auto' \| 'none' \| 'workbench' \| 'desk' \| 'granite' \| 'cutting-mat'` | Physical 3D tabletop slab beneath `bbox.min.z` (`'auto'` follows the scene preset's default surface) |
 | `studioEnvRotation` | `number` | `0` | `0..=360` | Azimuthal rotation in degrees of the Studio environment around world `+Z` |
-| `studioBackdrop` | `boolean` | `false` | `boolean` | Render softly defocused Z-up HDR environment backdrop behind the model |
+| `studioBackdrop` | `boolean` | `false` | `boolean` | Render high-resolution `4096×2048` Z-up HDR environment backdrop behind the model |
+| `studioBackdropBlur` | `number` | `0` | `0..=1` | Optional mipmap optical defocus (`0` = sharp 4K photo, `1` = soft bokeh) on the backdrop |
+| `showModelEdges` | `boolean` | `true` | `boolean` | Render & pick 3D B-Rep edge wireframe lines (`EdgeOverlay.svelte`) |
+| `showModelVertices` | `boolean` | `true` | `boolean` | Render & pick 3D B-Rep vertex dots (`VertexOverlay.svelte`) |
 | `studioAO` | `boolean` | `true` | `boolean` | Enable GTAO + multi-bounce diffuse AO + GTSO specular occlusion |
 | `studioSSR` | `boolean` | `true` | `boolean` | Enable screen-space reflections blended into PBR IBL radiance |
 | `studioGroundShadow` | `boolean` | `true` | `boolean` | Enable Z-up ground contact-shadow catcher below model `minZ` |
@@ -84,6 +88,9 @@ Specifically:
 - **I9 (Z-Up Right-Handed Equirectangular Mapping):** Photographic equirectangular `.hdr`/`.exr` environments transform Y-up `(x, y, z)` to Waffle Iron's right-handed Z-up `(x, z, -y)` (`det = +1`) during PMREM and backdrop generation so `+Z` faces reflect the sky/ceiling (`v -> 1`) and `-Z` faces reflect the floor (`v -> 0`) without mirror reversal.
 - **I10 (HDR Firefly Shoulder & HalfFloat Safety):** Radiance samples exceeding `K = 32.0` are smoothly shoulder-compressed (`K + 8 ln(1 + (L - K)/8)`) before `HalfFloatType` conversion so `100,000+` nit solar discs never overflow `65504` (`NaN`/`Inf`) or produce PMREM cubemap ringing.
 - **I11 (Async HDRI Load Race & Settle Determinism):** Selecting an unloaded `.hdr` preset keeps a fallback PMREM active during fetch/decode, discards stale out-of-order completions via monotonic request sequencing, and holds `getStudioStats().environmentLoaded === false` / `settled === false` until the requested `studioEnvironment` itself is active and converged across `TARGET_SAMPLES`.
+- **I12 (Sharp 4K Equirectangular Backdrop & Optional DOF):** When `studioBackdrop` is active and a 4K backdrop texture (`4096×2048`, gamma-2.0 HDR `0..6.25`) is loaded, the composite shader samples `texture2DLodEXT` directly in Z-up equirectangular space (`LOD = studioBackdropBlur * 6.5`, defaulting to `0.0` sharp mip 0 with zero `phi = ±π` wrap seam) rather than the low-resolution `256` PMREM CubeUV atlas, falling back to PMREM CubeUV only while loading or for procedural rigs.
+- **I13 (Physical Tabletop Stage Non-Interference & PBR Integration):** `StudioStageSurface` places a 3D beveled slab (`workbench`, `desk`, `granite`, or `cutting-mat`) flush beneath `bbox.min.z`, participates in Studio G-buffer/GTAO/SSR so parts cast contact occlusion and reflections onto the tabletop, uses `raycast = () => {}` and `waffleType = 'studio-stage'` so `Fit All` framing, `getMeshes()`, and picking ignore it completely, and hides during sketch mode, section view, empty scenes, or upward views from below `bbox.min.z`.
+- **I14 (Edge & Vertex Overlay Visibility Control):** Unchecking `showModelEdges` or `showModelVertices` hides `EdgeOverlay` (`LineSegments`) or `VertexOverlay` (`Points`) and suppresses their hover/click arbitration so faces pick cleanly right up to corners and silhouettes, while keeping the Three.js objects mounted so `viewport_capture` (`style: 'agent'`) continues to render authoritative edges and vertices.
 
 ---
 
