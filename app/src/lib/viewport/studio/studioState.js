@@ -35,6 +35,10 @@ export function bumpStudioSurfaceRevision() {
 	surfaceRevision += 1;
 }
 
+export function isStudioSurfaceLoading() {
+	return Boolean(stats.surfaceLoading);
+}
+
 /** @type {(() => boolean) | null} */
 let isCurrentCallback = null;
 

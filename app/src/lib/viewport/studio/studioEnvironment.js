@@ -440,6 +440,9 @@ export function decodeEquirectHdrBuffer(arrayBuffer, format = 'hdr', opts = {}) 
 /** @type {WeakMap<THREE.WebGLRenderer, Map<string, THREE.WebGLRenderTarget>>} */
 const ENV_CACHE = new WeakMap();
 
+/** @type {WeakMap<THREE.WebGLRenderer, THREE.PMREMGenerator>} */
+const PMREM_CACHE = new WeakMap();
+
 /** @type {Map<string, Promise<THREE.DataTexture>>} */
 const HDRI_TEX_PROMISES = new Map();
 
@@ -584,15 +587,23 @@ function cacheKeyFor(presetId) {
 	return PRESET_BY_ID.has(presetId) ? presetId : 'studio-softbox';
 }
 
+function getPmremGenerator(renderer) {
+	let pmrem = PMREM_CACHE.get(renderer);
+	if (!pmrem) {
+		pmrem = new THREE.PMREMGenerator(renderer);
+		pmrem.compileCubemapShader();
+		PMREM_CACHE.set(renderer, pmrem);
+	}
+	return pmrem;
+}
+
 function bakeSceneToPmrem(renderer, envScene, sigma = 0) {
 	const prevTarget = renderer.getRenderTarget();
 	const prevToneMapping = renderer.toneMapping;
 	renderer.toneMapping = THREE.NoToneMapping;
 
-	const pmrem = new THREE.PMREMGenerator(renderer);
-	pmrem.compileCubemapShader();
+	const pmrem = getPmremGenerator(renderer);
 	const envTarget = pmrem.fromScene(envScene, sigma);
-	pmrem.dispose();
 
 	renderer.toneMapping = prevToneMapping;
 	renderer.setRenderTarget(prevTarget);
@@ -732,6 +743,11 @@ export async function loadStudioEnvironmentTarget(renderer, presetId = 'studio-s
  * @param {THREE.WebGLRenderer} renderer
  */
 export function disposeStudioEnvironments(renderer) {
+	const pmrem = PMREM_CACHE.get(renderer);
+	if (pmrem) {
+		pmrem.dispose();
+		PMREM_CACHE.delete(renderer);
+	}
 	const byPreset = ENV_CACHE.get(renderer);
 	if (!byPreset) return;
 	for (const rt of byPreset.values()) {

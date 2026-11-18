@@ -392,6 +392,8 @@
 		top: calc(100% + 4px);
 		right: 0;
 		min-width: 172px;
+		max-height: calc(100vh - 110px - env(safe-area-inset-bottom, 0px));
+		overflow-y: auto;
 		background: color-mix(in srgb, var(--bg-tertiary) 92%, transparent);
 		border: 1px solid var(--border-color);
 		border-radius: 6px;

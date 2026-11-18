@@ -252,7 +252,7 @@ export function createGTAOMaterial(packed = false) {
 					? 0.5 * uWorldRadius * abs(uProjParams.y)
 					: 0.5 * uWorldRadius * abs(uProjParams.y) / max(centerDepth, 1e-4);
 				float aspect = uResolution.x / max(uResolution.y, 1.0);
-				float maxPxRadius = clamp(uvRadiusY * uResolution.y, 5.0, 56.0);
+				float maxPxRadius = clamp(uvRadiusY * uResolution.y, 4.0, 36.0);
 				vec2 maxUvRadius = vec2(maxPxRadius / max(uResolution.x, 1.0), maxPxRadius / max(uResolution.y, 1.0));
 
 				vec2 pixel = floor(vUv * uResolution);
@@ -541,6 +541,7 @@ export function createAccumulateMaterial() {
  */
 export function createCompositeMaterial() {
 	return new THREE.ShaderMaterial({
+		extensions: { shaderTextureLod: true },
 		depthTest: false,
 		depthWrite: false,
 		blending: THREE.NoBlending,

@@ -340,6 +340,8 @@
 				surfaceLoaded: true,
 				surfaceLoading: false
 			});
+			bumpStudioSurfaceRevision();
+			if (active) invalidate();
 			return;
 		}
 

@@ -35,7 +35,7 @@
 
 	let clampedPos = $derived.by(() => {
 		const menuWidth = 170;
-		const menuHeight = 260;
+		const menuHeight = 310;
 		const saiRight = getSafeInset('--sai-right');
 		const saiLeft = getSafeInset('--sai-left');
 		const maxX = window.innerWidth - menuWidth - 8 - saiRight;
@@ -121,6 +121,8 @@
 		z-index: 1000;
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 		min-width: 150px;
+		max-height: calc(100vh - 16px - env(safe-area-inset-bottom, 0px));
+		overflow-y: auto;
 	}
 
 	.ctx-item {

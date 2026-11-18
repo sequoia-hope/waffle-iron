@@ -66,7 +66,8 @@
 	import {
 		updateStudioStats,
 		setStudioFreshnessCheck,
-		getStudioSurfaceRevision
+		getStudioSurfaceRevision,
+		isStudioSurfaceLoading
 	} from './studioState.js';
 
 	const TARGET_SAMPLES = 8;
@@ -128,6 +129,7 @@
 	let sampleCount = 0;
 	let passCount = 0;
 	let lastSig = '';
+	let lastCamKey = '';
 	let accumReadIsA = true;
 	/** @type {THREE.WebGLRenderTarget | null} */
 	let activeEnvTarget = null;
@@ -180,7 +182,10 @@
 		disposeTargets();
 		allocW = w;
 		allocH = h;
-		const scale = Math.max(w, h) > 1600 ? 0.65 : 1.0;
+		// Screen-space indirect passes (G-Buffer, GTAO + bilateral denoise, SSR) run at
+		// half resolution per axis (specs/studio_pbr_renderer.md §1.2, §3), while
+		// frameTarget, Halton accumulation, and composite run at full 1.0x resolution.
+		const scale = 0.5;
 		aoW = Math.max(1, Math.round(w * scale));
 		aoH = Math.max(1, Math.round(h * scale));
 
@@ -301,7 +306,7 @@
 		const sRefs = getSelectedRefs();
 		const sec = getSectionState();
 		const sk = getSketchMode();
-		return [
+		const sig = [
 			w,
 			h,
 			camKey,
@@ -336,6 +341,7 @@
 			settings.studioGroundShadow ? 1 : 0,
 			settings.studioToneMapping
 		].join('#');
+		return { sig, camKey };
 	}
 
 	function renderFullscreenPass(material, target) {
@@ -413,6 +419,7 @@
 			scene.environmentRotation.set(0, 0, 0);
 			resetStudioSharedUniforms();
 			lastSig = '';
+			lastCamKey = '';
 			sampleCount = 0;
 			prevLitValid = false;
 			updateStudioStats({
@@ -619,7 +626,16 @@
 	});
 
 	setStudioFreshnessCheck(() => {
-		if (!studioActive || !renderer || !scene || envLoading || backdropLoading) return false;
+		if (
+			!studioActive ||
+			!renderer ||
+			!scene ||
+			envLoading ||
+			backdropLoading ||
+			isStudioSurfaceLoading()
+		) {
+			return false;
+		}
 		const expectedId =
 			settings.studioEnvironment === 'custom' && !hasCustomStudioEnvironment()
 				? 'studio-softbox'
@@ -632,7 +648,7 @@
 		const drawH = Math.floor(_drawSize.y);
 		if (drawW <= 0 || drawH <= 0) return false;
 		cam.updateMatrixWorld();
-		return computeStateSignature(cam, drawW, drawH) === lastSig;
+		return computeStateSignature(cam, drawW, drawH).sig === lastSig;
 	});
 
 	// Custom Studio render task on Threlte's renderStage (autoInvalidate: false for 0% idle GPU!)
@@ -651,16 +667,27 @@
 
 			// Ensure world & projection matrices are current before computing signature
 			cam.updateMatrixWorld();
-			const sig = computeStateSignature(cam, drawW, drawH);
+			const { sig, camKey } = computeStateSignature(cam, drawW, drawH);
+			const cameraMoved = lastCamKey !== '' && camKey !== lastCamKey;
+			lastCamKey = camKey;
+
 			if (sig !== lastSig) {
 				lastSig = sig;
 				sampleCount = 0;
 				prevLitValid = false;
 			}
 
+			const assetsLoading = envLoading || backdropLoading || isStudioSurfaceLoading();
+
+			// While async HDRI / 4K backdrop / tabletop textures are in flight, render
+			// one responsive fallback frame and wait for their completion callbacks.
+			if (!cameraMoved && assetsLoading && sampleCount >= 1) {
+				return;
+			}
+
 			// Invariant I7: once TARGET_SAMPLES have converged and nothing changed,
 			// execute zero GPU passes and stay completely idle.
-			if (sampleCount >= TARGET_SAMPLES) {
+			if (!cameraMoved && !assetsLoading && sampleCount >= TARGET_SAMPLES) {
 				return;
 			}
 
@@ -673,11 +700,82 @@
 				scene.environmentRotation.set(0, 0, yawRad);
 				const sceneRadius = getSceneRadius();
 				STUDIO_SHARED_UNIFORMS.uStudioSceneRadius.value = sceneRadius;
+				const sharpBg = getSharpBackdropInfo(loadedEnvId);
+
+				// Interactive camera-motion fast path (orbit drag, pan, zoom, or OrbitControls
+				// damping glide): render one fast direct pass + tone-mapped composite so
+				// camera damping finishes at interactive frame rates even on software WebGL,
+				// then converge full GTAO + SSR + 8x Halton AA the instant the camera rests.
+				if (cameraMoved) {
+					STUDIO_SHARED_UNIFORMS.uStudioAOTex.value = FALLBACK_WHITE_AO_TEX;
+					STUDIO_SHARED_UNIFORMS.uStudioSSRTex.value = FALLBACK_EMPTY_SSR_TEX;
+					STUDIO_SHARED_UNIFORMS.uStudioAOEnabled.value = 0.0;
+					STUDIO_SHARED_UNIFORMS.uStudioSSREnabled.value = 0.0;
+					STUDIO_SHARED_UNIFORMS.uStudioResolution.value.set(drawW, drawH);
+
+					renderer.setRenderTarget(frameTarget);
+					renderer.setClearColor(0x000000, 0.0);
+					renderer.clear(true, true, true);
+					renderer.render(scene, cam);
+
+					const unjitteredProj = extractCameraProjParams(cam);
+					_envRotMat4.makeRotationZ(-yawRad);
+
+					compositeMat.uniforms.tAccum.value = frameTarget.texture;
+					compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
+					compositeMat.uniforms.tSharpBackdrop.value = sharpBg.tex ?? FALLBACK_WHITE_AO_TEX;
+					compositeMat.uniforms.uSharpBackdropMode.value = sharpBg.tex ? sharpBg.mode : 0;
+					compositeMat.uniforms.uBackdropBaseYaw.value = sharpBg.baseYawRad;
+					compositeMat.uniforms.uBackdropBlur.value = settings.studioBackdropBlur ?? 0;
+					compositeMat.uniforms.uEnvCubeUVParams.value.copy(getEnvCubeUVParams(activeEnvTarget));
+					compositeMat.uniforms.uShowBackdrop.value =
+						settings.studioBackdrop && Boolean(scene.environment) ? 1.0 : 0.0;
+					compositeMat.uniforms.uIsOrtho.value = unjitteredProj.isOrtho;
+					compositeMat.uniforms.uProjParams.value.copy(unjitteredProj.projParams);
+					compositeMat.uniforms.uCamWorldRot.value.setFromMatrix4(cam.matrixWorld);
+					compositeMat.uniforms.uEnvRotMat.value.setFromMatrix4(_envRotMat4);
+					compositeMat.uniforms.uToneMapping.value = settings.studioToneMapping === 'agx' ? 1 : 0;
+					compositeMat.uniforms.uExposure.value = 1.05;
+
+					renderer.setRenderTarget(null);
+					renderer.setClearColor(0x000000, 0.0);
+					renderer.clear(true, true, false);
+					quadMesh.material = compositeMat;
+					renderer.render(quadScene, quadCamera);
+
+					sampleCount = 0;
+					prevLitValid = false;
+					passCount += 1;
+
+					updateStudioStats({
+						active: true,
+						environmentId: loadedEnvId,
+						environmentLoaded: !envLoading && Boolean(scene.environment),
+						environmentLoading: envLoading,
+						backdropSharpLoaded: Boolean(sharpBg.tex),
+						backdropSharpLoading: backdropLoading,
+						sampleCount: 0,
+						targetSamples: TARGET_SAMPLES,
+						settled: false,
+						passCount,
+						aoEnabled: Boolean(settings.studioAO),
+						ssrEnabled: Boolean(settings.studioSSR),
+						groundShadowVisible: Boolean(settings.studioGroundShadow),
+						backdropVisible: Boolean(settings.studioBackdrop),
+						floatRenderable
+					});
+
+					invalidate();
+					return;
+				}
+
 				const needGBuffer = Boolean(settings.studioAO || settings.studioSSR);
+				const prevAccum = accumReadIsA ? accumTargetA : accumTargetB;
+				const nextAccum = accumReadIsA ? accumTargetB : accumTargetA;
 
 				// Seed prevLitTarget once before sample 0 when SSR is enabled so every
 				// accumulated sample (0..TARGET_SAMPLES-1) includes full SSR radiance!
-				if (settings.studioSSR && !prevLitValid) {
+				if (settings.studioSSR && sampleCount === 0 && !prevLitValid) {
 					STUDIO_SHARED_UNIFORMS.uStudioAOTex.value = FALLBACK_WHITE_AO_TEX;
 					STUDIO_SHARED_UNIFORMS.uStudioSSRTex.value = FALLBACK_EMPTY_SSR_TEX;
 					STUDIO_SHARED_UNIFORMS.uStudioAOEnabled.value = 0.0;
@@ -739,9 +837,12 @@
 					}
 
 					// Pass C: View-space Screen-Space Reflections
-					if (settings.studioSSR && prevLitValid) {
+					// Sample 0 reads prevLitTarget; samples 1..N-1 read prevAccum directly
+					// (avoiding a redundant fullscreen copy pass per sample).
+					if (settings.studioSSR && (sampleCount > 0 || prevLitValid)) {
 						ssrMat.uniforms.tGBuffer.value = gbufferTarget.texture;
-						ssrMat.uniforms.tColor.value = prevLitTarget.texture;
+						ssrMat.uniforms.tColor.value =
+							sampleCount === 0 ? prevLitTarget.texture : prevAccum.texture;
 						ssrMat.uniforms.uNear.value = projInfo.near;
 						ssrMat.uniforms.uFar.value = projInfo.far;
 						ssrMat.uniforms.uIsOrtho.value = projInfo.isOrtho;
@@ -774,26 +875,16 @@
 				}
 
 				// Pass E: Progressive Halton accumulation in linear HDR space
-				const prevAccum = accumReadIsA ? accumTargetA : accumTargetB;
-				const nextAccum = accumReadIsA ? accumTargetB : accumTargetA;
 				accumMat.uniforms.tPrev.value = prevAccum.texture;
 				accumMat.uniforms.tCurr.value = frameTarget.texture;
 				accumMat.uniforms.uWeight.value = sampleCount === 0 ? 1.0 : 1.0 / (sampleCount + 1);
 				renderFullscreenPass(accumMat, nextAccum);
 				accumReadIsA = !accumReadIsA;
 
-				// Copy converged linear HDR radiance into prevLitTarget for next frame's SSR
-				accumMat.uniforms.tPrev.value = nextAccum.texture;
-				accumMat.uniforms.tCurr.value = nextAccum.texture;
-				accumMat.uniforms.uWeight.value = 1.0;
-				renderFullscreenPass(accumMat, prevLitTarget);
-				prevLitValid = true;
-
 				// Pass F: Tone-map & output to canvas (preserving CSS --viewport-bg where alpha == 0
 				// unless studioBackdrop is enabled)
 				const unjitteredProj = extractCameraProjParams(cam);
 				_envRotMat4.makeRotationZ(-yawRad);
-				const sharpBg = getSharpBackdropInfo(loadedEnvId);
 
 				compositeMat.uniforms.tAccum.value = nextAccum.texture;
 				compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
@@ -818,7 +909,7 @@
 
 				sampleCount += 1;
 				passCount += 1;
-				const settled = !envLoading && !backdropLoading && sampleCount >= TARGET_SAMPLES;
+				const settled = !assetsLoading && sampleCount >= TARGET_SAMPLES;
 
 				updateStudioStats({
 					active: true,
@@ -838,7 +929,7 @@
 					floatRenderable
 				});
 
-				if (!settled) {
+				if (!settled && !assetsLoading) {
 					invalidate();
 				}
 			} finally {

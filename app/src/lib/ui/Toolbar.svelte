@@ -1542,6 +1542,8 @@
 		z-index: 200;
 		min-width: 160px;
 		max-width: calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+		max-height: calc(100vh - 52px - env(safe-area-inset-bottom, 0px));
+		overflow-y: auto;
 		padding: 4px 0;
 	}
 
@@ -1625,6 +1627,8 @@
 		z-index: 200;
 		padding: 8px;
 		max-width: calc(100vw - 16px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+		max-height: calc(100vh - 52px - env(safe-area-inset-bottom, 0px));
+		overflow-y: auto;
 	}
 
 	.dropdown-fixed {

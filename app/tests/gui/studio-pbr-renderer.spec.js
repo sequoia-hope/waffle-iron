@@ -12,6 +12,7 @@
  *      idle accumulation (`settled` convergence + reset on orbit)
  *   4. ViewCube dropdown & Viewport context menu Studio toggles
  */
+import { fileURLToPath } from 'node:url';
 import { test, expect } from './helpers/waffle-test.js';
 import {
 	clickSketch,
@@ -27,6 +28,10 @@ import {
 	waitForEntityCount,
 	waitForFeatureCount
 } from './helpers/state.js';
+
+const WORKBENCH_HDR_PATH = fileURLToPath(
+	new URL('../../static/hdri/indoor_workbench.hdr', import.meta.url)
+);
 
 /** Create a solid extruded block on the Top (XY, Z-up) plane and hide datum planes/axes. */
 async function createCleanBlock(waffle, depthMm = '25') {
@@ -118,8 +123,9 @@ async function waitForStudioSettled(page, timeout = 30000) {
 
 test.describe('Studio PBR Renderer & Real Materials', () => {
 	// Multi-pass WebGL2 Studio pipelines (PMREM + GTAO + SSR + 8x Halton settle)
-	// run on CPU SwiftShader on 4-vCPU CI runners; cover hooks + body generously.
-	test.describe.configure({ timeout: 180000 });
+	// run on CPU SwiftShader on 4-vCPU CI runners; run tests in parallel across
+	// workers and cover hooks + body generously.
+	test.describe.configure({ mode: 'parallel', timeout: 180000 });
 	test('defaults to classic Shaded mode and persists Studio settings across reload', async ({
 		waffle
 	}) => {
@@ -570,7 +576,7 @@ test.describe('Studio PBR Renderer & Real Materials', () => {
 });
 
 test.describe('Studio PBR adversarial & cross-mode invariants', () => {
-	test.describe.configure({ timeout: 180000 });
+	test.describe.configure({ mode: 'parallel', timeout: 180000 });
 	test('handles empty scene, invalid material refusals, rig cycling, context-menu toggle, sketch transparency, section cap, and assembly instances cleanly', async ({
 		waffle
 	}) => {
@@ -817,7 +823,7 @@ test.describe('Studio PBR adversarial & cross-mode invariants', () => {
 		await page.locator('[data-testid="settings-section-appearance"]').click();
 		await page
 			.locator('[data-testid="settings-modal"] input[type="file"][accept=".hdr,.exr"]')
-			.setInputFiles('static/hdri/indoor_workbench.hdr');
+			.setInputFiles(WORKBENCH_HDR_PATH);
 		await page.locator('[data-testid="settings-close"]').click();
 		await waitForStudioSettled(page);
 		const customStats = await page.evaluate(() => window.__waffle.getStudioStats());
