@@ -3,10 +3,10 @@
 //! `specs/yang_188_f0082_j3_envelope_selection.md`, §3.2 as revised by the
 //! binding inc-0 findings §7.6).
 //!
-//! UNWIRED (the stage4_update / N-137.1 idiom): nothing in the production
-//! pipeline calls this module yet. inc-2 wires it into `emit_topology`
-//! (always on since the #188 flip); this increment de-risks the pure
-//! geometry on the F0082 pinned fixture (`tests_unit/s188_envelope.rs`).
+//! Wired: `emit_topology` calls [`envelope_prepass`] on every run (always
+//! on since the #188 flip; `stage5_topology/emit.rs`). The pure geometry is
+//! pinned on the F0082 fixture (`tests_unit/s188_envelope.rs`). Ledger N110
+//! (OPEN, F3).
 //!
 //! Vocabulary (cylinder × plane × plane — the F0082 class):
 //! - **§3.2.1 switch points**: the two exact crossings of the intersection

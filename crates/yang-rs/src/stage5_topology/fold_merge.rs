@@ -955,27 +955,31 @@ pub(super) fn run_absorption_attempt(
             None => (Vec::new(), Default::default(), Vec::new()),
         }
     });
-    eprintln!(
-        "[i13d-absorb] SELECT runs={} terminals={} no_param={} no_flip={} \
-         no_inversion={} not_richer={} ambiguous={} -> sites={}",
-        census.runs,
-        census.terminals,
-        census.no_param,
-        census.no_flip,
-        census.no_inversion,
-        census.not_richer,
-        census.ambiguous,
-        census.sites,
-    );
-    for s in &sites {
+    // The selection report is diagnostic output: printed in census mode or
+    // under the c441 log switch, never on an ordinary release run.
+    if mode == RunAbsorbMode::Census || super::c441_verbose() {
         eprintln!(
-            "[i13d-absorb] SITE survivor=v{} victims={:?}",
-            s.survivor,
-            s.victims
-                .iter()
-                .map(|&v| format!("v{v}"))
-                .collect::<Vec<_>>(),
+            "[i13d-absorb] SELECT runs={} terminals={} no_param={} no_flip={} \
+             no_inversion={} not_richer={} ambiguous={} -> sites={}",
+            census.runs,
+            census.terminals,
+            census.no_param,
+            census.no_flip,
+            census.no_inversion,
+            census.not_richer,
+            census.ambiguous,
+            census.sites,
         );
+        for s in &sites {
+            eprintln!(
+                "[i13d-absorb] SITE survivor=v{} victims={:?}",
+                s.survivor,
+                s.victims
+                    .iter()
+                    .map(|&v| format!("v{v}"))
+                    .collect::<Vec<_>>(),
+            );
+        }
     }
     if mode == RunAbsorbMode::Census {
         return None;
@@ -1106,20 +1110,22 @@ pub(super) fn run_absorption_attempt(
         .map(|s| s.victims.iter().copied().collect())
         .collect();
     let groups = interlock_groups(&victim_sets, &mesh.tris);
-    eprintln!(
-        "[i13e-group] SELECT candidates={} group_blocked={group_blocked_n} \
-         i8_dropped={i8_dropped} groups={} sizes={:?}",
-        cand.len(),
-        groups.len(),
-        groups.iter().map(Vec::len).collect::<Vec<_>>(),
-    );
-    for g in &groups {
+    if gmode == GroupAbsorbMode::Census || super::c441_verbose() {
         eprintln!(
-            "[i13e-group] GROUP {:?}",
-            g.iter()
-                .map(|&i| format!("{:?}->v{}", cand[i].victims, cand[i].survivor))
-                .collect::<Vec<_>>(),
+            "[i13e-group] SELECT candidates={} group_blocked={group_blocked_n} \
+             i8_dropped={i8_dropped} groups={} sizes={:?}",
+            cand.len(),
+            groups.len(),
+            groups.iter().map(Vec::len).collect::<Vec<_>>(),
         );
+        for g in &groups {
+            eprintln!(
+                "[i13e-group] GROUP {:?}",
+                g.iter()
+                    .map(|&i| format!("{:?}->v{}", cand[i].victims, cand[i].survivor))
+                    .collect::<Vec<_>>(),
+            );
+        }
     }
     if gmode == GroupAbsorbMode::Census {
         return None;
@@ -1210,9 +1216,11 @@ pub(super) fn run_absorption_attempt(
 }
 
 /// §I13(f) f2 — the inverted-junction-pair RE-HOMING arm (wall-cycle half;
-/// spec `specs/yang_441_trim_cdt_construction.md` §I13(f) f2). Gated OFF by
-/// default (`YANG_441_REHOME`); runs strictly at the absorption fixed point
-/// (no I13d site applied, no I13e group applied).
+/// spec `specs/yang_441_trim_cdt_construction.md` §I13(f) f2). On by default
+/// in release (`YANG_441_REHOME`, `stage4_rehome::RehomeMode::On`); runs
+/// strictly at the absorption fixed point (no I13d site applied, no I13e
+/// group applied). Ledger N113 (OPEN): its site classifier enumerates surface
+/// types (`stage4_rehome::classify`).
 ///
 /// The candidates are the selector's single-victim `not_richer` refusals —
 /// TRUE-corner pairs whose mesh cycle order contradicts their exact order
