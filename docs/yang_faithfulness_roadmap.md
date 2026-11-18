@@ -214,9 +214,9 @@ intersected patches.
       `SurfaceChart` rebuild cannot; N122. Corpus held, 360C/0W/9E/5EE/0T;
       83 domain charts, 7 rebuilt (P0050, R0032, R0038), the rest refused by
       the d(T) budget (N106 → F5b) or named. Open: increment 3, plane /
-      cylinder / cone onto the same chart; the `InteriorBranch` refusal (11
-      patches: an interior vertex outside the polygon, which the
-      `SurfaceChart` CDT drops silently).)*
+      cylinder / cone onto the same chart. An interior vertex relocated
+      past the curve is removed, §4.4.1's near-curve removal (P0049's two
+      cylinder bands now rebuild; corpus held).)*
 - **Moved to F5b:** retiring the d(T) refusal (N106). It waits on Stage-1
   interior sampling, which is F5b's one CDT per face; F2 closes without it.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof

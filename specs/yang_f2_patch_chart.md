@@ -92,7 +92,9 @@ answered by a guess.
    patch's budget (new vertices at `eval`, shared by both copies).
 8. **Interiors** keep today's rule (an old interior vertex is carried unless
    it lies on a cycle edge or is excluded); each takes its developed
-   coordinate, shifted by whole periods into the polygon.
+   coordinate, shifted by whole periods into the polygon. One inside on no
+   copy has been relocated past the curve and is removed (§4.4.1's
+   near-curve removal, `:563-564`).
 9. **d(T)** is computed per triangle on the polygon's coordinates; a
    degenerate corner takes the u of another corner of its triangle, so the
    covering rectangle is the wedge the triangle actually spans. The budget
@@ -154,9 +156,18 @@ refusal the cylinder and cone patches meet), 4 crossing cycles, 11
 `InteriorBranch` (P0034, P0049 — the cylinder `ThetaUnwrap` retries — and
 R0026, R0050, R0085, R0096), 1 `Lattice` (C0065, a genus-1 torus patch).
 
-**Open.** `InteriorBranch`: an old interior vertex lies outside the chart
-polygon on every copy — a relocated vertex past the curve. The `SurfaceChart`
-CDT drops such a vertex silently (its triangles classify outside); the paper
-removes a vertex too close to the curve (`:564-565`). Next: anchor one case,
-then drop it as that removal, named in the census. Increment 3 (one chart
-for every surface) follows.
+**`InteriorBranch` retired (same day).** Anchor (R0096, a tube band): the
+refused interior vertex sat 7.9e-5 from the nearest cycle vertex, outside the
+polygon on every copy — relocated past the curve. The `SurfaceChart` CDT drops
+such a vertex silently (its triangles classify outside); §4.4.1 removes a
+vertex too close to the curve (`:563-564`), and one past it is the extreme
+case. The domain chart now removes it, counted (`removed_outside` in the
+`DOMAIN` census line); the batch's foreign-reference scan still guards it.
+Corpus: **360C / 0W / 9E / 5EE / 0T, no category move**, hash moved only on
+P0049 (CORRECT, oracles pass): its two cylinder bands (2,225 and 8,874
+triangles, the old `ThetaUnwrap` refusals) now rebuild, removing 29 and 15
+vertices. Removals elsewhere: P0034 (3, 12), R0026 (4, 4), R0050 (1, 2, 6,
+9), R0085 (2, 2), R0096 (3). Torus and sphere patches now: 7 rebuilt, 77
+refused by the d(T) budget, 5 crossing cycles, 1 `Lattice`.
+
+**Next:** increment 3 (one chart for every surface).

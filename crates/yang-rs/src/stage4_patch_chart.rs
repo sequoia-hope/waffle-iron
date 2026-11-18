@@ -74,8 +74,6 @@ pub(crate) enum DomainRefusal {
     /// A cycle is shorter than 3 vertices, a vertex is in no triangle, or the
     /// polygon has zero area.
     Polygon,
-    /// An interior vertex lands inside the polygon on no copy.
-    InteriorBranch,
     /// A replaced triangle's d(T) could not be certified.
     Certify,
 }
@@ -111,6 +109,9 @@ pub(crate) struct DomainChart {
     /// Arc length per unit of u and of v at the polygon's centre: the scale
     /// the CDT's Delaunay criterion runs in.
     pub metric: [f64; 2],
+    /// Interior vertices lying outside the polygon on every copy (relocated
+    /// past the curve), removed rather than carried.
+    pub removed_outside: usize,
 }
 
 /// d(T) corners for a triangle with chart corners `uv`: a corner on a
@@ -712,10 +713,7 @@ pub(crate) fn domain_chart(
         {
             continue;
         }
-        inner.push((
-            v,
-            *dev.vert_uv.get(&v).ok_or(DomainRefusal::InteriorBranch)?,
-        ));
+        inner.push((v, *dev.vert_uv.get(&v).ok_or(DomainRefusal::Polygon)?));
     }
     // Interior vertices lying exactly on a seam segment `s0 → s1` (on any
     // copy along the wrap axis) become seam vertices: the CDT would split the
@@ -1003,8 +1001,12 @@ pub(crate) fn domain_chart(
         }
     };
 
-    // The remaining interior vertices, carried on the copy inside the polygon.
+    // The remaining interior vertices, carried on the copy inside the
+    // polygon. One inside on no copy has been relocated past the curve: it is
+    // removed, the extreme case of §4.4.1's "remove a mesh vertex if it is
+    // too close to the intersection curve" (`:563-564`).
     let mut interior = Vec::new();
+    let mut removed_outside = 0usize;
     for &(v, base) in &inner {
         if seam_verts.contains(&v) {
             continue;
@@ -1015,9 +1017,11 @@ pub(crate) fn domain_chart(
                 .iter()
                 .map(|k| shifted(base, ax, k * p))
                 .find(|&q| b.inside(q, &outer, &holes)),
+        };
+        match q {
+            Some(q) => interior.push(b.push(q, ChartVert::Mesh(v), false)),
+            None => removed_outside += 1,
         }
-        .ok_or(DomainRefusal::InteriorBranch)?;
-        interior.push(b.push(q, ChartVert::Mesh(v), false));
     }
 
     // The Delaunay metric: arc length per unit u and v at the polygon centre.
@@ -1046,6 +1050,7 @@ pub(crate) fn domain_chart(
         old_max,
         budget,
         metric,
+        removed_outside,
     })
 }
 
@@ -1361,6 +1366,27 @@ mod tests {
         );
         assert_eq!(chart(torus(), &m).unwrap().class, DomainClass::VBand);
         rebuild_holds(torus(), &m);
+    }
+
+    #[test]
+    fn an_interior_vertex_past_the_boundary_is_removed() {
+        // A torus disc whose interior vertex at cell corner (1, 1) was
+        // relocated past the patch's u = 0 edge.
+        let mut m = grid(
+            &torus(),
+            (0.0, 1.0, 4),
+            (2.5, 3.8, 4),
+            false,
+            false,
+            |_, _| true,
+        );
+        let v = 5 + 1; // row 1, column 1 (5 columns per row)
+        let q = torus().eval(Point2::new(-0.05, 2.5 + 1.3 / 4.0)).unwrap();
+        m.verts[v] = Point3::new(q[0], q[1], q[2]);
+        let c = chart(torus(), &m).expect("charts");
+        assert_eq!(c.removed_outside, 1);
+        let plan = rebuild_holds(torus(), &m);
+        assert!(plan.dropped.contains(&(v as u32)));
     }
 
     #[test]

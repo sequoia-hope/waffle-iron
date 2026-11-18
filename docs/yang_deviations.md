@@ -9096,7 +9096,9 @@ copy mapped to one mesh vertex (the old one on the point, else a new one);
 a CDT triangle with two corners on it has two identical 3D corners and is
 dropped, and a corner on it takes another corner's u for d(T); (3) the CDT's
 Delaunay criterion runs in the chart scaled per axis by |s_u| and |s_v| at
-the polygon centre. Wired in `rebuild_patch_update` for the patches the
+the polygon centre. An interior vertex inside the polygon on no copy
+(relocated past the curve) is removed — §4.4.1's near-curve removal, not a
+deviation. Wired in `rebuild_patch_update` for the patches the
 `SurfaceChart` rebuild cannot take (sphere and torus patches, and
 `ThetaUnwrap` / `ApexInPatch` refusals).
 

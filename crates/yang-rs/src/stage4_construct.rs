@@ -1282,9 +1282,10 @@ pub(crate) fn rebuild_patch_domain_gated(
         refusal,
     })?;
     log_update_census(&format!(
-        "DOMAIN patch={patch_index} class={:?} new_verts={} old_max={:.3e} budget={:.3e}",
+        "DOMAIN patch={patch_index} class={:?} new_verts={} removed_outside={} old_max={:.3e} budget={:.3e}",
         chart.class,
         chart.new_verts.len(),
+        chart.removed_outside,
         chart.old_max,
         chart.budget
     ));
