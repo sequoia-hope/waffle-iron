@@ -347,6 +347,12 @@ pub(crate) enum ConstructError {
     /// the parent triangle's orientation with the inserted vertex at its
     /// mint position.
     SplitFlip { patch: usize },
+    /// F2 [`rebuild_patch_domain`]: the parameter-domain chart refused the
+    /// patch (spec `specs/yang_f2_patch_chart.md` §3).
+    DomainChart {
+        patch: usize,
+        refusal: crate::stage4_patch_chart::DomainRefusal,
+    },
 }
 
 /// Which condition made [`rebuild_merge_fan`] declare the victim's fan
@@ -1202,6 +1208,192 @@ fn rebuild_patch_inner(
         new_verts,
         dropped,
         plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
+/// The §4.4.1 update's rebuild of one patch: the [`SurfaceChart`] rebuild
+/// where that chart serves the patch, and the parameter-domain chart
+/// ([`rebuild_patch_domain`]) where it does not — a surface it has no chart
+/// for, or a patch whose topology it refuses (one that wraps the azimuth
+/// other than as a band, or reaches a cone's apex). F2 increment 2 (spec
+/// `specs/yang_f2_patch_chart.md` §4); increment 3 moves every patch onto
+/// the domain chart.
+pub(crate) fn rebuild_patch_update(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+) -> Result<PatchRebuild, ConstructError> {
+    if !SurfaceChart::supports(&patch.surface) {
+        return rebuild_patch_domain(mesh, patch_index, patch, d_eps, excluded_interiors);
+    }
+    match rebuild_patch_planar_bounded_ex(mesh, patch_index, patch, d_eps, excluded_interiors) {
+        Err(ConstructError::ThetaUnwrap { .. } | ConstructError::ApexInPatch { .. }) => {
+            rebuild_patch_domain(mesh, patch_index, patch, d_eps, excluded_interiors)
+        }
+        other => other,
+    }
+}
+
+/// F2 (spec `specs/yang_f2_patch_chart.md`): the §4.4.1 update of one patch
+/// "totally operated in the parametric domain"
+/// (`refs/text/yang2025_hybrid_boolean.txt:560-561`) of its surface — the
+/// chart polygon of [`crate::stage4_patch_chart::domain_chart`] (a seam cut
+/// where the patch wraps a period, a degenerate edge where it covers an apex
+/// or pole), triangulated by CDT with the cycles as constraints, the
+/// interior vertices carried. A triangle with two corners on one degenerate
+/// edge has two identical 3D corners and is dropped; the fan round the apex
+/// or pole closes over it. Oriented by the boundary, d(T) recalculated per
+/// triangle against `min(old max, d_ε)` (`:568-571`).
+pub(crate) fn rebuild_patch_domain(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_domain_gated(mesh, patch_index, patch, d_eps, excluded_interiors, true)
+}
+
+/// [`rebuild_patch_domain`] with the d(T) budget gate switchable: the unit
+/// pins check a chart's topology on grids too coarse for the budget.
+pub(crate) fn rebuild_patch_domain_gated(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+    budget_gate: bool,
+) -> Result<PatchRebuild, ConstructError> {
+    use crate::stage4_patch_chart::{domain_chart, dt_corners, ChartVert};
+    let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+    let chart = domain_chart(
+        &patch.surface,
+        &mesh.verts,
+        &patch.cycles,
+        &old,
+        excluded_interiors,
+        d_eps,
+    )
+    .map_err(|refusal| ConstructError::DomainChart {
+        patch: patch_index,
+        refusal,
+    })?;
+    log_update_census(&format!(
+        "DOMAIN patch={patch_index} class={:?} new_verts={} old_max={:.3e} budget={:.3e}",
+        chart.class,
+        chart.new_verts.len(),
+        chart.old_max,
+        chart.budget
+    ));
+    let pool: Vec<Point2> = chart
+        .polygon
+        .verts
+        .iter()
+        .map(|p| Point2::new(chart.metric[0] * p.x(), chart.metric[1] * p.y()))
+        .collect();
+    let tris2 = cdt_with_interior_constraints(
+        &pool,
+        &chart.polygon.boundary,
+        &chart.polygon.holes,
+        &chart.interior,
+        &[],
+    )
+    .map_err(|error| ConstructError::Cdt {
+        patch: patch_index,
+        error,
+    })?;
+    let plan_verts = mesh.verts.len() as u32;
+    let mesh_of = |i: u32| -> u32 {
+        match chart.back[i as usize] {
+            ChartVert::Mesh(v) => v,
+            ChartVert::New(k) => plan_verts + k as u32,
+        }
+    };
+    let is_deg = |i: u32| chart.degenerate[i as usize];
+    let mut kept: Vec<[u32; 3]> = Vec::with_capacity(tris2.len());
+    for t in tris2 {
+        let m = t.map(mesh_of);
+        let repeats: Vec<usize> = (0..3).filter(|&k| m[k] == m[(k + 1) % 3]).collect();
+        if repeats.is_empty() {
+            kept.push(t);
+        } else if repeats
+            .iter()
+            .all(|&k| is_deg(t[k]) && is_deg(t[(k + 1) % 3]))
+        {
+            // Two copies of one degenerate point: a zero-area 3D triangle.
+            continue;
+        } else {
+            return Err(ConstructError::MalformedPatch { patch: patch_index });
+        }
+    }
+    if kept.is_empty() {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    // Orientation from the boundary: a directed boundary edge of the replaced
+    // triangles must be traversed the same way by the new ones.
+    let mut sense = 0i32;
+    'edges: for (u, v) in directed_boundary(&old) {
+        for t in &kept {
+            for k in 0..3 {
+                let (a, b) = (mesh_of(t[k]), mesh_of(t[(k + 1) % 3]));
+                if (a, b) == (u, v) {
+                    sense = 1;
+                    break 'edges;
+                }
+                if (a, b) == (v, u) {
+                    sense = -1;
+                    break 'edges;
+                }
+            }
+        }
+    }
+    if sense == 0 {
+        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
+    }
+    if sense < 0 {
+        for t in &mut kept {
+            t.swap(1, 2);
+        }
+    }
+    let mut new_tri_bounds = Vec::with_capacity(kept.len());
+    let mut new_max = 0.0f64;
+    for t in &kept {
+        let uv = t.map(|i| chart.polygon.verts[i as usize]);
+        let deg = t.map(is_deg);
+        let dt = crate::stage4_dt::d_of_t(&patch.surface, dt_corners(uv, deg))
+            .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
+        new_max = new_max.max(dt);
+        new_tri_bounds.push(dt);
+    }
+    if budget_gate && new_max > chart.budget {
+        return Err(ConstructError::ChordDegradation {
+            patch: patch_index,
+            old_max: chart.budget,
+            new_max,
+        });
+    }
+    let new_tris: Vec<[u32; 3]> = kept.iter().map(|t| t.map(mesh_of)).collect();
+    let used: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
+    if (0..chart.new_verts.len() as u32).any(|k| !used.contains(&(plan_verts + k))) {
+        return Err(ConstructError::MalformedPatch { patch: patch_index });
+    }
+    let dropped: BTreeSet<u32> = old
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|v| !used.contains(v))
+        .collect();
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris: patch.tris.clone(),
+        new_tris,
+        new_tri_bounds,
+        new_verts: chart.new_verts,
+        dropped,
+        plan_verts,
         plan_tris: mesh.tris.len() as u32,
     })
 }
@@ -4339,7 +4531,9 @@ fn log_update_census(msg: &str) {
             .append(true)
             .open(path)
         {
-            let _ = writeln!(f, "{case} {msg}");
+            // One write per line: `writeln!` writes in pieces, and parallel
+            // assay jobs appending to one file splice each other's lines.
+            let _ = f.write_all(format!("{case} {msg}\n").as_bytes());
         }
     }
 }
@@ -4486,6 +4680,7 @@ pub(crate) fn update_patches_ex_with_bounds(
     let mut cdt_crossing_refused = 0usize;
     let mut cdt_other_refused = 0usize;
     let mut cdt_bd_refused = 0usize;
+    let census_on = std::env::var_os("YANG_441_UPDATE_CENSUS").is_some();
 
     for (pi, (p, info)) in raw.iter().zip(infos.iter()).enumerate() {
         let p_ops = patch_ops_vec[pi];
@@ -4540,24 +4735,18 @@ pub(crate) fn update_patches_ex_with_bounds(
             "split-cycle<3".into()
         } else if split_cycles.is_empty() {
             "no-cycles".into()
-        } else if !SurfaceChart::supports(&info.inherited) {
-            format!("chart-unsupported:{}", surface_kind_name(&info.inherited))
         } else if !uniform_attr {
             "mixed-attribution".into()
         } else {
             String::new()
         };
-        if cycles_valid_for_cdt
-            && !split_cycles.is_empty()
-            && SurfaceChart::supports(&info.inherited)
-            && uniform_attr
-        {
+        if cycles_valid_for_cdt && !split_cycles.is_empty() && uniform_attr {
             let patch = SplicePatch {
                 cycles: split_cycles,
                 tris: p.tri_indices.clone(),
                 surface: info.inherited,
             };
-            match rebuild_patch_planar_bounded_ex(mesh, pi, &patch, chord_band, &BTreeSet::new()) {
+            match rebuild_patch_update(mesh, pi, &patch, chord_band, &BTreeSet::new()) {
                 Ok(plan) => {
                     let want_bd = if has_split_bd {
                         expected_boundary_after_splits(old_tris, p_ops, &splits)
@@ -4616,6 +4805,18 @@ pub(crate) fn update_patches_ex_with_bounds(
                     cdt_other_refused += 1;
                 }
             }
+        }
+        if census_on {
+            log_update_census(&format!(
+                "PATCH patch={pi} surface={} tris={} outcome={}",
+                surface_kind_name(&info.inherited),
+                p.tri_indices.len(),
+                if patch_plans[pi].is_some() {
+                    "ok"
+                } else {
+                    refusal.as_str()
+                }
+            ));
         }
 
         // A Fig. 11(a) patch the update could not rebuild keeps its triangles:

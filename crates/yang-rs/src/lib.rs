@@ -157,6 +157,7 @@ mod stage4_slit;
 // §4.4.1 Fig-11 merge selectors (fold-merge sites, run absorption, rehome
 // candidates) consumed by `stage5_topology::run_fold_merge_passes`.
 mod stage4_fold_risk;
+mod stage4_patch_chart;
 mod stage4_project;
 mod stage4_splice;
 // #169 / N2 — Yang step truncation. TWO primitives, both UNWIRED:

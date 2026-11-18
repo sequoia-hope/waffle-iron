@@ -207,7 +207,16 @@ intersected patches.
 - [ ] **The patch chart is the face's parameter domain** (F5a's interface),
       for every surface: whole-patch sphere and torus charts exist, and a
       cone apex is a point of the domain, not an `ApexInPatch` refusal
-      (matrix 4.4-09).
+      (matrix 4.4-09). *(2026-11-18, spec `specs/yang_f2_patch_chart.md`
+      increments 0–2: `stage4_patch_chart::domain_chart` charts any patch on
+      its `ParamSurface` domain — disc, azimuth band, tube band, a cap round
+      an apex or pole, a sphere zone — and the update takes every patch the
+      `SurfaceChart` rebuild cannot; N122. Corpus held, 360C/0W/9E/5EE/0T;
+      83 domain charts, 7 rebuilt (P0050, R0032, R0038), the rest refused by
+      the d(T) budget (N106 → F5b) or named. Open: increment 3, plane /
+      cylinder / cone onto the same chart; the `InteriorBranch` refusal (11
+      patches: an interior vertex outside the polygon, which the
+      `SurfaceChart` CDT drops silently).)*
 - **Moved to F5b:** retiring the d(T) refusal (N106). It waits on Stage-1
   interior sampling, which is F5b's one CDT per face; F2 closes without it.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
