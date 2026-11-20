@@ -639,16 +639,7 @@ pub(crate) fn rebuild_patch_planar_bounded_with_metric(
     excluded_interiors: &BTreeSet<u32>,
     metric: ChartMetric,
 ) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_inner(
-        mesh,
-        patch_index,
-        patch,
-        d_eps,
-        excluded_interiors,
-        metric,
-        None,
-        &mut Vec::new(),
-    )
+    rebuild_patch_inner(mesh, patch_index, patch, d_eps, excluded_interiors, metric)
 }
 
 /// N106 increment 2: the simplices of one curved patch's update CDT that the
@@ -667,33 +658,6 @@ pub(crate) struct CoincidentSplit {
     pub edges: Vec<(u32, u32)>,
 }
 
-/// [`rebuild_patch_planar_bounded_ex`] with the N106 increment-2 points: the
-/// patch CDT re-run with one interior surface point per coincident simplex
-/// (Fig. 11(c) generalized, `refs/text/yang2025_hybrid_boolean.txt:564-566`).
-/// The I2e retry does not run (the seeds are this pass's, not a grid);
-/// `seeds_out` receives every chart seed the plan inserted, so a later round
-/// can re-insert them.
-pub(crate) fn rebuild_patch_separating(
-    mesh: &Mesh,
-    patch_index: usize,
-    patch: &SplicePatch,
-    d_eps: Option<f64>,
-    split: &CoincidentSplit,
-    seeds_out: &mut Vec<Point2>,
-) -> Result<PatchRebuild, ConstructError> {
-    rebuild_patch_inner(
-        mesh,
-        patch_index,
-        patch,
-        d_eps,
-        &BTreeSet::new(),
-        ChartMetric::Isometric,
-        Some(split),
-        seeds_out,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
 fn rebuild_patch_inner(
     mesh: &Mesh,
     patch_index: usize,
@@ -701,8 +665,6 @@ fn rebuild_patch_inner(
     d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
     metric: ChartMetric,
-    split: Option<&CoincidentSplit>,
-    seeds_out: &mut Vec<Point2>,
 ) -> Result<PatchRebuild, ConstructError> {
     if !SurfaceChart::supports(&patch.surface) {
         return Err(ConstructError::NonPlanarPatch { patch: patch_index });
@@ -1049,93 +1011,6 @@ fn rebuild_patch_inner(
         Ok((new_tris, new_verts, new_tri_bounds))
     };
 
-    // N106 increment 2: one chart point per coincident simplex — the chart
-    // centroid of a triangle, the chart midpoint of an edge — on the branch
-    // inside the patch polygon, lifted exactly onto the surface by
-    // `run_attempt`. A point the polygon does not contain is skipped (the
-    // caller's re-check then still sees the coincidence and keeps the
-    // previous plan).
-    if let Some(split) = split {
-        let mid = theta_span.map(|(lo, hi)| 0.5 * (lo + hi));
-        let near = |q: Point2, to: Point2| -> Point2 {
-            if theta_span.is_none() {
-                return q;
-            }
-            let k = ((to.x() - q.x()) / std::f64::consts::TAU).round();
-            Point2::new(q.x() + k * std::f64::consts::TAU, q.y())
-        };
-        let inside = |q: Point2| -> bool {
-            crate::stage4_project::point_in_polygon(q, &p2.boundary, &p2.verts)
-                && !p2
-                    .holes
-                    .iter()
-                    .any(|h| crate::stage4_project::point_in_polygon(q, h, &p2.verts))
-        };
-        let place = |c: Point2| -> Option<Point2> {
-            let q = if band {
-                Point2::new(band_branch(c)?, c.y())
-            } else if let Some(m) = mid {
-                near(c, Point2::new(m, c.y()))
-            } else {
-                c
-            };
-            inside(q).then_some(q)
-        };
-        let uv = |v: u32| chart.project(mesh.verts[v as usize]);
-        let mut seeds = split.prior.clone();
-        let mut push = |q: Option<Point2>| {
-            if let Some(q) = q {
-                if !seeds.contains(&q) {
-                    seeds.push(q);
-                }
-            }
-        };
-        for t in &split.tris {
-            let p0 = uv(t[0]);
-            let (p1, p2_) = (near(uv(t[1]), p0), near(uv(t[2]), p0));
-            push(place(Point2::new(
-                (p0.x() + p1.x() + p2_.x()) / 3.0,
-                (p0.y() + p1.y() + p2_.y()) / 3.0,
-            )));
-        }
-        for &(u, v) in &split.edges {
-            let p0 = uv(u);
-            let p1 = near(uv(v), p0);
-            push(place(Point2::new(
-                0.5 * (p0.x() + p1.x()),
-                0.5 * (p0.y() + p1.y()),
-            )));
-        }
-        let out = run_attempt(&seeds)?;
-        // Every inserted point must be a vertex of the new triangulation —
-        // an unreferenced one would be appended to the mesh as an orphan.
-        let base = mesh.verts.len() as u32;
-        let used: BTreeSet<u32> = out.0.iter().flatten().copied().collect();
-        if (0..seeds.len() as u32).any(|k| !used.contains(&(base + k))) {
-            return Err(ConstructError::MalformedPatch { patch: patch_index });
-        }
-        seeds_out.clear();
-        seeds_out.extend(seeds);
-        let (new_tris, new_verts, new_tri_bounds) = out;
-        let kept: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
-        let dropped: BTreeSet<u32> = old
-            .iter()
-            .flatten()
-            .copied()
-            .filter(|v| !kept.contains(v))
-            .collect();
-        return Ok(PatchRebuild {
-            patch: patch_index,
-            old_tris: patch.tris.clone(),
-            new_tris,
-            new_tri_bounds,
-            new_verts,
-            dropped,
-            plan_verts: mesh.verts.len() as u32,
-            plan_tris: mesh.tris.len() as u32,
-        });
-    }
-
     let (new_tris, new_verts, new_tri_bounds) = match run_attempt(&[]) {
         Ok(out) => out,
         // I2e — a seedless curved rebuild that certifies coarser than what
@@ -1153,7 +1028,7 @@ fn rebuild_patch_inner(
             let mut rescued = None;
             let mut spacing = old_arc_span;
             for _ in 0..2 {
-                let seeds = i2e_seed_grid(&pool, &p2.boundary, &p2.holes, radius, spacing);
+                let seeds = i2e_seed_grid(&pool, &p2.boundary, &p2.holes, [radius, 1.0], spacing);
                 if !seeds.is_empty() {
                     match run_attempt(&seeds) {
                         Ok(out) => {
@@ -1212,13 +1087,9 @@ fn rebuild_patch_inner(
     })
 }
 
-/// The §4.4.1 update's rebuild of one patch: the [`SurfaceChart`] rebuild
-/// where that chart serves the patch, and the parameter-domain chart
-/// ([`rebuild_patch_domain`]) where it does not — a surface it has no chart
-/// for, or a patch whose topology it refuses (one that wraps the azimuth
-/// other than as a band, or reaches a cone's apex). F2 increment 2 (spec
-/// `specs/yang_f2_patch_chart.md` §4); increment 3 moves every patch onto
-/// the domain chart.
+/// The §4.4.1 update's rebuild of one patch, on the parameter domain of its
+/// surface ([`rebuild_patch_domain`]) for every surface (F2 increment 3,
+/// spec `specs/yang_f2_patch_chart.md` §4).
 pub(crate) fn rebuild_patch_update(
     mesh: &Mesh,
     patch_index: usize,
@@ -1226,15 +1097,7 @@ pub(crate) fn rebuild_patch_update(
     d_eps: Option<f64>,
     excluded_interiors: &BTreeSet<u32>,
 ) -> Result<PatchRebuild, ConstructError> {
-    if !SurfaceChart::supports(&patch.surface) {
-        return rebuild_patch_domain(mesh, patch_index, patch, d_eps, excluded_interiors);
-    }
-    match rebuild_patch_planar_bounded_ex(mesh, patch_index, patch, d_eps, excluded_interiors) {
-        Err(ConstructError::ThetaUnwrap { .. } | ConstructError::ApexInPatch { .. }) => {
-            rebuild_patch_domain(mesh, patch_index, patch, d_eps, excluded_interiors)
-        }
-        other => other,
-    }
+    rebuild_patch_domain(mesh, patch_index, patch, d_eps, excluded_interiors)
 }
 
 /// F2 (spec `specs/yang_f2_patch_chart.md`): the §4.4.1 update of one patch
@@ -1267,6 +1130,56 @@ pub(crate) fn rebuild_patch_domain_gated(
     excluded_interiors: &BTreeSet<u32>,
     budget_gate: bool,
 ) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_domain_inner(
+        mesh,
+        patch_index,
+        patch,
+        d_eps,
+        excluded_interiors,
+        budget_gate,
+        None,
+        &mut Vec::new(),
+    )
+}
+
+/// [`rebuild_patch_domain`] with the N106 increment-2 points: the patch CDT
+/// re-run with one interior surface point per coincident simplex (Fig. 11(c)
+/// generalized, `refs/text/yang2025_hybrid_boolean.txt:564-566`). The seeded
+/// retry does not run (the points are this pass's, not a grid); `seeds_out`
+/// receives every chart point the plan inserted, so a later round can
+/// re-insert them.
+pub(crate) fn rebuild_patch_domain_separating(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    split: &CoincidentSplit,
+    seeds_out: &mut Vec<Point2>,
+) -> Result<PatchRebuild, ConstructError> {
+    rebuild_patch_domain_inner(
+        mesh,
+        patch_index,
+        patch,
+        d_eps,
+        &BTreeSet::new(),
+        true,
+        Some(split),
+        seeds_out,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rebuild_patch_domain_inner(
+    mesh: &Mesh,
+    patch_index: usize,
+    patch: &SplicePatch,
+    d_eps: Option<f64>,
+    excluded_interiors: &BTreeSet<u32>,
+    budget_gate: bool,
+    split: Option<&CoincidentSplit>,
+    seeds_out: &mut Vec<Point2>,
+) -> Result<PatchRebuild, ConstructError> {
+    use crate::param_surface::{AnalyticInverse, ParamSurface};
     use crate::stage4_patch_chart::{domain_chart, dt_corners, ChartVert};
     let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
     let chart = domain_chart(
@@ -1289,98 +1202,216 @@ pub(crate) fn rebuild_patch_domain_gated(
         chart.old_max,
         chart.budget
     ));
-    let pool: Vec<Point2> = chart
-        .polygon
-        .verts
-        .iter()
-        .map(|p| Point2::new(chart.metric[0] * p.x(), chart.metric[1] * p.y()))
-        .collect();
-    let tris2 = cdt_with_interior_constraints(
-        &pool,
-        &chart.polygon.boundary,
-        &chart.polygon.holes,
-        &chart.interior,
-        &[],
-    )
-    .map_err(|error| ConstructError::Cdt {
-        patch: patch_index,
-        error,
-    })?;
     let plan_verts = mesh.verts.len() as u32;
-    let mesh_of = |i: u32| -> u32 {
-        match chart.back[i as usize] {
-            ChartVert::Mesh(v) => v,
-            ChartVert::New(k) => plan_verts + k as u32,
-        }
-    };
-    let is_deg = |i: u32| chart.degenerate[i as usize];
-    let mut kept: Vec<[u32; 3]> = Vec::with_capacity(tris2.len());
-    for t in tris2 {
-        let m = t.map(mesh_of);
-        let repeats: Vec<usize> = (0..3).filter(|&k| m[k] == m[(k + 1) % 3]).collect();
-        if repeats.is_empty() {
-            kept.push(t);
-        } else if repeats
+    let n_pool = chart.polygon.verts.len();
+    let n_chart_new = chart.new_verts.len() as u32;
+    let old_boundary = directed_boundary(&old);
+
+    // One CDT over the chart polygon extended with `seeds` (chart points).
+    // A seed is a new vertex at the surface point of its chart point, after
+    // the chart's own new vertices.
+    let run_attempt = |seeds: &[Point2]| -> Result<BoundedCdtOutput, ConstructError> {
+        let mut uv = chart.polygon.verts.clone();
+        uv.extend_from_slice(seeds);
+        let mut interior = chart.interior.clone();
+        interior.extend((n_pool..n_pool + seeds.len()).map(|i| i as u32));
+        let pool: Vec<Point2> = uv
             .iter()
-            .all(|&k| is_deg(t[k]) && is_deg(t[(k + 1) % 3]))
-        {
-            // Two copies of one degenerate point: a zero-area 3D triangle.
-            continue;
-        } else {
+            .map(|p| Point2::new(chart.metric[0] * p.x(), chart.metric[1] * p.y()))
+            .collect();
+        let tris2 = cdt_with_interior_constraints(
+            &pool,
+            &chart.polygon.boundary,
+            &chart.polygon.holes,
+            &interior,
+            &[],
+        )
+        .map_err(|error| ConstructError::Cdt {
+            patch: patch_index,
+            error,
+        })?;
+        let mesh_of = |i: u32| -> u32 {
+            match chart.back.get(i as usize) {
+                Some(ChartVert::Mesh(v)) => *v,
+                Some(ChartVert::New(k)) => plan_verts + *k as u32,
+                None => plan_verts + n_chart_new + (i - n_pool as u32),
+            }
+        };
+        let is_deg = |i: u32| chart.degenerate.get(i as usize).copied().unwrap_or(false);
+        let mut kept: Vec<[u32; 3]> = Vec::with_capacity(tris2.len());
+        for t in tris2 {
+            let m = t.map(mesh_of);
+            let repeats: Vec<usize> = (0..3).filter(|&k| m[k] == m[(k + 1) % 3]).collect();
+            if repeats.is_empty() {
+                kept.push(t);
+            } else if repeats
+                .iter()
+                .all(|&k| is_deg(t[k]) && is_deg(t[(k + 1) % 3]))
+            {
+                // Two copies of one degenerate point: a zero-area 3D triangle.
+                continue;
+            } else {
+                return Err(ConstructError::MalformedPatch { patch: patch_index });
+            }
+        }
+        if kept.is_empty() {
             return Err(ConstructError::MalformedPatch { patch: patch_index });
         }
-    }
-    if kept.is_empty() {
-        return Err(ConstructError::MalformedPatch { patch: patch_index });
-    }
-    // Orientation from the boundary: a directed boundary edge of the replaced
-    // triangles must be traversed the same way by the new ones.
-    let mut sense = 0i32;
-    'edges: for (u, v) in directed_boundary(&old) {
-        for t in &kept {
-            for k in 0..3 {
-                let (a, b) = (mesh_of(t[k]), mesh_of(t[(k + 1) % 3]));
-                if (a, b) == (u, v) {
-                    sense = 1;
-                    break 'edges;
-                }
-                if (a, b) == (v, u) {
-                    sense = -1;
-                    break 'edges;
+        // Orientation from the boundary: a directed boundary edge of the
+        // replaced triangles must be traversed the same way by the new ones.
+        let mut sense = 0i32;
+        'edges: for &(u, v) in &old_boundary {
+            for t in &kept {
+                for k in 0..3 {
+                    let (a, b) = (mesh_of(t[k]), mesh_of(t[(k + 1) % 3]));
+                    if (a, b) == (u, v) {
+                        sense = 1;
+                        break 'edges;
+                    }
+                    if (a, b) == (v, u) {
+                        sense = -1;
+                        break 'edges;
+                    }
                 }
             }
         }
-    }
-    if sense == 0 {
-        return Err(ConstructError::DegenerateOrientation { patch: patch_index });
-    }
-    if sense < 0 {
-        for t in &mut kept {
-            t.swap(1, 2);
+        if sense == 0 {
+            return Err(ConstructError::DegenerateOrientation { patch: patch_index });
         }
-    }
-    let mut new_tri_bounds = Vec::with_capacity(kept.len());
-    let mut new_max = 0.0f64;
-    for t in &kept {
-        let uv = t.map(|i| chart.polygon.verts[i as usize]);
-        let deg = t.map(is_deg);
-        let dt = crate::stage4_dt::d_of_t(&patch.surface, dt_corners(uv, deg))
-            .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
-        new_max = new_max.max(dt);
-        new_tri_bounds.push(dt);
-    }
-    if budget_gate && new_max > chart.budget {
-        return Err(ConstructError::ChordDegradation {
-            patch: patch_index,
-            old_max: chart.budget,
-            new_max,
-        });
-    }
-    let new_tris: Vec<[u32; 3]> = kept.iter().map(|t| t.map(mesh_of)).collect();
+        if sense < 0 {
+            for t in &mut kept {
+                t.swap(1, 2);
+            }
+        }
+        let mut new_tri_bounds = Vec::with_capacity(kept.len());
+        let mut new_max = 0.0f64;
+        for t in &kept {
+            let corners = t.map(|i| uv[i as usize]);
+            let deg = t.map(is_deg);
+            let dt = crate::stage4_dt::d_of_t(&patch.surface, dt_corners(corners, deg))
+                .map_err(|_| ConstructError::ChordCertify { patch: patch_index })?;
+            new_max = new_max.max(dt);
+            new_tri_bounds.push(dt);
+        }
+        if budget_gate && new_max > chart.budget {
+            return Err(ConstructError::ChordDegradation {
+                patch: patch_index,
+                old_max: chart.budget,
+                new_max,
+            });
+        }
+        let new_tris: Vec<[u32; 3]> = kept.iter().map(|t| t.map(mesh_of)).collect();
+        let mut new_verts = chart.new_verts.clone();
+        for &s in seeds {
+            let q = patch
+                .surface
+                .eval(s)
+                .map_err(|_| ConstructError::MalformedPatch { patch: patch_index })?;
+            new_verts.push(Point3::new(q[0], q[1], q[2]));
+        }
+        // Every new vertex must be a vertex of the new triangulation — an
+        // unreferenced one would be appended to the mesh as an orphan.
+        let used: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
+        if (0..new_verts.len() as u32).any(|k| !used.contains(&(plan_verts + k))) {
+            return Err(ConstructError::MalformedPatch { patch: patch_index });
+        }
+        Ok((new_tris, new_verts, new_tri_bounds))
+    };
+
+    let (new_tris, new_verts, new_tri_bounds) = if let Some(split) = split {
+        // One chart point per coincident simplex — the chart centroid of a
+        // triangle, the chart midpoint of an edge — read on one branch (each
+        // corner on the copy nearest the first; a corner on a degenerate
+        // point takes that azimuth) and placed on the copy inside the
+        // polygon. A point the polygon does not contain is skipped: the
+        // caller's re-check then still sees the coincidence and keeps the
+        // previous plan.
+        let chart_uv = |v: u32| -> Option<Point2> {
+            (0..n_pool)
+                .find(|&i| chart.back[i] == ChartVert::Mesh(v) && !chart.degenerate[i])
+                .map(|i| chart.polygon.verts[i])
+        };
+        let simplex_point = |vs: &[u32]| -> Option<Point2> {
+            let anchor = vs.iter().find_map(|&v| chart_uv(v))?;
+            let (mut su, mut sv) = (0.0f64, 0.0f64);
+            for &v in vs {
+                let p = mesh.verts.get(v as usize)?.as_array();
+                let q = patch.surface.inverse(p, Some(anchor)).ok()?;
+                su += q.x();
+                sv += q.y();
+            }
+            let n = vs.len() as f64;
+            chart.place(Point2::new(su / n, sv / n))
+        };
+        let mut seeds = split.prior.clone();
+        let mut push = |q: Option<Point2>| {
+            if let Some(q) = q {
+                if !seeds.contains(&q) {
+                    seeds.push(q);
+                }
+            }
+        };
+        for t in &split.tris {
+            push(simplex_point(t));
+        }
+        for &(u, v) in &split.edges {
+            push(simplex_point(&[u, v]));
+        }
+        let out = run_attempt(&seeds)?;
+        seeds_out.clear();
+        seeds_out.extend(seeds);
+        out
+    } else {
+        match run_attempt(&[]) {
+            Ok(out) => out,
+            // A rebuild that certifies coarser than what it replaces is
+            // retried with a deterministic interior seed grid at the replaced
+            // triangles' own sampling scale, halved once on a second failure
+            // (§4.1.2's interior sampling re-established; the d(T) gate
+            // re-verifies every attempt).
+            Err(ConstructError::ChordDegradation {
+                patch: ep,
+                old_max: eo,
+                new_max: en,
+            }) if chart.old_arc_span > 0.0 => {
+                let mut rescued = None;
+                let mut spacing = chart.old_arc_span;
+                for _ in 0..2 {
+                    let seeds = i2e_seed_grid(
+                        &chart.polygon.verts,
+                        &chart.polygon.boundary,
+                        &chart.polygon.holes,
+                        chart.metric,
+                        spacing,
+                    );
+                    if !seeds.is_empty() {
+                        match run_attempt(&seeds) {
+                            Ok(out) => {
+                                rescued = Some(out);
+                                break;
+                            }
+                            Err(ConstructError::ChordDegradation { .. }) => {}
+                            Err(e) => return Err(e),
+                        }
+                    }
+                    spacing *= 0.5;
+                }
+                match rescued {
+                    Some(out) => out,
+                    None => {
+                        return Err(ConstructError::ChordDegradation {
+                            patch: ep,
+                            old_max: eo,
+                            new_max: en,
+                        })
+                    }
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    };
+
     let used: BTreeSet<u32> = new_tris.iter().flatten().copied().collect();
-    if (0..chart.new_verts.len() as u32).any(|k| !used.contains(&(plan_verts + k))) {
-        return Err(ConstructError::MalformedPatch { patch: patch_index });
-    }
     let dropped: BTreeSet<u32> = old
         .iter()
         .flatten()
@@ -1392,7 +1423,7 @@ pub(crate) fn rebuild_patch_domain_gated(
         old_tris: patch.tris.clone(),
         new_tris,
         new_tri_bounds,
-        new_verts: chart.new_verts,
+        new_verts,
         dropped,
         plan_verts,
         plan_tris: mesh.tris.len() as u32,
@@ -1400,7 +1431,8 @@ pub(crate) fn rebuild_patch_domain_gated(
 }
 
 /// I2e seed grid: deterministic interior points at `spacing` (arc-length
-/// units) over the unwrapped chart polygon — strictly inside the outer
+/// units; `metric` is the arc length per unit of each chart axis) over the
+/// chart polygon — strictly inside the outer
 /// boundary, outside every hole, and at least `0.25·spacing` (arc metric)
 /// clear of every boundary edge. A seed ON a constraint would make spade
 /// split it one-sidedly (the F0059 hazard); the clearance choice is
@@ -1412,11 +1444,18 @@ fn i2e_seed_grid(
     pool: &[Point2],
     outer: &[u32],
     holes: &[Vec<u32>],
-    radius: f64,
+    metric: [f64; 2],
     spacing: f64,
 ) -> Vec<Point2> {
     const MAX_SEEDS: usize = 4096;
-    if !spacing.is_finite() || spacing <= 0.0 || !radius.is_finite() || radius <= 0.0 {
+    let [radius, rise] = metric;
+    if !spacing.is_finite()
+        || spacing <= 0.0
+        || !radius.is_finite()
+        || radius <= 0.0
+        || !rise.is_finite()
+        || rise <= 0.0
+    {
         return Vec::new();
     }
     let pt = |i: u32| pool[i as usize];
@@ -1434,8 +1473,9 @@ fn i2e_seed_grid(
         zhi = zhi.max(p.y());
     }
     let s_theta = spacing / radius;
+    let s_z = spacing / rise;
     let nt = ((thi - tlo) / s_theta).floor();
-    let nz = ((zhi - zlo) / spacing).floor();
+    let nz = ((zhi - zlo) / s_z).floor();
     if !nt.is_finite() || !nz.is_finite() || nt * nz > 4.0 * MAX_SEEDS as f64 {
         return Vec::new();
     }
@@ -1456,13 +1496,13 @@ fn i2e_seed_grid(
     };
     let clear_of = |p: Point2, ring: &[u32]| -> bool {
         let n = ring.len();
-        let (px, py) = (p.x() * radius, p.y());
+        let (px, py) = (p.x() * radius, p.y() * rise);
         let min_d2 = (0.25 * spacing) * (0.25 * spacing);
         for i in 0..n {
             let a = pt(ring[i]);
             let b = pt(ring[(i + 1) % n]);
-            let (ax, ay) = (a.x() * radius, a.y());
-            let (bx, by) = (b.x() * radius, b.y());
+            let (ax, ay) = (a.x() * radius, a.y() * rise);
+            let (bx, by) = (b.x() * radius, b.y() * rise);
             let (dx, dy) = (bx - ax, by - ay);
             let l2 = dx * dx + dy * dy;
             let t = if l2 > 0.0 {
@@ -1481,7 +1521,7 @@ fn i2e_seed_grid(
     let mut seeds = Vec::new();
     let mut theta = tlo + s_theta;
     while theta < thi {
-        let mut z = zlo + spacing;
+        let mut z = zlo + s_z;
         while z < zhi {
             let p = Point2::new(theta, z);
             if inside(p, outer)
@@ -1494,7 +1534,7 @@ fn i2e_seed_grid(
                 }
                 seeds.push(p);
             }
-            z += spacing;
+            z += s_z;
         }
         theta += s_theta;
     }
@@ -5239,7 +5279,7 @@ fn separate_coincident_simplices(
                 continue;
             };
             let mut used = Vec::new();
-            match rebuild_patch_separating(mesh, pi, sp, chord_band, &split, &mut used) {
+            match rebuild_patch_domain_separating(mesh, pi, sp, chord_band, &split, &mut used) {
                 Ok(plan) if plan_matches_boundary(&plan.new_tris, want_bd) => {
                     log_update_census(&format!(
                         "SEPARATED round={round} patch={pi} tris={} edges={} points={}",
@@ -6659,7 +6699,7 @@ mod tests {
             Point2::new(0.0, 2.0),
         ];
         let outer = vec![0u32, 1, 2, 3];
-        let seeds = i2e_seed_grid(&pool, &outer, &[], 2.0, 0.5);
+        let seeds = i2e_seed_grid(&pool, &outer, &[], [2.0, 1.0], 0.5);
         assert!(!seeds.is_empty(), "an open rectangle must seed");
         for s in &seeds {
             let arc = s.x() * 2.0;
@@ -6678,7 +6718,13 @@ mod tests {
         ]
         .concat();
         let hole = vec![4u32, 5, 6, 7];
-        let seeded = i2e_seed_grid(&pool_h, &outer, std::slice::from_ref(&hole), 2.0, 0.5);
+        let seeded = i2e_seed_grid(
+            &pool_h,
+            &outer,
+            std::slice::from_ref(&hole),
+            [2.0, 1.0],
+            0.5,
+        );
         for s in &seeded {
             let in_hole = s.x() > 0.2 && s.x() < 0.8 && s.y() > 0.4 && s.y() < 1.6;
             assert!(!in_hole, "seed {s:?} landed inside the hole");
@@ -6694,12 +6740,12 @@ mod tests {
             Point2::new(0.0, 2.0),
         ];
         let outer = vec![0u32, 1, 2, 3];
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 0.0).is_empty());
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, f64::NAN).is_empty());
-        assert!(i2e_seed_grid(&pool, &outer, &[], 0.0, 0.5).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], [2.0, 1.0], 0.0).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], [2.0, 1.0], f64::NAN).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], [0.0, 1.0], 0.5).is_empty());
         // A spacing far below the runaway backstop's grid bound refuses
         // loudly-by-decline instead of exploding.
-        assert!(i2e_seed_grid(&pool, &outer, &[], 2.0, 1e-6).is_empty());
+        assert!(i2e_seed_grid(&pool, &outer, &[], [2.0, 1.0], 1e-6).is_empty());
     }
 
     #[test]
@@ -6757,6 +6803,200 @@ mod tests {
         let r = rebuild_patch_planar(&mesh, 6, &patch).expect("straddling rebuild");
         assert!(r.dropped.is_empty());
         assert!(r.new_tris.iter().flatten().any(|&v| v == 4));
+    }
+
+    // ---- F2 increment 3: the update's one chart on plane, cylinder, cone ----
+
+    fn on_cylinder(p: Point3, radius: f64) -> bool {
+        ((p.x() * p.x() + p.y() * p.y()).sqrt() - radius).abs() <= 1e-12
+    }
+
+    fn update_plan(mesh: &Mesh, patch: &SplicePatch) -> PatchRebuild {
+        let plan = rebuild_patch_update(mesh, 0, patch, None, &BTreeSet::new())
+            .unwrap_or_else(|e| panic!("the update refused: {e:?}"));
+        let old: Vec<[u32; 3]> = patch.tris.iter().map(|&t| mesh.tris[t as usize]).collect();
+        assert!(
+            plan_matches_boundary(&plan.new_tris, &directed_boundary(&old)),
+            "the update keeps the patch's directed boundary"
+        );
+        let plan_verts = mesh.verts.len() as u32;
+        let used: BTreeSet<u32> = plan.new_tris.iter().flatten().copied().collect();
+        assert!(
+            (0..plan.new_verts.len() as u32).all(|k| used.contains(&(plan_verts + k))),
+            "every new vertex is used"
+        );
+        assert_eq!(plan.new_tri_bounds.len(), plan.new_tris.len());
+        plan
+    }
+
+    #[test]
+    fn the_update_carries_a_cylinder_interior_on_the_domain_chart() {
+        // Away from the domain's azimuth branch cut (u = 0) and across it.
+        for theta0 in [0.2, -0.4] {
+            let (mesh, patch) = cylinder_patch_mesh(theta0);
+            let r = update_plan(&mesh, &patch);
+            assert!(r.dropped.is_empty(), "the interior vertex is carried");
+            assert!(r.new_tris.iter().flatten().any(|&v| v == 4));
+            assert!(r.new_verts.is_empty(), "no seed where the gate passes");
+            let pos = |v: u32| mesh.verts[v as usize];
+            let want = area_vector(&mesh.tris, &pos);
+            let got = area_vector(&r.new_tris, &pos);
+            assert!(dot3(want, got) > 0.0, "outward sense preserved");
+        }
+    }
+
+    #[test]
+    fn the_update_seeds_a_wide_cylinder_rebuild_on_the_domain_chart() {
+        // The seedless CDT of the notched drum certifies coarser than the
+        // banding it replaces; the retry's seed grid at the old triangles'
+        // arc scale must pass the d(T) gate with points on the surface.
+        let (mesh, patch) = notched_drum(3.0);
+        let r = update_plan(&mesh, &patch);
+        assert!(!r.new_verts.is_empty(), "certifiable only with seeds");
+        assert!(r.new_verts.iter().all(|&p| on_cylinder(p, 2.0)));
+        assert!(r.dropped.is_empty(), "no boundary vertex is lost");
+        // Squashed, the seedless CDT already passes.
+        let (mesh, patch) = notched_drum(0.01);
+        assert!(update_plan(&mesh, &patch).new_verts.is_empty());
+    }
+
+    #[test]
+    fn the_update_drops_a_planar_interior_and_keeps_a_planar_hole() {
+        // A square fanned round its centre: the centre carries no shape.
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(4.0, 0.0, 0.0),
+                Point3::new(4.0, 4.0, 0.0),
+                Point3::new(0.0, 4.0, 0.0),
+                Point3::new(2.0, 2.0, 0.0),
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
+        };
+        let r = update_plan(
+            &mesh,
+            &plane_patch(vec![vec![0, 1, 2, 3]], vec![0, 1, 2, 3]),
+        );
+        assert_eq!(r.new_tris.len(), 2);
+        assert_eq!(r.dropped, BTreeSet::from([4u32]));
+        assert!(r.new_tri_bounds.iter().all(|&d| d == 0.0));
+
+        // The square with a square hole: eight triangles, both loops kept.
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(4.0, 0.0, 0.0),
+                Point3::new(4.0, 4.0, 0.0),
+                Point3::new(0.0, 4.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(3.0, 1.0, 0.0),
+                Point3::new(3.0, 3.0, 0.0),
+                Point3::new(1.0, 3.0, 0.0),
+            ],
+            tris: vec![
+                [0, 1, 5],
+                [0, 5, 4],
+                [1, 2, 6],
+                [1, 6, 5],
+                [2, 3, 7],
+                [2, 7, 6],
+                [3, 0, 4],
+                [3, 4, 7],
+            ],
+        };
+        let patch = plane_patch(vec![vec![0, 1, 2, 3], vec![5, 4, 7, 6]], (0..8).collect());
+        let r = update_plan(&mesh, &patch);
+        assert_eq!(r.new_tris.len(), 8);
+        assert!(r.dropped.is_empty() && r.new_verts.is_empty());
+    }
+
+    /// [`cylinder_patch_mesh`] on a cone of half-angle π/4 about z, stations
+    /// z ∈ [1, 2] — clear of the apex.
+    fn cone_patch_mesh(theta0: f64) -> (Mesh, SplicePatch) {
+        let cone = |theta: f64, z: f64| Point3::new(z * theta.cos(), z * theta.sin(), z);
+        let (t0, t1, tm) = (theta0, theta0 + 0.8, theta0 + 0.4);
+        let mesh = Mesh {
+            verts: vec![
+                cone(t0, 1.0),
+                cone(t1, 1.0),
+                cone(t1, 2.0),
+                cone(t0, 2.0),
+                cone(tm, 1.5),
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4]],
+        };
+        let patch = SplicePatch {
+            cycles: vec![vec![0, 1, 2, 3]],
+            tris: vec![0, 1, 2, 3],
+            surface: Surface::Cone {
+                apex: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle: std::f64::consts::FRAC_PI_4,
+            },
+        };
+        (mesh, patch)
+    }
+
+    #[test]
+    fn the_update_carries_a_cone_interior_on_the_domain_chart() {
+        for theta0 in [0.2, -0.4] {
+            let (mesh, patch) = cone_patch_mesh(theta0);
+            let r = update_plan(&mesh, &patch);
+            assert!(r.dropped.is_empty(), "the interior vertex is carried");
+            assert!(r.new_tri_bounds.iter().all(|&d| d > 0.0));
+        }
+    }
+
+    #[test]
+    fn the_separation_inserts_one_surface_point_per_coincident_simplex() {
+        // Across the branch cut, so a simplex's corners are read on one copy.
+        let (mesh, patch) = cylinder_patch_mesh(-0.4);
+        let first = update_plan(&mesh, &patch);
+        let tri = first.new_tris[0];
+        let other = first.new_tris[1];
+        let edge = (0..3)
+            .map(|k| (other[k], other[(k + 1) % 3]))
+            .find(|&(u, v)| (u == 4 || v == 4) && !(tri.contains(&u) && tri.contains(&v)))
+            .expect("an interior edge off the chosen triangle");
+        let split = CoincidentSplit {
+            prior: Vec::new(),
+            tris: vec![tri],
+            edges: vec![edge],
+        };
+        let mut seeds = Vec::new();
+        let r = rebuild_patch_domain_separating(&mesh, 0, &patch, None, &split, &mut seeds)
+            .expect("separated");
+        assert_eq!(seeds.len(), 2, "one chart point per simplex");
+        assert_eq!(r.new_verts.len(), 2);
+        assert!(r.new_verts.iter().all(|&p| on_cylinder(p, 1.0)));
+        let sorted = |mut t: [u32; 3]| {
+            t.sort_unstable();
+            t
+        };
+        assert!(
+            !r.new_tris.iter().any(|&t| sorted(t) == sorted(tri)),
+            "the coincident triangle is split"
+        );
+        assert!(
+            !r.new_tris
+                .iter()
+                .any(|t| t.contains(&edge.0) && t.contains(&edge.1)),
+            "the coincident edge is split"
+        );
+        assert!(plan_matches_boundary(
+            &r.new_tris,
+            &directed_boundary(&mesh.tris)
+        ));
+        // A later round re-inserts the earlier points as they were.
+        let again = CoincidentSplit {
+            prior: seeds.clone(),
+            ..Default::default()
+        };
+        let mut seeds2 = Vec::new();
+        let r2 = rebuild_patch_domain_separating(&mesh, 0, &patch, None, &again, &mut seeds2)
+            .expect("re-planned");
+        assert_eq!(seeds2, seeds);
+        assert_eq!(r2.new_verts, r.new_verts);
     }
 
     #[test]

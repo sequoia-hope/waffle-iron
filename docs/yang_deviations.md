@@ -221,7 +221,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N119 | OPEN (2026-11-17; F2, F1, F7) | I6.6 `cancel_subresolution_pleats` (`boolean.rs`) deletes an opposite-winding twin pair of kept triangles with no `f64` area before the I6 `NonManifoldInput` guard (R0049, R0019); the paper keeps implicit points, so the twins never exist (`:510-516`) |
 | N120 | OPEN (2026-11-17; F5a, F2, F7) | Post-Stage-2 near-welds before `keep_set`: KV10 (all-planar pairs) and KV15 (planar-only vertices of mixed pairs) weld vertices within `TAU_WORK·(1+scale)` to reconcile `f64` rounding of implicit points (matrix 4.2-22); PR-6 is N103, `weld_lpi_pencils` N70 |
 | N121 | OPEN (2026-11-17; F2, F3) | PR-KV9 collapses ellipse-junction vertices that relocated onto the same exact `f64` point (one curve crossing met by the chords several times); bit-exact, no band; §4.3 removes same-loop points during optimization (`:535-536`) |
-| N122 | OPEN (2026-11-18; F2) | The §4.4.1 domain chart supplies the seam and degenerate edges our faces lack: a patch that wraps a period is cut along a chosen seam, an apex or pole inside a patch is a degenerate polygon edge whose double-degenerate CDT triangles are dropped, and the CDT's Delaunay criterion runs in the chart scaled to arc length at the patch centre; the paper's NURBS faces carry seams and degenerate edges in the face loop (`:560-561`) |
+| N122 | OPEN (2026-11-18; F2 — the update's one chart since 2026-11-20) | The §4.4.1 domain chart supplies the seam and degenerate edges our faces lack: a patch that wraps a period is cut along a chosen seam, an apex or pole inside a patch is a degenerate polygon edge whose double-degenerate CDT triangles are dropped, and the CDT's Delaunay criterion runs in the chart scaled to arc length at the patch centre; the paper's NURBS faces carry seams and degenerate edges in the face loop (`:560-561`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
@@ -8733,6 +8733,22 @@ refusal is now an item of roadmap **F5b**, next to the one CDT per face with
 interior sampling it waits on (owner ruling 2026-11-06), so F2 closes without
 it. The increments already landed here are unchanged.
 
+**The refusal on the domain chart (2026-11-20, F2 item 2 increment 3).** The
+update's patch rebuild is `rebuild_patch_domain` for every surface (N122), so
+the I2d comparison and the I2e seed grid now run on the parameter-domain
+chart, on sphere and torus patches too (torus patches rebuilt on the corpus 7
+→ 20). The grid's spacing is the replaced triangles' widest extent along an
+axis the surface curves in, as an arc length at the chart centre. **Measured,
+both rebuilds on every plane, cylinder and cone patch of the corpus (16,249):
+the strict comparison `new > min(old max, d_ε)` is decided by rounding on 505
+cone patches of seven gear cases** (R0003, R0019, R0032, R0044, R0047, R0053,
+R0081) — the rebuild returns triangles whose bound equals the budget to 1
+part in 10¹², and the two charts' azimuth branches round d(T) differently
+(304 refused by the old chart only, 201 by the new only; corpus held either
+way). §4.4.1 recalculates d(T) "for the newly generated boundary triangles"
+(`:566-568`): a triangle the CDT returns unchanged is not newly generated.
+Open under this entry: an unchanged triangle keeps its bound.
+
 ### N107 — the §4.3 domain test on a curve's interior is a one-sided certificate, answered by §4.5.2 only
 
 **Paper.** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:528-532`): "if
@@ -9098,9 +9114,16 @@ dropped, and a corner on it takes another corner's u for d(T); (3) the CDT's
 Delaunay criterion runs in the chart scaled per axis by |s_u| and |s_v| at
 the polygon centre. An interior vertex inside the polygon on no copy
 (relocated past the curve) is removed — §4.4.1's near-curve removal, not a
-deviation. Wired in `rebuild_patch_update` for the patches the
-`SurfaceChart` rebuild cannot take (sphere and torus patches, and
-`ThetaUnwrap` / `ApexInPatch` refusals).
+deviation. It is the chart of every patch the §4.4.1 update rebuilds, on
+every surface (`rebuild_patch_update`, F2 increment 3, 2026-11-20), and of
+N106's coincident-simplex re-plan (`rebuild_patch_domain_separating`): one
+surface point per coincident simplex at its chart centroid or midpoint, on
+the copy inside the polygon. A rebuild over the d(T) budget is retried with a
+grid of interior surface points at the replaced triangles' arc scale along
+the axes the surface curves in (N106's seeded retry, now on every surface);
+an affine surface carries no interior vertex. `SurfaceChart` still charts
+the chain decimation's whole-patch fallback, the construct pass and the
+fan-local rebuilds.
 
 **How it departs from the paper.** None of the three is in the paper; each
 stands in for a seam or degenerate edge the paper's input face already has.
@@ -9114,4 +9137,6 @@ interface) make the cut and the degenerate edge inputs rather than choices;
 the scaled metric goes with N106's d(T) remediation. Not refused: a patch
 whose apex or pole lies ON a cycle (`DegenerateOnCycle`) and a torus patch of
 genus ≥ 1 (`Lattice`) keep their triangles, named in the census. **State:
-OPEN** (2026-11-18, F2 increment 2).
+OPEN** (2026-11-18, F2 increment 2; 2026-11-20, increment 3: one chart for
+the update, corpus held with no category move — 16,345 domain charts, cone
+patches rebuilt 2,357 → 2,519, torus 7 → 20; spec §6).

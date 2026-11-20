@@ -1673,10 +1673,13 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
                     bound > 0.0 && bound < 1.0,
                     "rebuilt curved tri {ti} must replace 50.x sentinel with positive d(T), got {bound}"
                 );
-                assert_eq!(
-                    bound.to_bits(),
-                    exact_dt.to_bits(),
-                    "rebuilt curved tri {ti} bound must equal d_of_t"
+                // The update recalculates d(T) on the surface's parameter
+                // domain (F2 increment 3), whose azimuth branch is [0, 2π);
+                // `cyl5_chart` reads the same triangle on (−π, π]. The bound
+                // is the same up to the rounding of that 2π translation.
+                assert!(
+                    (bound - exact_dt).abs() <= 1e-12 * exact_dt,
+                    "rebuilt curved tri {ti} bound {bound} must equal d_of_t {exact_dt}"
                 );
             }
         }

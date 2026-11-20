@@ -213,10 +213,16 @@ intersected patches.
       an apex or pole, a sphere zone — and the update takes every patch the
       `SurfaceChart` rebuild cannot; N122. Corpus held, 360C/0W/9E/5EE/0T;
       83 domain charts, 7 rebuilt (P0050, R0032, R0038), the rest refused by
-      the d(T) budget (N106 → F5b) or named. Open: increment 3, plane /
-      cylinder / cone onto the same chart. An interior vertex relocated
+      the d(T) budget (N106 → F5b) or named. An interior vertex relocated
       past the curve is removed, §4.4.1's near-curve removal (P0049's two
-      cylinder bands now rebuild; corpus held).)*
+      cylinder bands now rebuild; corpus held). 2026-11-20, increment 3:
+      the update rebuilds EVERY patch on the domain chart — plane, cylinder
+      and cone too — with the seeded retry and the coincident-simplex
+      re-plan on it; `SurfaceChart` is out of the update. Corpus held,
+      360C/0W/9E/5EE/0T, no category move, every oracle detail identical;
+      cone patches rebuilt 2,357 → 2,519, torus 7 → 20. Open: the chain
+      decimation's whole-patch fallback still charts with `SurfaceChart`;
+      the construct pass and fan-local sites go with their passes.)*
 - **Moved to F5b:** retiring the d(T) refusal (N106). It waits on Stage-1
   interior sampling, which is F5b's one CDT per face; F2 closes without it.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
@@ -443,3 +449,5 @@ the first known item.
 | 2026-11-17 | Ledger catch-up (not a milestone step): N110–N118 — the Stage-6 envelope prepass (F3), the cylinder patch merge, `trim_beyond_corner_phantoms`, `run_absorption_attempt` (F2), the I6.5 wedge dedup, and four Stage-0 reconciliation passes (F6) had no entry; N100 item 6 (`SurfacePair` creases outside T2) measured on the corpus; item 10 (cone interiors deaf to §4.5.2) added | 75 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-17 | Ledger catch-up (not a milestone step): N119–N121 — the I6.6 pleat cancellation, the KV10/KV15 post-Stage-2 near-welds (F5a/F2), the PR-KV9 junction-twin collapse; N113 amended (`rehome_attempt` admits sites by surface-type count), N116 widened to the circle arms, N117 (post-overlay rim snap), N25 (n-ary 3D `MIN_FEATURE_SIZE` collapse). Two leads dismissed: the planar `merge_same_plane_patches` half is cleanup §2b / N53, the n-ary collapse is N25. No geometry changed | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-15 | Not a milestone step — the quiet rotation mismatches read. R0057 moved is the unmoved solid (every edge on the unmoved curves to 7e-14; its torus face is rebuilt without a seam, which `signed_volume` does not read). The sweep probe reads place (`geo`): no mesh-only `OK` row is off by more than 1.2e-3 of its body. F0094 moved is two bodies because a crossing disc pair has no §4.5.5 overlay and the arrangement sees coplanar caps only on an axis-aligned plane — **N108 ledgered, OPEN, an F6 item**; matrix 4.5.5-07 FAITHFUL → PARTIAL. No kernel change | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-18 | F2 item 2, increments 0–2 (`specs/yang_f2_patch_chart.md`): `stage4_patch_chart::domain_chart` charts a patch on its `ParamSurface` domain (disc, azimuth band, tube band, cap round an apex or pole, sphere zone); the update takes sphere and torus patches and cone caps on it. N122 ledgered. An interior vertex relocated past the curve is removed | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | 150fc2f2, 1906b5e8 |
+| 2026-11-20 | F2 item 2, increment 3: the update rebuilds every patch on the domain chart (plane, cylinder and cone too), with the seeded retry and the coincident-simplex re-plan on it. Both rebuilds compared on 16,249 patches first: plane and cylinder agree on every patch; of 563 cone differences 505 are rounding in the d(T) comparison (N106) and 58 are patches only the new chart rebuilds. No category move, every oracle detail identical, geometry hash identical on 364 of 374 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

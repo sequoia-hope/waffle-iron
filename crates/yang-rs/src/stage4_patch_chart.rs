@@ -112,6 +112,41 @@ pub(crate) struct DomainChart {
     /// Interior vertices lying outside the polygon on every copy (relocated
     /// past the curve), removed rather than carried.
     pub removed_outside: usize,
+    /// The surface's period on each axis.
+    pub period: [Option<f64>; 2],
+    /// The replaced triangles' sampling scale as an arc length: the widest
+    /// of them along an axis the surface curves in, the smaller of the two
+    /// where it curves in both. Zero on a surface that curves in neither.
+    pub old_arc_span: f64,
+}
+
+impl DomainChart {
+    /// The copy of `q` (whole periods away on each periodic axis) inside the
+    /// chart polygon and outside its holes.
+    pub(crate) fn place(&self, q: Uv) -> Option<Uv> {
+        const KS: [f64; 5] = [0.0, -1.0, 1.0, -2.0, 2.0];
+        let shifts = |p: Option<f64>| -> Vec<f64> {
+            match p {
+                Some(p) => KS.iter().map(|k| k * p).collect(),
+                None => vec![0.0],
+            }
+        };
+        for du in shifts(self.period[0]) {
+            for dv in shifts(self.period[1]) {
+                let c = Point2::new(q.x() + du, q.y() + dv);
+                if point_in_polygon(c, &self.polygon.boundary, &self.polygon.verts)
+                    && !self
+                        .polygon
+                        .holes
+                        .iter()
+                        .any(|h| point_in_polygon(c, h, &self.polygon.verts))
+                {
+                    return Some(c);
+                }
+            }
+        }
+        None
+    }
 }
 
 /// d(T) corners for a triangle with chart corners `uv`: a corner on a
@@ -626,10 +661,16 @@ pub(crate) fn domain_chart(
 
     // The replaced triangles' certified bound, on their developed corners.
     let mut old_max = 0.0f64;
+    let mut old_span = [0.0f64; 2];
     for ti in 0..old.len() {
         let uv = dt_corners(dev.corner[ti], dev.deg[ti]);
         let d = crate::stage4_dt::d_of_t(surface, uv).map_err(|_| DomainRefusal::Certify)?;
         old_max = old_max.max(d);
+        for (ax, span) in old_span.iter_mut().enumerate() {
+            let c = uv.map(|q| coord(q, ax));
+            let ext = c[0].max(c[1]).max(c[2]) - c[0].min(c[1]).min(c[2]);
+            *span = span.max(ext);
+        }
     }
     let budget = match d_eps {
         Some(e) if e.is_finite() && e > 0.0 => old_max.min(e),
@@ -694,7 +735,9 @@ pub(crate) fn domain_chart(
 
     // Interior vertices: every old vertex not on a cycle, not excluded, not
     // on a degenerate point, not on a cycle edge (a removed vertex, §4.4.1),
-    // with its developed coordinate.
+    // with its developed coordinate. On an affine surface an interior vertex
+    // carries no shape (d(T) ≡ 0 for any triangulation of the polygon) and is
+    // not carried.
     let on_cycle_edge = |v: u32| -> bool {
         cycles.iter().any(|cyc| {
             let n = cyc.len();
@@ -705,8 +748,10 @@ pub(crate) fn domain_chart(
     };
     let deg_mesh_verts: BTreeSet<u32> = dev.deg_vertex.values().flatten().copied().collect();
     let mut inner: Vec<(u32, Uv)> = Vec::new();
+    let affine = surface.is_affine();
     for v in old.iter().flatten().copied().collect::<BTreeSet<u32>>() {
-        if cycle_set.contains(&v)
+        if affine
+            || cycle_set.contains(&v)
             || excluded.contains(&v)
             || deg_mesh_verts.contains(&v)
             || on_cycle_edge(v)
@@ -1032,10 +1077,32 @@ pub(crate) fn domain_chart(
     }
     let centre = Point2::new(0.5 * (lo[0] + hi[0]), 0.5 * (lo[1] + hi[1]));
     let norm = |a: [f64; 3]| (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
-    let metric = match surface.derivs(centre) {
-        Ok(d) if norm(d.su) > 0.0 && norm(d.sv) > 0.0 => [norm(d.su), norm(d.sv)],
+    let derivs = surface.derivs(centre).ok();
+    let metric = match &derivs {
+        Some(d) if norm(d.su) > 0.0 && norm(d.sv) > 0.0 => [norm(d.su), norm(d.sv)],
         _ => [1.0, 1.0],
     };
+    // The axes the surface curves along at the centre: a nonzero second
+    // derivative across the tangent plane.
+    let mut old_arc_span = 0.0f64;
+    if let Some(d) = &derivs {
+        let n = [
+            d.su[1] * d.sv[2] - d.su[2] * d.sv[1],
+            d.su[2] * d.sv[0] - d.su[0] * d.sv[2],
+            d.su[0] * d.sv[1] - d.su[1] * d.sv[0],
+        ];
+        let across = |a: [f64; 3]| a[0] * n[0] + a[1] * n[1] + a[2] * n[2];
+        for (ax, second) in [(0, d.suu), (1, d.svv)] {
+            let arc = old_span[ax] * metric[ax];
+            if across(second) != 0.0 && arc > 0.0 {
+                old_arc_span = if old_arc_span > 0.0 {
+                    old_arc_span.min(arc)
+                } else {
+                    arc
+                };
+            }
+        }
+    }
     Ok(DomainChart {
         class,
         polygon: Patch {
@@ -1051,6 +1118,8 @@ pub(crate) fn domain_chart(
         budget,
         metric,
         removed_outside,
+        period: ctx.period,
+        old_arc_span,
     })
 }
 

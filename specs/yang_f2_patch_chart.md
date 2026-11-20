@@ -24,20 +24,20 @@ two circles, a cone cap by one. The patch chart therefore has to supply
 what the NURBS face loop carries: cut the patch open along a seam, and
 represent an apex or pole as a degenerate edge.
 
-## 2. What the code does (2026-11-18)
+## 2. What the code does (2026-11-20)
 
-`stage4_construct::rebuild_patch_inner` (the update primitive behind
-`update_patches_ex_with_bounds`) charts a patch with `SurfaceChart`
-(plane, cylinder, cone; `stage4_project.rs`):
+The §4.4.1 update (`update_patches_ex_with_bounds`) rebuilds every
+intersected patch through `stage4_construct::rebuild_patch_update`, which is
+the domain chart of §3 for every surface (`rebuild_patch_domain`), and
+re-plans a patch for N106's coincident-simplex separation on the same chart
+(`rebuild_patch_domain_separating`).
 
-- a patch whose cycles all have azimuth winding 0 is unwrapped onto one
-  θ branch (`stage4_splice::unwrap_theta`);
-- a patch with two opposite encircling cycles is a BAND, cut open along a
-  clear seam between two cycle vertices (`band_patch_from_cycles`);
-- anything else refuses: sphere and torus patches (`NonPlanarPatch`; the
-  update gates them out as `chart-unsupported:{Sphere,Torus}`), a cone cap
-  (one encircling cycle — `ThetaUnwrap`), a cone patch touching its apex
-  (`ApexInPatch`).
+`SurfaceChart` (`stage4_project.rs`; plane, cylinder, cone, with
+`unwrap_theta` and `band_patch_from_cycles`) still charts three callers
+outside the update: the whole-patch fallback of the §4.3.4 chain decimation
+(`stage4_chain_decimate.rs`), the construct pass's seam replacement
+(`stage5_topology/construct.rs`, `stage4_construct.rs` `rebuild_patch_planar_bounded`)
+and the fan-local rebuilds (§4 item 4).
 
 ## 3. The design
 
@@ -90,18 +90,31 @@ answered by a guess.
    (SPHERE-ZONE) is an iso-line: straight in 3D on a cone, a meridian arc on
    a sphere, subdivided in v until each piece's chord sag is at most the
    patch's budget (new vertices at `eval`, shared by both copies).
-8. **Interiors** keep today's rule (an old interior vertex is carried unless
-   it lies on a cycle edge or is excluded); each takes its developed
-   coordinate, shifted by whole periods into the polygon. One inside on no
-   copy has been relocated past the curve and is removed (§4.4.1's
-   near-curve removal, `:563-564`).
+8. **Interiors.** An old interior vertex is carried unless it lies on a
+   cycle edge or is excluded; each takes its developed coordinate, shifted
+   by whole periods into the polygon. One inside on no copy has been
+   relocated past the curve and is removed (§4.4.1's near-curve removal,
+   `:563-564`). On an affine surface (`ParamSurface::is_affine`) no interior
+   is carried: d(T) ≡ 0 for any triangulation of the polygon.
 9. **d(T)** is computed per triangle on the polygon's coordinates; a
    degenerate corner takes the u of another corner of its triangle, so the
    covering rectangle is the wedge the triangle actually spans. The budget
    is today's `min(old max, d_ε)`, the old max read on the developed old
    triangles.
 10. **Orientation** is read from the boundary (a directed cycle edge of the
-    old triangles must be traversed the same way), as for bands today.
+    old triangles must be traversed the same way).
+11. **Seeded retry.** A CDT that certifies above the budget is retried with
+    a deterministic interior grid of surface points (`i2e_seed_grid`, on the
+    chart polygon) at the replaced triangles' own sampling scale, halved
+    once: the widest old triangle along an axis the surface curves in (a
+    nonzero second derivative across the tangent plane at the chart centre),
+    as an arc length, the smaller of the two where it curves in both. The
+    d(T) gate re-verifies every attempt.
+12. **Coincident-simplex points** (N106 increment 2). A re-plan inserts one
+    surface point per simplex the other operand's mesh also holds: the chart
+    centroid of a triangle or midpoint of an edge, its corners read on the
+    copy nearest one chart vertex, placed on the copy inside the polygon
+    (`DomainChart::place`).
 
 The CDT's Delaunay criterion runs in the chart scaled to arc length at the
 patch's reference radius (the isometric idea of N106, one scale per axis).
@@ -129,7 +142,7 @@ paper's NURBS faces do.
 3. **One chart for every surface**: the plane, cylinder and cone paths move
    onto the module (`SurfaceChart` retires from the update). Not
    hash-identical (the inverse's branch is `[0, 2π)`, `atan2`'s is
-   `(−π, π]`); gate: corpus held.
+   `(−π, π]`); gate: corpus held. **Landed 2026-11-20 (§6).**
 4. The fan-local `ApexInPatch` sites (`rebuild_merge_fan`,
    `refill_fan_hole_*`, `fan_rebuild_core`, `rebuild_group_fan`) belong to
    repairs F2 retires; they are not converted, they go with their passes.
@@ -170,4 +183,57 @@ vertices. Removals elsewhere: P0034 (3, 12), R0026 (4, 4), R0050 (1, 2, 6,
 9), R0085 (2, 2), R0096 (3). Torus and sphere patches now: 7 rebuilt, 77
 refused by the d(T) budget, 5 crossing cycles, 1 `Lattice`.
 
-**Next:** increment 3 (one chart for every surface).
+## 6. Increment 3 measured (2026-11-20)
+
+The domain rebuild first gained what the `SurfaceChart` rebuild had and it
+lacked: the seeded retry (§3 item 11), the coincident-simplex points
+(item 12) and the affine interior rule (item 8).
+
+**Per-patch comparison**, one release binary, both rebuilds run on every
+patch the `SurfaceChart` rebuild serves (16,249 patches), the corpus at
+1906b5e8:
+
+| surface | same outcome | differs |
+|---|---|---|
+| plane | 12,182 (11,871 rebuilt, 306 crossing cycles, 5 duplicate vertex) | 0 |
+| cylinder | 884 (295 rebuilt, 572 d(T) budget, 14 crossing, 3 duplicate) | 0 |
+| cone | 2,619 (2,156 rebuilt, 440 d(T) budget, 23 crossing) | 564 |
+
+563 of the cone differences are the d(T) budget; the other is a patch
+(R0003) whose cycles crossed in the old chart only.
+
+- **505 are rounding**, all in seven gear cases (R0003, R0019, R0032, R0044,
+  R0047, R0053, R0081): the refused side's bound exceeds the budget by less
+  than 1 part in 10¹² (R0003 patch 15: `1.2536554243056315` against
+  `1.2536554243056457`). 304 the old chart refused and the new rebuilds, 201
+  the reverse. The rebuild returns triangles with the bound of the ones it
+  replaces, and the strict comparison `new > min(old max, d_ε)` is decided
+  by the rounding of d(T) on two azimuth branches.
+- **58 are real, and every one is a patch the old chart refused and the new
+  rebuilds**: 57 with seeds, 1 without (54 in the gear cases, one cone patch
+  each in P0008, P0017, P0049, P0052). The seed grid's spacing along the
+  axis now reads the cone's radius at the chart centre; the old read it at
+  the widest station.
+
+**Flipped.** Corpus: **360C / 0W / 9E / 5EE / 0T, no category move, every
+oracle detail string identical on all 374 cases.** Canonical geometry hash
+identical on 364 cases; the ten that moved are the seven gear cases above,
+P0008 and P0049 (a seeded cone patch each) and R0025 (a torus patch rebuilt
+by the seeded retry). The update's census: cone patches rebuilt 2,357 → 2,519
+(d(T) refusals 803 → 642), torus patches rebuilt 7 → 20 (the seeded retry:
+P0050 4 → 7, R0032 2 → 10, R0025 and R0050 one each), plane and cylinder
+counts unchanged. 16,345 domain charts: 15,893 DISC, 409 U-BAND, 41 V-BAND,
+2 CAP. The coincident-simplex separation re-planned no patch on the corpus
+(as before).
+
+**Open, named.**
+
+- The d(T) budget comparison is decided by rounding where a rebuild returns
+  triangles of equal bound. §4.4.1 recalculates d(T) "for the newly
+  generated boundary triangles" (`:566-568`); a triangle the CDT returns
+  unchanged is not newly generated and should keep its bound. N106.
+- The chain decimation's whole-patch fallback and the construct pass still
+  chart with `SurfaceChart` (§2).
+
+**Next:** the chain decimation's whole-patch fallback onto the domain chart;
+then F2's next unchecked item.
