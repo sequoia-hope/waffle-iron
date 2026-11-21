@@ -98,8 +98,17 @@ quiet ones as on 2026-11-15 (F0055 motions 0 and 1, F0060 motion 2, F0094
 motions 0 and 3, R0057 motion 0). Seed 6 at a 900 s budget: 189C / 0W / 9E /
 2T (187C / 0W / 10E / 3T on 2026-11-06).
 
-**Unread.** Why R0003 no longer needs re-homing. The anatomy of P0027's
-site and why no output trigger sees it.
+**P0027 motion 0, read from one trace** (ledger N2 has the detail): the
+body without the merge carries what fits a zero-area spur along a crease of
+operand A, 0.066 long. The Boolean concerned runs once with an empty failure
+set: its update refuses the cylinder patch holding the overrun crease vertex
+on the d(T) budget (N106), which records nothing. No output trigger reads a
+spur. Over the corpus the update refuses 1,281 of 16,368 patch updates on
+that budget (170 cases) and 349 as crossing cycles (37 cases, recorded as
+T3 sites).
+
+**Unread.** Why R0003 no longer needs re-homing. Why one motion in four of
+P0027 reaches the refusal, and where the other corner-merge customers sit.
 
 ## 2026-11-15 (F0094, F0060, F0055 moved rigidly, read) — **F0094 is a Stage-0 gap: two discs whose rims cross get no §4.5.5 overlay, and the arrangement sees their caps as coplanar only on an axis-aligned plane (N108, an F6 item). F0060 and F0055 are authored exact tangencies; how a pinch is grouped is discontinuous in the input**
 

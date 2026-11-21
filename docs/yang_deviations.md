@@ -538,16 +538,41 @@ were deleted the same day (N113).
   not finished; the pass applies in neither) and every build is bit-identical
   except **P0027 motion 0**: three bodies with χ = 2 and the same mesh volume
   (1.575676), no error, and a shape 8.06e-3 of the diagonal away from the
-  unmoved body (3.5e-4 with the merge), from the fourth operation on. A quiet
-  wrong body: no failure trigger records it.
+  unmoved body (3.5e-4 with the merge), from the fourth operation on.
+- **What that body is** (one trace: `YANG_441_VERBOSE`, `YANG_452_PROBE`,
+  `YANG_441_UPDATE_CENSUS`). The numbers fit a zero-area spur: a face loop
+  that walks 0.066 along a crease of operand A, from the relocated junction
+  to the crease vertex it overran and back (8.06e-3 of the 8.196 diagonal is
+  the distance between the two; the emitted loop itself was not read). χ and
+  the volume do not see a spur, and `output_loop_crossings` counts two
+  segments that straddle each other's lines, which an edge walked out and
+  back does not.
+- **Where it comes from.** The Boolean concerned runs once, with an empty
+  failure set. Its §4.4.1 update refuses the cylinder patch holding the
+  crease vertex on the d(T) budget (N106), which records nothing; by the
+  census it rebuilds the plane patch on the other side of the crease, so
+  with the vertex still on its cycle. The corner merge then removes the
+  vertex by a fan rebuild in both patches. The build's other corner merge is in a run the
+  §4.5.2 loop discards: there the update refuses both holders as
+  `cdt-crossing`, which is a recorded T3 site, and the refined run is
+  adopted with no merge.
+- **The update's refusals on the corpus** (same census, every run of every
+  case, 16,368 patch updates): 14,675 rebuilt; 1,281 refused on the d(T)
+  budget in 170 cases (N106, unrecorded); 349 refused as crossing cycles in
+  37 cases (recorded, T3; 180 of them in C0117); 25 boundary mismatches,
+  22 mixed attributions, 8 other CDT refusals, 7 plans keeping a moved
+  degenerate triangle, 1 chart refusal.
 - **Consequence.** The merge stays, pinned by
   `test-harness/tests/rigid_motion_sweep.rs::p0027_moved_rigidly_is_the_unmoved_body`
-  (motion 0 reads `DIFF` without the merge). Its retirement waits on two
-  things: the Stage-4 update removing the overrun vertex itself at that
-  site, and a trigger that reads such a fold on the emitted body.
-- **Unread:** the anatomy of P0027's site (which face, which vertex, why
-  only one motion in four), and why the output triggers (T3, T4, T8,
-  `output_loop_crossings`) pass it.
+  (motion 0 reads `DIFF` without the merge). Its one measured customer is a
+  d(T)-refusal site, so it retires when the update no longer leaves an
+  overrun boundary vertex behind a refused patch: with N106's refusal (F5b),
+  or by the update applying Fig. 11(b) to the boundary cycle before it
+  triangulates. Either way a trigger has to read a spur on the emitted
+  body first, so that the removal is loud where it is wrong.
+- **Unread:** why only one motion in four reaches that refusal, and whether
+  the corner merges of the other customers (F0064, F0067, R0070, R0095, R0050)
+  sit at d(T) refusals or at crossing refusals of discarded runs.
 
 **Amendment (2026-10-17, compliance matrix L-5 / M-5 / F-2).** Three
 corrections to the update below. (1) It claimed "redundant / near-boundary

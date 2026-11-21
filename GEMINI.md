@@ -54,6 +54,12 @@ like this. the fixes must be principled. the principles are the paper."*
   §4.4.1(a) unzip's arms moved into `update_patches_ex`). Let the refusal
   reach the loud STOP (the §4.5.2 loop refines it), measure what breaks, and
   build the mechanism for that.
+- **"No customer" is a claim about the checks run.** Before deleting a kernel
+  mechanism, run the whole-corpus rigid-motion sweep with it and without it
+  (`docs/TESTING.md` §"Running the rigid-motion sweep") and diff the lines,
+  `hash=` included. The corpus and a prospector seed hold each case in one
+  orientation: the Stage-5 corner merge changes no unmoved body and one
+  rotated one (P0027, 2026-11-21, ledger N2).
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.

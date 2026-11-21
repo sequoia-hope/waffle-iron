@@ -203,7 +203,15 @@ intersected patches.
 - [ ] Every refusal class of `update_patch` is either built or named as a
       §4.5.2 site (F-2 did the crossing class). *(2026-10-31: the hole-first
       chart fixed; open — the self-touching split cycle (P0040) and the d(T)
-      budget refusal, which is not the paper's operation at all — N106.)*
+      budget refusal, which is not the paper's operation at all — N106.
+      Census 2026-11-21, every run of every corpus case, 16,368 patch
+      updates: 14,675 rebuilt; 1,281 refused on the d(T) budget (170 cases,
+      recorded nowhere); 349 as crossing cycles (37 cases, a recorded T3
+      site); 25 boundary mismatches, 22 mixed attributions, 8 other CDT
+      refusals, 7 plans keeping a moved degenerate triangle, 1 chart
+      refusal. A d(T) refusal that leaves an overrun boundary vertex in
+      place is what the Stage-5 corner merge repairs in P0027 moved rigidly
+      (N2).)*
 - [ ] **The patch chart is the face's parameter domain** (F5a's interface),
       for every surface: whole-patch sphere and torus charts exist, and a
       cone apex is a point of the domain, not an `ApexInPatch` refusal
