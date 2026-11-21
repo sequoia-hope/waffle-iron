@@ -1086,14 +1086,13 @@ pub(crate) fn reconstruct_topology_stage4(
             Some(&mut *vertex_params),
         )?;
         c441_log!(
-            "[s434-decimate] runs={} dropped={} edges {}->{} declined_loop_floor={} declined_disc_patch={} declined_sphere={} declined_rebuild={} disc_loops={}",
+            "[s434-decimate] runs={} dropped={} edges {}->{} declined_loop_floor={} declined_disc_patch={} declined_rebuild={} disc_loops={}",
             dec_st.runs_decimated,
             dec_st.verts_dropped,
             dec_st.edges_before,
             dec_st.edges_after,
             dec_st.declined_loop_floor,
             dec_st.declined_discontinuous_patch,
-            dec_st.declined_sphere_unsupported,
             dec_st.declined_patch_rebuild,
             dec_st.skipped_discontinuous_loops
         );

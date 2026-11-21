@@ -1205,7 +1205,19 @@ fn rebuild_patch_domain_inner(
     let plan_verts = mesh.verts.len() as u32;
     let n_pool = chart.polygon.verts.len();
     let n_chart_new = chart.new_verts.len() as u32;
-    let old_boundary = directed_boundary(&old);
+    // Orientation witnesses: the replaced triangles' directed boundary, then
+    // the cycles themselves (a caller that shortens a cycle keeps its
+    // direction, and may leave no old boundary edge standing).
+    let old_boundary: Vec<(u32, u32)> = directed_boundary(&old)
+        .into_iter()
+        .chain(
+            patch
+                .cycles
+                .iter()
+                .filter(|c| !c.is_empty())
+                .flat_map(|c| (0..c.len()).map(move |i| (c[i], c[(i + 1) % c.len()]))),
+        )
+        .collect();
 
     // One CDT over the chart polygon extended with `seeds` (chart points).
     // A seed is a new vertex at the surface point of its chart point, after
@@ -4283,7 +4295,7 @@ fn plan_matches_boundary(new_tris: &[[u32; 3]], want_boundary: &[(u32, u32)]) ->
 }
 
 /// The surface kind's name, for census lines.
-fn surface_kind_name(s: &Surface) -> &'static str {
+pub(crate) fn surface_kind_name(s: &Surface) -> &'static str {
     match s {
         Surface::Plane { .. } => "Plane",
         Surface::Cylinder { .. } => "Cylinder",
@@ -4563,7 +4575,7 @@ fn local_fig11a_patch_plans(
     (!rebuilds.is_empty()).then_some((rebuilds, final_tris, used_splits))
 }
 
-fn log_update_census(msg: &str) {
+pub(crate) fn log_update_census(msg: &str) {
     if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
         use std::io::Write as _;
         let case = std::env::var("ASSAY_CASE").unwrap_or_default();

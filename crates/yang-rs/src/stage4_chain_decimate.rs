@@ -28,11 +28,12 @@
 //!   surviving operand `BRepVertex`es open at the `point_cmp` minimum 3D sample
 //!   (vertex-index-free, retaining world-frame start-sample dependence on
 //!   unanchored closed loops; ledger `N81` / `N58`).
-//! - **`Surface::Sphere` patches:** `SurfaceChart` has no sphere chart
-//!   (`stage4_project.rs`), so chains owned by a `Surface::Sphere` patch
-//!   decline decimation (`DecimateStats::declined_sphere_unsupported` — a
-//!   documented regression vs the deleted loop-only `stage5_chain_decimate`,
-//!   ledger `N81`).
+//! - **Patch rebuild:** an owner patch is rebuilt fan-locally where
+//!   `SurfaceChart::new_local` charts its surface (plane, cylinder, cone,
+//!   torus), else — or where the fan rebuild is not certified — by the
+//!   whole-patch CDT on the patch's parameter-domain chart
+//!   (`stage4_construct::rebuild_patch_domain`, every surface). A patch
+//!   neither rebuilds declines its chains (`DecimateStats::declined_patch_rebuild`).
 //! - **Class-(b) straight operand-edge subdivision elision:** valence-2
 //!   non-intersection split vertices on straight operand edges are elided only
 //!   when collinear to working precision (`h <= TAU_WORK * (1 + scale)`,
@@ -52,8 +53,7 @@ use crate::brep::{
 use crate::errors::{ChainDecimateError, YangError};
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
-    apply_rebuild_batch, directed_boundary, rebuild_patch_planar_bounded_ex,
-    refill_fan_hole_seeded_with_bounds, PatchRebuild,
+    apply_rebuild_batch, directed_boundary, refill_fan_hole_seeded_with_bounds, PatchRebuild,
 };
 use crate::stage4_correct::{
     merge_same_plane_patches_with_side_labels, paper_chain_metrics, paper_chain_sample_redundant,
@@ -80,11 +80,8 @@ pub(crate) struct DecimateStats {
     pub declined_loop_floor: usize,
     /// Chains declined because an owner patch had a discontinuous boundary cycle.
     pub declined_discontinuous_patch: usize,
-    /// Chains declined because an owner patch sits on `Surface::Sphere`
-    /// (`SurfaceChart` has no sphere chart).
-    pub declined_sphere_unsupported: usize,
-    /// Chains declined because an owner patch on a chartable surface (`Plane`,
-    /// `Cylinder`, `Cone`, `Torus`) declined both fan-local CDT and whole-patch CDT.
+    /// Chains declined because an owner patch declined both the fan-local
+    /// CDT and the whole-patch CDT.
     pub declined_patch_rebuild: usize,
     /// Cycles skipped because their directed half-edges do not chain.
     pub skipped_discontinuous_loops: usize,
@@ -1318,28 +1315,6 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
                 });
             }
 
-            // `SurfaceChart` has no sphere chart (`stage4_project.rs`): count
-            // and decline explicitly rather than conflating with CDT declines.
-            if matches!(info.inherited, Surface::Sphere { .. }) {
-                let mut any = false;
-                for c in patch_active_chains {
-                    if let Some(d) = decisions.get_mut(&c) {
-                        if d.is_some() {
-                            *d = None;
-                            stats.declined_sphere_unsupported += 1;
-                            any = true;
-                        }
-                    }
-                }
-                if !any {
-                    return Err(YangError::Stage4ChainDecimateFailed {
-                        reason: ChainDecimateError::FixpointStall { patch: pi },
-                    });
-                }
-                enforce_loop_floor(&mut decisions, &mut stats.declined_loop_floor);
-                continue 'plan_batch;
-            }
-
             let orig_splice = SplicePatch {
                 cycles: orig_cycles.clone(),
                 tris: raw_patch.tri_indices.clone(),
@@ -1391,7 +1366,7 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
             };
 
             // Primary: fan-local CDT refill (`Plane`, `Cylinder`, `Cone`, `Torus`).
-            // Fallback: whole-patch CDT (`Plane`, `Cylinder`, `Cone`) excluding `victims`.
+            // Fallback: whole-patch CDT excluding `victims`.
             let fan_raw =
                 rebuild_decimated_patch_fans(mesh, pi, &orig_splice, &mod_cycles, &victims);
             let fan_ok = fan_raw.as_ref().is_some_and(|r| {
@@ -1409,23 +1384,42 @@ pub(crate) fn decimate_patch_chains_441_with_bounds(
             let candidate = if fan_ok {
                 fan_raw
             } else {
-                let whole = if info.had_fold_sliver || !SurfaceChart::supports(&info.inherited) {
+                // The whole-patch CDT runs on the patch's parameter-domain
+                // chart (F2, `specs/yang_f2_patch_chart.md`), as the update's
+                // does, on every surface.
+                let whole = if info.had_fold_sliver {
                     None
                 } else {
-                    rebuild_patch_planar_bounded_ex(mesh, pi, &mod_splice, d_eps, &victims)
-                        .ok()
-                        .filter(|r| {
-                            certify_patch_rebuild(
-                                mesh,
-                                attribution,
-                                side_labels,
-                                raw_patch,
-                                &orig_cycles,
-                                &mod_cycles,
-                                &victims,
-                                r,
-                            )
-                        })
+                    let plan = crate::stage4_construct::rebuild_patch_domain(
+                        mesh,
+                        pi,
+                        &mod_splice,
+                        d_eps,
+                        &victims,
+                    );
+                    let certified = plan.as_ref().is_ok_and(|r| {
+                        certify_patch_rebuild(
+                            mesh,
+                            attribution,
+                            side_labels,
+                            raw_patch,
+                            &orig_cycles,
+                            &mod_cycles,
+                            &victims,
+                            r,
+                        )
+                    });
+                    crate::stage4_construct::log_update_census(&format!(
+                        "DECIMATE_WHOLE patch={pi} surface={} victims={} outcome={}",
+                        crate::stage4_construct::surface_kind_name(&info.inherited),
+                        victims.len(),
+                        match &plan {
+                            Ok(_) if certified => "ok".to_string(),
+                            Ok(_) => "uncertified".to_string(),
+                            Err(e) => format!("{e:?}").replace(' ', ""),
+                        }
+                    ));
+                    plan.ok().filter(|_| certified)
                 };
                 if whole.is_none() && std::env::var_os("YANG_434_DECIMATE_DECLINE_PROBE").is_some()
                 {

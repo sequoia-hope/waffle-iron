@@ -220,9 +220,11 @@ intersected patches.
       and cone too — with the seeded retry and the coincident-simplex
       re-plan on it; `SurfaceChart` is out of the update. Corpus held,
       360C/0W/9E/5EE/0T, no category move, every oracle detail identical;
-      cone patches rebuilt 2,357 → 2,519, torus 7 → 20. Open: the chain
-      decimation's whole-patch fallback still charts with `SurfaceChart`;
-      the construct pass and fan-local sites go with their passes.)*
+      cone patches rebuilt 2,357 → 2,519, torus 7 → 20. The chain
+      decimation's whole-patch fallback is on the domain chart too, and its
+      `Surface::Sphere` skip is gone (corpus held). Open: the fan-local
+      rebuilds (`SurfaceChart::new_local`, the decimation's primary path
+      among them) and the construct pass, which go with their passes.)*
 - **Moved to F5b:** retiring the d(T) refusal (N106). It waits on Stage-1
   interior sampling, which is F5b's one CDT per face; F2 closes without it.
 - [ ] Retire the repairs it subsumes, one per corpus run, cheapest proof
@@ -250,8 +252,8 @@ intersected patches.
       ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
       `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4
-      endpoint subdivision, operand-anchored closed loops, `Surface::Sphere`
-      `declined_sphere_unsupported`, and `N105` class-(b) elision;
+      endpoint subdivision, operand-anchored closed loops, and `N105`
+      class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20);
       `merge_conic_seam_runs` open + operand-anchored closed runs made
       vertex-index-free, while `0`-operand-vertex closed circles carry a
       retained index rule, open debt — `R0021` passes by noise at
@@ -451,3 +453,4 @@ the first known item.
 | 2026-11-15 | Not a milestone step — the quiet rotation mismatches read. R0057 moved is the unmoved solid (every edge on the unmoved curves to 7e-14; its torus face is rebuilt without a seam, which `signed_volume` does not read). The sweep probe reads place (`geo`): no mesh-only `OK` row is off by more than 1.2e-3 of its body. F0094 moved is two bodies because a crossing disc pair has no §4.5.5 overlay and the arrangement sees coplanar caps only on an axis-aligned plane — **N108 ledgered, OPEN, an F6 item**; matrix 4.5.5-07 FAITHFUL → PARTIAL. No kernel change | 65 | 133 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-18 | F2 item 2, increments 0–2 (`specs/yang_f2_patch_chart.md`): `stage4_patch_chart::domain_chart` charts a patch on its `ParamSurface` domain (disc, azimuth band, tube band, cap round an apex or pole, sphere zone); the update takes sphere and torus patches and cone caps on it. N122 ledgered. An interior vertex relocated past the curve is removed | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | 150fc2f2, 1906b5e8 |
 | 2026-11-20 | F2 item 2, increment 3: the update rebuilds every patch on the domain chart (plane, cylinder and cone too), with the seeded retry and the coincident-simplex re-plan on it. Both rebuilds compared on 16,249 patches first: plane and cylinder agree on every patch; of 563 cone differences 505 are rounding in the d(T) comparison (N106) and 58 are patches only the new chart rebuilds. No category move, every oracle detail identical, geometry hash identical on 364 of 374 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-20 | F2 item 2: the chain decimation's whole-patch fallback on the domain chart; the `Surface::Sphere` skip retired (N81, N122 amended). No category move, every oracle detail identical, geometry moved on R0019 and R0081 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

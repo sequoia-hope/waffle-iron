@@ -32,12 +32,15 @@ the domain chart of §3 for every surface (`rebuild_patch_domain`), and
 re-plans a patch for N106's coincident-simplex separation on the same chart
 (`rebuild_patch_domain_separating`).
 
+The whole-patch fallback of the §4.3.4 chain decimation
+(`stage4_chain_decimate.rs`) calls the same rebuild with the shortened
+cycles, on every surface.
+
 `SurfaceChart` (`stage4_project.rs`; plane, cylinder, cone, with
-`unwrap_theta` and `band_patch_from_cycles`) still charts three callers
-outside the update: the whole-patch fallback of the §4.3.4 chain decimation
-(`stage4_chain_decimate.rs`), the construct pass's seam replacement
-(`stage5_topology/construct.rs`, `stage4_construct.rs` `rebuild_patch_planar_bounded`)
-and the fan-local rebuilds (§4 item 4).
+`unwrap_theta` and `band_patch_from_cycles`) still charts the construct
+pass's seam replacement (`stage5_topology/construct.rs`, `stage4_construct.rs`
+`rebuild_patch_planar_bounded`) and the fan-local rebuilds (§4 item 4, and
+the chain decimation's primary path `rebuild_decimated_patch_fans`).
 
 ## 3. The design
 
@@ -101,8 +104,10 @@ answered by a guess.
    covering rectangle is the wedge the triangle actually spans. The budget
    is today's `min(old max, d_ε)`, the old max read on the developed old
    triangles.
-10. **Orientation** is read from the boundary (a directed cycle edge of the
-    old triangles must be traversed the same way).
+10. **Orientation** is read from the boundary: a directed boundary edge of
+    the old triangles, else a directed cycle edge, must be traversed the
+    same way (a caller that shortens a cycle may leave no old boundary edge
+    standing).
 11. **Seeded retry.** A CDT that certifies above the budget is retried with
     a deterministic interior grid of surface points (`i2e_seed_grid`, on the
     chart polygon) at the replaced triangles' own sampling scale, halved
@@ -232,8 +237,26 @@ counts unchanged. 16,345 domain charts: 15,893 DISC, 409 U-BAND, 41 V-BAND,
   triangles of equal bound. §4.4.1 recalculates d(T) "for the newly
   generated boundary triangles" (`:566-568`); a triangle the CDT returns
   unchanged is not newly generated and should keep its bound. N106.
-- The chain decimation's whole-patch fallback and the construct pass still
-  chart with `SurfaceChart` (§2).
+- The construct pass and the fan-local rebuilds still chart with
+  `SurfaceChart` (§2).
 
-**Next:** the chain decimation's whole-patch fallback onto the domain chart;
-then F2's next unchecked item.
+## 7. The chain decimation's whole-patch fallback (2026-11-20)
+
+`decimate_patch_chains_441` rebuilds a touched patch fan-locally and, where
+that is not certified, by a whole-patch CDT. The fallback was the
+`SurfaceChart` rebuild, gated to plane, cylinder and cone; a sphere patch
+declined before reaching either (`declined_sphere_unsupported`). It is now
+`rebuild_patch_domain` for every surface and the sphere skip is deleted: a
+sphere patch reaches the fallback and declines only as the rebuild does.
+
+Corpus: **360C / 0W / 9E / 5EE / 0T, no category move, every oracle detail
+string identical**; geometry hash moved on R0019 and R0081 only (both
+CORRECT). The fallback ran 63 times in 15 cases: 19 rebuilt (13 cone, 5
+plane, 1 cylinder), 36 refused by the d(T) budget (17 cone, 12 cylinder, 7
+torus), 6 plane rebuilds not certified, 2 crossing cycles. No sphere patch
+reached it on the corpus; the unit pins hold a sphere patch through a pole
+(`DegenerateOnCycle`) and one clear of the poles (charted, refused by the
+d(T) budget).
+
+**Next:** an unchanged triangle keeps its bound in the d(T) comparison
+(§6, N106); then F2's next unchecked item.

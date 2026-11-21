@@ -1640,11 +1640,20 @@ fn decimation_is_invariant_under_vertex_renumbering_and_supports_4_owner_full_ar
     );
 }
 
-/// Chains owned by a `Surface::Sphere` patch decline decimation cleanly and
-/// increment `DecimateStats::declined_sphere_unsupported` (since `SurfaceChart`
-/// has no sphere chart).
-#[test]
-fn sphere_owner_patch_counts_declined_sphere_unsupported() {
+/// A plane disc and a unit-sphere wedge sharing a dense equatorial arc
+/// (`theta_i = i * 5e-5`); the wedge's third corner is `far`, on the sphere.
+#[allow(clippy::type_complexity)]
+fn sphere_wedge_fixture(
+    far: Point3,
+) -> (
+    Mesh,
+    TriangleAttributionMap,
+    TriangleSideLabelMap,
+    Vec<crate::stage4_correct::PatchInfo>,
+    BTreeMap<(u32, u32), Curve>,
+    BRep,
+    BRep,
+) {
     let n = 10usize;
     let r = 1.0f64;
     // Dense equatorial arc in `z = 0` (`theta_i = i * 5e-5`): lies on both `z = 0`
@@ -1658,7 +1667,7 @@ fn sphere_owner_patch_counts_declined_sphere_unsupported() {
     let c_plane = n as u32;
     let c_sphere = (n + 1) as u32;
     verts.push(Point3::new(0.0, 0.0, 0.0)); // center in z = 0
-    verts.push(Point3::new(0.0, 0.0, 1.0)); // north pole on unit sphere
+    verts.push(far); // on the unit sphere
 
     let mut tris = Vec::new();
     let mut attrs = Vec::new();
@@ -1690,11 +1699,10 @@ fn sphere_owner_patch_counts_declined_sphere_unsupported() {
         });
     }
 
-    let mut mesh = Mesh::new(verts, tris);
-    let tris0 = mesh.tris.clone();
+    let mesh = Mesh::new(verts, tris);
     let mut attribution = TriangleAttributionMap::empty();
     attribution.attributions = attrs;
-    let mut side_labels = TriangleSideLabelMap { labels };
+    let side_labels = TriangleSideLabelMap { labels };
 
     let a = single_plane_brep(
         [0.0, 0.0, 1.0],
@@ -1748,6 +1756,47 @@ fn sphere_owner_patch_counts_declined_sphere_unsupported() {
     )
     .expect("phase a");
 
+    (mesh, attribution, side_labels, infos, curves, a, b)
+}
+
+/// The parameter-domain chart of the fixture's sphere patch.
+fn sphere_wedge_chart(
+    mesh: &Mesh,
+    infos: &[crate::stage4_correct::PatchInfo],
+) -> Result<crate::stage4_patch_chart::DomainClass, crate::stage4_patch_chart::DomainRefusal> {
+    let info = infos
+        .iter()
+        .find(|i| matches!(i.inherited, Surface::Sphere { .. }))
+        .expect("the sphere patch");
+    let cycles: Vec<Vec<u32>> = info
+        .cycles
+        .iter()
+        .map(|c| c.iter().map(|&(s, _)| s).collect())
+        .collect();
+    let old: Vec<[u32; 3]> = mesh.tris[mesh.tris.len() / 2..].to_vec();
+    crate::stage4_patch_chart::domain_chart(
+        &info.inherited,
+        &mesh.verts,
+        &cycles,
+        &old,
+        &BTreeSet::new(),
+        None,
+    )
+    .map(|c| c.class)
+}
+
+/// A sphere patch whose boundary passes through a pole has no parameter-domain
+/// chart (`DomainRefusal::DegenerateOnCycle`): its chains decline the rebuild,
+/// counted, and the mesh is untouched.
+#[test]
+fn sphere_owner_patch_through_a_pole_declines_the_rebuild() {
+    let (mut mesh, mut attribution, mut side_labels, infos, curves, a, b) =
+        sphere_wedge_fixture(Point3::new(0.0, 0.0, 1.0));
+    assert_eq!(
+        sphere_wedge_chart(&mesh, &infos),
+        Err(crate::stage4_patch_chart::DomainRefusal::DegenerateOnCycle)
+    );
+    let tris0 = mesh.tris.clone();
     let st = decimate_patch_chains_441(
         &mut mesh,
         &mut attribution,
@@ -1760,7 +1809,37 @@ fn sphere_owner_patch_counts_declined_sphere_unsupported() {
     )
     .expect("decimate");
     assert_eq!(st.verts_dropped, 0, "{st:?}");
-    assert_eq!(st.declined_sphere_unsupported, 1, "{st:?}");
+    assert_eq!(st.declined_patch_rebuild, 1, "{st:?}");
+    assert_eq!(mesh.tris, tris0);
+}
+
+/// Clear of the poles the sphere patch charts as a disc and reaches the
+/// whole-patch rebuild: the chain's fate is the rebuild's, not the surface
+/// type's. Here the rebuild is refused by the d(T) budget (N106 — the wedge's
+/// replaced triangles already certify above d_ε).
+#[test]
+fn sphere_owner_patch_clear_of_the_poles_reaches_the_rebuild() {
+    let lat = std::f64::consts::FRAC_PI_4;
+    let (mut mesh, mut attribution, mut side_labels, infos, curves, a, b) =
+        sphere_wedge_fixture(Point3::new(lat.cos(), 0.0, lat.sin()));
+    assert_eq!(
+        sphere_wedge_chart(&mesh, &infos),
+        Ok(crate::stage4_patch_chart::DomainClass::Disc)
+    );
+    let tris0 = mesh.tris.clone();
+    let st = decimate_patch_chains_441(
+        &mut mesh,
+        &mut attribution,
+        &mut side_labels,
+        &infos,
+        &curves,
+        &a,
+        &b,
+        false,
+    )
+    .expect("decimate");
+    assert_eq!(st.verts_dropped, 0, "{st:?}");
+    assert_eq!(st.declined_patch_rebuild, 1, "{st:?}");
     assert_eq!(mesh.tris, tris0);
 }
 
