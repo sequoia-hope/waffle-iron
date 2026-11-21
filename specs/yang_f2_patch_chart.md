@@ -233,10 +233,13 @@ counts unchanged. 16,345 domain charts: 15,893 DISC, 409 U-BAND, 41 V-BAND,
 
 **Open, named.**
 
-- The d(T) budget comparison is decided by rounding where a rebuild returns
-  triangles of equal bound. §4.4.1 recalculates d(T) "for the newly
-  generated boundary triangles" (`:566-568`); a triangle the CDT returns
-  unchanged is not newly generated and should keep its bound. N106.
+- The d(T) budget comparison is decided by rounding on the 505 patches
+  above. The equal bounds belong to different triangles: a trial in which a
+  triangle the CDT returns unchanged keeps its replaced bound (§4.4.1
+  recalculates d(T) "for the newly generated boundary triangles",
+  `:566-568`) changed no decision on the corpus (0 patch rebuilds, all 374
+  geometry hashes identical) and was not landed. Which triangles tie is not
+  read yet. The comparison goes with the refusal (N106, F5b).
 - The construct pass and the fan-local rebuilds still chart with
   `SurfaceChart` (§2).
 
@@ -258,5 +261,5 @@ reached it on the corpus; the unit pins hold a sphere patch through a pole
 (`DegenerateOnCycle`) and one clear of the poles (charted, refused by the
 d(T) budget).
 
-**Next:** an unchanged triangle keeps its bound in the d(T) comparison
-(§6, N106); then F2's next unchecked item.
+**Next:** F2's next unchecked item (roadmap F2: retire the repairs the
+update subsumes, one per corpus run).

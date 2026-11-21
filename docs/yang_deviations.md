@@ -8745,9 +8745,14 @@ cone patches of seven gear cases** (R0003, R0019, R0032, R0044, R0047, R0053,
 R0081) — the rebuild returns triangles whose bound equals the budget to 1
 part in 10¹², and the two charts' azimuth branches round d(T) differently
 (304 refused by the old chart only, 201 by the new only; corpus held either
-way). §4.4.1 recalculates d(T) "for the newly generated boundary triangles"
-(`:566-568`): a triangle the CDT returns unchanged is not newly generated.
-Open under this entry: an unchanged triangle keeps its bound.
+way). The equal bounds belong to DIFFERENT triangles: a trial in which every
+triangle the CDT returns unchanged keeps its replaced bound (§4.4.1
+recalculates d(T) only "for the newly generated boundary triangles",
+`:566-568`) changed no decision on the corpus — 0 of its patch rebuilds, all
+374 geometry hashes identical — and was not landed. Which triangles tie is
+not read yet. Any change that moves a patch's azimuth branch or its CDT's
+tie-breaks moves these seven cases' geometry; that is this comparison, not a
+mechanism. It goes with the refusal (F5b).
 
 ### N107 — the §4.3 domain test on a curve's interior is a one-sided certificate, answered by §4.5.2 only
 
