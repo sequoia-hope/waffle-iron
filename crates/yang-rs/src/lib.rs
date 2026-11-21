@@ -151,11 +151,10 @@ pub(crate) use stage4_relocate::*;
 mod stage4_boundary_curve;
 mod stage4_construct;
 mod stage4_phantom;
-mod stage4_rehome;
 mod stage4_slit;
 
-// §4.4.1 Fig-11 merge selectors (fold-merge sites, run absorption, rehome
-// candidates) consumed by `stage5_topology::run_fold_merge_passes`.
+// §4.4.1 Fig-11 merge selector (fold-merge sites) consumed by
+// `stage5_topology::run_fold_merge_passes`.
 mod stage4_fold_risk;
 mod stage4_patch_chart;
 mod stage4_project;

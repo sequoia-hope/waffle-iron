@@ -212,7 +212,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N110 | OPEN (2026-11-17; F3) | Stage 6 `envelope_prepass` (`stage5_envelope.rs`) classifies osculating cylinder bands by plane half-space signs, rewrites cycles without updating mesh triangles, and emits `env_extra_faces` no kept mesh patch produced (§4.4.2 `:583-596` finds faces from triangles only; §4.5.2/§4.5.4 refine instead) |
 | N111 | OPEN (2026-11-17; F2, F6) | `merge_same_plane_patches` also merges coaxial same-sense CYLINDER patches across original B-Rep edges by `TAU_WORK` geometry match (`SurfKey::Cyl`), dropping seam curves §4.4.2 keeps (`:586-590`) |
 | N112 | OPEN (2026-11-17; F2, F3) | `trim_beyond_corner_phantoms` (Stage 4) edge-collapses relocated vertices that overshot a corner onto Stage-1 minted junctions, instead of §4.3's domain rule-out or §4.5.2 refinement (`:528-532`, `:635-677`) |
-| N113 | OPEN (2026-11-17; F2, F3) | `run_absorption_attempt` (Stage 5 fold-merge; I13d run / I13e group absorption, then `rehome_attempt`) rebuilds fans around boundary folds left by relocate-in-place; the paper updates each patch by one parameter-domain CDT (§4.4.1 `:557-563`) |
+| N113 | **RESOLVED 2026-11-21** (run absorption, group absorption and corner re-homing DELETED, roadmap F2: six measured builds applied them and each emits a bit-identical body without them) | `run_absorption_attempt` (Stage 5 fold-merge; I13d run / I13e group absorption, then `rehome_attempt`) rebuilt fans around boundary folds left by relocate-in-place; the paper updates each patch by one parameter-domain CDT (§4.4.1 `:557-563`) |
 | N114 | OPEN (2026-11-17; F2, F1, F7) | I6.5 collapsed-wedge dedup (`boolean.rs` `wedge_seen` / `wedge_reject_reason`) drops a duplicate welded post-flip triangle instead of `NonManifoldInput`; the paper has no post-keep dedup (F0016 depends on it with P3a on) |
 | N115 | OPEN (2026-11-17; F2, F6) | Stage 0 amendment-2 fold-revert (`stage0/mod.rs`, `nary.rs`, `settle_rim_chain_order`) moves exact on-curve mints back OFF the curve onto chords when a flip would invert an overlay triangle; §4.5.5 overlays before discretization (`:724-729`) |
 | N116 | OPEN (2026-11-17; F5b) | Stage-1 override validation accepts circle and ellipse overrides up to the chord sagitta inside the curve (circle `sagitta`, ellipse `rho_sagitta`), admitting Stage-0 off-curve reverts; N27 covers slot merging, not this widening |
@@ -225,7 +225,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-11-18 — N122 ledgered: the §4.4.1 domain chart's seams, degenerate edges and Delaunay metric, F2 increment 2): 39 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 79 items of paper-compliance debt. Earlier 2026-11-17, later (N119–N121 ledgered: the I6.6 pleat cancellation, the KV10/KV15 post-Stage-2 near-welds, the PR-KV9 junction-twin collapse; N113, N116, N117 and N25 amended): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-17 (N110–N118 ledgered: nine live mechanisms the matrix re-audit found with no entry — the Stage-6 envelope prepass, the cylinder patch merge, two Stage-4/5 fold repairs, the I6.5 wedge dedup, four Stage-0 reconciliation passes): 35 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 75 items of paper-compliance debt. Earlier 2026-11-17 (N109 ledgered: vertex parameter coordinates from a closed-form inverse, F5a increment 3): 26 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 66 items of paper-compliance debt. Earlier 2026-11-15 (N108 ledgered: a crossing disc pair has no §4.5.5 overlay): 25 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-11-14 (N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-11-21 — N113 RESOLVED: run absorption, group absorption and corner re-homing deleted, F2): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-18 (N122 ledgered: the §4.4.1 domain chart's seams, degenerate edges and Delaunay metric, F2 increment 2): 39 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 79 items of paper-compliance debt. Earlier 2026-11-17, later (N119–N121 ledgered: the I6.6 pleat cancellation, the KV10/KV15 post-Stage-2 near-welds, the PR-KV9 junction-twin collapse; N113, N116, N117 and N25 amended): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-17 (N110–N118 ledgered: nine live mechanisms the matrix re-audit found with no entry — the Stage-6 envelope prepass, the cylinder patch merge, two Stage-4/5 fold repairs, the I6.5 wedge dedup, four Stage-0 reconciliation passes): 35 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 75 items of paper-compliance debt. Earlier 2026-11-17 (N109 ledgered: vertex parameter coordinates from a closed-form inverse, F5a increment 3): 26 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 66 items of paper-compliance debt. Earlier 2026-11-15 (N108 ledgered: a crossing disc pair has no §4.5.5 overlay): 25 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-11-14 (N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -517,6 +517,37 @@ F0087–F0090, R0021). Prospector seed 6 is verdict-identical with and without
 it (188C / 0W / 10E / 2T). State unchanged: OPEN.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**Amendment (2026-11-21, roadmap F2 "retire the repairs it subsumes") — the
+Stage-5 Fig-11 corner merge was measured for retirement and STAYS.** The pass
+(`stage5_topology/fold_merge.rs` `run_fold_merge_passes`, selector
+`stage4_fold_risk::fold_merge_sites_censused`, fan rebuild
+`stage4_construct::rebuild_merge_fan`) merges a boundary vertex a relocation
+overran, after Stage 4. The paper merges or removes such a vertex inside the
+§4.4.1 update (`:562-564`), so the pass is a second site of the same operation
+(matrix 4.4-13, N81). Its run and group absorption and corner re-homing arms
+were deleted the same day (N113).
+
+- **Where it applies** (`YANG_REPAIR_CENSUS` at `7caa1a89`): 4 corpus cases
+  unmoved (F0064, F0067, R0070, R0095); 17 of the 1,870 builds of the corpus
+  under four rigid motions a case, in 6 cases (those four, P0027, R0050);
+  4 of 200 prospector seed-6 candidates.
+- **Switched off** (one release binary, a temporary switch, not landed):
+  the unmoved corpus customers and the seed-6 customers emit bit-identical
+  bodies. Under rotation, 372 of the 374 cases were run (F0085 and R0081 were
+  not finished; the pass applies in neither) and every build is bit-identical
+  except **P0027 motion 0**: three bodies with χ = 2 and the same mesh volume
+  (1.575676), no error, and a shape 8.06e-3 of the diagonal away from the
+  unmoved body (3.5e-4 with the merge), from the fourth operation on. A quiet
+  wrong body: no failure trigger records it.
+- **Consequence.** The merge stays, pinned by
+  `test-harness/tests/rigid_motion_sweep.rs::p0027_moved_rigidly_is_the_unmoved_body`
+  (motion 0 reads `DIFF` without the merge). Its retirement waits on two
+  things: the Stage-4 update removing the overrun vertex itself at that
+  site, and a trigger that reads such a fold on the emitted body.
+- **Unread:** the anatomy of P0027's site (which face, which vertex, why
+  only one motion in four), and why the output triggers (T3, T4, T8,
+  `output_loop_crossings`) pass it.
 
 **Amendment (2026-10-17, compliance matrix L-5 / M-5 / F-2).** Three
 corrections to the update below. (1) It claimed "redundant / near-boundary
@@ -9004,9 +9035,57 @@ a recorded fast path with a pin. **State: OPEN** (found and built
 
 **How it departs from the paper.** The paper updates patches directly by parametric CDT before classification and refines boundary/corner failures via §4.5.2, never producing post-relocation multi-vertex boundary folds or interlocked fan groups to absorb in Stage 5.
 
-**Remediation.** Retire into F2's §4.4.1 per-patch parameter-domain CDT update and F3's §4.5.2 boundary/corner refinement (`YANG_REPAIR_CENSUS` 2026-11-06: `absorb` fires 0 times on the main corpus, 1 time on seed 6). **State: OPEN** (found 2026-11-17: the matrix re-audit's out-of-scope list named it; drafted by a read-only Gemini pass, checked against the code here).
+**Remediation.** Retire into F2's §4.4.1 per-patch parameter-domain CDT update and F3's §4.5.2 boundary/corner refinement (`YANG_REPAIR_CENSUS` 2026-11-06: `absorb` fires 0 times on the main corpus, 1 time on seed 6). **State: RESOLVED 2026-11-21** — all three arms deleted, see the last amendment (found 2026-11-17: the matrix re-audit's out-of-scope list named it; drafted by a read-only Gemini pass, checked against the code here).
 
 **Amendment (2026-11-17, later): `rehome_attempt` enumerates surface types.** The last arm, §I13(f) corner re-homing (`stage5_topology/fold_merge.rs:1199` → `:1235` `rehome_attempt` → `stage4_rehome.rs:428` `plan_corner_rehoming`), is on in release (`stage4_rehome.rs:165`, `RehomeMode::On`) and admits a site only when its classifier (`stage4_rehome.rs:394-403` `classify`) counts exactly one `Cone` and two `Plane` carriers on the cut side and two `Cone` and one `Plane` on the rim side. That breaks the standing rule against enumerating surface types inside a general geometric rule. `YANG_REPAIR_CENSUS` (roadmap §5, 2026-11-06): rehome fires once on the main corpus (R0003). It retires with the rest of this entry (F2, F3); it gets no type-free generalization in the meantime. The SELECT/GROUP reports of the I13d/I13e selectors (`fold_merge.rs`) now print only in census mode or under the c441 log switch.
+
+**Amendment (2026-11-21): all three arms are RETIRED** (roadmap F2, "retire the
+repairs it subsumes").
+
+- **Deleted.** `run_absorption_attempt` (I13d, I13e) and `rehome_attempt`
+  (§I13(f)) in `stage5_topology/fold_merge.rs`; `stage4_rehome.rs`; the
+  selectors `run_absorption_sites` and `interlock_groups` in
+  `stage4_fold_risk.rs`; the fan rebuilds only they called
+  (`rebuild_run_fan`, `rebuild_group_fan`, `rebuild_rehome_fan`,
+  `fan_rebuild_core`, `delete_boundary_fan*`, `split_boundary_edge`,
+  `drop_needle_corner`). About 4,100 lines of production code and 1,750 of
+  tests. `run_fold_merge_passes` is now the corner merge alone (N2, amendment
+  of the same date).
+- **Where the arms applied** (`YANG_REPAIR_CENSUS` at `7caa1a89`, counting
+  applies, not attempts):
+
+  | population | builds | run / group absorption | corner re-homing |
+  |---|---|---|---|
+  | corpus, unmoved | 374 | 0 | 7 applies, all R0003 |
+  | four rigid motions a case | 1,496 | 0 | 28 applies, R0003's four motions |
+  | prospector seed 6 (189C / 0W / 9E / 2T) | 200 | 1 apply (X00000006-00180) | 0 |
+
+- **What each of those six builds emits without them.** Measured first with
+  the arms switched off in one release binary (a temporary switch, deleted
+  before this commit), then on the landed code: the canonical geometry hash
+  of R0003 unmoved, R0003 under its four motions and X00000006-00180 is the
+  one it had. So are the other 30 builds of the seven corpus cases where
+  the pass applies anything under rotation (F0064, F0067, P0027, R0003,
+  R0050, R0070, R0095), and the other four seed-6 candidates where it does.
+- **Every other build cannot differ.** The arms ran last in a pass, and a
+  pass in which nothing applied ended the loop, so a build with no apply ran
+  the same instructions as the landed code.
+- **Corpus on the landed code:** 360C / 0W / 9E / 5EE / 0T, and the hash file
+  equals the one taken before the change (all 374 outputs bit-identical).
+- **Unread: why R0003 no longer needs re-homing.** The re-homing flip of
+  2026-08-29 took R0003 from ERROR to CORRECT. The per-patch update, the
+  typed emission and the §4.5.2 loop all landed after it; which of them
+  answers R0003's sites is not measured.
+- **No check replaces the arms**, because no measured build changes. That is
+  an absence of customers, not a proof that a fold left in the Stage-5 mesh
+  is seen downstream: the corner-merge trial of the same day found one that
+  is not (P0027 under one motion, N2).
+- **Standing rule.** `stage4_rehome::classify` was a general rule that
+  enumerated surface types (one cone and two planes against two cones and
+  one plane); it is gone with the arm. The `Surface::` inventory
+  (`docs/audits/f5a_surface_matches.md`) now has 20 functions with a
+  class-(b) part, from 22.
+- **Checks not run:** a prospector seed other than 6.
 
 ### N114 — Post-weld collapsed-wedge triangle deduplication (`I6.5` / `wedge_reject_reason`)
 

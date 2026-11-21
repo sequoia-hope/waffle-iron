@@ -233,7 +233,10 @@ intersected patches.
       ONLY for the d(T)-budget refusal (N106 — R0059, P0005 need them), every
       other declined component STOPs loudly into §4.5.2; `4.4-12 →
       PARTIAL` — its trigger is still a collapsed triangle, N2)*, `repair_fan_cluster` (N58),
-      fold-merge / absorb / rehome, the construct pass's seam replacement,
+      the fold-merge corner merge, ~~absorb / rehome~~ *(retired 2026-11-21,
+      N113: the three arms applied in six measured builds — R0003 unmoved and
+      under four rigid motions, one seed-6 candidate — and each emits a
+      bit-identical body without them)*, the construct pass's seam replacement,
       ~~`remove_doubled_membranes` (N41)~~ *(retired 2026-11-06: the N106
       inc-2 separation subsumes it, with 0 removals on the corpus, seed 6
       and the refusal-off trial; a residual fin is a loud gate failure and a
@@ -242,7 +245,22 @@ intersected patches.
       below). *(Census 2026-11-06, `YANG_REPAIR_CENSUS`, main corpus: the
       construct pass fires in 230 cases, fold-merge in 6, rehome in 1
       (R0003), `repair_fan_cluster` in 1 (P0020), the pinch split in 4,
-      absorb in 0; on seed 6 absorb fires once.)*
+      absorb in 0; on seed 6 absorb fires once. Census 2026-11-21 at
+      `7caa1a89`, after the one-chart update: the construct pass in 89 cases,
+      the corner merge in 4 (F0064, F0067, R0070, R0095), rehome in 1,
+      `repair_fan_cluster` in 1, the pinch split in 4, absorb and the
+      sub-τ collapse in 0. The same census over four rigid motions a case
+      (1,496 builds) names the customers the corpus does not hold: the
+      corner merge acts in P0027 and R0050 too, `repair_fan_cluster` in
+      P0044, the pinch split in P0053, and the sub-τ collapse in five cases
+      (C0043, F0055, F0059, P0041, R0015 — 10 builds), so "0 fires on the
+      corpus" does not retire it. Each pass switched off on its own
+      customers: the pinch split and `repair_fan_cluster` are load-bearing
+      (F0058, F0060, P0057 and P0020 become typed ERRORs without them); the
+      corner merge changes no unmoved body and one rotated one — P0027
+      motion 0 builds a quietly different body without it (N2, pinned), so
+      it stays until the update removes that overrun vertex in Stage 4 and
+      a trigger reads such a fold on the emitted body.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
@@ -454,3 +472,4 @@ the first known item.
 | 2026-11-18 | F2 item 2, increments 0–2 (`specs/yang_f2_patch_chart.md`): `stage4_patch_chart::domain_chart` charts a patch on its `ParamSurface` domain (disc, azimuth band, tube band, cap round an apex or pole, sphere zone); the update takes sphere and torus patches and cone caps on it. N122 ledgered. An interior vertex relocated past the curve is removed | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | 150fc2f2, 1906b5e8 |
 | 2026-11-20 | F2 item 2, increment 3: the update rebuilds every patch on the domain chart (plane, cylinder and cone too), with the seeded retry and the coincident-simplex re-plan on it. Both rebuilds compared on 16,249 patches first: plane and cylinder agree on every patch; of 563 cone differences 505 are rounding in the d(T) comparison (N106) and 58 are patches only the new chart rebuilds. No category move, every oracle detail identical, geometry hash identical on 364 of 374 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-20 | F2 item 2: the chain decimation's whole-patch fallback on the domain chart; the `Surface::Sphere` skip retired (N81, N122 amended). No category move, every oracle detail identical, geometry moved on R0019 and R0081 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-21 | F2 item 3, repair retirement: run absorption, group absorption and corner re-homing deleted (N113 RESOLVED; about 4,100 lines of code, 1,750 of tests; `stage4_rehome::classify`, a surface-type enumeration, gone). Measured first by a per-pass census and off-switch over the corpus, 1,496 rigid motions and seed 6. The corner merge stays: P0027 under one motion needs it (N2, pinned). Corpus hash file identical on all 374; seed 6 189C / 0W / 9E / 2T | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

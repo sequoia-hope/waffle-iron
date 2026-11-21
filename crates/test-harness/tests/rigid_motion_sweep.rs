@@ -58,6 +58,10 @@ struct Measure {
     mesh_volume: Result<f64, String>,
     /// The render meshes of every live body, as triangles.
     tris: Vec<Tri>,
+    /// The canonical geometry hash of the live bodies
+    /// (`assay::geometry_hash`), in this build's own frame: it compares two
+    /// KERNELS on one motion, never two motions.
+    hash: u64,
 }
 
 fn triangles(meshes: &[waffle_types::kernel::RenderMesh]) -> Vec<Tri> {
@@ -269,6 +273,7 @@ fn measure(doc: &Value) -> Measure {
             exact_volume: Err("load".into()),
             mesh_volume: Err("load".into()),
             tris: Vec::new(),
+            hash: 0,
         };
     }
     let handles = b.live_solid_handles();
@@ -309,6 +314,7 @@ fn measure(doc: &Value) -> Measure {
         exact_volume,
         mesh_volume,
         tris,
+        hash: test_harness::assay::geometry_hash::live_geometry_hash(&b),
     }
 }
 
@@ -363,17 +369,22 @@ fn show(m: &Measure) -> String {
         Err(e) => format!("ERR({})", e.chars().take(80).collect::<String>()),
     };
     format!(
-        "bodies={} chi={:?} vol={exact} mesh={mesh}",
-        m.bodies, m.chi
+        "bodies={} chi={:?} vol={exact} mesh={mesh} hash={:016x}",
+        m.bodies, m.chi, m.hash
     )
+}
+
+fn load_case(id: &str) -> Value {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/tests/cases/assay");
+    let text = std::fs::read_to_string(dir.join(format!("{id}.waffle")))
+        .unwrap_or_else(|e| panic!("{id}: {e}"));
+    serde_json::from_str(&text).unwrap()
 }
 
 fn case_document() -> (String, Value) {
     let id = std::env::var("SWEEP_CASE").expect("set SWEEP_CASE to a corpus case id");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/tests/cases/assay");
-    let text = std::fs::read_to_string(dir.join(format!("{id}.waffle")))
-        .unwrap_or_else(|e| panic!("{id}: {e}"));
-    (id, serde_json::from_str(&text).unwrap())
+    let doc = load_case(&id);
+    (id, doc)
 }
 
 /// Motion `k` of a case: seeded by the case id, so two trees draw the same.
@@ -397,6 +408,7 @@ fn env_u64(name: &str, default: u64) -> u64 {
 fn sweep() {
     let (id, doc) = case_document();
     let reference = with_explicit_x_axes(&doc).expect("explicit axes");
+    std::env::set_var("ASSAY_CASE", format!("{id}#ref"));
     let m0 = measure(&reference);
     println!(
         "SWEEP {id} ref errs={} {} diag={:.3e}",
@@ -407,6 +419,7 @@ fn sweep() {
     for k in 0..env_u64("SWEEP_N", 4) {
         let motion = motion(&id, &doc, k);
         let moved = rigid_motion(&reference, &motion).expect("rigid motion");
+        std::env::set_var("ASSAY_CASE", format!("{id}#{k}"));
         let m = measure(&moved);
         let first = m
             .errs
@@ -457,6 +470,40 @@ fn steps() {
             show(&ma),
             mb.errs.len(),
             show(&mb)
+        );
+    }
+}
+
+/// P0027 moved rigidly is the unmoved body: the customer of the Stage-5
+/// Fig-11 corner merge (`yang-rs` `run_fold_merge_passes`) that the corpus
+/// does not hold.
+///
+/// Measured 2026-11-21 (ledger N2, `docs/yang_tail_triage.md`): with that
+/// merge switched off, the unmoved case and three of its four motions build
+/// bit-identical bodies, and motion 0 builds one that differs from the
+/// unmoved body by 8.06e-3 of its diagonal from the fourth operation on, with
+/// the same body count, Euler characteristics and mesh volume and no error.
+/// Every other build measured without the merge — the corpus unmoved, its
+/// other rigid motions, the prospector seed-6 cases the merge acts in — is
+/// bit-identical, so this pin is what a retirement of it has to answer.
+#[test]
+fn p0027_moved_rigidly_is_the_unmoved_body() {
+    let id = "P0027";
+    let doc = load_case(id);
+    let reference = with_explicit_x_axes(&doc).expect("explicit axes");
+    let m0 = measure(&reference);
+    assert!(m0.errs.is_empty(), "unmoved: {:?}", m0.errs);
+    for k in 0..4 {
+        let motion = motion(id, &doc, k);
+        let moved = rigid_motion(&reference, &motion).expect("rigid motion");
+        let m = measure(&moved);
+        let geo = surface_distance(&m0.tris, &m.tris, &motion).map(|d| d / extent(&m0.tris));
+        assert_eq!(
+            verdict(&m0, &m, geo),
+            "OK",
+            "motion {k}: {} geo={geo:?} errs={:?}",
+            show(&m),
+            m.errs
         );
     }
 }

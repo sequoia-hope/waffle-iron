@@ -1141,8 +1141,7 @@ fn n106_d2_failed_d_of_t_and_unattributed_tris_store_nan_never_zero() {
 ///   (2) `retriangulate_collapsed_fan_regions_ex_with_bounds` (curved cylinder fan),
 ///   (3) `update_patches_ex_with_bounds` (new curved cylinder triangles),
 ///   (4) `decimate_patch_chains_441_with_bounds` (curved cylinder × plane chain decimation),
-///   (5) `rebuild_merge_fan` + `apply_rebuild_batch` (curved cylinder fan rebuild),
-///   (6) `split_boundary_edge` + `apply_rebuild_batch` (curved cylinder edge split).
+///   (5) `rebuild_merge_fan` + `apply_rebuild_batch` (curved cylinder fan rebuild).
 #[test]
 fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     use cherchi_rs::labeled_arrangement::InputId as LaInputId;
@@ -1848,69 +1847,6 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
                 fan_mesh.tris[slot].map(|vi| cyl5_chart.project(fan_mesh.verts[vi as usize]));
             let exact_dt =
                 crate::stage4_dt::d_of_t(&cyl5_surf, uv_tri).expect("d_of_t on curved fan tri");
-            assert!(bound > 0.0);
-            assert_eq!(bound.to_bits(), exact_dt.to_bits());
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // (6) `split_boundary_edge` + `apply_rebuild_batch` on curved `cyl5`.
-    // -------------------------------------------------------------------------
-    {
-        let mint = cyl5_chart.lift(Point2::new(0.2, 0.0));
-        let mut split_mesh = Mesh::new(
-            vec![
-                cyl5_chart.lift(Point2::new(0.0, 0.0)),  // 0
-                cyl5_chart.lift(Point2::new(0.4, 0.0)),  // 1
-                cyl5_chart.lift(Point2::new(0.2, 2.0)),  // 2
-                mint,                                    // 3 (inserted vertex)
-                cyl5_chart.lift(Point2::new(-0.2, 1.0)), // 4 (untouched bystander)
-            ],
-            vec![
-                [0, 1, 2], // 0: split target on boundary edge (0, 1)
-                [0, 2, 4], // 1: untouched bystander
-            ],
-        );
-        let split_patch = SplicePatch {
-            cycles: vec![vec![0, 1, 2]],
-            tris: vec![0],
-            surface: cyl5_surf,
-        };
-        let split_rebuild = crate::stage4_construct::split_boundary_edge(
-            &split_mesh,
-            0,
-            &split_patch,
-            0,
-            1,
-            3,
-            mint,
-        )
-        .expect("curved split_boundary_edge must succeed");
-        assert_eq!(split_rebuild.new_tris.len(), 2);
-        assert_eq!(split_rebuild.new_tri_bounds.len(), 2);
-
-        let mut attr_map = TriangleAttributionMap {
-            attributions: vec![attr(InputId::A, 0); 2],
-        };
-        let mut lbl_map = TriangleSideLabelMap {
-            labels: vec![lbl_a; 2],
-        };
-        let mut tri_bounds = TriangleErrorBoundMap::from_bounds(vec![70.1, 70.9]);
-        apply_rebuild_batch(
-            &mut split_mesh,
-            &mut attr_map,
-            &mut lbl_map,
-            &mut tri_bounds,
-            &[split_rebuild],
-            None,
-        )
-        .expect("apply_rebuild_batch for curved split_boundary_edge");
-        assert_eq!(split_mesh.tris.len(), 3);
-        assert_eq!(tri_bounds.lookup(0), 70.9, "untouched bystander keeps 70.9");
-        for slot in 1..3 {
-            let bound = tri_bounds.lookup(slot as u32);
-            let pts = split_mesh.tris[slot].map(|vi| split_mesh.verts[vi as usize]);
-            let exact_dt = crate::brep::recompute_tri_bound_from_world(cyl5_surf, pts);
             assert!(bound > 0.0);
             assert_eq!(bound.to_bits(), exact_dt.to_bits());
         }

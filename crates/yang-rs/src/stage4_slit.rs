@@ -1,6 +1,5 @@
-//! §I13(f) f2c-3 — the BRIDGE CENSUS instrument, and the measurement
-//! that RETIRED the slit (spec `specs/yang_441_trim_cdt_construction.md`
-//! §I13(f) item 6).
+//! The BRIDGE CENSUS instrument, and the measurement that RETIRED the
+//! slit (spec `specs/yang_441_trim_cdt_construction.md` §I13(e)).
 //!
 //! Built to scope a "junction-layer SLIT" repair for R0003's measured
 //! main-shell genus-2 ([`crate::stage5_topology::chi_audit_report`]).
@@ -60,7 +59,7 @@ fn norm(a: [f64; 3]) -> f64 {
     dot(a, a).sqrt()
 }
 
-/// §I13(f) f2c-3 gate — `YANG_441_SLIT`. Unset/other = Off (byte-
+/// The bridge-census gate — `YANG_441_SLIT`. Unset/other = Off (byte-
 /// identical). `census` = the read-only bridge census prints at stage-4
 /// reconstruct entry. `on` is reserved for the rescoped HANDLE
 /// CERTIFICATE mode (no slit apply arm will be built — the slit was
@@ -324,7 +323,7 @@ struct BridgeTri {
     witness: [f64; 3],
 }
 
-/// §I13(f) f2c-3 — the read-only BRIDGE CENSUS (see module docs). Prints
+/// The read-only BRIDGE CENSUS (see module docs). Prints
 /// under `[i13f-slit]`; the mesh is never touched.
 pub(crate) fn bridge_census(
     mesh: &Mesh,

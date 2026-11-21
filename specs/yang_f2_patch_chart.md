@@ -149,8 +149,8 @@ paper's NURBS faces do.
    hash-identical (the inverse's branch is `[0, 2π)`, `atan2`'s is
    `(−π, π]`); gate: corpus held. **Landed 2026-11-20 (§6).**
 4. The fan-local `ApexInPatch` sites (`rebuild_merge_fan`,
-   `refill_fan_hole_*`, `fan_rebuild_core`, `rebuild_group_fan`) belong to
-   repairs F2 retires; they are not converted, they go with their passes.
+   `refill_fan_hole_*`) belong to repairs F2 retires; they are not
+   converted, they go with their passes.
 
 ## 5. Increments 0–2 measured (2026-11-18)
 

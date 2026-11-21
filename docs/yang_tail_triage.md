@@ -43,6 +43,64 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-21 (F2 item 3, repair retirement) — **run absorption, group absorption and corner re-homing DELETED (N113); the Stage-5 corner merge has a customer only rotation shows (P0027 motion 0) and stays; the sub-τ collapse fires under rotation**
+
+Corpus 360C / 0W / 9E / 5EE / 0T before and after, the hash file identical
+on all 374 cases. No named dip.
+
+**Method.** One release binary carried a census of every repair pass that
+changed the mesh (`YANG_REPAIR_CENSUS`) and a temporary off-switch per pass.
+It ran the corpus, four rigid motions of every case (the sweep now prints a
+geometry hash and keys the census by motion) and prospector seed 6. The
+switches were deleted before the commit.
+
+**Where each pass changes the mesh** (cases; builds under rotation are of
+1,870 = 374 unmoved + 1,496 moved):
+
+| pass | corpus, unmoved | under rotation | seed 6 (200) |
+|---|---|---|---|
+| construct pass (seam replacement) | 89 cases | 442 builds, 94 cases | 132 candidates |
+| corner fold-merge | F0064, F0067, R0070, R0095 | 17 builds: those four, P0027, R0050 | 00126, 00156, 00168, 00176 |
+| corner re-homing | R0003 | R0003, all 5 builds | — |
+| run / group absorption | — | — | 00180 |
+| `repair_fan_cluster` (N58) | P0020 | 3 builds: P0020, P0044 | 00065, 00070 |
+| pinch split | F0058, F0060, P0057, R0050 | 17 builds: those four, P0053 | — |
+| sub-τ collapse (N89 item 1) | — | 10 builds: C0043, F0055, F0059, P0041, R0015 | — |
+
+On 2026-11-06 the construct pass fired in 230 corpus cases and the
+fold-merge pass in 6 (5 today, R0003 included); the per-patch update takes
+most of that work now.
+
+**Each pass switched off on its own customers** (geometry hash against the
+same binary with it on):
+
+- **Absorption and re-homing: nothing moves.** R0003 unmoved and under its
+  four motions, and seed-6 00180, are bit-identical. Deleted (ledger N113).
+  The landed code re-measured: corpus hash file identical, the seven
+  fold-merge customer cases identical under rotation (35 builds), the five
+  seed-6 customers identical.
+- **Corner merge: one rotated body moves.** The unmoved corpus and the
+  seed-6 customers are bit-identical. Of 372 cases run under rotation
+  (F0085 and R0081 not finished; the merge applies in neither) every build
+  is bit-identical except P0027 motion 0, which builds three bodies with the
+  unmoved χ and mesh volume and a shape 8.06e-3 of the diagonal off, from the
+  fourth operation on, with no error. The merge stays (ledger N2); the pin is
+  `rigid_motion_sweep.rs::p0027_moved_rigidly_is_the_unmoved_body`.
+- **Pinch split:** F0058, F0060 and P0057 stop with typed errors
+  (`NonManifoldVertex`, `BooleanFailed`) without it; R0050 is bit-identical.
+- **`repair_fan_cluster`:** P0020 stops with a typed `BooleanFailed`.
+- **Sub-τ collapse:** not switched off. Its 0 fires on the corpus were the
+  case for retiring it; ten rotated builds use it.
+
+**Rotation baseline, 2026-11-21.** Of 1,440 rotated runs of the 360 CORRECT
+cases, 65 do not reproduce the unmoved result: 59 loud and the same six
+quiet ones as on 2026-11-15 (F0055 motions 0 and 1, F0060 motion 2, F0094
+motions 0 and 3, R0057 motion 0). Seed 6 at a 900 s budget: 189C / 0W / 9E /
+2T (187C / 0W / 10E / 3T on 2026-11-06).
+
+**Unread.** Why R0003 no longer needs re-homing. The anatomy of P0027's
+site and why no output trigger sees it.
+
 ## 2026-11-15 (F0094, F0060, F0055 moved rigidly, read) — **F0094 is a Stage-0 gap: two discs whose rims cross get no §4.5.5 overlay, and the arrangement sees their caps as coplanar only on an axis-aligned plane (N108, an F6 item). F0060 and F0055 are authored exact tangencies; how a pinch is grouped is discontinuous in the input**
 
 No kernel change; the corpus figure does not move. With R0057 (entry

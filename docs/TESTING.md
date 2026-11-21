@@ -633,6 +633,13 @@ auto-union that failed), or `DIFF` (built without complaint and differs
 from the unmoved build). A `DIFF` with a different volume is a wrong model;
 read those first.
 
+`hash=` is the canonical geometry hash of the build's live bodies, in the
+build's own frame. It compares two KERNELS on one motion, never two motions:
+a kernel change that moves nothing leaves every line, hash included,
+identical. The sweep sets `ASSAY_CASE` to `<case>#ref` and `<case>#<k>` while
+it builds, so a kernel census log (`YANG_REPAIR_CENSUS` and the other
+`ASSAY_CASE`-keyed files) names the motion a line came from.
+
 `geo=` on each line is where the moved body is: its render mesh carried back
 by the inverse motion, and the largest distance from a vertex of either mesh
 to the other's surface, as a fraction of the unmoved mesh's bounding-box
@@ -659,19 +666,27 @@ ls app/tests/cases/assay/*.waffle | xargs -n1 basename | sed 's/\.waffle$//' \
 
 Motions are seeded by case id, so two trees draw the same ones. To judge a
 kernel change, run the sweep from a tree with it and a tree without and
-diff the verdict column. A removal of a kernel mechanism runs this first
+diff the lines. A removal of a kernel mechanism runs this first
 (`specs/yang_paper_path.md` §6): edge-in-plane arm 2 moved nothing in the
 corpus, a prospector seed or the fast tier, and 68 of 640 rigid motions of
-its anchoring pair fail without it.
+its anchoring pair fail without it; the Stage-5 corner merge moves nothing
+in the corpus or seed 6, and P0027 under one motion builds a different body
+without it.
 
-Baseline, 2026-11-15: of 1,440 rotated runs of the 360 CORRECT cases, 68 do
-not reproduce the unmoved result — 62 loud, 6 quiet
+A slow case holds its whole core booking while it finishes alone (R0081,
+R0085, F0085 and F0072 take several minutes a build). Run those under their
+own one-core `reserve` booking and the rest under the wide one.
+
+Baseline, 2026-11-21: of 1,440 rotated runs of the 360 CORRECT cases, 65 do
+not reproduce the unmoved result — 59 loud, 6 quiet
 (`docs/yang_tail_triage.md`). All six quiet ones are the unmoved solid in
 place (`geo` 2.1e-4 to 3.1e-4) under a different count of bodies, faces or
-vertices.
+vertices. Over all 374 cases: 1,378 `OK`, 107 `ERR`, 11 `DIFF`.
 
-`f0076_union_volume_is_the_same_at_every_rim_phase`, in the same file, is a
-pin rather than a probe: it spins one sketch of F0076 about its own normal
+`p0027_moved_rigidly_is_the_unmoved_body`, in the same file, is a pin
+rather than a probe: it holds P0027 to `OK` under its four motions, which is
+what the Stage-5 corner merge is kept for (ledger N2).
+`f0076_union_volume_is_the_same_at_every_rim_phase` is the other pin: it spins one sketch of F0076 about its own normal
 (same geometry, different rim samples) and holds the union to the
 document's volume.
 

@@ -359,8 +359,8 @@ pub(crate) fn c441_verbose() -> bool {
 /// boundaries (stage-2 kept submesh, stage-4/5 reconstruct entry, each
 /// construct/fold-merge alternation round) and reports any single apply
 /// that changes them. Built 2026-08-28 to localize R0003's measured
-/// main-shell genus-2 (per-component χ [-2, 2, 2] at the rehome applies,
-/// which are themselves neutral).
+/// main-shell genus-2 (per-component χ [-2, 2, 2]; every apply was
+/// neutral).
 pub(crate) fn chi_audit_enabled() -> bool {
     std::env::var_os("YANG_CHI_AUDIT").is_some()
 }
@@ -557,7 +557,7 @@ pub(crate) fn reconstruct_topology_stage4(
     vertex_params.assert_lockstep(mesh.verts.len(), "reconstruct_topology_stage4 entry");
     chi_audit_report("s4-reconstruct entry", &mesh.tris);
     crate::stage4_correct::mesh_dump_probe("s4-reconstruct entry", mesh, attribution);
-    // §I13(f) f2c-3 — the read-only BRIDGE CENSUS (`YANG_441_SLIT`, unset =
+    // The read-only BRIDGE CENSUS (`YANG_441_SLIT`, spec §I13(e); unset =
     // byte-identical): lift kept triangles onto their analytic carriers and
     // test the lifts against the tool half-spaces. Its 2026-08-28
     // measurement REFUTED the slit repair (R0003's genus-2 is TRUE

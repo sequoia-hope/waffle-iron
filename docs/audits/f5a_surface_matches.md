@@ -8,17 +8,17 @@ interface call), (c) a closed-form fast path (stays, recorded, pinned).
 `scripts/f5a_surface_matches.py --check` fails on a site whose function is
 not classified.
 
-**518 sites in 135 functions** (production code; tests excluded).
+**504 sites in 130 functions** (production code; tests excluded).
 
 | class | sites |
 |---|---|
-| a | 204 |
+| a | 197 |
 | a+b | 8 |
 | a+b+c | 40 |
 | a+c | 2 |
-| b | 15 |
+| b | 12 |
 | b+c | 53 |
-| c | 196 |
+| c | 192 |
 
 ## By rule family
 
@@ -35,12 +35,12 @@ not classified.
 | a | `planar-weld` | 2 |
 | a | `plane-key` | 1 |
 | a | `precondition-assert` | 3 |
-| a | `probe-print` | 75 |
+| a | `probe-print` | 73 |
 | a | `quadric-convert` | 20 |
 | a | `s451-cone-section` | 1 |
 | a | `stage0-plane-data` | 4 |
 | a | `surface-equality` | 12 |
-| a | `type-name` | 30 |
+| a | `type-name` | 25 |
 | a | `validation` | 1 |
 | a+b | `patch-merge` | 2 |
 | a+b | `stage4-entry-gate / probe-print` | 6 |
@@ -48,10 +48,8 @@ not classified.
 | a+b+c | `conic-owner-lookup / torus-routing / probe-print` | 22 |
 | a+b+c | `probe-print / junction-arm` | 11 |
 | a+c | `s451-cone-section` | 2 |
-| b | `chain-decimate-chart` | 1 |
 | b | `chart-capability-gate` | 5 |
 | b | `chord-budget` | 1 |
-| b | `cone-corner-rehome` | 2 |
 | b | `crease-curve` | 6 |
 | b+c | `chord-budget / torus-gate / ssi-band-amplification` | 18 |
 | b+c | `coincident-cylinder` | 2 |
@@ -66,7 +64,6 @@ not classified.
 | c | `axial-chart` | 2 |
 | c | `bbox-closed-form` | 5 |
 | c | `chord-budget` | 14 |
-| c | `cone-corner-rehome` | 4 |
 | c | `crease-divider` | 3 |
 | c | `deviation-bound` | 5 |
 | c | `divider-range` | 2 |
@@ -101,10 +98,8 @@ with that mechanism, not by a property swap.
 |---|---|---|---|
 | F2 (charts on the parameter domain) | `boolean/failures.rs` | `output_loop_crossings` | 2 |
 | F2 (repair passes retired by the per-patch update) | `stage4_correct/collapse.rs` | `repair_fan_cluster_ex_with_bounds` | 7 |
-| F2 (repair passes retired by the per-patch update) | `stage4_rehome.rs` | `classify` | 2 |
 | F2 (repair passes retired by the per-patch update) | `stage5_envelope.rs` | `rebuild_osculating_loops` | 4 |
 | F2 (the Stage-1 mints, N82) | `boolean/rim_junction.rs` | `rim_junctions_against` | 11 |
-| F2 (§4.4.1 charts on the parameter domain, 4.4-09) | `stage4_chain_decimate.rs` | `decimate_patch_chains_441_with_bounds` | 1 |
 | F2 (§4.4.1 charts on the parameter domain, 4.4-09) | `stage4_project.rs` | `supports` | 5 |
 | F3 (§4.5.1 on the parameter domain) | `stage4_correct/s451.rs` | `s451_plan_repairs` | 4 |
 | F4 (§4.3 for every pair) | `stage4_boundary_curve.rs` | `crease_curve_from_pair` | 6 |
@@ -159,10 +154,9 @@ with that mechanism, not by a property swap.
 | `stage4_boundary_curve.rs` | `crease_divider_for` | 1 (863) | a | `crease-divider` | Constructs the radial Cylinder divider through a circle crease. | Construction of a Surface value. |
 | `stage4_boundary_curve.rs` | `crease_plane` | 1 (892) | a | `crease-divider` | Constructs the Plane of a planar crease curve. | Construction. |
 | `stage4_boundary_curve.rs` | `crease_curve_from_pair` | 6 (992, 992, 993, 995, 996, 996) | b | `crease-curve` | Only (Cylinder\|Cone)×Plane pairs go to ssi_rs::intersect for an oblique conic crease; other pairs get no planar crease. | (b) property: none (Cylinder\|Cone has no property; the Plane half ⇔ is_affine()); bit-identical swap: no; Type gate in front of a general SSI call. A type-free rule ("one planar Ellipse/Parabola/Hyperbola from ssi") is not provably equivalent: Sphere×Plane gives a Circle (rejected anyway), and quadric pairs could admit new creases. Torus also errors in surface_to_quadric. |
-| `stage4_boundary_curve.rs` | `crease_divider` | 1 (1353) | a | `crease-divider` | Constructs the Plane spanned by a line edge and the face normal. | Construction. |
-| `stage4_boundary_curve.rs` | `boundary_crease_crossed` | 2 (1504, 1513) | c | `crease-divider` | Circle extent: a Plane divider checks the radius in-plane, a Cylinder divider checks the axial height; other dividers → skip. | The divider is self-constructed (crease_divider gives Plane or Cylinder for circles), so `_ => continue` is unreachable today. Arms use each divider's own geometry. |
-| `stage4_chain_decimate.rs` | `decimate_patch_chains_441_with_bounds` | 1 (1323) | b | `chain-decimate-chart` | A Sphere patch declines all its active chain decisions (SurfaceChart has no sphere chart). | (b) property: none (Sphere alone has no listed property; degenerate.len()==2 separates it only by accident); bit-identical swap: no; A missing capability expressed as a type refusal. The real conversion is a chart via ParamSurface, which changes FP for the other types. |
-| `stage4_construct.rs` | `surface_kind_name` | 5 (4055, 4056, 4057, 4058, 4059) | a | `type-name` | Name string per variant for census lines. |  |
+| `stage4_boundary_curve.rs` | `crease_divider` | 1 (1358) | a | `crease-divider` | Constructs the Plane spanned by a line edge and the face normal. | Construction. |
+| `stage4_boundary_curve.rs` | `boundary_crease_crossed` | 2 (1509, 1518) | c | `crease-divider` | Circle extent: a Plane divider checks the radius in-plane, a Cylinder divider checks the axial height; other dividers → skip. | The divider is self-constructed (crease_divider gives Plane or Cylinder for circles), so `_ => continue` is unreachable today. Arms use each divider's own geometry. |
+| `stage4_construct.rs` | `surface_kind_name` | 5 (3219, 3220, 3221, 3222, 3223) | a | `type-name` | Name string per variant for census lines. |  |
 | `stage4_correct.rs` | `unit_plane` | 1 (93) | a | `plane-key` | Extracts a Plane's unit-normalized (n̂, d̂) merge key; None for any non-plane. | Representation conversion (plane → unit coefficients); callers decide what None means. |
 | `stage4_correct.rs` | `surfaces_coincide_unoriented` | 10 (141, 141, 149, 153, 159, 164, 181, 186, 200, 206) | a | `surface-equality` | Same-variant field-by-field locus equality within TAU_WORK (ignoring orientation); mixed variants never coincide. | Instance equality (like PartialEq with tolerance). Mixed-variant → false is definitional, not a geometric rule. |
 | `stage4_correct.rs` | `planar_partner_hull_contains` | 2 (350, 354) | a | `probe-print` | YANG_TORUS_STOP eprintln diagnostics: lists near-parallel plane faces against a planar partner. | Diagnostics only. |
@@ -175,8 +169,6 @@ with that mechanism, not by a property swap.
 | `stage4_project.rs` | `new` | 5 (101, 113, 127, 141, 141) | a | `chart-construct` | Builds the per-type global SurfaceChart (plane frame, cylinder/cone axis frames); None for Sphere/Torus. | Representation conversion (instance chart); arguably c (closed-form parameterization duplicating ParamSurface + AnalyticInverse). The None arm is the capability boundary that supports() mirrors. |
 | `stage4_project.rs` | `new_local` | 1 (154) | a | `chart-construct` | Ring-torus arm of the fan-local chart; validates torus fields, otherwise delegates to new. | Instance validation + construction. |
 | `stage4_project.rs` | `supports` | 5 (194, 194, 194, 195, 195) | b | `chart-capability-gate` | Chartability gate consulted by construct/fold-merge/corner-merge/rim-trim holders: Plane\|Cylinder\|Cone admitted, Sphere\|Torus refused. | (b) property: none (Cone vs Sphere not distinguishable by is_affine/period/degenerate properties); bit-identical swap: no; Defined as 'true exactly when new() returns Some', so it is a capability mirror of the chart instance; reviewer may reclass as a if the chart is considered instance data. Retires when holders run on ParamSurface. |
-| `stage4_rehome.rs` | `classify` | 2 (395, 396) | b | `cone-corner-rehome` | Admits the rehoming family only for carriers of exactly 1 Cone+2 Planes at one end and 2 Cones+1 Plane at the other. | (b) property: none (Cone alone not distinguishable from Sphere); bit-identical swap: no; A gate that admits a geometric rule by type counts — clear standing-rule target; shape was 'measured invariant' on R0003 only. |
-| `stage4_rehome.rs` | `plan_corner_rehoming` | 4 (448, 453, 518, 538) | c | `cone-corner-rehome` | Destructures the classified cones and planes for the closed-form coaxial rim circle and rim∩plane / line∩cone roots. | let-else arms are unreachable! after classify; the type decision lives in classify (b). |
 | `stage4_relocate.rs` | `surface_anchor_magnitude` | 5 (82, 91, 91, 92, 93) | c | `eval-scale` | Per-type magnitude of the point a signed distance is measured from (plane offset, centre, axis point, apex), for the eval-precision floor. | Each arm is that variant's own anchor; no gate. |
 | `stage4_relocate.rs` | `junction_certificate_band` | 5 (100, 109, 110, 113, 114) | c | `eval-scale` | Per-type reference magnitude (anchor + radii) feeding the 8·ε·L junction exactness band. | Each arm is that variant's own intrinsic scale; no gate. |
 | `stage4_relocate.rs` | `surface_value_and_normal` | 5 (153, 158, 167, 187, 213) | c | `implicit-eval` | Closed-form implicit value and unit gradient of each variant at x. | Cone value is the radial form (sec α × distance), by design. |
@@ -189,10 +181,10 @@ with that mechanism, not by a property swap.
 | `stage4_relocate.rs` | `ruling_circle_coplanar_junction` | 1 (1771) | a | `construct` | Constructs a Surface::Plane for the circle's plane, to size junction_certificate_band. | d = +n·c, the opposite sign to the n·x+d=0 convention. Harmless only because junction_certificate_band reads \|d\|/\|n\|. |
 | `stage4_relocate.rs` | `project_onto_cone_section` | 2 (1923, 1928) | a | `construct` | Constructs Cone and Plane surfaces from relocation fields to call relocate_onto_implicit_pair. |  |
 | `stage4_relocate.rs` | `cone_chord_budget_from_owner` | 1 (1974) | c | `chord-budget` | Finds a Cone face of the owner and reads its rim circle height to compute cone_chord_bound. | Unsure between a and c: the type filter is an instance lookup feeding a per-type chord budget. It takes the FIRST Cone face of the owner, not the one matching apex/axis, so a multi-cone owner can get the wrong cone's budget. Worth a check. |
-| `stage4_slit.rs` | `project_to_surface` | 5 (91, 100, 109, 130, 168) | c | `projection` | Closed-form nearest point per variant; Torus returns None (not lifted). | Its only production caller is bridge_census (YANG_441_SLIT, off by default), so it also qualifies as (a) diagnostics-only. |
-| `stage4_slit.rs` | `tool_planes` | 1 (179) | a | `census` | The census declines unless every tool face is a plane (a convex all-planar tool gives the closed-form truth). | A type gate, but reached only from the read-only bridge_census (YANG_441_SLIT). It decides no pipeline geometry, so it is not b. |
-| `stage4_slit.rs` | `coaxial_cone_rim` | 2 (218, 223) | c | `ssi-closed-form` | Closed-form rim circle of two coaxial cones; None for non-cone pairs. | Only caller is bridge_census (diagnostics). Also qualifies as (a). |
-| `stage4_slit.rs` | `bridge_census` | 11 (611, 612, 613, 614, 615, 875, 1113, 1114, 1115, 1116, 1117) | a | `probe-print` | Kind names for census printing (611-615, 1113-1117); plane-only wall-plane filter inside the tube probe (875). | The whole fn is gated by slit_mode() != Off and prints only. |
+| `stage4_slit.rs` | `project_to_surface` | 5 (90, 99, 108, 129, 167) | c | `projection` | Closed-form nearest point per variant; Torus returns None (not lifted). | Its only production caller is bridge_census (YANG_441_SLIT, off by default), so it also qualifies as (a) diagnostics-only. |
+| `stage4_slit.rs` | `tool_planes` | 1 (178) | a | `census` | The census declines unless every tool face is a plane (a convex all-planar tool gives the closed-form truth). | A type gate, but reached only from the read-only bridge_census (YANG_441_SLIT). It decides no pipeline geometry, so it is not b. |
+| `stage4_slit.rs` | `coaxial_cone_rim` | 2 (217, 222) | c | `ssi-closed-form` | Closed-form rim circle of two coaxial cones; None for non-cone pairs. | Only caller is bridge_census (diagnostics). Also qualifies as (a). |
+| `stage4_slit.rs` | `bridge_census` | 11 (610, 611, 612, 613, 614, 874, 1112, 1113, 1114, 1115, 1116) | a | `probe-print` | Kind names for census printing (611-615, 1113-1117); plane-only wall-plane filter inside the tube probe (875). | The whole fn is gated by slit_mode() != Off and prints only. |
 | `stage4_tangency.rs` | `new` | 5 (301, 319, 342, 380, 431) | c | `local-chart` | Per-type pole-free local chart construction centered at the anchor's foot (closed-form frames, cone apex refusal). | LocalSurfaceChart::new; all five variants covered; closed-form param per type. |
 | `stage4_tangency.rs` | `surface_intrinsic_scale` | 5 (1033, 1041, 1042, 1045, 1046) | c | `intrinsic-scale` | Per-type intrinsic magnitude scale (\|d\|, max(\|center\|,r), \|apex\|, etc.) for the coincidence floor. |  |
 | `stage5_envelope.rs` | `build` | 1 (241) | c | `envelope-cylinder-plane` | CylFrame chart from Cylinder fields; non-cylinder → UnsupportedSurface. | Per-type chart (the ParamSurface cylinder chart could replace it, but azimuth conventions would have to match bit-for-bit). |
@@ -226,8 +218,8 @@ with that mechanism, not by a property swap.
 | `stage4_correct/collapse.rs` | `seam_run_params` | 6 (1030, 1030, 1049, 1050, 1057, 1062) | c | `seam-curve-param` | Closed-form curve parameter along a seam run: Plane×Plane line projection; Plane×Cylinder ellipse θ or generator axial coordinate; else None. | The None arm for other pairs is a capability refusal (CDT stays loud verifier); not a type rule on a general mechanism, but reviewer may judge the support set. |
 | `stage4_correct/collapse.rs` | `repair_fan_cluster_ex_with_bounds` | 7 (1651, 1653, 2069, 2070, 2071, 2072, 2073) | a+b+c | `chart-unwrap / probe-print` | [1651,1653] Only a Cylinder region re-centres θ on the circular mean, bails on a quarter-turn straddle and scales θ by radius; Cone/Plane use raw chart coords. — [2069,2070,2071,2072,2073] Surface kind name for the [p3b-fanfix] probe eprintln. | [1651,1653] (b) property: none (Cylinder alone; Cone is also u-periodic so u.period would change behavior); bit-identical swap: no; b = is_cyl gate (1651) choosing the unwrap/bail path; c = radius·dθ isometric development (1653). Cone regions get no θ unwrap here — a possible latent seam defect, unlike stage4_construct's Cyl\|Cone unwrap. — [2069,2070,2071,2072,2073] Gated by `probe`. |
 | `stage4_correct/domain_postcondition.rs` | `face_chord_bound` | 5 (17, 18, 19, 24, 53) | c | `chord-budget` | Per-type Stage-1 chord bound of one face (Plane 0, sphere/torus/cone closed forms, cylinder per-solid rim budget). | Each arm is that variant's own budget. The Plane→0 arm is the table's plane entry, not a skip. |
-| `stage4_correct/domain_postcondition.rs` | `metric_distance` | 1 (663) | c | `implicit-eval` | Scales the cone's radial residual by cos α to a metric distance. | Same cone correction as surface_distance_and_normal. |
-| `stage4_correct/domain_postcondition.rs` | `divider_range_on_triangle` | 2 (747, 748) | c | `divider-range` | Per-type min/max of a divider's distance over a triangle (plane linear, cylinder convex); other kinds declined. | Sphere distance is also convex but declined, a capability gap rather than b. The arms match the dividers crease_divider_for builds. |
+| `stage4_correct/domain_postcondition.rs` | `metric_distance` | 1 (666) | c | `implicit-eval` | Scales the cone's radial residual by cos α to a metric distance. | Same cone correction as surface_distance_and_normal. |
+| `stage4_correct/domain_postcondition.rs` | `divider_range_on_triangle` | 2 (750, 751) | c | `divider-range` | Per-type min/max of a divider's distance over a triangle (plane linear, cylinder convex); other kinds declined. | Sphere distance is also convex but declined, a capability gap rather than b. The arms match the dividers crease_divider_for builds. |
 | `stage4_correct/probes.rs` | `surface_kind_name` | 5 (16, 17, 18, 19, 20) | a | `type-name` | Maps each variant to its display name. | Naming only. |
 | `stage4_correct/s451.rs` | `s451_post_sweep_census` | 4 (312, 316, 319, 325) | a | `probe-print` | The census preview picks a shared Cone and Plane to preview the cone-section repair. | eprintln census only. It mirrors the s451_plan_repairs type gate, so convert them together. |
 | `stage4_correct/s451.rs` | `s451_plan_repairs` | 4 (769, 773, 776, 782) | b+c | `s451-cone-section` | The §4.5.1 repair runs only if the bounds' shared surfaces include a Cone AND a Plane (else DECLINE); then projects with the closed-form cone section. | (b) property: none (Cone has no property: Cone vs Sphere indistinguishable; Plane ⇔ is_affine()); bit-identical swap: no; 769/773 = b (find by type, decides repair vs decline); 776/782 destructure for project_onto_cone_section = c. The general mechanism would be a §4.3.2 step on the shared pair via the interface, which changes FP. |
@@ -251,8 +243,6 @@ with that mechanism, not by a property swap.
 | `boolean/tangency.rs` | `tangent_overrides` | 2 (678, 690) | b+c | `tangent-insertion` | §4.3.3 tangent-point/generator mesh insertion considers only Cylinder×Cylinder face pairs; closed-form axis tests pick generator vs crossing arms. | (b) property: none (Cylinder alone); bit-identical swap: no; b = the let-else continue on non-cylinder faces (678, 690) restricting a general tangency-insertion rule to one type pair; c = closed-form parallel-axis/crossing math. Newton tangents (stage4_tangency) exist as a generic route. |
 | `stage5_topology/construct.rs` | `census_j1_boundary_exit` | 2 (1157, 1163) | a | `probe-print` | Formats a surface's parameters for census output. |  |
 | `stage5_topology/emit.rs` | `emit_topology` | 14 (331, 331, 352, 423, 428, 429, 430, 431, 508, 1451, 1456, 1462, 1480, 1481) | a | `probe-print` | 336/357: N100 census label (Sphere\|Torus); 428-436: extract Plane (normal,d) with defensive loud error for curved (unreachable); 513: construct flipped Plane; 1456-1486: YANG_S5_FOLD_PROBE cyl+2-plane root diagnostic. | 428-436 is plane field extraction after the 221 gate (instance data); 1456+ is inside env-gated probe (line 1180). Mixed families (probe-print, instance-construct) folded into one a-row. |
-| `stage5_topology/fold_merge.rs` | `run_absorption_attempt` | 5 (890, 891, 892, 893, 894) | a | `type-name` | One-letter kind codes for the YANG_441_I13F census print. | Diagnostics only. |
-| `stage5_topology/fold_merge.rs` | `rehome_attempt` | 2 (1852, 1871) | a | `probe-print` | Census-mode cone frame and cone tan for the hole-anatomy print. | Inside `mode == RehomeMode::Census` only. No effect on behaviour. |
 | `stage5_topology/patches.rs` | `select_outer_cycle` | 2 (906, 911) | b+c | `outer-cycle` | Cylinder/Cone faces pick the outer loop by Newell area unless a cycle encircles the axis; all other types take most-edges. | (b) property: none (Cylinder\|Cone = developable, no interface property); bit-identical swap: no; b = Cylinder\|Cone admission (906/911 + `_ => return by_edges`); c = axis-angle theta computation. Sphere/torus also periodic but excluded; converting changes which types take the area rule. |
 | `stage1_tessellate/deps_census.rs` | `brep_model_aabb` | 5 (326, 326, 326, 329, 338) | c | `model-aabb` | Per-type conservative extent: ruled surfaces bounded by boundary curves (no-op), sphere adds center±r box, torus adds its closed-form box. | Per-type closed-form extent (N85 d_ε model bbox). |
 | `stage1_tessellate/deps_census.rs` | `stage1_tri_surface_and_uv` | 6 (942, 957, 986, 1010, 1047, 1079) | c | `projection` | Per-type inverse map of a triangle's 3 points to (u,v) (plane frame, cylinder/cone/sphere/torus angles), cone nappe flip, apex/pole handling. | Closed-form inverse; overlaps AnalyticInverse in param_surface/analytic.rs (candidate to retire onto it, not bit-identical without checking frames). Used in production by brep.rs:766 and stage1_tessellate.rs:2595, not only the census. |

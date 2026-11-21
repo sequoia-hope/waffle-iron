@@ -30,7 +30,6 @@ output** so they are auditable.
 | `YANG_441_APPLY_BOOL_CAP` | `yang-rs/src/stage5_topology.rs` (`run_construct_passes`) | booleans at/above this process-order index run the I5 construct pass census-only | every boolean applies |
 | `YANG_441_APPLY_SEAM_CAP` | same | caps the total applied-seam budget | uncapped |
 | `YANG_434_OUT=census` | `yang-rs/src/stage5_output_refine.rs` (`restore_gate_enabled`) | reports the §4.4.2 restoration and does NOT apply it | restoration applied |
-| `YANG_441_RUN_ABSORB=census`, `YANG_441_GROUP_ABSORB=census`, `YANG_441_REHOME=census` | `yang-rs/src/stage4_fold_risk.rs`, `stage4_rehome.rs` | select and report, apply nothing | absorption / rehome applied |
 | `YANG_451=census` | `yang-rs/src/stage4_correct.rs` (`s451_census`) | OffCurve gates record-and-skip instead of abort, and the §4.5.1 repair is OFF | `on` (record and repair) |
 | `YANG_451_TRIPLE_DOMAIN=1\|on`, `YANG_S45_BOUNDARY_DOMAIN=stop\|1\|on` | `yang-rs/src/stage4_correct.rs`, `stage4_correct/domain_postcondition.rs` | turn a domain fire into a hard STOP (`census` remains a print-only trace in release) | record-and-continue (`0\|off`) |
 | `YANG_S4_CARRIER_DOMAIN=census` | `yang-rs/src/stage4_correct.rs` (`carrier_domain_mode`) | skips the carrier-domain abort (changes flow) | `stop` |
@@ -55,8 +54,7 @@ Deleted on 2026-10-16 (yang-rs + kernel-v2): `YANG_433_RULEOUT`,
 two gated-OFF experiments `YANG_S4_TRIPLE_POINT_ENABLE` (with
 `plan_triple_point_reseats`) and `KV2_ARC_CONFORM_CURVES` (with
 `boundary_curve_pool_samples`). The `0|off` value of these multi-valued knobs
-went too, their other modes kept: `YANG_434_OUT`, `YANG_441_RUN_ABSORB`,
-`YANG_441_GROUP_ABSORB`, `YANG_441_REHOME`, `YANG_451`,
+went too, their other modes kept: `YANG_434_OUT`, `YANG_451`,
 `YANG_451_TRIPLE_DOMAIN`, `YANG_451_TRANSIT_ANATOMY`,
 `YANG_S45_BOUNDARY_DOMAIN`, `YANG_S4_CARRIER_DOMAIN`.
 Deleted on 2026-10-24: `YANG_441_OPEN_CONIC_PARAM` (open-conic parameter order in
@@ -66,6 +64,10 @@ were gated behind `cfg!(debug_assertions)`.
 Deleted on 2026-11-13 with the crease and corner transits (ledger N87):
 `YANG_451_TRANSIT_ANATOMY`, and the tracing probes `YANG_451_CHI`,
 `YANG_451_HOSTS` and `YANG_451_CORNER_PROBE`.
+Deleted on 2026-11-21 with run absorption, group absorption and corner
+re-homing (ledger N113): the `census` modes `YANG_441_RUN_ABSORB`,
+`YANG_441_GROUP_ABSORB` and `YANG_441_REHOME`, and the tracing probes
+`YANG_441_RUN_PROBE`, `YANG_441_RUN_PROBE_AT` and `YANG_441_I13F`.
 
 ## Result-changing modes still read in release (OPEN)
 
@@ -123,6 +125,8 @@ cargo feature**, not an environment variable.
 **Added 2026-10-28:** `YANG_OFF_SURFACE_CENSUS=<file>` — ledger N100 item 9 (`boolean::failures::off_surface_census`): appends one line per emitted face whose loop has a vertex off its surface beyond kernel-v2's import band (T8), keyed by `ASSAY_CASE`, with the distance and band. Print-only (the T8 sites themselves are always on).
 
 **Added 2026-10-28:** `YANG_N100_CENSUS=<file>` — ledger N100 (`n100_census.rs`): appends `case\titemN\tdetail` at the possible silent paths 1 (zero-distance non-crossing pair, `shell_contact`), 2 (no-witness single-candidate edge, `stage3_ssi`), 4 (sphere/torus multi-cycle outer choice vs largest Newell area, `stage5_topology/emit.rs`) and 5 (undetermined crease side, now a decline, `stage4_correct`), keyed by `ASSAY_CASE`. Print-only.
+
+**Added 2026-11-06:** `YANG_REPAIR_CENSUS=<file>` — roadmap F2 "retire the repairs it subsumes" (`repair_census.rs`): appends `case\tpass\tcount` for each Stage-4/5 repair pass that CHANGED the mesh (the construct pass, the corner fold-merge, `repair_fan_cluster`, the pinch split, the sub-τ collapse at both sites), keyed by `ASSAY_CASE`; the rigid-motion sweep keys it by motion. No effect on any result.
 
 **Added 2026-11-17:** `YANG_UV_CENSUS=<file>` — F5a increment 3 / ledger N109 (`param_surface::carried::census`): appends one TSV line per stage (`stage1-A`, `stage1-B`, `stage2-kept`, `stage4-relocated`, `stage5-exit`) keyed by `ASSAY_CASE`, with the vertex count, entries, vertices with no (u, v) (`bare`), entries the inverse refused, entries added by incidence (`settled`), the largest `|s(u, v) − p| / d_ε` over curved faces and the largest `|s(u, v) − p|` over planar ones. Print-only.
 
