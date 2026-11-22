@@ -410,12 +410,14 @@ where
 }
 
 fn parse_assay_outcome_line(stdout: &str, expected_id: &str) -> Option<OutcomeWithExtra> {
-    let line = stdout
-        .lines()
-        .rev()
-        .find(|l| l.starts_with(ASSAY_OUTCOME_PREFIX))?;
-    let mut v =
-        serde_json::from_str::<serde_json::Value>(&line[ASSAY_OUTCOME_PREFIX.len()..]).ok()?;
+    // Found anywhere in a line: with `RUST_TEST_THREADS=1` (a one-core
+    // `reserve` booking sets it) libtest prints `test <name> ... ` before the
+    // child's own output, on the same line.
+    let json = stdout.lines().rev().find_map(|l| {
+        l.find(ASSAY_OUTCOME_PREFIX)
+            .map(|i| &l[i + ASSAY_OUTCOME_PREFIX.len()..])
+    })?;
+    let mut v = serde_json::from_str::<serde_json::Value>(json).ok()?;
     let cid = v["id"].as_str()?.to_string();
     let category = v["category"].as_str().and_then(Category::from_label)?;
     let detail = v["detail"].as_str()?.to_string();
@@ -521,5 +523,23 @@ mod tests {
         let (_, extra2) =
             parse_assay_outcome_line(&with_extra, "pm_00_plane_plane_union_s0").unwrap();
         assert_eq!(extra2.unwrap()["verdict"], "NotCovered");
+    }
+
+    /// With `RUST_TEST_THREADS=1` libtest prints `test <name> ... ` before
+    /// the test runs, so the child's outcome follows it on the same line.
+    /// Measured 2026-11-22: a prospector candidate judged under a one-core
+    /// booking read as a panic for it.
+    #[test]
+    fn an_outcome_behind_the_single_threaded_test_name_is_read() {
+        let line = format!(
+            "running 1 test\ntest single_case ... {ASSAY_OUTCOME_PREFIX}{}\nok\n",
+            serde_json::json!({
+                "id": "P0001",
+                "category": Category::SupportedCorrect.label(),
+                "detail": "ok",
+            })
+        );
+        let (parsed, _) = parse_assay_outcome_line(&line, "P0001").unwrap();
+        assert_eq!(parsed.category, Category::SupportedCorrect);
     }
 }

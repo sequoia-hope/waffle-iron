@@ -453,7 +453,13 @@ fn run_child(
             last_cpu,
         );
     }
-    let Some(json_line) = output.lines().find_map(|l| l.strip_prefix(OUTCOME_PREFIX)) else {
+    // The outcome can follow libtest's own `test <name> ... ` on one line: with
+    // `RUST_TEST_THREADS=1` (a one-core `reserve` booking sets it) libtest
+    // prints the name before the test runs.
+    let Some(json_line) = output.lines().find_map(|l| {
+        l.find(OUTCOME_PREFIX)
+            .map(|i| &l[i + OUTCOME_PREFIX.len()..])
+    }) else {
         let tail: String = output
             .chars()
             .rev()

@@ -605,7 +605,12 @@ fn judge_in_child(path: &Path, cpu_budget: Duration) -> ModelRecord {
     match status {
         Err(detail) => fallback(detail),
         Ok(status) => {
-            let line = out.lines().find_map(|l| l.strip_prefix(OUTCOME_PREFIX));
+            // Found anywhere in a line: with `RUST_TEST_THREADS=1` libtest
+            // prints `test <name> ... ` before the child's own output.
+            let line = out.lines().find_map(|l| {
+                l.find(OUTCOME_PREFIX)
+                    .map(|i| &l[i + OUTCOME_PREFIX.len()..])
+            });
             match line.map(serde_json::from_str::<ModelRecord>) {
                 Some(Ok(rec)) => rec,
                 Some(Err(e)) => fallback(format!("driver: unreadable child record: {e}")),
