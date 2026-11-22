@@ -66,8 +66,12 @@ fn is_backtrack_spike_pair(
     let l1 = (d1[0] * d1[0] + d1[1] * d1[1] + d1[2] * d1[2]).sqrt();
     let l2 = (d2[0] * d2[0] + d2[1] * d2[1] + d2[2] * d2[2]).sqrt();
     let dot = d1[0] * d2[0] + d1[1] * d2[1] + d1[2] * d2[2];
-    l1 > 0.0 && l2 > 0.0 && crm <= 1e-9 * l1 * l2 && dot < 0.0
+    l1 > 0.0 && l2 > 0.0 && crm <= BACKTRACK_COLLINEAR_SIN * l1 * l2 && dot < 0.0
 }
+
+/// Two straight edges at a shared vertex lie on ONE line when the sine of the
+/// angle between them is at most this — rounding, never a real corner.
+pub(crate) const BACKTRACK_COLLINEAR_SIN: f64 = 1e-9;
 
 /// Merge every backtrack-spike edge pair in one face loop into a single
 /// `LineSegment` (appending the merged edge to `edges`), iterating to a
@@ -126,7 +130,7 @@ fn clean_spike_loop(
 /// curve, for a point on a defining surface's axis (no normal), and at a
 /// TANGENCY of the two surfaces (parallel normals), where the intersection is
 /// not a transversal curve and has no single tangent.
-fn surface_pair_tangent(curve: &Curve, p: [f64; 3]) -> Option<[f64; 3]> {
+pub(crate) fn surface_pair_tangent(curve: &Curve, p: [f64; 3]) -> Option<[f64; 3]> {
     let Curve::SurfacePair { a, b } = *curve else {
         return None;
     };
@@ -152,7 +156,7 @@ fn surface_pair_tangent(curve: &Curve, p: [f64; 3]) -> Option<[f64; 3]> {
 /// sweeps far enough for its chord to turn away from the shared vertex's
 /// tangent derives NOTHING and the loud downstream wall stands. Measured on
 /// P0017's spur: 0.998741 and 0.995439.
-const CURVE_BACKTRACK_MIN_COS: f64 = 0.5;
+pub(crate) const CURVE_BACKTRACK_MIN_COS: f64 = 0.5;
 
 /// Is the consecutive loop edge pair `(ei: a→v, ej: v→b)` a CURVED
 /// backtrack-spike — the [`is_backtrack_spike_pair`] twin on an exact

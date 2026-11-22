@@ -253,3 +253,153 @@ fn a_bridging_pair_edge_on_a_face_without_a_chart_is_a_site() {
     assert_eq!(sites[0].trigger, FailureTrigger::IllegalIntersection);
     assert!(sites[0].detail.contains("branches"), "{}", sites[0].detail);
 }
+
+// ---------------------------------------------------------------------------
+// T3c on ADJACENT edges: a loop that folds back over itself along one curve.
+// Anchor: P0027 moved rigidly with the Stage-5 corner merge off — a relocated
+// junction overruns the next crease vertex, and both crease faces walk out to
+// the overrun vertex and back (0.066 on a 0.33 edge, fold-angle sine 7e-15).
+// ---------------------------------------------------------------------------
+
+/// A unit square whose bottom edge runs on to `tip` before coming back to
+/// the corner (1, 0): vertices 0 → `tip` → (1, 0) → (1, 1) → (0, 1).
+fn square_with_tip(tip: (f64, f64)) -> BRep {
+    // Built with the tip clear of the bottom line (the validating
+    // constructor tessellates), then moved.
+    let verts = vec![
+        v(0.0, 0.0),
+        v(1.3, -0.2),
+        v(1.0, 0.0),
+        v(1.0, 1.0),
+        v(0.0, 1.0),
+    ];
+    let edges = vec![line(0, 1), line(1, 2), line(2, 3), line(3, 4), line(4, 0)];
+    let mut brep =
+        BRep::new(verts, edges, vec![plane_face(vec![0, 1, 2, 3, 4])]).expect("valid fixture");
+    brep.vertices[1] = v(tip.0, tip.1);
+    brep
+}
+
+#[test]
+fn a_straight_edge_that_overruns_its_corner_and_walks_back_is_a_fold() {
+    use crate::boolean::failures::output_loop_spurs;
+    let b = square_with_tip((1.3, 0.0));
+    let sites = output_loop_spurs(&b);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0].trigger, FailureTrigger::IllegalIntersection);
+    assert!(
+        sites[0].detail.contains("folds back"),
+        "{}",
+        sites[0].detail
+    );
+    // Adjacent segments never cross: the crossing reader passes the fold.
+    assert!(output_loop_crossings(&b).is_empty());
+}
+
+#[test]
+fn a_sliver_corner_is_not_a_fold() {
+    use crate::boolean::failures::output_loop_spurs;
+    // The tip 3e-7 off the bottom line: a hairpin a million times longer
+    // than wide is still two lines, not one.
+    assert!(output_loop_spurs(&square_with_tip((1.3, -3.0e-7))).is_empty());
+    assert!(output_loop_spurs(&square(true)).is_empty());
+}
+
+/// A loop that walks into the face along a line and returns to the point it
+/// left is a crack, the shape an exact tangential contact takes today (C0056:
+/// a hole tangent to its cylinder's wall from inside). It is not this
+/// reader's site.
+#[test]
+fn a_walk_out_and_back_to_the_same_point_is_a_crack_not_a_fold() {
+    use crate::boolean::failures::output_loop_spurs;
+    let verts = vec![
+        v(0.0, 0.0),
+        v(0.4, 0.0),
+        v(0.5, 0.5),
+        v(0.6, 0.0),
+        v(1.0, 0.0),
+        v(1.0, 1.0),
+        v(0.0, 1.0),
+    ];
+    let edges = vec![
+        line(0, 1),
+        line(1, 2),
+        line(2, 3),
+        line(3, 4),
+        line(4, 5),
+        line(5, 6),
+        line(6, 0),
+    ];
+    let mut brep = BRep::new(verts, edges, vec![plane_face(vec![0, 1, 2, 3, 4, 5, 6])])
+        .expect("valid fixture");
+    brep.vertices[1] = v(0.5, 0.0);
+    brep.vertices[3] = v(0.5, 0.0);
+    assert!(output_loop_spurs(&brep).is_empty());
+}
+
+#[test]
+fn an_arc_that_overruns_its_end_and_swings_back_is_a_fold() {
+    use crate::boolean::failures::output_loop_spurs;
+    // The cylinder patch's bottom arc (θ from 0 to 0.5), split at `mid`.
+    let fixture = |mid: f64| {
+        let mut b = cylinder_patch(true, false);
+        let m = b.vertices.len() as u32;
+        b.vertices.push(BRepVertex {
+            point: Point3::new(mid.cos(), mid.sin(), 0.0),
+        });
+        let arc = |start: u32, end: u32, nz: f64| BRepEdge {
+            start,
+            end,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, nz),
+                radius: 1.0,
+            },
+        };
+        let first = b.edges.len() as u32;
+        b.edges.push(arc(0, m, 1.0));
+        // The second arc runs on to θ = 0.5 or, past it, swings back.
+        b.edges.push(arc(m, 1, if mid < 0.5 { 1.0 } else { -1.0 }));
+        b.faces[0].outer_loop = vec![first, first + 1, 1, 2, 3];
+        b
+    };
+    assert!(output_loop_spurs(&fixture(0.25)).is_empty());
+    let sites = output_loop_spurs(&fixture(0.7));
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert!(sites[0].detail.contains("conic"), "{}", sites[0].detail);
+}
+
+#[test]
+fn a_surface_pair_edge_walked_back_over_is_a_fold() {
+    use crate::boolean::failures::output_loop_spurs;
+    let (a, b) = two_loop_pair();
+    let fixture = |y_end: f64| {
+        let p = |q: Point3| BRepVertex { point: q };
+        let verts = vec![
+            p(Point3::new(0.0, 0.0, 0.0)),
+            p(Point3::new(1.0, 0.0, 0.0)),
+            p(Point3::new(0.0, 1.0, 0.0)),
+        ];
+        let edges = vec![line(0, 1), line(1, 2), line(2, 0)];
+        let mut brep =
+            BRep::new(verts, edges, vec![plane_face(vec![0, 1, 2])]).expect("valid fixture");
+        brep.vertices = vec![
+            p(on_loop(1.0, 0.5)),
+            p(on_loop(1.0, 0.1)),
+            p(on_loop(1.0, y_end)),
+        ];
+        brep.edges[0].curve = Curve::SurfacePair { a, b };
+        brep.edges[1].curve = Curve::SurfacePair { a, b };
+        brep
+    };
+    // On from y = 0.1 to −0.3: one curve walked once.
+    assert!(output_loop_spurs(&fixture(-0.3)).is_empty());
+    // Back from y = 0.1 to 0.3: the second edge lies on the first.
+    let sites = output_loop_spurs(&fixture(0.3));
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert!(
+        sites[0].detail.contains("surface-pair"),
+        "{}",
+        sites[0].detail
+    );
+}

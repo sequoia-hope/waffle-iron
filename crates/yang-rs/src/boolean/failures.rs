@@ -981,12 +981,13 @@ pub(crate) fn sample_output_edge(
 
 /// The OUTPUT-level §4.5.4 sites of an emitted body: T3b (two faces on one
 /// quadric whose boundary conics cross) and T3c (one face whose loops cross,
-/// wind against its material side, or carry a surface-pair edge that bridges
-/// two branches). A body carrying one is not a valid B-Rep, whatever
+/// wind against its material side, carry a surface-pair edge that bridges
+/// two branches, or fold back over themselves along one curve). A body carrying one is not a valid B-Rep, whatever
 /// produced it.
 pub(crate) fn output_illegal_sites(out: &BRep) -> Vec<FailureSite> {
     let mut v = output_curve_crossings(out);
     v.extend(output_loop_crossings(out));
+    v.extend(output_loop_spurs(out));
     v
 }
 
@@ -1316,6 +1317,215 @@ pub(crate) fn output_loop_crossings(out: &BRep) -> Vec<FailureSite> {
                 faces: named.into_iter().collect(),
                 detail,
             });
+        }
+    }
+    sites
+}
+
+/// T3c on ADJACENT edges — a loop of the emitted body that folds back over
+/// itself along one curve (§4.5.4, `:752-758`: the "new intersections that
+/// may arise during mesh updating"). [`output_loop_crossings`] reads
+/// non-adjacent segments, and two adjacent segments cannot cross; they can
+/// lie on each other. At a loop vertex whose two edges carry ONE curve, the
+/// loop either passes through (the edges leave the vertex on opposite sides
+/// of it along the curve) or turns round and walks back over the edge it
+/// arrived on: a strip of zero width that bounds nothing.
+///
+/// Anchor, measured 2026-11-22: P0027 moved rigidly, with the Stage-5 corner
+/// merge switched off. A junction relocated onto its exact position passes
+/// the next vertex of a straight crease, and both crease faces walk 0.066 out
+/// to that vertex and back along a 0.33 edge. The Euler characteristic, the
+/// volume and the crossing reader all pass it.
+///
+/// Which curve, and which side:
+/// - two `LineSegment`s lie on one line when the sine of the angle between
+///   them is at most [`crate::brep::BACKTRACK_COLLINEAR_SIN`] (measured over
+///   the corpus and four rigid motions of every case: 46 corners at or below
+///   4e-12, the other 660,000 hairpins within 1e-3 at or above 1e-2);
+/// - two circle or ellipse arcs are one curve when their fields are equal, up
+///   to the sign of the normal, and the side is the order of the three
+///   vertices in the curve parameter (an arc edge is read as the minor arc
+///   between its ends, as [`sample_output_edge`] reads it; a half turn has
+///   none and is not decided);
+/// - two `SurfacePair` edges are one curve when both surfaces are equal, and
+///   the side is the sign of each chord against the curve's tangent at the
+///   vertex, decided only when both chords are within
+///   [`crate::brep::CURVE_BACKTRACK_MIN_COS`] of it — the rule
+///   `BRep::normalize_output_curve_backtracks` merges by, so what reaches
+///   this reader is what that pass declined.
+///
+/// NOT a site: a straight walk out and back to the SAME model point (the far
+/// ends within the model band of each other) — a crack. An exact tangential
+/// contact is emitted so today (C0056: a hole tangent to its cylinder's wall
+/// from inside; F0055 moved rigidly: a bore tangent to four walls), and
+/// whether that is the right body is not this reader's question.
+///
+/// NOT decided, a named gap (N83): a corner on a parabola or hyperbola. The
+/// parameter order decides it as it does an arc, but six mock-arrangement
+/// fixtures (`yang-rs/tests/yr21_*`, `yr22_*`, `yr23_*`, 13 tests) close a
+/// ring of points of an OPEN conic with one more edge typed as that conic —
+/// a loop no cone and plane can bound — and stop on it. They are rebuilt on a
+/// real closure before the open conics are read; no emitted body of the
+/// corpus, its rigid motions or seed 6 folds on a conic of either kind.
+///
+/// Each site names the face's input lineage and the lineage of the faces
+/// across the two edges.
+pub(crate) fn output_loop_spurs(out: &BRep) -> Vec<FailureSite> {
+    use crate::stage4_correct::{
+        conic_param, conic_param_periodic, conics_equal_up_to_normal_sign,
+    };
+    use crate::Curve;
+    let faces = out.faces();
+    let edges = out.edges();
+    let verts = out.vertices();
+    let scale = verts
+        .iter()
+        .flat_map(|v| v.point.as_array())
+        .fold(0.0f64, |m, c| m.max(c.abs()));
+    let band = cad_primitives::TAU_MODEL * (1.0 + scale);
+    let pi = std::f64::consts::PI;
+    let probe = std::env::var_os("YANG_T3C_PROBE").is_some();
+    let lineage = |fi: usize| -> Option<(InputId, u32)> {
+        out.face_attribution.get(fi).map(|at| (at.input, at.face))
+    };
+    let mut owner: std::collections::BTreeMap<(u32, u32), usize> = Default::default();
+    for (fi, f) in faces.iter().enumerate() {
+        for &ei in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+            if let Some(e) = edges.get(ei as usize) {
+                owner.entry((e.start, e.end)).or_insert(fi);
+            }
+        }
+    }
+    let across = |ei: u32| -> Option<usize> {
+        let e = edges.get(ei as usize)?;
+        owner.get(&(e.end, e.start)).copied()
+    };
+    let sub = |p: [f64; 3], q: [f64; 3]| [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+    let dot = |p: [f64; 3], q: [f64; 3]| p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+    let norm = |p: [f64; 3]| dot(p, p).sqrt();
+    let mut sites = Vec::new();
+    for (fi, face) in faces.iter().enumerate() {
+        for (li, lp) in std::iter::once(&face.outer_loop)
+            .chain(face.inner_loops.iter())
+            .enumerate()
+        {
+            let n = lp.len();
+            if n < 2 {
+                continue;
+            }
+            for k in 0..n {
+                let (ei, ej) = (lp[k], lp[(k + 1) % n]);
+                if ei == ej {
+                    continue;
+                }
+                let (Some(e1), Some(e2)) = (edges.get(ei as usize), edges.get(ej as usize)) else {
+                    continue;
+                };
+                if e1.end != e2.start || e1.start == e1.end || e2.start == e2.end {
+                    continue;
+                }
+                let (Some(a), Some(v), Some(b)) = (
+                    verts.get(e1.start as usize),
+                    verts.get(e1.end as usize),
+                    verts.get(e2.end as usize),
+                ) else {
+                    continue;
+                };
+                let (pa, pv, pb) = (a.point.as_array(), v.point.as_array(), b.point.as_array());
+                // `Some(kind)` when the two edges leave `v` on the same side
+                // of one curve.
+                let fold: Option<&'static str> = match (&e1.curve, &e2.curve) {
+                    (Curve::LineSegment, Curve::LineSegment) => {
+                        // Both edges as vectors LEAVING the shared vertex.
+                        let (d1, d2) = (sub(pa, pv), sub(pb, pv));
+                        let (l1, l2) = (norm(d1), norm(d2));
+                        let cr = [
+                            d1[1] * d2[2] - d1[2] * d2[1],
+                            d1[2] * d2[0] - d1[0] * d2[2],
+                            d1[0] * d2[1] - d1[1] * d2[0],
+                        ];
+                        let one_line = l1 > 0.0
+                            && l2 > 0.0
+                            && norm(cr) <= crate::brep::BACKTRACK_COLLINEAR_SIN * l1 * l2;
+                        let same_side = dot(d1, d2) > 0.0;
+                        // The far ends one model point: a crack, not a fold.
+                        let crack = norm(sub(pa, pb)) <= band;
+                        if probe && one_line && same_side && crack {
+                            eprintln!("[t3c] face {fi} loop {li}: crack at edges {ei}, {ej}");
+                        }
+                        (one_line && same_side && !crack).then_some("line")
+                    }
+                    (c1 @ Curve::SurfacePair { .. }, c2) => {
+                        let decided = || -> Option<bool> {
+                            if c1 != c2 {
+                                return None;
+                            }
+                            let t = crate::brep::surface_pair_tangent(c1, pv)?;
+                            let (d1, d2) = (sub(pv, pa), sub(pb, pv));
+                            let (l1, l2) = (norm(d1), norm(d2));
+                            if !(l1 > 0.0 && l2 > 0.0) {
+                                return None;
+                            }
+                            let (c1t, c2t) = (dot(d1, t) / l1, dot(d2, t) / l2);
+                            let floor = crate::brep::CURVE_BACKTRACK_MIN_COS;
+                            (c1t.abs() >= floor && c2t.abs() >= floor).then_some(c1t * c2t < 0.0)
+                        };
+                        (decided() == Some(true)).then_some("surface-pair curve")
+                    }
+                    (Curve::LineSegment, _) | (_, Curve::LineSegment) => None,
+                    (c1, c2) => {
+                        let decided = || -> Option<bool> {
+                            if !(c1 == c2 || conics_equal_up_to_normal_sign(c1, c2)) {
+                                return None;
+                            }
+                            // An open conic is not decided (see the doc).
+                            if !conic_param_periodic(c1) {
+                                return None;
+                            }
+                            let param =
+                                |p: [f64; 3]| conic_param(c1, crate::Point3::new(p[0], p[1], p[2]));
+                            let (ta, tv, tb) = (param(pa)?, param(pv)?, param(pb)?);
+                            let wrap = |d: f64| {
+                                let d = d.rem_euclid(2.0 * pi);
+                                if d > pi {
+                                    d - 2.0 * pi
+                                } else {
+                                    d
+                                }
+                            };
+                            let (d1, d2) = (wrap(tv - ta), wrap(tb - tv));
+                            if (d1.abs() - pi).abs() <= 1e-9 || (d2.abs() - pi).abs() <= 1e-9 {
+                                return None;
+                            }
+                            Some(d1 * d2 < 0.0)
+                        };
+                        (decided() == Some(true)).then_some("conic")
+                    }
+                };
+                let Some(kind) = fold else {
+                    continue;
+                };
+                if probe {
+                    eprintln!(
+                        "[t3c] face {fi} loop {li} ({n} edges): fold along one {kind} at edges \
+                         {ei}, {ej}: {pa:?} -> {pv:?} -> {pb:?}; {:?} / {:?}",
+                        e1.curve, e2.curve
+                    );
+                }
+                let mut named: BTreeSet<(InputId, u32)> = BTreeSet::new();
+                named.extend(lineage(fi));
+                for e in [ei, ej] {
+                    named.extend(across(e).and_then(lineage));
+                }
+                sites.push(FailureSite {
+                    trigger: FailureTrigger::IllegalIntersection,
+                    faces: named.into_iter().collect(),
+                    detail: format!(
+                        "output face {fi}: loop {li} folds back over itself along one {kind} \
+                         (edges {ei} and {ej})"
+                    ),
+                });
+            }
         }
     }
     sites

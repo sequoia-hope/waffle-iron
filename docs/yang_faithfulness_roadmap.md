@@ -268,7 +268,12 @@ intersected patches.
       corner merge changes no unmoved body and one rotated one — P0027
       motion 0 builds a quietly different body without it (N2, pinned), so
       it stays until the update removes that overrun vertex in Stage 4 and
-      a trigger reads such a fold on the emitted body.)*
+      a trigger reads such a fold on the emitted body. 2026-11-22: the
+      trigger is landed — T3c reads a loop that folds back over itself along
+      one curve (`output_loop_spurs`, N83). With the merge off it stops P0027
+      loudly under two motions, and §4.5.2 refinement does not remove the
+      fold, so the merge's retirement is now the update applying Fig. 11(b)
+      to the boundary cycle, the item below.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
@@ -481,3 +486,4 @@ the first known item.
 | 2026-11-20 | F2 item 2, increment 3: the update rebuilds every patch on the domain chart (plane, cylinder and cone too), with the seeded retry and the coincident-simplex re-plan on it. Both rebuilds compared on 16,249 patches first: plane and cylinder agree on every patch; of 563 cone differences 505 are rounding in the d(T) comparison (N106) and 58 are patches only the new chart rebuilds. No category move, every oracle detail identical, geometry hash identical on 364 of 374 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-20 | F2 item 2: the chain decimation's whole-patch fallback on the domain chart; the `Surface::Sphere` skip retired (N81, N122 amended). No category move, every oracle detail identical, geometry moved on R0019 and R0081 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-21 | F2 item 3, repair retirement: run absorption, group absorption and corner re-homing deleted (N113 RESOLVED; about 4,100 lines of code, 1,750 of tests; `stage4_rehome::classify`, a surface-type enumeration, gone). Measured first by a per-pass census and off-switch over the corpus, 1,496 rigid motions and seed 6. The corner merge stays: P0027 under one motion needs it (N2, pinned). Corpus hash file identical on all 374; seed 6 189C / 0W / 9E / 2T | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-22 | F2 item 3: the fold the Stage-5 corner merge hides is read on the emitted body — T3c's adjacent-edge reading (`output_loop_spurs`, N83 amended, N2 amended). Censused print-only first over the corpus and 1,496 rigid motions (4,396 emitted bodies): straight corners fall at or below 4e-12 or at or above 1e-2 in the sine of the fold angle. As a trigger with the merge off, P0027 stops loudly under two motions and refinement does not answer it; the merge stays. No category move, every sweep line identical, geometry hash included | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

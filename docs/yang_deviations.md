@@ -182,7 +182,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; 2026-10-28/30: I3b customer #3 `b2_pipe::s_bend` `17/17` green under reproducible uncommitted I3b trial after Step 1 `N81` decimation/seam-merge re-site; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
 | N81 | OPEN (2026-10-16, matrix O-2; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
 | N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
-| N83 | OPEN (2026-10-16, matrix O-4) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops |
+| N83 | OPEN (2026-10-16, matrix O-4; amended 2026-11-22) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops. Since 2026-11-22 T3c also reads a loop that folds back over itself along one curve (`output_loop_spurs`), on every face type |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
 | N85 | OPEN (2026-10-16, matrix U-1; 2026-10-27: Step-1 census landed + Step-3 switch measured at `356C / 0W / 13E / 5EE / 0T`, stopped & reverted on 4 `SUPPORTED_CORRECT → ERROR` regressions `F0084, P0007, P0046, R0032` gated on F2/F3 + Stage-4 readback lockstep; spec `yang_41_deps_from_bbox.md`) | d_ε is scaled per operand by its circle-rim AABB, not the B-Rep model's AABB (`:391-395`) |
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
@@ -517,6 +517,54 @@ F0087–F0090, R0021). Prospector seed 6 is verdict-identical with and without
 it (188C / 0W / 10E / 2T). State unchanged: OPEN.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**Amendment (2026-11-22) — the fold the corner merge hides is read on the
+emitted body; §4.5.2 refinement does not remove it, so the merge still
+stays.** The trigger the amendment below asks for is landed as T3c's
+adjacent-edge reading (`boolean::failures::output_loop_spurs`, N83).
+
+- **The body was read.** P0027 under motion 0 with the merge switched off
+  (a temporary switch, not landed): the fourth operation's result carries a
+  fold on a STRAIGHT crease of operand A, in both crease faces (A:1 and A:2).
+  Each loop walks 0.0661 out to the overrun vertex and back along an edge
+  0.3327 long; the sine of the angle between the two edges is 7.0e-15. The
+  third operation's natural run carries the same shape (0.0723 on 0.3292) and
+  the §4.5.2 loop discards that run for another site.
+- **The reading's own quantity, censused** (print-only, one release binary):
+  the corpus unmoved and under four rigid motions a case, 1,870 builds, 4,396
+  emitted bodies. Of about 660,000 loop corners where two straight edges
+  leave the vertex within 1e-3 (sine) of each other, 46 are at or below
+  4e-12 and every other one is at or above 1e-2. The 46: 34 cracks (C0056,
+  one in each of its five builds; F0055, 29 over its four motions — exact
+  tangential contacts, N83), and 12 folds in F0072 under motions 0, 1 and 3,
+  which the merge does not remove. No conic corner folds. With the merge off
+  the reading finds a fold in eleven builds of five of its six customers
+  (F0064 unmoved and under motions 0–2, F0067 unmoved, P0027 under motions 0,
+  1 and 3, R0050 under motion 3, R0070 under motions 0 and 3).
+- **A second adopted fold, which the sweep did not show.** With the merge
+  off, P0027 under motion 1 adopts its third operation's only run with a fold
+  in it, and the final body is still bit-identical to production's: a later
+  operation removes the shape. So "bit-identical without the merge" was true
+  of the final bodies and not of every intermediate one.
+- **Read as a trigger** (same binary, a temporary switch). With the merge on,
+  the seven cases above (the six customers and F0072) are line for line the
+  production sweep, geometry hash included: F0072's folds are in runs the
+  loop already discards. With the merge off, every build is again line for
+  line production except P0027 under motions 0 and 1, which stop loudly as
+  `RefinementExhausted` with two fold sites. Refinement does not remove an
+  overrun crease vertex: a finer crease has more vertices for the junction to
+  pass. That agrees with the paper, which answers this configuration inside
+  the §4.4.1 update (Fig. 11(b), `:562-564`) and not by §4.5.2.
+- **Consequence.** A removal of the merge is now loud where it is wrong, and
+  the merge retires when the update applies Fig. 11(b) to the boundary cycle
+  before it triangulates (or with N106's refusal, F5b). The input backtrack
+  rule (`BRep::normalized_without_backtrack_spikes`, task #146) merges the
+  same straight shape quietly on an operand; with the reading in force no
+  Boolean adopts a body carrying one, so its remaining customers are bodies
+  no Boolean made. Not measured.
+- **Unread:** why F0072's folds survive the merge, and which later
+  operation removes P0027 motion 1's fold (the input backtrack rule is the
+  candidate).
 
 **Amendment (2026-11-21, roadmap F2 "retire the repairs it subsumes") — the
 Stage-5 Fig-11 corner merge was measured for retirement and STAYS.** The pass
@@ -6966,6 +7014,55 @@ docs name the gaps).
 leaves the updated mesh valid (spec `yang_452_refinement_loop.md` §3); the
 coverage gaps are named follow-ups. Matrix 4.5.4-02, -03. **State: OPEN**
 (found 2026-10-16).
+
+**Amendment (2026-11-22) — T3c reads a loop that folds back over itself.**
+`output_loop_crossings` compares non-adjacent segments of a loop, and two
+adjacent segments cannot cross, so a loop that walks out along an edge and
+back over it passed every output check: the Euler characteristic, the volume
+and the crossing reader (N2, P0027 moved rigidly). `output_loop_spurs`
+(`boolean/failures.rs`) reads each loop vertex whose two edges carry one
+curve and records a T3 site when both leave the vertex on the same side of
+it. One curve and one side are decided per curve kind: two straight edges by
+the sine of the angle between them (at most 1e-9, the constant the input
+backtrack rule already uses; the measured corners are at or below 4e-12 or at
+or above 1e-2, see N2); two circle or ellipse arcs by equal fields and the
+order of the three vertices in the curve parameter; two `SurfacePair` edges
+by the tangent rule of N76, with its decisiveness floor. Every face type is read: the test needs
+no chart.
+
+Not decided, each a named gap: a corner on a parabola or hyperbola (below); a
+straight walk out and back to the same model point (a crack: the far ends within the model band of each other), which is
+how an exact tangential contact is emitted today (C0056 in every orientation,
+F0055 in four of four rigid motions) and whose adjudication is not this
+entry; a conic corner with an edge of a half turn; a `SurfacePair` corner
+with a chord further than 60° off the tangent (P0034, 18 corners, none a
+fold). State unchanged: OPEN (the mesh census is still not the trigger, and
+the chart gaps of T3b and T3c stand).
+
+**The open conics, and what stops them being read.** The parameter-order
+rule decides a parabola or hyperbola corner exactly as it decides an arc.
+Wired for them, the rewrite tier stops in 13 tests of six files
+(`yang-rs/tests/yr21_adversary.rs`, `yr21_cone_ellipse.rs`,
+`yr22_adversary.rs`, `yr22_cone_parabola.rs`, `yr23_adversary.rs`,
+`yr23_cone_hyperbola.rs`), all on one fixture shape: a hand-built
+`LabelMock` arrangement, a fan from the cone's apex and a fan in the cutting
+plane over a ring of points of the section, closed between the ring's last
+and first point. For an ellipse the ring is the closed section. For a
+parabola or hyperbola it is an arc of an open curve, and the closing edge
+— a chord in the cutting plane, bordered by one cone-attributed and one
+plane-attributed triangle — is typed as the section curve like every other
+edge of the ring. The emitted loop is then 23 short parabola edges and one
+long one that covers them all: a loop that bounds nothing, which no cone
+and plane can produce, and which those tests have asserted `Ok` since
+PR-YR22 because nothing read the emitted loop. The reading is right and the
+fixtures are wrong; until they are rebuilt on a real closure (the section
+arc run out to the cone's base, closed by the base rim on the cone and the
+base chord on the plane) a corner on an open conic is not decided. The
+corpus, its rigid motions and seed 6 hold no fold on any conic, so nothing
+measured rides on it. Real-geometry coverage of the same sections is
+`yr22_cone_parabola.rs::oracle8_e2e_theta_eq_alpha_cone_union_box_on_parabola`
+and `kernel-v2/tests/kv5b_curved_boolean.rs`, which pass with the open
+conics read.
 
 ### N84 — Failure collection stops at the first fire (matrix O-5)
 

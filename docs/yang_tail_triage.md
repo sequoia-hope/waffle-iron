@@ -43,6 +43,68 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-22 (F2 item 3) — **the fold the Stage-5 corner merge hides is now read on the emitted body (T3c, adjacent edges); refinement does not remove it, so the merge stays**
+
+Corpus 360C / 0W / 9E / 5EE / 0T before and after, `results.json`
+byte-identical; every line of the whole-corpus rotation sweep identical,
+geometry hash included; prospector seed 6 189C / 0W / 9E / 2T, every verdict
+as on 2026-11-21. No named dip.
+
+**The body, read.** P0027 under motion 0 without the merge: the fourth
+operation's result walks 0.0661 out and back along a straight crease edge
+0.3327 long, in both crease faces (A:1, A:2). The sine of the angle between
+the two edges is 7.0e-15.
+
+**The reading's quantity, censused before it was a trigger** (print-only):
+1,870 builds, 4,396 emitted bodies. About 660,000 loop corners have two
+straight edges leaving the vertex within 1e-3 of each other; 46 are at or
+below 4e-12, the rest at or above 1e-2.
+
+| the 46 | what | where |
+|---|---|---|
+| 34 | crack: out and back to one model point, an exact tangential contact | C0056 (5 builds), F0055 (4 motions) |
+| 12 | fold, with the merge on | F0072 motions 0, 1, 3, in runs the loop discards |
+
+Below one model band there are also 18 corners with a sub-band edge and a
+real angle (P0047, F0069, F0070): a distance band would have fired on them,
+the angle does not. No conic corner folds; P0034's 18 `SurfacePair` corners
+are off-tangent chords, undecided by N76's own floor.
+
+**With the merge off** the reading finds a fold in eleven builds (F0064
+unmoved and motions 0–2, F0067 unmoved, P0027 motions 0, 1, 3, R0050 motion
+3, R0070 motions 0, 3). Two are adopted: P0027 motion 0 (the known quiet
+difference) and P0027 motion 1, whose final body is nonetheless
+bit-identical because a later operation removes the shape — the sweep
+compares final bodies and did not show it.
+
+**As a trigger with the merge off** P0027 stops under motions 0 and 1 as
+`RefinementExhausted` with two fold sites; every other build is line for
+line production. A finer crease gives the junction more vertices to pass,
+so §4.5.2 is not the answer and the paper does not say it is: Fig. 11(b)
+merges the vertex inside the §4.4.1 update. That is the next step.
+
+**What the rewrite tier showed that the corpus could not.** With the
+parameter-order rule read on parabolas and hyperbolas too, 13 tests of six
+`yang-rs` files stop (`yr21_*`, `yr22_*`, `yr23_*`). Each drives a
+hand-built mock arrangement whose ring of section points is closed by one
+more edge typed as the section curve: for an open conic that is a loop of
+23 short parabola edges and one long one covering them all, which bounds
+nothing. The tests have asserted `Ok` on it since PR-YR22. The reading is
+right; the open conics stay unread (a named gap, N83) until those fixtures
+close on the cone's base instead.
+
+**Harness trap found on the way.** A one-core `reserve` booking sets
+`RUST_TEST_THREADS=1`; libtest then prints `test <name> ... ` before the
+test runs, the child's outcome line follows on the same line, and the
+prospector driver, which looked for the outcome at the start of a line,
+reported a panic. The three drivers that parse a child's outcome line
+(assay, prospector, SI5 gate) now find it anywhere in the line.
+
+**Method note.** The first cut of the reading used a distance (the shorter
+edge's far end within the model band of the longer edge). The census showed
+two populations it mixed: sub-band edges at real angles, and cracks. Print
+the quantity over everything before choosing the rule.
+
 ## 2026-11-21 (F2 item 3, repair retirement) — **run absorption, group absorption and corner re-homing DELETED (N113); the Stage-5 corner merge has a customer only rotation shows (P0027 motion 0) and stays; the sub-τ collapse fires under rotation**
 
 Corpus 360C / 0W / 9E / 5EE / 0T before and after, the hash file identical

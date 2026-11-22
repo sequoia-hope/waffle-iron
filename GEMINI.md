@@ -59,7 +59,16 @@ like this. the fixes must be principled. the principles are the paper."*
   (`docs/TESTING.md` §"Running the rigid-motion sweep") and diff the lines,
   `hash=` included. The corpus and a prospector seed hold each case in one
   orientation: the Stage-5 corner merge changes no unmoved body and one
-  rotated one (P0027, 2026-11-21, ledger N2).
+  rotated one (P0027, 2026-11-21, ledger N2). And the sweep compares FINAL
+  bodies: a wrong intermediate body that a later operation happens to erase
+  reads as identical (P0027 motion 1, 2026-11-22). Census the defect's own
+  quantity on every emitted body as well.
+- **A new loud check also runs `./scripts/test.sh rewrite` before it is
+  believed.** The corpus, 1,496 rigid motions and a prospector seed all held
+  with T3c's fold reading; the rewrite tier stopped in 13 mock-arrangement
+  tests whose output loop closes a ring on an open conic (ledger N83,
+  2026-11-22). The mocks are older than every output check and emit bodies
+  no real arrangement can.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.
