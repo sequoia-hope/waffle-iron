@@ -62,7 +62,12 @@ like this. the fixes must be principled. the principles are the paper."*
   rotated one (P0027, 2026-11-21, ledger N2). And the sweep compares FINAL
   bodies: a wrong intermediate body that a later operation happens to erase
   reads as identical (P0027 motion 1, 2026-11-22). Census the defect's own
-  quantity on every emitted body as well.
+  quantity on every emitted body as well. A sweep line also carries no
+  failure set: a mechanism that only acts in runs the §4.5.2 loop discards
+  moves no line, and the one place it shows is a failing case's message in
+  `app/tests/cases/assay/results.json` (the corner merge's on-curve arm:
+  F0064 counted 14 unresolved sites with it and 20 without, 2026-11-22).
+  Diff that file's detail strings before writing "moves nothing".
 - **A new loud check also runs `./scripts/test.sh rewrite` before it is
   believed.** The corpus, 1,496 rigid motions and a prospector seed all held
   with T3c's fold reading; the rewrite tier stopped in 13 mock-arrangement
