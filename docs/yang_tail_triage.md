@@ -83,6 +83,23 @@ line production. A finer crease gives the junction more vertices to pass,
 so §4.5.2 is not the answer and the paper does not say it is: Fig. 11(b)
 merges the vertex inside the §4.4.1 update. That is the next step.
 
+**The merge's on-curve arm, retired the same day.** Traced over the six
+customers under rotation, the merge applies 113 times: 26 on a crease of one
+operand (the straight folds above) and 87 on the intersection curve, one
+holder on each operand (R0070 80, F0064 4, R0095 3). The second kind is the
+on-curve arm (§I13c), and it is deleted. Its sites are curve vertices that
+§4.5.3 left in place and recorded as `ReversalUnresolved`: without the arm
+T3c reads 176 conic folds, all in eleven natural runs of those three cases
+(R0070 34 / 28 / 32 / 32 / 34 over its five builds, R0095 2 in three, F0064
+6 unmoved and 2 under motions 0 and 1), and the fold count equals the
+reversal count in ten of the eleven. On F0064 unmoved the coordinates were
+read: the fold vertices are the two the reversal step refused to remove
+(1.393e-2 and 1.503e-2 against a 2·d_ε bound of 1.086e-2). Every one of
+those runs is discarded by the loop, so no body moves: all 1,870 sweep lines
+identical, corpus and seed 6 verdict for verdict the same. F0064's message
+now counts 20 unresolved sites for 14. The crease arm is what Fig. 11(b)
+inside the update has to answer.
+
 **What the rewrite tier showed that the corpus could not.** With the
 parameter-order rule read on parabolas and hyperbolas too, 13 tests of six
 `yang-rs` files stop (`yr21_*`, `yr22_*`, `yr23_*`). Each drives a

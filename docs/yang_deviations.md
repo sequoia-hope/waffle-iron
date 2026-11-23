@@ -519,8 +519,8 @@ it (188C / 0W / 10E / 2T). State unchanged: OPEN.
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
 **Amendment (2026-11-22) — the fold the corner merge hides is read on the
-emitted body; §4.5.2 refinement does not remove it, so the merge still
-stays.** The trigger the amendment below asks for is landed as T3c's
+emitted body; §4.5.2 refinement does not remove it, so the merge's crease
+arm still stays; its on-curve arm is deleted.** The trigger the amendment below asks for is landed as T3c's
 adjacent-edge reading (`boolean::failures::output_loop_spurs`, N83).
 
 - **The body was read.** P0027 under motion 0 with the merge switched off
@@ -538,9 +538,11 @@ adjacent-edge reading (`boolean::failures::output_loop_spurs`, N83).
   one in each of its five builds; F0055, 29 over its four motions — exact
   tangential contacts, N83), and 12 folds in F0072 under motions 0, 1 and 3,
   which the merge does not remove. No conic corner folds. With the merge off
-  the reading finds a fold in eleven builds of five of its six customers
-  (F0064 unmoved and under motions 0–2, F0067 unmoved, P0027 under motions 0,
-  1 and 3, R0050 under motion 3, R0070 under motions 0 and 3).
+  the reading finds a STRAIGHT fold in eleven builds of five of its six
+  customers (F0064 unmoved and under motions 0–2, F0067 unmoved, P0027 under
+  motions 0, 1 and 3, R0050 under motion 3, R0070 under motions 0 and 3), and
+  a CONIC fold in eleven natural runs of three (R0070, R0095, F0064): the
+  on-curve arm's sites, below.
 - **A second adopted fold, which the sweep did not show.** With the merge
   off, P0027 under motion 1 adopts its third operation's only run with a fold
   in it, and the final body is still bit-identical to production's: a later
@@ -562,6 +564,43 @@ adjacent-edge reading (`boolean::failures::output_loop_spurs`, N83).
   same straight shape quietly on an operand; with the reading in force no
   Boolean adopts a body carrying one, so its remaining customers are bodies
   no Boolean made. Not measured.
+- **The merge's sites were two populations, and one is retired.**
+  (`YANG_441_VERBOSE` over the six customers unmoved and under four motions,
+  30 builds, 113 merges applied.) In 26 the two faces holding the victim are
+  on ONE operand, across a crease (P0027 5, F0067 2, R0050 2, F0064 11,
+  R0070 6): a crease vertex that a relocated junction passed, the selector's
+  unmoved-apex arm. The builds holding one are exactly the eleven with a
+  straight fold when the merge is off. In 87 one holder is on each operand
+  (R0070 80, F0064 4, R0095 3): a vertex of the intersection curve itself
+  that was relocated past the end of its run, the on-curve arm (§I13c,
+  `oncurve_terminal_overrun`, always on since 2026-08-25 for R0003). That
+  arm is DELETED (about 70 lines of selector and 150 of its tests; one test
+  pins that a moved apex on a curve is censused and not merged).
+  - *What its sites are.* Without the arm the reading finds 176 conic folds
+    in the six customers' 30 builds, all in eleven NATURAL runs (R0070 in
+    all five builds, 34 / 28 / 32 / 32 / 34; R0095 unmoved and under motions
+    0 and 3, 2 each; F0064 unmoved 6, under motions 0 and 1, 2 each). No
+    refined run and no adopted body carries one. In ten of the eleven runs
+    the fold count equals the run's `ReversalUnresolved` count; the eleventh
+    is F0064 unmoved (6 folds, 4 reversal records), where the coordinates
+    were read: the two fold vertices are v1293 and v1297, the two vertices
+    the reversal step left in place because removing them moves 1.393e-2 and
+    1.503e-2, over its 2·d_ε gate of 1.086e-2 (`stage4_correct/reversal.rs`,
+    a logged tolerance, not the paper's). So the arm merged, after Stage 4,
+    a curve vertex whose removal the §4.5.3 step had refused and recorded,
+    in a run the §4.5.2 loop discards for that record among others. The identity of fold
+    and reversal vertex is read on F0064 unmoved only; on R0070 and R0095 it
+    is the count.
+  - *What moves without it.* No body: the 1,870 sweep lines are identical,
+    geometry hash included; the corpus is 360C / 0W / 9E / 5EE / 0T; seed 6
+    is verdict for verdict the same (189C / 0W / 9E / 2T). The natural runs
+    above now record their folds beside their reversals, and one message
+    shows it: F0064 unmoved stops with 20 unresolved sites where it stopped
+    with 14 (`IllegalIntersection` 8 for 2), the one changed line of
+    `results.json`.
+  - R0003, the arm's anchor, has no merge of either kind today (census of
+    2026-11-21). The construct/merge alternation built round the arm stays,
+    unread.
 - **Unread:** why F0072's folds survive the merge, and which later
   operation removes P0027 motion 1's fold (the input backtrack rule is the
   candidate).

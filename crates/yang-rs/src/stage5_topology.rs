@@ -852,15 +852,13 @@ pub(crate) fn reconstruct_topology_stage4(
         // per-wall-class flip census is satisfied for every class at once.
         // The historical `YANG_441_CONSTRUCT` env var now only re-enables
         // the pass's diagnostic chatter (`c441_verbose`).
-        // I13c alternation (always on): the construct
-        // pass's ReorderConic and the Fig-11 merge repair INTERLEAVED defects
-        // on the same chains — a reorder is refused while a terminal-overrun
-        // vertex mis-roots the seam (`SeamEndpointsReordered`, R0003: 496
-        // declines), and a merge's fan CDT is refused while neighbouring
-        // interior crossings corrupt the fan polygon. Each round of merges
-        // frees endpoints for the next round of reorders and vice versa, so
-        // the pair runs to a joint fixed point, bounded. Gate off = exactly
-        // one construct + one fold-merge invocation, byte-identical.
+        // Alternation: the construct pass's ReorderConic and the Fig-11
+        // corner merge run to a joint fixed point, bounded — a merge's fan CDT
+        // is refused while neighbouring interior crossings corrupt the fan
+        // polygon, and each round of merges frees endpoints for the next
+        // round of reorders. Built for the on-curve terminal-overrun merges
+        // (retired 2026-11-22, ledger N2); whether a second round still
+        // changes anything with only crease merges left has not been read.
         const ALTERNATION_CAP: usize = 8;
         for round in 0..ALTERNATION_CAP {
             let c_applied = run_construct_passes(

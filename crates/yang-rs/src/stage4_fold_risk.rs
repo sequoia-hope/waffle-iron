@@ -16,8 +16,6 @@
 //!   vertex that did NOT move, overrun by a relocated neighbour; the survivor is
 //!   picked by the SIGN of the chord parameter ([`chord_param`]), with a
 //!   per-condition rejection census so "found nothing" is attributable.
-//! * The I13c on-curve terminal-overrun certificate (`oncurve_terminal_overrun`,
-//!   gated by [`oncurve_merge_enabled`]).
 //!
 //! Every selector is read-only over pre/post vertex positions (the
 //! `S4_PRE_POS` oracle) and boundary cycles; mutation belongs to the driver.
@@ -69,78 +67,6 @@ pub struct FoldMergeSite {
     pub chord_t: f64,
 }
 
-/// I13c certificate: is corner `i` of `cyc` (post-inversion `t` already
-/// established by the caller) a TERMINAL overrun on its own intersection
-/// curve? Yes iff:
-///
-/// 1. both corner edges carry the SAME curve (exact or up to the stored
-///    normal's sign);
-/// 2. the end the apex crossed (`t < 0` ⇒ prev, `t > 1` ⇒ next) is the seam
-///    run's TERMINAL — its far-side cycle edge does not carry that curve
-///    (the run ends there: a junction shared with other boundary chains);
-/// 3. the curve parameters of (other end → survivor → apex) at the POST
-///    positions are strictly monotone — the survivor lies strictly BETWEEN
-///    its run neighbour and the apex on the curve, i.e. the apex's
-///    relocation carried it past the terminal. Periodic params compare via
-///    (−π, π]-wrapped deltas (a chain chord subtends < π — the standing
-///    convention); open-conic params (I13b) compare raw.
-///
-/// Returns the survivor. No distance band anywhere (P10) — the certificate
-/// is the parameter order itself.
-fn oncurve_terminal_overrun(
-    curves: &BTreeMap<(u32, u32), crate::Curve>,
-    cyc: &[u32],
-    i: usize,
-    t: f64,
-    post: &[[f64; 3]],
-) -> Option<u32> {
-    use crate::stage4_correct::{
-        conic_param, conic_param_periodic, conics_equal_up_to_normal_sign,
-    };
-    let n = cyc.len();
-    let (a, b, c) = (cyc[(i + n - 1) % n], cyc[i], cyc[(i + 1) % n]);
-    let key = |x: u32, y: u32| (x.min(y), x.max(y));
-    let cab = curves.get(&key(a, b))?;
-    let cbc = curves.get(&key(b, c))?;
-    let same = |x: &crate::Curve, y: &crate::Curve| x == y || conics_equal_up_to_normal_sign(x, y);
-    if !same(cab, cbc) {
-        return None;
-    }
-    let (survivor, other, far) = if t < 0.0 {
-        (a, c, cyc[(i + n - 2) % n])
-    } else {
-        (c, a, cyc[(i + 2) % n])
-    };
-    if survivor == far || survivor == other || far == b {
-        return None; // degenerate cycle neighbourhood — not a run shape
-    }
-    if let Some(cf) = curves.get(&key(survivor, far)) {
-        if same(cf, cab) {
-            return None; // run continues past the crossed end — not a terminal
-        }
-    }
-    let param = |v: u32| conic_param(cab, cad_primitives::Point3::from(*post.get(v as usize)?));
-    let (t_o, t_s, t_b) = (param(other)?, param(survivor)?, param(b)?);
-    let (d1, d2) = if conic_param_periodic(cab) {
-        let wrap = |mut d: f64| -> f64 {
-            while d > std::f64::consts::PI {
-                d -= 2.0 * std::f64::consts::PI;
-            }
-            while d <= -std::f64::consts::PI {
-                d += 2.0 * std::f64::consts::PI;
-            }
-            d
-        };
-        (wrap(t_s - t_o), wrap(t_b - t_s))
-    } else {
-        (t_s - t_o, t_b - t_s)
-    };
-    if !d1.is_finite() || !d2.is_finite() || d1 == 0.0 || d2 == 0.0 {
-        return None;
-    }
-    (d1 * d2 > 0.0).then_some(survivor)
-}
-
 /// Per-condition rejection counts for [`fold_merge_sites`] — the selector's own
 /// coverage ledger, so "found nothing" is always attributable to a CONDITION
 /// rather than inferred. Reported by the driver under `YANG_441_VERBOSE`.
@@ -176,13 +102,6 @@ pub struct FoldMergeCensus {
     pub survivor_still: usize,
     /// Victims dropped as ambiguous (two survivors claim them).
     pub ambiguous: usize,
-    /// I13c (always on): of
-    /// [`Self::apex_moved_on_curve`], corners certified as a TERMINAL
-    /// overrun on their shared curve — the apex's relocation carried it past
-    /// the seam run's terminal junction in curve parameter — and proposed as
-    /// merge sites (victim = apex, survivor = the junction). Zero when the
-    /// gate is off.
-    pub oncurve_sites: usize,
 }
 
 /// Select every [`FoldMergeSite`] over a patch-cycle set — the threshold-free
@@ -212,10 +131,8 @@ pub struct FoldMergeCensus {
 /// survivors is excluded. Deterministic — `BTreeMap` iteration only.
 ///
 /// Returns the sites with the per-condition rejection census. `curves` is the
-/// `intersection_curves` map, keys canonicalized `(min, max)`. The KEYS drive
-/// the census's on/off-curve split; the VALUES feed the I13c on-curve
-/// TERMINAL-overrun arm (ALWAYS-ON since 2026-08-25, the I13 corpus proofs).
-/// May be empty.
+/// `intersection_curves` map, keys canonicalized `(min, max)`; its keys drive
+/// the census's on/off-curve split and nothing else. May be empty.
 pub fn fold_merge_sites_censused<'a>(
     cycles: impl IntoIterator<Item = &'a [u32]>,
     pre: &HashMap<u32, [f64; 3]>,
@@ -262,37 +179,10 @@ pub fn fold_merge_sites_censused<'a>(
                     let oc = on_curve(a, b) && on_curve(b, c);
                     if oc {
                         census.apex_moved_on_curve += 1;
-                        // I13c (gated): the TERMINAL-overrun arm. The apex
-                        // moved — the still-apex Fig-11 conditions cannot
-                        // hold — but when its relocation carried it past the
-                        // seam run's TERMINAL junction in curve parameter,
-                        // the same Fig-11 merge (victim = apex, survivor =
-                        // the junction) is the paper's repair; the reorder
-                        // authority refuses this shape by its endpoint
-                        // guard. Shares `claimed` so cross-arm duplicates
-                        // and ambiguity resolve in one place.
-                        if let Some(s) = oncurve_terminal_overrun(curves, cyc, i, t, post) {
-                            census.oncurve_sites += 1;
-                            match claimed.get(&b) {
-                                Some(&(s0, _)) if s0 != s => {
-                                    ambiguous.insert(b);
-                                }
-                                Some(_) => {}
-                                None => {
-                                    claimed.insert(b, (s, t));
-                                }
-                            }
-                        }
-                        // Per-corner detail for the ON-CURVE arm (2026-08-25,
-                        // R0003 face-437 rim×cut boundary-hook census): two
-                        // on-curve vertices whose chain order Stage 4 inverted.
-                        // What decides its treatment is WHERE on the shared
-                        // curve the apex landed relative to the end it overran
-                        // — an apex carried past a run-TERMINAL junction is
-                        // Fig-11's p/q (the reorder authority refuses endpoint
-                        // re-roots by design); an interior×interior crossing is
-                        // §4.3.4 chain order. Ids + pre/post positions let the
-                        // offline curve fit assign the parameter certificate.
+                        // Two on-curve vertices whose chain order Stage 4
+                        // inverted: §4.3.4 chain order, not this selector's
+                        // site. Ids and pre/post positions for an offline
+                        // reading of where the apex landed on the curve.
                         if std::env::var_os("YANG_441_FOLD_CENSUS").is_some() {
                             let over = if t < 0.0 { a } else { c };
                             eprintln!(
@@ -445,157 +335,42 @@ mod tests {
         assert!(sites[0].chord_t > 1.0, "victim lies past `next`");
     }
 
-    // ---- I13c on-curve terminal-overrun certificate --------------------
-
-    /// Circle standing in for the seam conic (its `conic_param` is ungated);
-    /// positions minted via `conic_eval` at chosen parameters so the ORDER is
-    /// exact by construction.
-    fn unit_circle() -> crate::Curve {
-        crate::Curve::Circle {
+    /// Two vertices of ONE intersection curve whose order Stage 4 inverted
+    /// are censused and left alone: an apex that moved is never this
+    /// selector's victim. (The on-curve terminal-overrun arm that merged such
+    /// a corner was retired 2026-11-22; ledger N2.)
+    #[test]
+    fn a_moved_apex_on_an_intersection_curve_is_censused_and_not_a_site() {
+        let circle = crate::Curve::Circle {
             center: cad_primitives::Point3::new(0.0, 0.0, 0.0),
             normal: crate::Vector3::new(0.0, 0.0, 1.0),
             radius: 1.0,
-        }
-    }
-
-    fn on_circle(t: f64) -> [f64; 3] {
-        crate::geom::conic_eval(&unit_circle(), t)
-            .expect("circle eval")
-            .as_array()
-    }
-
-    fn curve_map(edges: &[(u32, u32)]) -> BTreeMap<(u32, u32), crate::Curve> {
-        edges
-            .iter()
-            .map(|&(x, y)| ((x.min(y), x.max(y)), unit_circle()))
-            .collect()
-    }
-
-    /// The R0003 face-437 shape in miniature: cycle run `1 → 2 → 3` on one
-    /// curve, the run TERMINAL at 3 (edge (3,4) is off-curve), and the apex
-    /// 2's post position BEYOND 3 in curve parameter. The certificate fires
-    /// and names 3 the survivor.
-    #[test]
-    fn oncurve_terminal_overrun_certifies_the_r0003_shape() {
+        };
+        let on_circle = |t: f64| {
+            crate::geom::conic_eval(&circle, t)
+                .expect("circle eval")
+                .as_array()
+        };
         let cyc = vec![0u32, 1, 2, 3, 4];
-        let post = vec![
-            [5.0, 5.0, 0.0], // 0 — far, not involved
-            on_circle(0.10), // 1 = other end of the corner
-            on_circle(0.28), // 2 = apex, past the terminal
-            on_circle(0.20), // 3 = survivor (terminal junction)
-            [6.0, 6.0, 0.0], // 4 — off-curve continuation
-        ];
-        let curves = curve_map(&[(1, 2), (2, 3)]);
-        let got = oncurve_terminal_overrun(&curves, &cyc, 2, 5.0, &post);
-        assert_eq!(got, Some(3));
-    }
-
-    /// If the crossed end's far-side edge carries the SAME curve, the run
-    /// continues past it — it is not a terminal, and the corner belongs to
-    /// chain-order (ReorderConic) territory, not the merge.
-    #[test]
-    fn oncurve_terminal_overrun_declines_when_the_run_continues() {
-        let cyc = vec![0u32, 1, 2, 3, 4];
-        let post = vec![
-            [5.0, 5.0, 0.0],
-            on_circle(0.10),
-            on_circle(0.28),
-            on_circle(0.20),
-            on_circle(0.35), // 4 — the run continues on the same curve
-        ];
-        let curves = curve_map(&[(1, 2), (2, 3), (3, 4)]);
-        assert_eq!(oncurve_terminal_overrun(&curves, &cyc, 2, 5.0, &post), None);
-    }
-
-    /// A curve-parameter-monotone corner is healthy chain order regardless of
-    /// what the 3D chord test claimed — the certificate is the parameter
-    /// order, and it must decline.
-    #[test]
-    fn oncurve_terminal_overrun_declines_a_parameter_monotone_corner() {
-        let cyc = vec![0u32, 1, 2, 3, 4];
-        let post = vec![
-            [5.0, 5.0, 0.0],
-            on_circle(0.10),
-            on_circle(0.15), // apex BETWEEN its ends on the curve
-            on_circle(0.20),
-            [6.0, 6.0, 0.0],
-        ];
-        let curves = curve_map(&[(1, 2), (2, 3)]);
-        assert_eq!(oncurve_terminal_overrun(&curves, &cyc, 2, 5.0, &post), None);
-    }
-
-    /// Two DIFFERENT conics meeting at the apex is a junction, not a run —
-    /// no shared parameter, no certificate.
-    #[test]
-    fn oncurve_terminal_overrun_declines_mismatched_curves() {
-        let cyc = vec![0u32, 1, 2, 3, 4];
-        let post = vec![
-            [5.0, 5.0, 0.0],
-            on_circle(0.10),
-            on_circle(0.28),
-            on_circle(0.20),
-            [6.0, 6.0, 0.0],
-        ];
-        let mut curves = curve_map(&[(1, 2)]);
-        curves.insert(
-            (2, 3),
-            crate::Curve::Circle {
-                center: cad_primitives::Point3::new(0.0, 0.0, 0.0),
-                normal: crate::Vector3::new(0.0, 0.0, 1.0),
-                radius: 2.0,
-            },
-        );
-        assert_eq!(oncurve_terminal_overrun(&curves, &cyc, 2, 5.0, &post), None);
-    }
-
-    /// Periodic params certify across the ±π branch cut — the wrapped deltas
-    /// keep the order reading, exactly like `conic_param_deltas`' convention.
-    #[test]
-    fn oncurve_terminal_overrun_wraps_periodic_params_across_the_cut() {
-        let pi = std::f64::consts::PI;
-        let cyc = vec![0u32, 1, 2, 3, 4];
-        let post = vec![
-            [5.0, 5.0, 0.0],
-            on_circle(pi - 0.05),  // other
-            on_circle(-pi + 0.03), // apex — 0.04 past the survivor, wrapped
-            on_circle(pi - 0.01),  // survivor at the terminal
-            [6.0, 6.0, 0.0],
-        ];
-        let curves = curve_map(&[(1, 2), (2, 3)]);
-        assert_eq!(
-            oncurve_terminal_overrun(&curves, &cyc, 2, 5.0, &post),
-            Some(3)
-        );
-    }
-
-    /// Arm pin (always-on since 2026-08-25): the certified corner yields
-    /// exactly one site.
-    #[test]
-    fn oncurve_arm_follows_the_flipped_gate() {
-        let cyc = vec![0u32, 1, 2, 3, 4];
-        // v4 sits so corner (2,3,4) is NOT chord-inverted — only the on-curve
-        // corner (1,2,3) carries the inversion, and its apex MOVED, so the
-        // still-apex selector has nothing and only the gated arm could act.
         let pre = m(&[
             (0, [5.0, 5.0, 0.0]),
             (1, on_circle(0.10)),
-            (2, on_circle(0.15)), // apex sat between its ends…
+            (2, on_circle(0.15)), // the apex sat between its ends…
             (3, on_circle(0.20)),
             (4, [0.99, -1.0, 0.0]),
         ]);
         let post = vec![
             [5.0, 5.0, 0.0],
             on_circle(0.10),
-            on_circle(0.28), // …and was relocated past the terminal
+            on_circle(0.28), // …and was relocated past the run's end
             on_circle(0.20),
             [0.99, -1.0, 0.0],
         ];
-        let curves = curve_map(&[(1, 2), (2, 3)]);
+        let curves: BTreeMap<(u32, u32), crate::Curve> =
+            [((1, 2), circle), ((2, 3), circle)].into_iter().collect();
         let (sites, census) = fold_merge_sites_censused([cyc.as_slice()], &pre, &post, &curves);
         assert_eq!(census.apex_moved_on_curve, 1, "the corner IS censused");
-        assert_eq!(census.oncurve_sites, 1, "the always-on arm proposes it");
-        assert_eq!(sites.len(), 1, "{sites:?}");
-        assert_eq!((sites[0].victim, sites[0].survivor), (2, 3));
+        assert!(sites.is_empty(), "{sites:?}");
     }
 
     /// A healthy convex cycle has every corner inside its own chord — the

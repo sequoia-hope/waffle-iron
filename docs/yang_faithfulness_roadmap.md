@@ -273,7 +273,12 @@ intersected patches.
       one curve (`output_loop_spurs`, N83). With the merge off it stops P0027
       loudly under two motions, and §4.5.2 refinement does not remove the
       fold, so the merge's retirement is now the update applying Fig. 11(b)
-      to the boundary cycle, the item below.)*
+      to the boundary cycle, the item below. Its sites were two populations
+      (N2): 26 of 113 merges sit on a crease of one operand and are the
+      straight folds; 87 sat on the intersection curve, the on-curve arm
+      (§I13c), which is deleted. Those were curve vertices §4.5.3 had left
+      in place and recorded, in natural runs the loop discards; without the
+      arm no body moves and those runs record a fold beside the reversal.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
@@ -487,3 +492,4 @@ the first known item.
 | 2026-11-20 | F2 item 2: the chain decimation's whole-patch fallback on the domain chart; the `Surface::Sphere` skip retired (N81, N122 amended). No category move, every oracle detail identical, geometry moved on R0019 and R0081 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-21 | F2 item 3, repair retirement: run absorption, group absorption and corner re-homing deleted (N113 RESOLVED; about 4,100 lines of code, 1,750 of tests; `stage4_rehome::classify`, a surface-type enumeration, gone). Measured first by a per-pass census and off-switch over the corpus, 1,496 rigid motions and seed 6. The corner merge stays: P0027 under one motion needs it (N2, pinned). Corpus hash file identical on all 374; seed 6 189C / 0W / 9E / 2T | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-22 | F2 item 3: the fold the Stage-5 corner merge hides is read on the emitted body — T3c's adjacent-edge reading (`output_loop_spurs`, N83 amended, N2 amended). Censused print-only first over the corpus and 1,496 rigid motions (4,396 emitted bodies): straight corners fall at or below 4e-12 or at or above 1e-2 in the sine of the fold angle. As a trigger with the merge off, P0027 stops loudly under two motions and refinement does not answer it; the merge stays. No category move, every sweep line identical, geometry hash included | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-22 | F2 item 3: the corner merge's on-curve arm (§I13c, `oncurve_terminal_overrun`) deleted. The merge's 113 applied sites over its six customers under rotation are 26 on a crease of one operand and 87 on the intersection curve; the 87 are curve vertices §4.5.3 left in place and recorded, in natural runs the loop discards, and without the arm T3c reads 176 conic folds in eleven such runs (R0070, R0095, F0064) and in no adopted body. Every sweep line identical; F0064's message reads 20 unresolved sites for 14. The crease arm stays (P0027, pinned) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

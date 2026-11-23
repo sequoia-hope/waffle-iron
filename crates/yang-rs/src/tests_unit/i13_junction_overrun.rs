@@ -8,9 +8,9 @@
 //!   angle-domain consumers away from unbounded parameters;
 //! * the hyperbola arm of `conics_equal_up_to_normal_sign`.
 //!
-//! The I13c selector-arm certificate tests live next to the selector in
-//! `stage4_fold_risk` (circle-parameterized — `conic_param` on circles is
-//! ungated). R0003 is the increment's measured pin case.
+//! The I13c selector arm these fed (an apex relocated past its run's
+//! terminal junction, merged after Stage 4) was retired 2026-11-22 (ledger
+//! N2); the mechanisms below have other consumers.
 
 use crate::stage4_correct::{conic_param, conic_param_periodic, conics_equal_up_to_normal_sign};
 use crate::stage4_project::SurfaceChart;

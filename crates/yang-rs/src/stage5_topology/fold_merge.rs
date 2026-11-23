@@ -69,11 +69,7 @@ pub(super) fn run_fold_merge_passes(
 
     // Each applied pass strictly removes at least one boundary vertex, so the
     // pass count is bounded by the mesh's own vertex count — that bound IS
-    // the runaway guard. The historical fixed cap of 32 was tuned to the
-    // still-apex family (1–2 sites per case) and BINDS on the I13c on-curve
-    // population (R0003 measured ~190 legitimate terminal-overrun sites in
-    // one boolean — one per strip×wall junction of a fine revolve profile);
-    // an exhausted cap strands the family half-repaired.
+    // the runaway guard.
     let max_passes: usize = mesh.verts.len().max(32);
 
     // Victims refused by a holder — persistent across passes so a refusal can
@@ -176,13 +172,12 @@ pub(super) fn run_fold_merge_passes(
         });
         c441_log!(
             "[s4-fold-merge] pass={pass}: SELECT corners={} inversions={} \
-             apex_moved={} (on_curve={} oncurve_sites={}) apex_minted={} survivor_still={} \
+             apex_moved={} (on_curve={}) apex_minted={} survivor_still={} \
              ambiguous={} -> sites={}",
             census.corners,
             census.inversions,
             census.apex_moved,
             census.apex_moved_on_curve,
-            census.oncurve_sites,
             census.apex_minted,
             census.survivor_still,
             census.ambiguous,
