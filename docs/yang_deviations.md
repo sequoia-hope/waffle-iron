@@ -518,9 +518,100 @@ it (188C / 0W / 10E / 2T). State unchanged: OPEN.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
 
-**Amendment (2026-11-22) — the fold the corner merge hides is read on the
-emitted body; §4.5.2 refinement does not remove it, so the merge's crease
-arm still stays; its on-curve arm is deleted.** The trigger the amendment below asks for is landed as T3c's
+**Amendment (2026-11-22, later) — the Stage-5 corner merge is DELETED; the
+§4.4.1 update reads a boundary chain the relocation put out of order as
+Fig. 11(a).** `run_fold_merge_passes` (`stage5_topology/fold_merge.rs`), its
+selector `stage4_fold_risk.rs` and the construct/merge alternation are gone
+(about 1,150 lines); the construct pass runs once.
+
+- **What the merge's sites are at entry to the update** (census,
+  `YANG_441_UPDATE_CENSUS`, the six customers unmoved and under four
+  motions). Each of the 26 crease sites arrives as a boundary cycle that
+  already folds: two consecutive straight chain edges `q → p → b` on one
+  line, `q` relocated in this pass and `p` not, `q` strictly inside
+  `(p, b)`. On P0027 under motion 0, fourth operation: `q` is the junction
+  of the crease of A:1 (cylinder) and A:2 (plane) with operand B; it lands
+  0.0661 past the crease vertex `p`, on a chain edge 0.3327 long. The mesh
+  arrangement had the junction on the other side of `p`.
+- **The paper's operation.** Fig. 11(a), `:561-562`: "We locate the
+  constrained edge containing q (the red edge) and split it using q". The
+  constrained edge that contains the relocated `q` is `(p, b)`. The update's
+  split map was seeded only from triangles that collapse under the
+  relocation (matrix 4.4-12); a point carried past a chain vertex collapses
+  none. `stage4_construct::seed_fig11a_chain_folds` seeds `(p, b) ↦ q` from
+  the chain. The split's hairpin cancel (already there) then walks every
+  holder `q → b`: a plane holder is rebuilt by the patch CDT, and a curved
+  holder the d(T) budget refuses (N106) by the local fan re-CDT
+  `rebuild_merge_fan`, written as one whole-patch plan so that the
+  coupled-component check reads the complete result.
+- **The rule's limits.** Straight chains only (three collinear points, at
+  `tri_is_degenerate`'s identity); both edges are boundary-curve edges; `p`
+  is unmoved and a vertex of one boundary curve (two boundary neighbours: a
+  third makes it a model vertex, and a point relocated past a model vertex
+  has left its curve, which the boundary-point certificate reads); `q` was
+  relocated in this pass. A curved chain is not read.
+- **Measured** (one release binary, the corpus unmoved and under four rigid
+  motions, 1,870 builds; counts are census lines, one per cycle and update
+  call). 32 seeded (F0064 15, F0067 5, P0027 5, R0050 1, R0070 6). 48 found
+  the split already in the map: 32 follow a seed of the same edge and point
+  in the same call (the chain's other holder walks it the other way), and
+  16 are splits a collapsed triangle had seeded (F0064 6, F0067 6, R0050 2,
+  R0051 2). 9 fan arms, all applied (P0027 5, R0070 4). The Stage-5 merge,
+  still wired in that binary, applied 0 times in the 1,870 builds. With it
+  deleted the sweep differs from that binary's in no line.
+- **What moved.** Against the tree before, 1,864 sweep lines are
+  identical, geometry hash included. Six differ, with the same verdict,
+  body count, Euler characteristics and distance to the unmoved body:
+  P0027 under motions 0, 1 and 3, R0050 under 3, R0070 under 0 and 3. In
+  five of the six the render-mesh volume moves too, in its fourth to
+  seventh digit (the largest: P0027 under motion 3, 1.576035 for
+  1.575688; the unmoved body reads 1.575593 and the other motions
+  1.575533 to 1.575814). Those five are builds in which a natural run the
+  update had refused, and the §4.5.2 loop had then refined to density 2,
+  now carries no such site: five natural runs are adopted as built (P0027
+  under motion 0, one, and under motion 3, two; R0050 under 3, one; R0070
+  under 0, one) and R0070 under motion 3 keeps one `MissedIntersection`
+  of four sites. Read on P0027: each site removed is `§4.4.1 update
+  refused patch …: its cycles cross`, on a cylinder or a plane holder of
+  the chain; under all four motions every emitted body has the same face
+  loops with the same areas as printed (four digits), and under motions 0
+  and 3 loops on the cylinders and planes carry other sample counts (the
+  last body: one cylinder loop and one plane loop, five samples fewer
+  each). The exact volume of P0027 is not available to the sweep.
+- **In runs the loop still discards**, the same sites go: F0064 unmoved 20
+  for 18 (below), under motion 0 10 for 8 and under motion 1 13 for 10;
+  F0067 unmoved 5 for 4 (its `RelocationDiverged` site); and R0050 under
+  motion 3, whose union now starts from the unrefined body, records
+  `RelocationDiverged` where it recorded `NonManifoldMesh`. The conic
+  folds T3c reads in discarded natural runs are as before (R0070 160,
+  F0064 10, R0095 6).
+- **Verified:** the rewrite tier green; corpus 360C / 0W / 9E / 5EE / 0T;
+  prospector seed 6 189C / 0W / 9E / 2T, every verdict and signature as
+  before; the always-on harness, 105 binaries, none failing.
+- **One error message moved: F0064 reports 18 unresolved sites for 20, and
+  stays an ERROR.** In its natural run the update refused five plane
+  patches on z = 0.7339 — 618 and 620 because their cycles crossed (two
+  `IllegalIntersection` sites), 622, 626 and 628 on a boundary mismatch.
+  The chain reading seeds three splits in that call and all five are
+  rebuilt. Two of the three inside points, v1208 and v1213, are the
+  vertices the run's four `ReversalUnresolved` sites name as removal
+  targets. The other trigger counts are unchanged (BoundaryDomainFire 2,
+  CurveLeftDomain 4, six conic folds, MissedIntersection 2,
+  ReversalUnresolved 4), and each refined run reports the same failures.
+- **Not read here: a chain fold whose inside point this pass did not
+  relocate.** 16 census lines in five builds (F0072 under motions 0, 1 and
+  3, 8; C0043 under motion 3, 6; R0051 unmoved, 2). F0072's are the builds
+  in which T3c reads its 12 straight folds, in runs the loop discards;
+  whether they are the same vertices was not read.
+- **Read, not measured:** the coupled-component check compares the
+  component's old triangles with the NEW triangles of its plans, so a plan
+  that replaces part of a patch (the d(T) arm's per-triangle plans,
+  `local_fig11a_patch_plans`) cannot pass it unless every triangle of the
+  patch changed. No census separates that arm's component outcomes.
+
+**Amendment (2026-11-22) — the fold the corner merge hid is read on the
+emitted body; §4.5.2 refinement does not remove it; the merge's on-curve
+arm is deleted.** The trigger the amendment below asks for is landed as T3c's
 adjacent-edge reading (`boolean::failures::output_loop_spurs`, N83).
 
 - **The body was read.** P0027 under motion 0 with the merge switched off
@@ -6980,8 +7071,8 @@ part of optimization, before trimming. §4.4.1 (`:546-571`) is one update.
 **Implementation.** The §4.3 close-point removals and the Case-IV rule-out
 (`stage4_correct.rs:14274`, `:12975`; `stage5_topology.rs:4925`) run after
 the §4.5.3 sweep and after `update_patches`. §4.4.1 itself happens in three
-places: `update_patches`, the construct / fold-merge alternation
-(`stage5_topology.rs:4808`), and the Stage-5 seam merge and decimation.
+places: `update_patches`, the construct pass
+(`stage5_topology.rs:844`), and the Stage-5 seam merge and decimation.
 
 **Remediation.** Folds into N80's spec and cleanup Phase 2b/2c (one per-patch
 CDT update after 1D §4.3/§4.5.3 polyline cleanup, retiring pre-CDT 2D
@@ -9172,7 +9263,7 @@ a recorded fast path with a pin. **State: OPEN** (found and built
 
 **Paper.** §4.4.2 (`refs/text/yang2025_hybrid_boolean.txt:586-590`) partitions retained triangles into patches bounded by both intersection curves and original B-Rep boundary curves ("segments the mesh Boolean results into patches along the boundary curves, which correspond to either the original boundary curves or the intersection curves"). §4.5.5 (`:723-730`) specifies pre-discretization 2D replacement only for coplanar planes.
 
-**What the code does.** Across six callers (`stage4_correct.rs:465`, `stage4_construct.rs:3441,4400`, `stage4_chain_decimate.rs:815`, `stage5_topology/fold_merge.rs:98`, `stage5_topology/construct.rs:65`), `merge_same_plane_patches_with_side_labels` (`stage4_correct.rs:681-875`) assigns each non-degenerate `Surface::Cylinder` patch a `SurfKey::Cyl { axis, anchor, radius, reversed }` (`:744-771`). Union-find merges any two edge-adjacent patches when `side_labels` agree (if provided) and `reversed` matches, `|ri - rj| <= TAU_WORK`, `|ai·aj| >= 1.0 - TAU_WORK`, and anchors match componentwise within `TAU_WORK` (`:776-808`). Merged patches take minimum `attribution` (`:860-863`).
+**What the code does.** Across five callers (`stage4_correct.rs:465`, `stage4_construct.rs:3441,4400`, `stage4_chain_decimate.rs:815`, `stage5_topology/construct.rs:65`), `merge_same_plane_patches_with_side_labels` (`stage4_correct.rs:681-875`) assigns each non-degenerate `Surface::Cylinder` patch a `SurfKey::Cyl { axis, anchor, radius, reversed }` (`:744-771`). Union-find merges any two edge-adjacent patches when `side_labels` agree (if provided) and `reversed` matches, `|ri - rj| <= TAU_WORK`, `|ai·aj| >= 1.0 - TAU_WORK`, and anchors match componentwise within `TAU_WORK` (`:776-808`). Merged patches take minimum `attribution` (`:860-863`).
 
 **How it departs from the paper.** Post-flood union-find merges distinct input `Cylinder` faces across original boundary edges using `TAU_WORK` geometry matching, even without Stage-0 `PairCylinder` overlap (`N103`), dropping internal seam curves that §4.4.2 preserves (`yang_2025_audit.md:698,720,750`).
 

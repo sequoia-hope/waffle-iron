@@ -669,9 +669,9 @@ kernel change, run the sweep from a tree with it and a tree without and
 diff the lines. A removal of a kernel mechanism runs this first
 (`specs/yang_paper_path.md` §6): edge-in-plane arm 2 moved nothing in the
 corpus, a prospector seed or the fast tier, and 68 of 640 rigid motions of
-its anchoring pair fail without it; the Stage-5 corner merge moves nothing
-in the corpus or seed 6, and P0027 under one motion builds a different body
-without it.
+its anchoring pair fail without it; the Stage-5 corner merge (since moved
+into the §4.4.1 update) moved nothing in the corpus or seed 6, and P0027
+under one motion built a different body without it.
 
 A slow case holds its whole core booking while it finishes alone (R0081,
 R0085, F0085 and F0072 take several minutes a build). Run those under their
@@ -685,7 +685,8 @@ vertices. Over all 374 cases: 1,378 `OK`, 107 `ERR`, 11 `DIFF`.
 
 `p0027_moved_rigidly_is_the_unmoved_body`, in the same file, is a pin
 rather than a probe: it holds P0027 to `OK` under its four motions, which is
-what the Stage-5 corner merge is kept for (ledger N2).
+what the §4.4.1 update's reading of an out-of-order boundary chain answers
+(Fig. 11(a), ledger N2).
 `f0076_union_volume_is_the_same_at_every_rim_phase` is the other pin: it spins one sketch of F0076 about its own normal
 (same geometry, different rim samples) and holds the union to the
 document's volume.

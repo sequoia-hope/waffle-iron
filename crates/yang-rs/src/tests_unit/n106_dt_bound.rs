@@ -887,7 +887,7 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
 
     // 7. End-to-end curved `boolean()` runs (cylinder-box and cylinder-cylinder):
     // exercises `TriangleErrorBoundMap::from_stage2_kept`, `stage4_relocate_and_correct`,
-    // `run_construct_passes`, `run_fold_merge_passes`, `decimate_patch_chains_441_with_bounds`,
+    // `run_construct_passes`, `decimate_patch_chains_441_with_bounds`,
     // and the Stage-5 hand-off `assert_lockstep`.
     {
         let backend = cherchi_rs::NativeBoolean;

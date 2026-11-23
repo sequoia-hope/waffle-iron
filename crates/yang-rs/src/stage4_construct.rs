@@ -1591,9 +1591,9 @@ fn chain_link_runs(next: &BTreeMap<u32, u32>, indeg: &BTreeMap<u32, usize>) -> V
 ///
 /// `fan_of_one` enables the §4-I8 degenerate case (the victim has a SINGLE
 /// triangle here, so the merge deletes it rather than re-triangulating a
-/// 2-vertex link); it is the caller's gate (always-on in the driver since
-/// 2026-08-20), passed explicitly rather than read from the environment so the
-/// tests can exercise both settings.
+/// 2-vertex link); it is the caller's gate (on at the one caller, the
+/// §4.4.1 update's chain-fold arm), passed explicitly so the tests can
+/// exercise both settings.
 pub(crate) fn rebuild_merge_fan(
     mesh: &Mesh,
     patch_index: usize,
@@ -3102,6 +3102,122 @@ fn collect_fig11a_edge_splits(
     out
 }
 
+/// A boundary chain the relocation put out of order, read as Fig. 11(a)
+/// (`refs/text/yang2025_hybrid_boolean.txt:561-562`: "We locate the
+/// constrained edge containing q (the red edge) and split it using q").
+///
+/// The mesh arrangement places an intersection point `q` on one edge of a
+/// boundary chain; the relocation to the exact curve may carry it past the
+/// chain's next vertex `p`, onto the edge beyond. The chain then walks
+/// `q → p → b` with `q` inside `(p, b)`: out along the line and back. The
+/// constrained edge that contains `q` is `(p, b)`, so that edge takes `q` as
+/// its split point; [`split_cycle_with_hairpin_cancel`] then cancels
+/// `q → p → q` and each holder's boundary runs `q → b`.
+///
+/// Read on straight chain edges only (three collinear points); a curved
+/// boundary curve is not read here. Both edges must be boundary-curve edges,
+/// the middle vertex unmoved and the far end of the shorter edge moved; and
+/// the middle vertex must be a vertex of that one boundary curve, with no
+/// third boundary edge at it (a model vertex is not `p`: a point relocated
+/// past one has left its curve).
+/// Returns, per such edge, `(p, q, seeded)`: the vertex the cancel removes
+/// from the chain, the relocated point that stays, and whether the split is
+/// this reading's own (false: a degenerate triangle had already seeded it).
+fn seed_fig11a_chain_folds<'a>(
+    mesh: &Mesh,
+    side_labels: Option<&crate::brep::TriangleSideLabelMap>,
+    moved: &std::collections::HashSet<u32>,
+    cycles: impl Iterator<Item = &'a Vec<(u32, u32)>>,
+    is_isect: &dyn Fn(u32, u32) -> bool,
+    splits: &mut Fig11aSplitMap,
+) -> BTreeMap<(u32, u32), (u32, u32, bool)> {
+    let mut out: BTreeMap<(u32, u32), (u32, u32, bool)> = BTreeMap::new();
+    if moved.is_empty() {
+        return out;
+    }
+    let p3 = |v: u32| mesh.verts[v as usize].as_array();
+    let edge_key = |u: u32, v: u32| if u < v { (u, v) } else { (v, u) };
+    let cycles: Vec<&Vec<(u32, u32)>> = cycles.collect();
+    // Every boundary neighbour of a vertex, over all the cycles: a vertex of
+    // one boundary curve has two; a third makes it a model vertex.
+    let mut nbrs: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    for c in &cycles {
+        for &(s, e) in c.iter() {
+            nbrs.entry(s).or_default().insert(e);
+            nbrs.entry(e).or_default().insert(s);
+        }
+    }
+    for c in cycles {
+        let n = c.len();
+        if n < 3 {
+            continue;
+        }
+        for i in 0..n {
+            let (s, e) = c[i];
+            let (e2, nx) = c[(i + 1) % n];
+            if e2 != e || s == nx || moved.contains(&e) || is_isect(s, e) || is_isect(e, nx) {
+                continue;
+            }
+            let (ps, pe, pn) = (p3(s), p3(e), p3(nx));
+            if !crate::stage4_correct::tri_is_degenerate(ps, pe, pn) {
+                continue;
+            }
+            let d1 = [pe[0] - ps[0], pe[1] - ps[1], pe[2] - ps[2]];
+            let d2 = [pn[0] - pe[0], pn[1] - pe[1], pn[2] - pe[2]];
+            if d1[0] * d2[0] + d1[1] * d2[1] + d1[2] * d2[2] >= 0.0 {
+                continue;
+            }
+            let l1 = d1[0] * d1[0] + d1[1] * d1[1] + d1[2] * d1[2];
+            let l2 = d2[0] * d2[0] + d2[1] * d2[1] + d2[2] * d2[2];
+            // The far end of the shorter edge lies inside the longer one.
+            let (q, far) = if l1 < l2 { (s, nx) } else { (nx, s) };
+            let k = edge_key(e, far);
+            let verdict = if l1 == l2 || !moved.contains(&q) {
+                "not-a-relocated-point"
+            } else if nbrs.get(&e).is_none_or(|n| n.len() != 2) {
+                "model-vertex"
+            } else if segment_param(&mesh.verts, k.0, k.1, q).is_none() {
+                "not-inside"
+            } else if let Some((chain, _)) = splits.get(&k) {
+                if chain.as_slice() == [q] {
+                    out.entry(k).or_insert((e, q, false));
+                    "already-split"
+                } else {
+                    "other-split"
+                }
+            } else {
+                let mut ops = [false, false];
+                for (ti, t) in mesh.tris.iter().enumerate() {
+                    if t.contains(&k.0) && t.contains(&k.1) {
+                        match side_labels.and_then(|sl| sl.labels.get(ti)) {
+                            Some(lbl) => {
+                                ops[0] |= lbl.in_operand(crate::brep::InputId::A);
+                                ops[1] |= lbl.in_operand(crate::brep::InputId::B);
+                            }
+                            None => ops = [true, true],
+                        }
+                    }
+                }
+                splits.insert(k, (vec![q], ops));
+                out.insert(k, (e, q, true));
+                "seeded"
+            };
+            log_update_census(&format!(
+                "CHAIN_FOLD {verdict} edge=(v{},v{}) q=v{q} p=v{e} out={:.4e} back={:.4e} \
+                 p=({:.6},{:.6},{:.6})",
+                k.0,
+                k.1,
+                l1.sqrt(),
+                l2.sqrt(),
+                pe[0],
+                pe[1],
+                pe[2],
+            ));
+        }
+    }
+    out
+}
+
 fn expand_directed_edge(
     u: u32,
     v: u32,
@@ -3553,7 +3669,7 @@ pub(crate) fn update_patches_ex_with_bounds(
 ) -> usize {
     tri_bounds.assert_lockstep(mesh.tris.len(), "update_patches_ex_with_bounds");
     let sl_opt = full_arrangement.then_some(&*side_labels);
-    let splits = collect_fig11a_edge_splits(mesh, sl_opt, moved);
+    let mut splits = collect_fig11a_edge_splits(mesh, sl_opt, moved);
     let is_moved_degen_tri = |t: [u32; 3]| -> bool {
         t.iter().any(|v| moved.contains(v))
             && crate::stage4_correct::tri_is_degenerate(
@@ -3619,6 +3735,18 @@ pub(crate) fn update_patches_ex_with_bounds(
             [true, true]
         }
     };
+
+    // Fig. 11(a) on a boundary chain the relocation put out of order: the
+    // constrained edge that contains a relocated point is located and split
+    // there, whichever chain edge the mesh arrangement had the point on.
+    let chain_folds = seed_fig11a_chain_folds(
+        mesh,
+        sl_opt,
+        moved,
+        infos.iter().flat_map(|info| info.cycles.iter()),
+        &|s, e| is_isect(key(s, e)),
+        &mut splits,
+    );
 
     let n_patches = raw.len();
     let mut patch_ops_vec: Vec<[bool; 2]> = Vec::with_capacity(n_patches);
@@ -3791,10 +3919,97 @@ pub(crate) fn update_patches_ex_with_bounds(
             ));
         }
 
+        // A chain fold on a patch the update refuses on the d(T) budget
+        // (N106): the vertex the cancel removed leaves by a local fan
+        // rebuild, the same boundary the whole-patch CDT would have drawn.
+        if patch_plans[pi].is_none() && chord_degradation && !patch_req_splits[pi].is_empty() {
+            let victims: Option<Vec<(u32, u32, bool)>> = patch_req_splits[pi]
+                .iter()
+                .map(|k| chain_folds.get(k).copied())
+                .collect();
+            if let Some(victims) = victims {
+                let fan_patch = SplicePatch {
+                    cycles: info
+                        .cycles
+                        .iter()
+                        .map(|c| c.iter().map(|&(s, _)| s).collect())
+                        .collect(),
+                    tris: p.tri_indices.clone(),
+                    surface: info.inherited,
+                };
+                let mut rebuilds: Vec<PatchRebuild> = Vec::new();
+                let mut gone: BTreeSet<u32> = BTreeSet::new();
+                let mut ok = true;
+                for (victim, survivor, _) in victims {
+                    match rebuild_merge_fan(mesh, pi, &fan_patch, victim, survivor, true) {
+                        Ok(r) if r.old_tris.iter().all(|&t| gone.insert(t)) => rebuilds.push(r),
+                        _ => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                let final_tris: Vec<[u32; 3]> = p
+                    .tri_indices
+                    .iter()
+                    .filter(|t| !gone.contains(t))
+                    .map(|&t| mesh.tris[t as usize])
+                    .chain(rebuilds.iter().flat_map(|r| r.new_tris.iter().copied()))
+                    .collect();
+                let want_bd = expected_boundary_after_splits(old_tris, p_ops, &splits);
+                let fits = ok && plan_matches_boundary(&final_tris, &want_bd);
+                log_update_census(&format!(
+                    "CHAIN_FOLD_FAN patch={pi} surface={} fans={} applied={fits}",
+                    surface_kind_name(&info.inherited),
+                    rebuilds.len()
+                ));
+                if fits {
+                    // One plan for the whole patch (the triangles outside
+                    // the fans carried over with their bounds), so the
+                    // component check below reads the complete result.
+                    let new_tri_bounds: Vec<f64> = p
+                        .tri_indices
+                        .iter()
+                        .filter(|t| !gone.contains(t))
+                        .map(|&t| tri_bounds.bounds[t as usize])
+                        .chain(
+                            rebuilds
+                                .iter()
+                                .flat_map(|r| r.new_tri_bounds.iter().copied()),
+                        )
+                        .collect();
+                    let whole = PatchRebuild {
+                        patch: pi,
+                        old_tris: p.tri_indices.clone(),
+                        new_tris: final_tris.clone(),
+                        new_tri_bounds,
+                        new_verts: Vec::new(),
+                        dropped: rebuilds
+                            .iter()
+                            .flat_map(|r| r.dropped.iter().copied())
+                            .collect(),
+                        plan_verts: mesh.verts.len() as u32,
+                        plan_tris: mesh.tris.len() as u32,
+                    };
+                    patch_plans[pi] = Some((vec![whole], final_tris));
+                }
+            }
+        }
+
         // A Fig. 11(a) patch the update could not rebuild keeps its triangles:
         // its moved degenerate triangle reaches `validate_relocated_triangles`,
         // a loud STOP the §4.5.2 loop refines (there is no local repair arm).
-        if patch_plans[pi].is_none() && (has_split_bd || has_moved_degen) && chord_degradation {
+        // (Not for a chain fold of this reading's own: splitting the long
+        // edge under the triangles that still hold the removed vertex would
+        // fold the fan over itself.)
+        let own_chain_fold = patch_req_splits[pi]
+            .iter()
+            .any(|k| chain_folds.get(k).is_some_and(|&(_, _, seeded)| seeded));
+        if patch_plans[pi].is_none()
+            && (has_split_bd || has_moved_degen)
+            && chord_degradation
+            && !own_chain_fold
+        {
             if let Some((rebuilds, final_tris, used)) = local_fig11a_patch_plans(
                 mesh,
                 pi,
@@ -6247,5 +6462,121 @@ mod tests {
             id_tris, rev_tris,
             "Fig. 11(a) crease split must produce identical 3D triangles under reversed vertex numbering"
         );
+    }
+
+    // ---- Fig. 11(a) on a boundary chain out of order ---------------------
+
+    /// A chain along y = 0 walked q → p → b, with the relocated q (v0) at
+    /// x = 0.6, p (v1) at x = 0.4 and b (v2) at x = 1: q lies inside (p, b).
+    fn chain_fold_mesh() -> (Mesh, Vec<(u32, u32)>) {
+        let mesh = Mesh {
+            verts: vec![
+                Point3::new(0.6, 0.0, 0.0),
+                Point3::new(0.4, 0.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+                Point3::new(1.0, 1.0, 0.0),
+                Point3::new(0.6, 1.0, 0.0),
+            ],
+            tris: vec![[0, 1, 4], [1, 2, 3], [1, 3, 4]],
+        };
+        (mesh, vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 0)])
+    }
+
+    #[test]
+    fn a_relocated_point_past_the_next_chain_vertex_splits_the_edge_it_lies_on() {
+        let (mesh, cycle) = chain_fold_mesh();
+        let moved: std::collections::HashSet<u32> = [0u32].into();
+        let mut splits: Fig11aSplitMap = BTreeMap::new();
+        let folds = seed_fig11a_chain_folds(
+            &mesh,
+            None,
+            &moved,
+            std::iter::once(&cycle),
+            &|_, _| false,
+            &mut splits,
+        );
+        assert_eq!(folds, BTreeMap::from([((1, 2), (1, 0, true))]));
+        assert_eq!(splits, BTreeMap::from([((1, 2), (vec![0], [true, true]))]));
+        // The cancel then takes p out of the walk: q → b → …
+        let mut used = BTreeSet::new();
+        assert_eq!(
+            split_cycle_with_hairpin_cancel(&cycle, [true, true], &splits, &mut used),
+            vec![0, 2, 3, 4]
+        );
+        assert_eq!(used, BTreeSet::from([(1, 2)]));
+        // The same chain walked the other way (the holder across the crease)
+        // names the same edge.
+        let back: Vec<(u32, u32)> = cycle.iter().rev().map(|&(s, e)| (e, s)).collect();
+        let mut again: Fig11aSplitMap = BTreeMap::new();
+        let folds_back = seed_fig11a_chain_folds(
+            &mesh,
+            None,
+            &moved,
+            std::iter::once(&back),
+            &|_, _| false,
+            &mut again,
+        );
+        assert_eq!(folds_back, folds);
+        assert_eq!(again, splits);
+    }
+
+    #[test]
+    fn a_split_a_degenerate_triangle_already_seeded_is_kept_as_it_is() {
+        let (mesh, cycle) = chain_fold_mesh();
+        let moved: std::collections::HashSet<u32> = [0u32].into();
+        let mut splits: Fig11aSplitMap = BTreeMap::from([((1, 2), (vec![0], [true, false]))]);
+        let folds = seed_fig11a_chain_folds(
+            &mesh,
+            None,
+            &moved,
+            std::iter::once(&cycle),
+            &|_, _| false,
+            &mut splits,
+        );
+        assert_eq!(folds, BTreeMap::from([((1, 2), (1, 0, false))]));
+        assert_eq!(splits, BTreeMap::from([((1, 2), (vec![0], [true, false]))]));
+    }
+
+    #[test]
+    fn a_chain_fold_is_not_read_where_the_rule_does_not_hold() {
+        let (mesh, cycle) = chain_fold_mesh();
+        let seed = |mesh: &Mesh,
+                    moved: &[u32],
+                    cycle: &Vec<(u32, u32)>,
+                    isect: &dyn Fn(u32, u32) -> bool| {
+            let moved: std::collections::HashSet<u32> = moved.iter().copied().collect();
+            let mut splits: Fig11aSplitMap = BTreeMap::new();
+            let folds = seed_fig11a_chain_folds(
+                mesh,
+                None,
+                &moved,
+                std::iter::once(cycle),
+                isect,
+                &mut splits,
+            );
+            (folds, splits)
+        };
+        let nothing = (BTreeMap::new(), BTreeMap::new());
+        // The point inside the long edge was not relocated.
+        assert_eq!(seed(&mesh, &[3], &cycle, &|_, _| false), nothing);
+        // The middle vertex was relocated itself.
+        assert_eq!(seed(&mesh, &[0, 1], &cycle, &|_, _| false), nothing);
+        // One of the two edges is an intersection edge, not a boundary curve.
+        assert_eq!(
+            seed(&mesh, &[0], &cycle, &|s, e| (s.min(e), s.max(e)) == (0, 1)),
+            nothing
+        );
+        // A third boundary edge at the middle vertex: a model vertex.
+        let mut branched = cycle.clone();
+        branched.extend([(1, 3), (3, 1)]);
+        assert_eq!(seed(&mesh, &[0], &branched, &|_, _| false), nothing);
+        // The chain is in order: q before p.
+        let mut in_order = mesh.clone();
+        in_order.verts[0] = Point3::new(0.2, 0.0, 0.0);
+        assert_eq!(seed(&in_order, &[0], &cycle, &|_, _| false), nothing);
+        // Out and back to the same point: a crack, not a fold.
+        let mut crack = mesh.clone();
+        crack.verts[0] = Point3::new(1.0, 0.0, 0.0);
+        assert_eq!(seed(&crack, &[0], &cycle, &|_, _| false), nothing);
     }
 }

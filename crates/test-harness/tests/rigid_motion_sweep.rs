@@ -474,18 +474,17 @@ fn steps() {
     }
 }
 
-/// P0027 moved rigidly is the unmoved body: the customer of the Stage-5
-/// Fig-11 corner merge (`yang-rs` `run_fold_merge_passes`) that the corpus
-/// does not hold.
+/// P0027 moved rigidly is the unmoved body: the customer, which the corpus
+/// does not hold, of the §4.4.1 update's reading of a boundary chain the
+/// relocation put out of order (Fig. 11(a), `yang-rs`
+/// `seed_fig11a_chain_folds`; ledger N2, `docs/yang_tail_triage.md`).
 ///
-/// Measured 2026-11-21 (ledger N2, `docs/yang_tail_triage.md`): with that
-/// merge switched off, the unmoved case and three of its four motions build
-/// bit-identical bodies, and motion 0 builds one that differs from the
-/// unmoved body by 8.06e-3 of its diagonal from the fourth operation on, with
-/// the same body count, Euler characteristics and mesh volume and no error.
-/// Every other build measured without the merge — the corpus unmoved, its
-/// other rigid motions, the prospector seed-6 cases the merge acts in — is
-/// bit-identical, so this pin is what a retirement of it has to answer.
+/// Under three of its four motions a relocated junction lands past the next
+/// vertex of its crease. With that chain left as the mesh arrangement had it,
+/// motion 0 builds a body that differs from the unmoved one by 8.06e-3 of its
+/// diagonal from the fourth operation on, with the same body count, Euler
+/// characteristics and mesh volume (measured 2026-11-21; the fold reading,
+/// T3c, now stops that body).
 #[test]
 fn p0027_moved_rigidly_is_the_unmoved_body() {
     let id = "P0027";

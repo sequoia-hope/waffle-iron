@@ -2282,32 +2282,13 @@ pub(crate) fn repair_fan_cluster_ex_with_bounds(
     Some(())
 }
 
-/// How many DISTINCT analytic surfaces `pos` lies on, counted over the faces
-/// carried by the triangles incident to `vi` — the KV15b I1b "richness" measure
-/// (spec `kv15b_mint_site_subresolution_collapse` §I1b-curved).
+/// The DISTINCT analytic surfaces `pos` lies on, over the faces carried by the
+/// triangles incident to `vi`.
 ///
 /// Incidence is certified at [`junction_certificate_band`], the same band that
 /// certifies a Stage-4 exact junction, so a chord-level (un-relocated) curved
-/// sample contributes nothing: the count is strictly richer only for positions
-/// Stage 4 actually placed ON the surface. Counting EVERY surface, not planes
-/// alone, is the 2026-08-19 R0047 amendment.
-///
-/// Richness ranks two candidate positions for one model point: the richer one
-/// carries more analytic authority, so it is the one a merge must keep — merging
-/// into the poorer one evicts a face-loop vertex off a surface it lies on.
-pub(crate) fn surface_incidence_count(
-    mesh: &Mesh,
-    attribution: &[Option<TriangleAttribution>],
-    a: &BRep,
-    b: &BRep,
-    vi: u32,
-    pos: [f64; 3],
-) -> usize {
-    carried_surfaces(mesh, attribution, a, b, vi, pos).len()
-}
-
-/// The DISTINCT analytic surfaces `pos` lies on, over the faces carried by the
-/// triangles incident to `vi` — [`surface_incidence_count`]'s underlying set.
+/// sample contributes nothing. Every surface counts, not planes alone (the
+/// 2026-08-19 R0047 amendment).
 ///
 /// The set, not just its size, is what decides whether two positions may be
 /// IDENTIFIED: a merge is authority-preserving exactly when the victim's set is

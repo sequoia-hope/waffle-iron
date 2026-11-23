@@ -58,8 +58,9 @@ like this. the fixes must be principled. the principles are the paper."*
   mechanism, run the whole-corpus rigid-motion sweep with it and without it
   (`docs/TESTING.md` §"Running the rigid-motion sweep") and diff the lines,
   `hash=` included. The corpus and a prospector seed hold each case in one
-  orientation: the Stage-5 corner merge changes no unmoved body and one
-  rotated one (P0027, 2026-11-21, ledger N2). And the sweep compares FINAL
+  orientation: the Stage-5 corner merge (deleted 2026-11-22, its sites now
+  read by the §4.4.1 update) changed no unmoved body and one rotated one
+  (P0027, 2026-11-21, ledger N2). And the sweep compares FINAL
   bodies: a wrong intermediate body that a later operation happens to erase
   reads as identical (P0027 motion 1, 2026-11-22). Census the defect's own
   quantity on every emitted body as well. A sweep line also carries no
@@ -68,6 +69,21 @@ like this. the fixes must be principled. the principles are the paper."*
   `app/tests/cases/assay/results.json` (the corner merge's on-curve arm:
   F0064 counted 14 unresolved sites with it and 20 without, 2026-11-22).
   Diff that file's detail strings before writing "moves nothing".
+- **Read a differing sweep line field by field.** "Differs in the hash
+  alone" was written from a line count; five of the six lines also moved
+  `mesh=` (2026-11-22). And a moved line can mean a natural run is now
+  adopted where the §4.5.2 loop refined before: compare the `[s452] op=`
+  markers (`YANG_452_PROBE=1`) of both trees on every differing case.
+- **A census verdict names what the code saw, not why.** Split a count by
+  its cause before writing the cause down. The chain-fold census printed 48
+  `already-split` lines; 32 of them were the same chain walked the other way
+  by its second holder, after the seed, and only 16 were splits another
+  collector had made (2026-11-22). Pair each line with the lines before it
+  in the same call.
+- **A plan that replaces part of a patch fails the §4.4.1 coupled-component
+  check** (`update_patches_ex_with_bounds`): the check compares the
+  component's old triangles with the plans' NEW triangles only. A local
+  rebuild is written as one whole-patch plan, carried triangles included.
 - **A new loud check also runs `./scripts/test.sh rewrite` before it is
   believed.** The corpus, 1,496 rigid motions and a prospector seed all held
   with T3c's fold reading; the rewrite tier stopped in 13 mock-arrangement

@@ -256,9 +256,10 @@ fn a_bridging_pair_edge_on_a_face_without_a_chart_is_a_site() {
 
 // ---------------------------------------------------------------------------
 // T3c on ADJACENT edges: a loop that folds back over itself along one curve.
-// Anchor: P0027 moved rigidly with the Stage-5 corner merge off — a relocated
-// junction overruns the next crease vertex, and both crease faces walk out to
-// the overrun vertex and back (0.066 on a 0.33 edge, fold-angle sine 7e-15).
+// Anchor: P0027 moved rigidly with its crease chain left out of order — a
+// relocated junction overruns the next crease vertex, and both crease faces
+// walk out to the overrun vertex and back (0.066 on a 0.33 edge, fold-angle
+// sine 7e-15).
 // ---------------------------------------------------------------------------
 
 /// A unit square whose bottom edge runs on to `tip` before coming back to

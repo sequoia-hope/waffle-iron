@@ -153,9 +153,6 @@ mod stage4_construct;
 mod stage4_phantom;
 mod stage4_slit;
 
-// §4.4.1 Fig-11 merge selector (fold-merge sites) consumed by
-// `stage5_topology::run_fold_merge_passes`.
-mod stage4_fold_risk;
 mod stage4_patch_chart;
 mod stage4_project;
 mod stage4_splice;

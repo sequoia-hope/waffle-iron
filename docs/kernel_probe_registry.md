@@ -114,7 +114,7 @@ cargo feature**, not an environment variable.
 
 **Deleted 2026-10-16 (Phase 2a-i, the §4.5.3 sweep in the paper's order):** `YANG_453_RANK` (with the victim ranking), `YANG_453_PAIR` (kill switch and its result-changing `census` mode), `YANG_453_SPAIR`, `YANG_453_OVERTAKE` — the arms they switched are always on.
 
-**Added 2026-10-16:** `YANG_441_UPDATE_CENSUS=<file>` — Phase 2b increment 0 (`stage4_construct::update_census`): appends, per Stage-4 run, the outcome tally of the §4.4.1 per-patch rebuild over every intersected patch, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set).
+**Added 2026-10-16:** `YANG_441_UPDATE_CENSUS=<file>` — Phase 2b increment 0 (`stage4_construct::update_census`): appends, per Stage-4 run, the outcome tally of the §4.4.1 per-patch rebuild over every intersected patch, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set). Also one `CHAIN_FOLD <verdict>` line per boundary-chain fold the update reads as Fig. 11(a) (`seeded`, `already-split`, `other-split`, `not-inside`, `model-vertex`, `not-a-relocated-point`) and one `CHAIN_FOLD_FAN` line per d(T)-refused patch that takes the local fan arm (ledger N2).
 
 **Added 2026-10-27:** `YANG_S1_DEPS_CENSUS=<file>` — Roadmap F5 Step 1 (`stage1_tessellate::deps_census::maybe_log_stage1_deps_census`): appends, per initial operand `BRep::new`, one JSONL record comparing today's per-surface/edge Stage-1 `d_ε` values against the paper's §4.1.1 B-Rep model AABB `d_ε = 10⁻² · d` and recording Stage-1 inner/boundary `d(T)` bounds, keyed by `ASSAY_CASE`. Print-only (corpus verdict-identical with it set).
 
@@ -126,7 +126,7 @@ cargo feature**, not an environment variable.
 
 **Added 2026-10-28:** `YANG_N100_CENSUS=<file>` — ledger N100 (`n100_census.rs`): appends `case\titemN\tdetail` at the possible silent paths 1 (zero-distance non-crossing pair, `shell_contact`), 2 (no-witness single-candidate edge, `stage3_ssi`), 4 (sphere/torus multi-cycle outer choice vs largest Newell area, `stage5_topology/emit.rs`) and 5 (undetermined crease side, now a decline, `stage4_correct`), keyed by `ASSAY_CASE`. Print-only.
 
-**Added 2026-11-06:** `YANG_REPAIR_CENSUS=<file>` — roadmap F2 "retire the repairs it subsumes" (`repair_census.rs`): appends `case\tpass\tcount` for each Stage-4/5 repair pass that CHANGED the mesh (the construct pass, the corner fold-merge, `repair_fan_cluster`, the pinch split, the sub-τ collapse at both sites), keyed by `ASSAY_CASE`; the rigid-motion sweep keys it by motion. No effect on any result.
+**Added 2026-11-06:** `YANG_REPAIR_CENSUS=<file>` — roadmap F2 "retire the repairs it subsumes" (`repair_census.rs`): appends `case\tpass\tcount` for each Stage-4/5 repair pass that CHANGED the mesh (the construct pass, `repair_fan_cluster`, the pinch split, the sub-τ collapse at both sites), keyed by `ASSAY_CASE`; the rigid-motion sweep keys it by motion. No effect on any result.
 
 **Added 2026-11-17:** `YANG_UV_CENSUS=<file>` — F5a increment 3 / ledger N109 (`param_surface::carried::census`): appends one TSV line per stage (`stage1-A`, `stage1-B`, `stage2-kept`, `stage4-relocated`, `stage5-exit`) keyed by `ASSAY_CASE`, with the vertex count, entries, vertices with no (u, v) (`bare`), entries the inverse refused, entries added by incidence (`settled`), the largest `|s(u, v) − p| / d_ε` over curved faces and the largest `|s(u, v) − p|` over planar ones. Print-only.
 

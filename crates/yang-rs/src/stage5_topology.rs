@@ -71,22 +71,13 @@ thread_local! {
     > = const { std::cell::RefCell::new(None) };
 }
 
-// The [`S4_PRE_POS`] pre-position map is captured on every run: the §4.4.1
-// Fig-11 merge pass ([`run_fold_merge_passes`], ALWAYS-ON since the I6 flip,
-// 2026-08-19d, spec §4-I6) reads it as production input, and the
-// `YANG_S5_FOLD_PROBE` diagnostic columns read the same map. It is captured at
-// one site, RE-KEYED at four compaction sites, and read at several more — the
-// `probe_remap_pre_pos` contract. The §4-I8 fan-of-one rebuild and the §4-I8
-// carrier-containment guard on that merge are ALWAYS-ON since 2026-08-20
-// (byte-identical corpus; the guard is a P10 safety net refusing 7 sites over
-// R0011/R0044/R0074/R0085 that would otherwise merge a model CORNER into a curve
-// junction). Their `YANG_441_FOLD_MERGE` / `YANG_441_FAN_OF_ONE` /
-// `YANG_441_MERGE_CARRIER` off-knobs were deleted 2026-10-16 (cleanup spec §4).
+// The [`S4_PRE_POS`] pre-position map is captured on every run and read by
+// the `YANG_S5_FOLD_PROBE` / loop-simplicity diagnostic columns. It is captured
+// at one site, RE-KEYED at four compaction sites, and read at several more — the
+// `probe_remap_pre_pos` contract.
 
-/// Is the pre-position map wanted for REPORTING (as opposed to being wanted at
-/// all)? The map's `YANG_S5_MOVED_SET` / `YANG_S5_REMAP` lines are probe output;
-/// the Fig-11 merge needs the map itself but not the chatter, so it must not
-/// turn a repair pass into a per-boolean stderr writer.
+/// Is the pre-position map wanted for REPORTING? Its `YANG_S5_MOVED_SET` /
+/// `YANG_S5_REMAP` lines are probe output, printed only under the probe.
 pub(super) fn s4_pre_pos_diagnostic() -> bool {
     std::env::var_os("YANG_S5_FOLD_PROBE").is_some()
 }
@@ -357,7 +348,7 @@ pub(crate) fn c441_verbose() -> bool {
 /// f2c-3 χ-localization probe gate (`YANG_CHI_AUDIT`, unset = off,
 /// byte-identical): prints the id-complex invariants at the stage
 /// boundaries (stage-2 kept submesh, stage-4/5 reconstruct entry, each
-/// construct/fold-merge alternation round) and reports any single apply
+/// construct pass) and reports any single apply
 /// that changes them. Built 2026-08-28 to localize R0003's measured
 /// main-shell genus-2 (per-component χ [-2, 2, 2]; every apply was
 /// neutral).
@@ -525,12 +516,10 @@ macro_rules! c441_log {
 
 mod construct;
 mod emit;
-mod fold_merge;
 mod patches;
 
 use construct::*;
 pub(crate) use emit::*;
-use fold_merge::*;
 pub(crate) use patches::*;
 
 #[allow(clippy::too_many_arguments)]
@@ -697,8 +686,8 @@ pub(crate) fn reconstruct_topology_stage4(
         );
         probe_record_incidence(&incidence, &intersection_curves);
     }
-    // Positional snapshot: the pre-Stage-4 position map the Fig-11 merge
-    // pass reads (and the S4_MOVED oracle prints).
+    // Positional snapshot: the pre-Stage-4 position map the S4_MOVED
+    // oracle prints.
     let verts_pre: Option<Vec<Point3>> = if has_conic {
         Some(mesh.verts.clone())
     } else {
@@ -852,68 +841,24 @@ pub(crate) fn reconstruct_topology_stage4(
         // per-wall-class flip census is satisfied for every class at once.
         // The historical `YANG_441_CONSTRUCT` env var now only re-enables
         // the pass's diagnostic chatter (`c441_verbose`).
-        // Alternation: the construct pass's ReorderConic and the Fig-11
-        // corner merge run to a joint fixed point, bounded — a merge's fan CDT
-        // is refused while neighbouring interior crossings corrupt the fan
-        // polygon, and each round of merges frees endpoints for the next
-        // round of reorders. Built for the on-curve terminal-overrun merges
-        // (retired 2026-11-22, ledger N2); whether a second round still
-        // changes anything with only crease merges left has not been read.
-        const ALTERNATION_CAP: usize = 8;
-        for round in 0..ALTERNATION_CAP {
-            let c_applied = run_construct_passes(
-                mesh,
-                attribution,
-                side_labels,
-                tri_bounds,
-                a,
-                b,
-                &mut infos,
-                &mut intersection_curves,
-                &mut relocations,
-                false,
-                None,
-                Some(&mut *vertex_params),
-            )?;
-            if chi_audit_enabled() {
-                chi_audit_report(&format!("round={round} post-construct"), &mesh.tris);
-            }
-            // §4.4.1 Fig-11(b)→(c) — merge the boundary vertices the
-            // relocation overran. Placed AFTER the construct pass so it sees
-            // the final cycles (a collapsed/refined seam changes which
-            // vertices are on a boundary at all).
-            let m_applied = run_fold_merge_passes(
-                mesh,
-                attribution,
-                side_labels,
-                tri_bounds,
-                a,
-                b,
-                &mut infos,
-                &mut intersection_curves,
-                &mut relocations,
-                false,
-                None,
-                Some(&mut *vertex_params),
-            )?;
-            if chi_audit_enabled() {
-                chi_audit_report(&format!("round={round} post-fold-merge"), &mesh.tris);
-            }
-            crate::repair_census::log("construct_seam_passes", c_applied);
-            crate::repair_census::log("fold_merge_passes", m_applied);
-            let _ = c_applied; // consumed by this round's own fold-merge
-            if m_applied == 0 {
-                // The merge runs LAST in a round, so only ITS changes can
-                // unlock the next round's reorders; a round with no merges
-                // is the joint fixed point.
-                break;
-            }
-            if round + 1 == ALTERNATION_CAP {
-                c441_log!(
-                    "[s4-construct] alternation CAP reached ({ALTERNATION_CAP} rounds) —                      leaving the residue to the loud downstream walls"
-                );
-            }
+        let c_applied = run_construct_passes(
+            mesh,
+            attribution,
+            side_labels,
+            tri_bounds,
+            a,
+            b,
+            &mut infos,
+            &mut intersection_curves,
+            &mut relocations,
+            false,
+            None,
+            Some(&mut *vertex_params),
+        )?;
+        if chi_audit_enabled() {
+            chi_audit_report("post-construct", &mesh.tris);
         }
+        crate::repair_census::log("construct_seam_passes", c_applied);
     }
 
     // EXPERIMENTAL probe (task #121 increment 1, read-only, env-gated):

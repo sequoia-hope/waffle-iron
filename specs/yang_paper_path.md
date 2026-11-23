@@ -226,7 +226,7 @@ count. That run is not cheap, and it would not answer the question:
   holds only the unwired I3a primitives. Rebuilding it is the F1 I3 item
   itself: Stage 4 on the full arrangement with the keep, flip and membrane
   rule after it, the flood keyed by side label, and `full_arrangement`
-  passed true through the construct, fold-merge and decimation passes that
+  passed true through the construct and decimation passes that
   `reconstruct_topology_stage4` calls with `false`. The N85 trial
   (`specs/yang_41_deps_from_bbox.md` §5) was reverted; its wiring reaches
   49 call sites of the chord-bound functions, and the scalar ones (sphere,

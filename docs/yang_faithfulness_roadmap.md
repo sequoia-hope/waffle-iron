@@ -57,7 +57,7 @@ progress.
 |---|---|---|
 | ledger debt | **64** = 18 OPEN (N2, N62, N68, N74, N80–N93) + 44 DELEGATED + 2 PROPOSED (N64, N94) | `./scripts/faithfulness_score.sh` (`docs/yang_deviations.md` status index) |
 | matrix rows not yet faithful | **100** of 194: 46 PARTIAL, 37 DEVIATES, 11 MISSING, 6 ORDER (67 FAITHFUL, 12 SILENT, 15 N/A) | `./scripts/faithfulness_score.sh --check` (`docs/audits/yang_2025_audit.md` row status column) |
-| live substitutes | Stage-1: `phantom_min_rim_segments`, self-contact guard, `rim_junction_overrides` + P3a + tangent boost (N82), cross-patch folds `cyl_pair_phantom_n` / `face_rim_pair_phantom_n` / `CHART_REFINE_ROUNDS` / P0008 chord split (N88); Stage 0: `stage0/reloc.rs` (N86); Stage 4/5: `collapse_subtauwork_mesh_edges`, `repair_fan_cluster`, `remove_doubled_membranes`, the fold-merge / absorb / rehome family, `merge_same_plane_patches`, `solve_crease_transit`, `corner_transit_apply` (N87) | cleanup §2 |
+| live substitutes | Stage-1: `phantom_min_rim_segments`, self-contact guard, `rim_junction_overrides` + P3a + tangent boost (N82), cross-patch folds `cyl_pair_phantom_n` / `face_rim_pair_phantom_n` / `CHART_REFINE_ROUNDS` / P0008 chord split (N88); Stage 0: `stage0/reloc.rs` (N86); Stage 4/5: `collapse_subtauwork_mesh_edges`, `repair_fan_cluster`, `remove_doubled_membranes`, `merge_same_plane_patches`, `solve_crease_transit`, `corner_transit_apply` (N87) | cleanup §2 |
 | corpus | 360C / 0W / 9E / 5EE / 0T over 374 (2026-10-30, on-surface oracle in force; 2026-10-29: 357C / 3W — N100 item 3 in R0015, R0026, R0050, converted by Stage-5 emission typing, N60 amendment / N104) | canonical assay, release, 900 s; since 2026-10-29 "held" includes the on-surface oracle (remediation O1) |
 
 ## 3. Milestones, in order
@@ -209,9 +209,9 @@ intersected patches.
       recorded nowhere); 349 as crossing cycles (37 cases, a recorded T3
       site); 25 boundary mismatches, 22 mixed attributions, 8 other CDT
       refusals, 7 plans keeping a moved degenerate triangle, 1 chart
-      refusal. A d(T) refusal that leaves an overrun boundary vertex in
-      place is what the Stage-5 corner merge repairs in P0027 moved rigidly
-      (N2).)*
+      refusal. Where a d(T) refusal leaves in place a chain vertex that a
+      relocated junction passed (P0027 moved rigidly), the update's chain
+      reading takes it out by a local fan rebuild (N2).)*
 - [ ] **The patch chart is the face's parameter domain** (F5a's interface),
       for every surface: whole-patch sphere and torus charts exist, and a
       cone apex is a point of the domain, not an `ApexInPatch` refusal
@@ -241,7 +241,9 @@ intersected patches.
       ONLY for the d(T)-budget refusal (N106 — R0059, P0005 need them), every
       other declined component STOPs loudly into §4.5.2; `4.4-12 →
       PARTIAL` — its trigger is still a collapsed triangle, N2)*, `repair_fan_cluster` (N58),
-      the fold-merge corner merge, ~~absorb / rehome~~ *(retired 2026-11-21,
+      ~~the fold-merge corner merge~~ *(retired 2026-11-22, N2: the update
+      reads the out-of-order boundary chain as Fig. 11(a) and the Stage-5
+      pass then applies in none of 1,870 rotated builds)*, ~~absorb / rehome~~ *(retired 2026-11-21,
       N113: the three arms applied in six measured builds — R0003 unmoved and
       under four rigid motions, one seed-6 candidate — and each emits a
       bit-identical body without them)*, the construct pass's seam replacement,
@@ -267,18 +269,18 @@ intersected patches.
       (F0058, F0060, P0057 and P0020 become typed ERRORs without them); the
       corner merge changes no unmoved body and one rotated one — P0027
       motion 0 builds a quietly different body without it (N2, pinned), so
-      it stays until the update removes that overrun vertex in Stage 4 and
-      a trigger reads such a fold on the emitted body. 2026-11-22: the
-      trigger is landed — T3c reads a loop that folds back over itself along
-      one curve (`output_loop_spurs`, N83). With the merge off it stops P0027
-      loudly under two motions, and §4.5.2 refinement does not remove the
-      fold, so the merge's retirement is now the update applying Fig. 11(b)
-      to the boundary cycle, the item below. Its sites were two populations
-      (N2): 26 of 113 merges sit on a crease of one operand and are the
-      straight folds; 87 sat on the intersection curve, the on-curve arm
-      (§I13c), which is deleted. Those were curve vertices §4.5.3 had left
-      in place and recorded, in natural runs the loop discards; without the
-      arm no body moves and those runs record a fold beside the reversal.)*
+      it stayed until a trigger read such a fold on the emitted body and
+      the update put the chain in order in Stage 4. Both landed 2026-11-22.
+      T3c reads a loop that folds back over itself along one curve
+      (`output_loop_spurs`, N83); §4.5.2 refinement does not remove the
+      fold. The merge's sites were two populations (N2): 87 of 113 sat on
+      the intersection curve (the on-curve arm, §I13c) and were curve
+      vertices §4.5.3 had left in place and recorded, in natural runs the
+      loop discards; 26 sat on a crease of one operand. Each of the 26
+      arrives at the update as a chain that walks out and back, and the
+      update now splits the edge that contains the relocated point
+      (Fig. 11(a), `seed_fig11a_chain_folds`). The Stage-5 pass and its
+      selector are deleted.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
@@ -492,4 +494,5 @@ the first known item.
 | 2026-11-20 | F2 item 2: the chain decimation's whole-patch fallback on the domain chart; the `Surface::Sphere` skip retired (N81, N122 amended). No category move, every oracle detail identical, geometry moved on R0019 and R0081 | 79 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-21 | F2 item 3, repair retirement: run absorption, group absorption and corner re-homing deleted (N113 RESOLVED; about 4,100 lines of code, 1,750 of tests; `stage4_rehome::classify`, a surface-type enumeration, gone). Measured first by a per-pass census and off-switch over the corpus, 1,496 rigid motions and seed 6. The corner merge stays: P0027 under one motion needs it (N2, pinned). Corpus hash file identical on all 374; seed 6 189C / 0W / 9E / 2T | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-22 | F2 item 3: the fold the Stage-5 corner merge hides is read on the emitted body — T3c's adjacent-edge reading (`output_loop_spurs`, N83 amended, N2 amended). Censused print-only first over the corpus and 1,496 rigid motions (4,396 emitted bodies): straight corners fall at or below 4e-12 or at or above 1e-2 in the sine of the fold angle. As a trigger with the merge off, P0027 stops loudly under two motions and refinement does not answer it; the merge stays. No category move, every sweep line identical, geometry hash included | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
-| 2026-11-22 | F2 item 3: the corner merge's on-curve arm (§I13c, `oncurve_terminal_overrun`) deleted. The merge's 113 applied sites over its six customers under rotation are 26 on a crease of one operand and 87 on the intersection curve; the 87 are curve vertices §4.5.3 left in place and recorded, in natural runs the loop discards, and without the arm T3c reads 176 conic folds in eleven such runs (R0070, R0095, F0064) and in no adopted body. Every sweep line identical; F0064's message reads 20 unresolved sites for 14. The crease arm stays (P0027, pinned) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-22 | F2 item 3: the corner merge's on-curve arm (§I13c, `oncurve_terminal_overrun`) deleted. The merge's 113 applied sites over its six customers under rotation are 26 on a crease of one operand and 87 on the intersection curve; the 87 are curve vertices §4.5.3 left in place and recorded, in natural runs the loop discards, and without the arm T3c reads 176 conic folds in eleven such runs (R0070, R0095, F0064) and in no adopted body. Every sweep line identical; F0064's message reads 20 unresolved sites for 14. The crease arm stays (P0027, pinned) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | c1e01769 |
+| 2026-11-22 | F2 item 3: the Stage-5 corner merge (`run_fold_merge_passes`, `stage4_fold_risk`, the construct/merge alternation) deleted. Each of its 26 crease sites arrives at the §4.4.1 update as a boundary chain that walks out to a vertex and back: a point relocated past the next chain vertex. The update now splits the constrained edge that contains the relocated point (Fig. 11(a), `seed_fig11a_chain_folds`, N2); a curved holder the d(T) budget refuses takes the local fan re-CDT. Under rotation: 32 splits seeded, 9 fan arms, the Stage-5 pass then applied in none of 1,870 builds; 6 sweep lines differ in the hash and the late digits of the render-mesh volume, verdicts as before (P0027, R0050, R0070): five natural runs the update refused and the loop refined are adopted as built. F0064's natural run has five plane patches rebuilt that the update refused, and its message reads 18 unresolved sites for 20. Matrix 4.4-12 stays PARTIAL: straight chains only | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |

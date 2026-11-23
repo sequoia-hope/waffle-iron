@@ -356,8 +356,9 @@ pub(crate) fn relocation_domain_postcondition(
             // violation. If `q` lies only on surfaces the traveller also lies
             // on, it is a plain sample of the SAME carrier, and Yang's own
             // remedy applies ("we remove a mesh vertex if it is too close to
-            // the intersection curve", §4.4.1) — the Fig-11 merge and the
-            // near-curve removal own that, and a STOP here would preempt them.
+            // the intersection curve", §4.4.1) — the update's chain reading
+            // (Fig. 11(a), `seed_fig11a_chain_folds`) and the near-curve
+            // removal own that, and a STOP here would preempt them.
             //
             // A domain ENDPOINT is different: it carries a surface the
             // traveller is OFF, i.e. a third face joins there and the carrier

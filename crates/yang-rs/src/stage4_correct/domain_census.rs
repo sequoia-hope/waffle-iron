@@ -44,9 +44,9 @@ use super::*;
 /// relative collinearity identity
 /// ([`crate::stage4_construct::point_on_segment_interior`]) — measured
 /// 2026-08-20 at 6.4e-13 / 1.4e-17 / 0.0 / 6.2e-17 on the four ring-reject
-/// sites, against 5.0 %–6.6 % of travel for the two Fig-11 merges that are
+/// sites, against 5.0 %–6.6 % of travel for the two chain crossings that are
 /// LEGITIMATE (F0045, R0090). Seven orders separate the populations, so this
-/// does not preempt the §4-I6 merge. (2) That neighbour is a domain ENDPOINT,
+/// does not preempt the §4.4.1 update's chain reading (Fig. 11(a)). (2) That neighbour is a domain ENDPOINT,
 /// not a sample: it carries a surface the relocated position is OFF, so a third
 /// face joins there and the carrier STOPS. Without leg (2) the check would also
 /// fire on a plain sample of the traveller's own carrier, which Yang's near-curve

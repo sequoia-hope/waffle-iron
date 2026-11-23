@@ -83,7 +83,7 @@ pub(crate) enum SurfaceChart {
 }
 
 // I13a — the Cone chart (and with it, cone-owner rebuilds in the
-// construct/fold-merge/corner-merge/rim-trim passes) is ALWAYS-ON since
+// construct/corner-merge/rim-trim passes) is ALWAYS-ON since
 // 2026-08-25 (corpus category-identical, 271C/0W/36E/1EE, two explained
 // detail rows: R0003 advances 437→467, R0004's ring-CDT wall clears).
 // §4.5.1 inc-2c-3b-3 — the Torus chart for FAN-LOCAL windows
@@ -186,7 +186,7 @@ impl SurfaceChart {
     }
 
     /// The chartability pre-filter — the ONE capability test every construct /
-    /// fold-merge / corner-merge / rim-trim holder gate consults (previously
+    /// corner-merge / rim-trim holder gate consults (previously
     /// five hand-copied `matches!(Plane | Cylinder)` sites). `true` exactly
     /// when [`new`](Self::new) would return `Some`.
     pub(crate) fn supports(s: &Surface) -> bool {

@@ -43,6 +43,61 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-22, later (F2 item 3) — **the Stage-5 corner merge is deleted: the §4.4.1 update reads a boundary chain the relocation put out of order as Fig. 11(a)**
+
+Corpus 360C / 0W / 9E / 5EE / 0T before and after. One detail string of
+`results.json` moved: F0064's message counts 18 unresolved sites for 20.
+Whole-corpus rotation sweep: 1,864 of 1,870 lines identical, geometry hash
+included; 6 differ in the hash and, in five, the late digits of the
+render-mesh volume, with the same verdict, body count, Euler
+characteristics and distance to the unmoved body (P0027 under motions 0, 1
+and 3, R0050 under 3, R0070 under 0 and 3). Prospector seed 6 189C / 0W /
+9E / 2T, every verdict and signature as before. No named dip.
+
+**The site, read at entry to the update.** P0027 under motion 0, fourth
+operation: the junction `q` of the crease of A:1 (cylinder) and A:2 (plane)
+with operand B is relocated 0.0661 past the crease vertex `p`, on a chain
+edge 0.3327 long. Every holder's boundary cycle then walks `q → p → b` on
+one line, with `q` inside `(p, b)`. No triangle collapses, so the update's
+Fig. 11(a) split map held nothing for it; the Stage-5 pass merged `p` into
+`q` afterwards.
+
+**The mechanism.** "We locate the constrained edge containing q (the red
+edge) and split it using q" (`:561-562`). The constrained edge that
+contains `q` is `(p, b)`; `seed_fig11a_chain_folds` seeds that split, and
+the split's hairpin cancel leaves `q → b` in every holder. A plane holder
+is rebuilt by the patch CDT. A curved holder the d(T) budget refuses (N106)
+takes the local fan re-CDT, written as one whole-patch plan.
+
+**Measured over the corpus unmoved and under four rigid motions (1,870
+builds), census lines:** 32 splits seeded (F0064 15, F0067 5, P0027 5,
+R0050 1, R0070 6); 16 chain folds whose split a collapsed triangle had
+already seeded (F0064 6, F0067 6, R0050 2, R0051 2); 9 fan arms, all
+applied (P0027 5, R0070 4). With the update reading the chain, the Stage-5
+pass applied in none of the 1,870 builds, and was deleted with its selector
+and the construct/merge alternation.
+
+**Five natural runs the loop used to refine are adopted as built.** The
+update refused those chains before (`its cycles cross`) and the §4.5.2 loop
+answered at density 2: P0027 under motion 0 (one run) and motion 3 (two),
+R0050 under motion 3, R0070 under motion 0. R0070 under motion 3 keeps one
+`MissedIntersection` of four sites. These are the five sweep lines whose
+mesh volume moved. On P0027 every emitted body has the same face loops with
+the same areas to four digits. In runs the loop still discards the same
+sites go: F0064 under motions 0 and 1 (10 for 8, 13 for 10), F0067 unmoved
+(5 for 4).
+
+**F0064, the one moved message.** In its natural run the update refused
+five plane patches on z = 0.7339: two because their cycles crossed (two
+`IllegalIntersection` sites), three on a boundary mismatch. The chain
+reading seeds three splits in that call and all five are rebuilt. The
+remaining 18 sites are the ones the run had before; F0064 stays an ERROR.
+
+**Not read.** A curved chain. A chain fold whose inside point the pass did
+not relocate: 16 census lines in F0072 under motions 0, 1 and 3, C0043
+under motion 3 and R0051 unmoved. F0072's builds are the ones in which T3c
+reads 12 straight folds, in runs the loop discards.
+
 ## 2026-11-22 (F2 item 3) — **the fold the Stage-5 corner merge hides is now read on the emitted body (T3c, adjacent edges); refinement does not remove it, so the merge stays**
 
 Corpus 360C / 0W / 9E / 5EE / 0T before and after, `results.json`
