@@ -4660,12 +4660,10 @@ fn stage4_relocate_and_correct_inner(
     } else {
         HashSet::new()
     };
-    // inc-4c fold probe (read-only, `YANG_P3B_FOLD_PROBE=x,y,z,r`): dump the
-    // local triangle complex near a point BEFORE the moved×minted weld and
-    // AFTER the trim — measures how the stacked collapses restructure the
-    // corner fan (the R0061 over-used minted×minted edge). Fires in both gate
-    // states (gate-OFF has no mints; the dump is then the correct-baseline
-    // local structure).
+    // Fold probe (read-only, `YANG_P3B_FOLD_PROBE=x,y,z,r`): dump the local
+    // triangle complex near a point BEFORE the moved×minted weld and AFTER
+    // the trim — how the stacked collapses restructure the corner fan (the
+    // lapping triangles the §4.4.1 update then replaces).
     let fold_probe = |tag: &str,
                       mesh: &Mesh,
                       attr: &[Option<TriangleAttribution>],
@@ -4835,26 +4833,10 @@ fn stage4_relocate_and_correct_inner(
             collapsed_any = true;
         }
         nonmanifold_edge_census_attrs("after-beyond-corner-trim", mesh, &attr_vec);
-        // P3b inc-4c: the §4.4.1 triangulation-update half of the merges
-        // above — dissolve the fan folds the stacked collapses manufacture
-        // (spec `yang_169_p3b_inc4c_fan_retriangulation.md`). Connectivity
-        // only; per-cluster fail-closed; must run before ANY boundary-walking
-        // pass (the sweep below recomputes Phase A — the inc-4a placement
-        // lesson).
-        if retriangulate_collapsed_fan_regions_ex_with_bounds(
-            mesh,
-            &mut attr_vec,
-            &mut side_labels.labels,
-            &mut tri_bounds.bounds,
-            brep_a,
-            brep_b,
-            &moved,
-            &minted_verts,
-            full_arrangement,
-        ) {
-            collapsed_any = true;
-        }
-        nonmanifold_edge_census_attrs("after-fan-retriangulation", mesh, &attr_vec);
+        // The two merges above rewrite indices: a vertex merged across its
+        // neighbours leaves triangles lapping over each other. The §4.4.1
+        // update replaces them by the CDT of their boundary
+        // (`stage4_construct::rebuild_patch_folds`).
     }
     fold_probe("post", mesh, &attr_vec, &probe_minted_verts);
     s4_lap("before-453-sweep", mesh);

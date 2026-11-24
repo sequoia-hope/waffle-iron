@@ -102,7 +102,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | D13 | HISTORICAL | Gauss-map check uses triangle-normal dot product, not Theorem 4.1 cones |
 | D14 | OPEN (reopened by the user 2026-10-27; resolved by roadmap F5a — the surface interface and carried parameter coordinates — and F5b's first non-analytic instance) | No NURBS / Bézier surface support; only analytic primitives. The analytic-only code is inventoried in `docs/audits/f5a_surface_matches.md` (2026-11-17, F5a increment 4): the class-(c) closed forms (implicit evaluation, projection, per-type bounds, closed-form curves) a B-spline instance cannot take, and the class-(b) rules still narrowed by surface type, each named against the milestone that answers it |
 | N1 | RESOLVED | Stage-2 labels taken from the C++ sidecar, not a native arrangement |
-| N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open; apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
+| N2 | OPEN — per-patch re-CDT LIVE 2026-10-16 (85 % of intersected patches); refusal classes + repair retirement open (2026-11-24: lapping triangles are replaced inside the update, `repair_fan_cluster` deleted); apex-interior refusal 2026-10-22 | Stage-4 mesh-updating / CDT absent (relocation-only) |
 | N3 | RESOLVED | §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion) |
 | N4 | RESOLVED | Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping |
 | N5 | DELEGATED (A) | Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework |
@@ -157,7 +157,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N55 | DELEGATED (B) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
 | N56 | DELEGATED (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | N57 | DELEGATED (P5 self-sign) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
-| N58 | **OPEN — reopened 2026-10-30** (2026-07-21 user directive ratified only swapping `repair_fan_cluster` off the render floor onto §4.3.4 `h/l/α` with `d_p=TAU_MODEL·(1+scale)`; `repair_fan_cluster` still applies §4.3.4 in reverse on triples; 2026-10-28/30: `stage5_chain_decimate` deleted and re-sited into §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, while decimation-vs-insertion, `Surface::Sphere` non-decimation, `0`-operand-vertex closed-loop `point_cmp` frame residue, and `N105` class-(b) elision remain open) | #169 P3b inc-4c: Stage-4 post-merge fan re-CDT + seam-order canonicalization (§4.4.1/§4.3) and §4.4.1 polyline chain decimation |
+| N58 | **OPEN** (reopened 2026-10-30; amended 2026-11-24: `repair_fan_cluster` and its seam-order canonicalization are DELETED — the §4.4.1 update replaces lapping triangles by the CDT of their boundary. What stays open is the chain decimation: `stage4_chain_decimate::decimate_patch_chains_441` decimates arrangement polylines by forward §4.3.4 where the paper inserts by parameter-domain midpoint subdivision, the `0`-operand-vertex closed-loop `point_cmp` start sample, and `N105` class-(b) elision) | §4.4.1 polyline chain decimation (formerly also the #169 P3b inc-4c Stage-4 post-merge fan re-CDT + seam-order canonicalization) |
 | N59 | RESOLVED 2026-08-24 (same-session fix; P5 convention) | §4.5.3 reversal sweep covered TYPED chains only — pair-relocated (untyped) chains never swept; fixed by the pair-site arm (spec `yang_453_pair_chain_reversal.md`), R0028+R0025 convert, R0032 advances to a NotSupported boundary |
 | N60 | RESOLVED (flipped always-on 2026-08-26; blockers R0054/F0085 fixed structurally; amended 2026-10-30 — every chord between two different surfaces, one curved, typed from carried curves or the surfaces' intersection) | §4.4.2 output boundary-curve restoration — carried same-input circles re-typed onto their input rims; the KV9-F2a fold family's owner |
 | N61 | RESOLVED for cylinders (2026-09-11, KV14 Slice G); OPEN for cones | Stage-1 curved chart CDT (holed / partial laterals) was boundary-only — no §4.1 domain triangulation to d_ε; interior diagonals exceeded the chord budget downstream bands read back (R0026) |
@@ -517,6 +517,56 @@ F0087–F0090, R0021). Prospector seed 6 is verdict-identical with and without
 it (188C / 0W / 10E / 2T). State unchanged: OPEN.
 
 ### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**Amendment (2026-11-24) — triangles a point merge leaves lapping over each
+other are replaced inside the §4.4.1 update; `repair_fan_cluster` is
+DELETED (N58).**
+
+- **What a fold is.** Stage 4 merges curve points by rewriting indices
+  (`collapse_vertex`: the moved×mint weld, the beyond-corner trim N112, the
+  §4.5.3 sweep, the Fig. 11(b) merge). A merge that carries a vertex across
+  a neighbour it shares with the survivor leaves triangles lapping over
+  each other: an edge more than two of one patch's triangles share. The
+  patch's net directed boundary is still its boundary; only the
+  triangulation inside it is no discretization of the surface any more.
+  The paper merges the points of the curve and then triangulates
+  (`:557-562`), so it never holds such triangles.
+- **The update.** (1) `stage4_patch_chart::develop` charts a folded patch:
+  an edge its triangles cover as often one way as the other is developed
+  through all of them (it refused any edge with more than two triangles as
+  `NotManifold`; it still refuses an edge covered two or more times oftener
+  one way than the other, which is two sheets). The whole-patch CDT then
+  replaces the lapping triangles like any others. (2) Where the update
+  refuses the whole patch on the d(T) budget (N106),
+  `stage4_construct::rebuild_patch_folds` replaces the lapping part alone:
+  the patch's triangles at the endpoints of every over-covered edge, one
+  edge-connected part at a time, each rebuilt by `rebuild_patch_domain`
+  against the cycles of its net directed boundary, and returned as one
+  whole-patch plan. No vertex moves and none is added; a part whose
+  boundary touches itself at a vertex, or whose CDT fails, is left (the
+  loud gates stand). The part is rebuilt WITHOUT the d(T) budget: lapping
+  triangles certify nothing a rebuild could degrade, and the old pass
+  applied none either; d(T) is recalculated per new triangle and carried
+  (`:568-571`).
+- **Measured** (one release binary with the old pass switched off, the
+  corpus unmoved and under four rigid motions, 1,870 builds): every sweep
+  line identical to the baseline, hash included. The part rebuild ran four
+  times: P0020 unmoved and under motion 3 (cylinder patch, 580 → 574 and
+  578 → 572 triangles, the two builds the old pass repaired in an adopted
+  run), and R0050 under motions 1 and 2, on a torus patch in natural runs
+  the loop discards (rebuilt under motion 2, 517 → 515 triangles; refused
+  under motion 1, `patch-boundary-mismatch` — that fold appears after the
+  Fig. 11(b) merge, not after the trim, and is not read further). The
+  whole-patch CDT replaced a folded patch 0 times in the 1,870 builds; a
+  fold on a patch refused for another reason than the d(T) budget prints
+  no census line, so that count is not known.
+- **Limits.** The local arm exists because of N106's refusal and retires
+  with it (F5b), like the chain-fold fan arm and
+  `local_fig11a_patch_plans`. A fold that reaches a patch BOUNDARY (an edge
+  shared three times, two one way and one the other) is rebuilt by
+  `rebuild_patch_folds` (pinned, `tests_unit/s441_fold_rebuild.rs`), but
+  `patch_boundary_cycle` reads no cycle through such an edge, so the update
+  does not reach it in a build; no measured build holds one.
 
 **Amendment (2026-11-22, later) — the Stage-5 corner merge is DELETED; the
 §4.4.1 update reads a boundary chain the relocation put out of order as
@@ -4097,9 +4147,66 @@ exercises it — per the coverage directive a corpus case must land before
 `sin·ext` band) likewise have no corpus exposure.
 
 
-### N58 — #169 P3b inc-4c: Stage-4 post-merge fan re-triangulation + seam-order canonicalization + §4.4.1 polyline chain decimation
+### N58 — §4.4.1 polyline chain decimation (formerly also the #169 P3b inc-4c post-merge fan re-triangulation and seam-order canonicalization)
 
-**State:** **OPEN — reopened 2026-10-30** (reviewer audit of F2 Step 1: the 2026-07-21 user directive ratified only swapping `repair_fan_cluster` off the render floor onto the `h/l/α` bounds; appending the 2026-09-22 output-decimation addendum and 2026-10-28 §4.4.1 re-site under `RESOLVED` overstated what was signed. Remaining open debt: `repair_fan_cluster` in `stage4_correct/collapse.rs:1105` still applies §4.3.4 in reverse on local triples without re-checking kept chords against all dropped samples; `d_p = TAU_MODEL·(1+scale)` is scale-relativized (`4.3-24`); `stage4_chain_decimate::decimate_patch_chains_441` — updated 2026-10-30 to forward §4.3.4 endpoint subdivision — is still decimation of dense arrangement polylines rather than §4.3.4 parameter-domain midpoint insertion (`:579-583`), declines `Surface::Sphere` patches under `declined_sphere_unsupported`, and retains a world-frame `point_cmp` start-sample tie-breaker on `0`-operand-vertex closed loops; class-(b) straight operand-edge vertex elision is separately ledgered as **N105**).
+**Amendment (2026-11-24, roadmap F2 "retire the repairs it subsumes") —
+`repair_fan_cluster` is DELETED.** `retriangulate_collapsed_fan_regions`,
+`repair_fan_cluster`, its seam-run canonicalization (`seam_run_params`) and
+its §4.3.4 sample drop are gone from `stage4_correct/collapse.rs` (about
+1,470 lines, with 7 unit tests of the deleted functions; the fold fixtures
+are kept and now pin the update, `tests_unit/s441_fold_rebuild.rs`). The
+pass applied §4.3.4 in reverse on local triples; that half of this entry's
+debt goes with it. The chain decimation below is what stays OPEN.
+
+- **What the pass repaired, measured** (P0020, its one load-bearing corpus
+  customer; a release binary with the pass switched off, the non-manifold
+  edge census at each Stage-4 checkpoint, a link-condition census in
+  `collapse_vertex`). In the run the §4.5.2 loop adopts (density 2) no edge
+  is over-covered after relocation. The moved×mint weld leaves one, which
+  the §4.5.3 sweep removes. `trim_beyond_corner_phantoms` (N112) then merges
+  152 relocated points into Stage-1 mints; 16 of those merges carry the
+  point across a common neighbour (the two share a neighbour that is no
+  apex of a triangle on their edge), and three edges end with four triangles
+  each — two one way, two the other, all on the cylinder A:2, each edge
+  joining two mints (0.012 to 0.068 long). The triangles lap over each
+  other: a FOLD. Without the pass the update refused that one patch
+  (`DomainChart { refusal: NotManifold }`, 266 of 267 patches rebuilt), the
+  fold reached the emitted mesh, and the build stopped loudly
+  (`NonManifoldMesh`, "3 over-covered edge(s)") at every density to the
+  ceiling.
+- **The paper's operation.** §4.4.1 merges the points of the curve and then
+  triangulates: "through CDT we obtain valid discretizations of the trimmed
+  meshes" (`:557-562`). It never holds triangles that an index rewrite left
+  lapping. The update now does the same with them (N2, amendment of the
+  same date): the patch chart develops a folded patch, the whole-patch CDT
+  replaces the lapping triangles like any others, and a patch the d(T)
+  budget refuses (N106) has the lapping part alone replaced by the CDT of
+  that part's own boundary (`stage4_construct::rebuild_patch_folds`).
+- **Measured.** With the pass switched off and the update's fold rebuild in
+  place, in one release binary: the corpus unmoved and under four rigid
+  motions, 1,870 builds, every sweep line identical to the baseline, hash
+  included. P0020 unmoved and under motion 3 are the builds the pass
+  repaired in a run that is adopted; the update rebuilds the folded part of
+  the same cylinder patch (580 → 574 triangles, 578 → 572) and emits the
+  same bodies. P0044 under motion 2, where the pass repaired six clusters,
+  builds the same body without it and without the fold rebuild (a run the
+  loop discards). Corpus and seed 6: see the roadmap §5 row of this date.
+- **What the pass did that nothing replaces.** Its seam-run reordering by
+  curve parameter (plane × plane, plane × cylinder) and its §4.3.4 sample
+  drop had no customer in the 1,870 builds: a misordered run on the curve
+  is §4.5.3's (`sweep_reversed_intersections`, paper order since
+  2026-10-16), and a straight chain the relocation put out of order is read
+  by the update (`seed_fig11a_chain_folds`, N2). Its render-floor
+  postcondition (a new triangle thinner than f32 precision bailed the
+  cluster) is not carried over: the update's CDT has no such gate, and
+  `validate_relocated_triangles` reads a degenerate triangle after it.
+- **Not read.** P0020 moved rigidly stops loudly under three of four
+  motions, before and after this change, on an unrelated face
+  (`s6-boundary-walk-no-start` on B:333 in every refined run, no fold in
+  those runs): an open tail row, see `docs/yang_tail_triage.md`.
+
+
+**State:** **OPEN** (reopened 2026-10-30 by the reviewer audit of F2 Step 1: the 2026-07-21 user directive ratified only a predicate swap inside `repair_fan_cluster`, and the later decimation work had been appended under `RESOLVED`). `repair_fan_cluster` is deleted (amendment above). Open debt: `stage4_chain_decimate::decimate_patch_chains_441` is decimation of dense arrangement polylines by forward §4.3.4 endpoint subdivision rather than §4.3.4 parameter-domain midpoint insertion (`:579-583`); `d_p = TAU_MODEL·(1+scale)` is scale-relativized (`4.3-24`); a closed loop with no operand vertex keeps a world-frame `point_cmp` start sample; class-(b) straight operand-edge vertex elision is separately ledgered as **N105**.
 
 *Historical 2026-07-21 user directive (scoped to `repair_fan_cluster` predicate swap):* the user reviewed the original
 render-floor criterion and DIRECTED the swap to the paper's own
@@ -8698,6 +8805,15 @@ and `::operand_corner_within_434_band_is_not_elided` (matrix `4.4-23`, `4.4-28`)
 
 ### N106 — the §4.4.1 update refuses a CDT on d(T); the paper re-bounds the triangle instead
 
+**Amendment (2026-11-24).** A third local arm now stands in for a refused
+whole-patch CDT, beside `local_fig11a_patch_plans` and the chain-fold fan
+arm: `rebuild_patch_folds` (N2) replaces the lapping triangles of a refused
+patch from their own boundary. It applies no d(T) budget (the triangles it
+replaces are no discretization), and carries each new triangle's
+recalculated d(T) — the paper's form, on that part alone. Its measured
+customer is P0020's cylinder patch (580 triangles, whole-patch CDT at
+3.8e-2 against a budget of 1.9e-3). All three arms retire with the refusal.
+
 **Paper.** §4.1.2 (`refs/text/yang2025_hybrid_boolean.txt:357-378`) defines
 d(T) for a triangle containing boundary sampling points — the control-net
 distance of the covering-rectangle sub-patch (Fig. 6) — and REDEFINES the
@@ -9271,11 +9387,18 @@ a recorded fast path with a pin. **State: OPEN** (found and built
 
 ### N112 — Stage-4 beyond-corner vertex collapse onto Stage-1 minted junctions (`trim_beyond_corner_phantoms`)
 
+**Amendment (2026-11-24).** `retriangulate_collapsed_fan_regions` is deleted
+(N58): the lapping triangles this collapse leaves are replaced inside the
+§4.4.1 update (N2). Measured on P0020 (the run the §4.5.2 loop adopts):
+152 collapses, 16 of them across a common neighbour of the point and the
+mint, three edges left over-covered on one cylinder patch. The collapse
+itself is unchanged and stays this entry's debt.
+
 **Paper.** §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:528-532`) rules out intersection points lacking valid solutions in both parametric domains, §4.5.1–§4.5.2 (`:635-657`, `:659-677`; Fig. 13 `:626-630`) routes corner-gliding boundary failures to local refinement, and §4.4.1 (`:557-564`) updates meshes by trimming and re-CDTing in parametric space.
 
-**What the code does.** Immediately before `retriangulate_collapsed_fan_regions` and the §4.5.3 sweep (`stage4_correct.rs:4822-4844`), `trim_beyond_corner_phantoms_ex_with_bounds` (`stage4_correct/collapse.rs:598-721`) runs whenever Stage-1 pierce mints (`minted_prov`) are non-empty. Iterating to fixed point over mesh edges `(m, v)` joining a Stage-1 minted vertex `m` (`boolean/junction.rs:154-246`, `boolean.rs:1388-1402`) and a non-minted relocated vertex `v` whose patch set is a subset of `m`'s (`collapse.rs:649`), it collapses `v -> m` via `collapse_vertex_scoped_with_bounds` when some owner plane `k` has `trim_beyond == true` (`resolve_trim_beyond`), `d_i(pv) > TAU_MODEL*(1+scale)`, `|d_j(pv)| <= TAU_EVAL*(1+scale)`, and `dist <= tangent_plane_corridor(d_eps, d_i/dist)` (`:673-712`).
+**What the code does.** Immediately before the §4.5.3 sweep (`stage4_correct.rs:4822-4844`), `trim_beyond_corner_phantoms_ex_with_bounds` (`stage4_correct/collapse.rs:598-721`) runs whenever Stage-1 pierce mints (`minted_prov`) are non-empty. Iterating to fixed point over mesh edges `(m, v)` joining a Stage-1 minted vertex `m` (`boolean/junction.rs:154-246`, `boolean.rs:1388-1402`) and a non-minted relocated vertex `v` whose patch set is a subset of `m`'s (`collapse.rs:649`), it collapses `v -> m` via `collapse_vertex_scoped_with_bounds` when some owner plane `k` has `trim_beyond == true` (`resolve_trim_beyond`), `d_i(pv) > TAU_MODEL*(1+scale)`, `|d_j(pv)| <= TAU_EVAL*(1+scale)`, and `dist <= tangent_plane_corridor(d_eps, d_i/dist)` (`:673-712`).
 
-**How it departs from the paper.** Instead of rejecting out-of-domain crossings during §4.3 optimization or sending corner overshoots to §4.5.2 local refinement, Stage 4 deletes overshot relocated samples by edge-collapsing them onto Stage-1 minted junctions prior to §4.5.3 and CDT, manufacturing temporary non-manifold fan folds that `retriangulate_collapsed_fan_regions` must dissolve (`docs/yang_deviations.md:6577-6586`, `yang_2025_audit.md:714`).
+**How it departs from the paper.** Instead of rejecting out-of-domain crossings during §4.3 optimization or sending corner overshoots to §4.5.2 local refinement, Stage 4 deletes overshot relocated samples by edge-collapsing them onto Stage-1 minted junctions prior to §4.5.3 and CDT, leaving triangles that lap over each other where a sample is carried across a neighbour it shares with the junction; the §4.4.1 update replaces them (N2, `rebuild_patch_folds`).
 
 **Remediation.** Roadmap F2 (`docs/yang_faithfulness_roadmap.md:196-252`): retire Stage-1 pierce mints (`N82`) and post-relocation Stage-4 collapse repairs (`N2`, `N81`) into unified §4.4.1 patch updating, paired with F3 §4.5.2 refinement on corner overshoots. **State: OPEN** (found 2026-11-17: the matrix re-audit's out-of-scope list named it; drafted by a read-only Gemini pass, checked against the code here).
 

@@ -1,6 +1,10 @@
 # SPEC — #169 P3b inc-4c: post-merge fan re-triangulation (the R0061 fold)
 
-Status: **DESIGN, measurement-grounded (2026-07-20)**. Parent:
+Status: **RETIRED 2026-11-24** — the pass is deleted. Triangles a point
+merge leaves lapping over each other are replaced inside the §4.4.1 update
+(`stage4_construct::rebuild_patch_folds`; ledger N58, N2). What follows is
+the 2026-07-20 design and its measurements, kept for the anatomy of the
+fold. Parent:
 `specs/yang_169_p3b_curved_partner_pierce.md` §5 inc-4c. This is the Yang
 §4.4.1 "update the triangulation accordingly" half of the merge ops the
 Stage-4 weld/trim passes already perform — the missing piece named by the

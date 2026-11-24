@@ -51,7 +51,12 @@ pub(crate) enum DomainRefusal {
     /// The surface's inverse refused a patch vertex (a cone point behind the
     /// apex, an invalid surface).
     Inverse,
-    /// An edge is shared by more than two of the patch's triangles.
+    /// More than two of the patch's triangles share an edge and run along it
+    /// two or more times oftener one way than the other: two sheets, which
+    /// no boundary cycle bounds. (An edge its triangles cover as often one
+    /// way as the other is a FOLD — triangles lapping over each other on one
+    /// sheet — and is charted: the cycles are the net boundary, and the CDT
+    /// replaces the lapping triangles.)
     NotManifold,
     /// The patch's triangles are not edge-connected.
     Disconnected,
@@ -246,15 +251,16 @@ fn develop(ctx: &Ctx<'_>, old: &[[u32; 3]]) -> Result<Development, DomainRefusal
         return Err(DomainRefusal::Polygon);
     }
     let mut edges: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
+    let mut net: BTreeMap<(u32, u32), i32> = BTreeMap::new();
     for (ti, t) in old.iter().enumerate() {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);
-            let e = edges.entry((a.min(b), a.max(b))).or_default();
-            e.push(ti);
-            if e.len() > 2 {
-                return Err(DomainRefusal::NotManifold);
-            }
+            edges.entry((a.min(b), a.max(b))).or_default().push(ti);
+            *net.entry((a.min(b), a.max(b))).or_default() += if a < b { 1 } else { -1 };
         }
+    }
+    if edges.iter().any(|(e, ts)| ts.len() > 2 && net[e].abs() > 1) {
+        return Err(DomainRefusal::NotManifold);
     }
     let place =
         |t: [u32; 3], known: [Option<Uv>; 3]| -> Result<([Uv; 3], [bool; 3]), DomainRefusal> {
@@ -1456,6 +1462,138 @@ mod tests {
         assert_eq!(c.removed_outside, 1);
         let plan = rebuild_holds(torus(), &m);
         assert!(plan.dropped.contains(&(v as u32)));
+    }
+
+    /// A 4 × 4 torus disc whose interior vertex at cell corner (2, 2) was
+    /// merged, by index alone, into the vertex at (3, 1) — a vertex across
+    /// its link, not a neighbour. Its six triangles lap over the cells round
+    /// (3, 1): no vertex moved, and the net boundary is the disc's own.
+    fn folded_disc() -> Mesh {
+        let mut m = grid(
+            &torus(),
+            (0.0, 1.0, 4),
+            (2.5, 3.8, 4),
+            false,
+            false,
+            |_, _| true,
+        );
+        let (from, onto) = (5 * 2 + 2, 5 + 3); // 5 columns per row
+        for t in &mut m.tris {
+            for v in t.iter_mut() {
+                if *v == from {
+                    *v = onto;
+                }
+            }
+        }
+        m
+    }
+
+    /// The most triangles any one edge of the set is shared by.
+    fn most_on_an_edge(tris: &[[u32; 3]]) -> usize {
+        let mut n: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for t in tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *n.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        n.values().copied().max().unwrap_or(0)
+    }
+
+    #[test]
+    fn a_fold_is_charted_and_replaced_from_the_net_boundary() {
+        let m = folded_disc();
+        assert_eq!(most_on_an_edge(&m.tris), 4, "the fixture laps");
+        assert_eq!(chart(torus(), &m).unwrap().class, DomainClass::Disc);
+        // Boundary kept, no directed edge twice, every triangle facing out.
+        let plan = rebuild_holds(torus(), &m);
+        assert_eq!(most_on_an_edge(&plan.new_tris), 2);
+        assert!(plan.new_verts.is_empty());
+    }
+
+    #[test]
+    fn two_sheets_on_one_edge_are_refused() {
+        let mut m = grid(
+            &torus(),
+            (0.0, 1.0, 4),
+            (2.5, 3.8, 4),
+            false,
+            false,
+            |_, _| true,
+        );
+        let cycles = loops(&m.tris);
+        // Two more triangles run along the diagonal (1, 1) → (2, 2) the way
+        // one triangle of its cell already does: three one way, one the other.
+        let (a, c) = (5 + 1, 5 * 2 + 2);
+        m.tris.push([a, c, 5 * 3]);
+        m.tris.push([a, c, 5 * 4 + 4]);
+        assert!(matches!(
+            domain_chart(&torus(), &m.verts, &cycles, &m.tris, &BTreeSet::new(), None),
+            Err(DomainRefusal::NotManifold)
+        ));
+    }
+
+    #[test]
+    fn the_folded_part_of_a_patch_is_rebuilt_alone() {
+        use crate::stage4_construct::rebuild_patch_folds;
+        let m = folded_disc();
+        let all: Vec<u32> = (0..m.tris.len() as u32).collect();
+        let bounds = vec![0.25; m.tris.len()];
+        let plan = rebuild_patch_folds(&m, 3, torus(), &all, &bounds, None).expect("rebuilt");
+        assert_eq!(plan.patch, 3);
+        assert_eq!(plan.old_tris, all, "one plan for the whole patch");
+        assert!(plan.new_verts.is_empty(), "no vertex is added");
+        assert!(plan_keeps_boundary(&m.tris, &plan.new_tris));
+        assert_eq!(most_on_an_edge(&plan.new_tris), 2);
+        assert_eq!(plan.new_tris.len(), plan.new_tri_bounds.len());
+        // A triangle with no vertex on an over-covered edge is carried over
+        // as it stood, with its bound.
+        let mut on_edge: BTreeMap<(u32, u32), usize> = BTreeMap::new();
+        for t in &m.tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *on_edge.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        let at_fold: BTreeSet<u32> = on_edge
+            .iter()
+            .filter(|(_, &n)| n > 2)
+            .flat_map(|(&(a, b), _)| [a, b])
+            .collect();
+        let apart: Vec<[u32; 3]> = m
+            .tris
+            .iter()
+            .copied()
+            .filter(|t| t.iter().all(|v| !at_fold.contains(v)))
+            .collect();
+        assert!(!apart.is_empty(), "the fold is a part of the patch");
+        for t in &apart {
+            let at = plan
+                .new_tris
+                .iter()
+                .position(|n| n == t)
+                .unwrap_or_else(|| panic!("triangle {t:?} was not carried over"));
+            assert_eq!(plan.new_tri_bounds[at], 0.25);
+        }
+        // The replaced triangles carry a recalculated d(T), not the old bound.
+        assert!(plan.new_tri_bounds.iter().any(|&d| d != 0.25));
+
+        // A patch with no lapping triangles is not this arm's.
+        let flat = grid(
+            &torus(),
+            (0.0, 1.0, 4),
+            (2.5, 3.8, 4),
+            false,
+            false,
+            |_, _| true,
+        );
+        let all: Vec<u32> = (0..flat.tris.len() as u32).collect();
+        assert_eq!(
+            rebuild_patch_folds(&flat, 0, torus(), &all, &vec![0.0; flat.tris.len()], None)
+                .err()
+                .as_deref(),
+            Some("no-fold")
+        );
     }
 
     #[test]

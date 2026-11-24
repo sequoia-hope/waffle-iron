@@ -90,6 +90,17 @@ like this. the fixes must be principled. the principles are the paper."*
   tests whose output loop closes a ring on an open conic (ledger N83,
   2026-11-22). The mocks are older than every output check and emit bodies
   no real arrangement can.
+- **Before replacing a repair, find what makes its input.** Switch the
+  repair off, then census the defect at every checkpoint of the stage
+  (`YANG_NM_EDGE_PROBE=1` prints the over-covered edges after each Stage-4
+  pass). `repair_fan_cluster`'s folds on P0020 were absent after relocation
+  and made by the beyond-corner trim's index-rewriting merges (152 merges,
+  three folds, 2026-11-24, ledger N58): the answer was the update replacing
+  lapping triangles by the CDT of their boundary, not a second repair.
+- **The d(T) budget refuses a part as it refuses the whole patch.** A local
+  rebuild of triangles that lap over each other cannot be held to
+  `min(old max, d_ε)`: the triangles it replaces certify nothing. Carry the
+  recalculated d(T) instead (`rebuild_patch_domain_gated`, ledger N106).
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.

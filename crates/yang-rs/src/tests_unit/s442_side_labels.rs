@@ -16,11 +16,11 @@ use crate::brep::{
     TriangleSideLabel, TriangleSideLabelMap,
 };
 use crate::geom::{Curve, Surface};
-use crate::stage4_construct::{apply_rebuild_batch, PatchRebuild};
+use crate::stage4_construct::{apply_rebuild_batch, rebuild_patch_folds, PatchRebuild};
 use crate::stage4_correct::{
     collapse_subresolution_intersection_segments, collapse_subtauwork_mesh_edges, collapse_vertex,
     collapse_vertex_scoped, compute_phase_a, compute_phase_a_with_side_labels,
-    merge_same_plane_patches_with_side_labels, retriangulate_collapsed_fan_regions,
+    merge_same_plane_patches_with_side_labels,
 };
 use crate::stage4_relocate::{
     check_watertight_2manifold, check_watertight_2manifold_per_operand, remove_doubled_membranes,
@@ -580,9 +580,10 @@ fn side_labels_survive_collapses() {
 /// Pin 5 (Re-CDT batch mutators): side labels survive
 /// - `apply_rebuild_batch` (multi-patch batch with seeded vertices + interleaved
 ///   unreplaced foreign triangles), and
-/// - `retriangulate_collapsed_fan_regions` (post-collapse two-operand fan repair).
+/// - the update's fold rebuild (`rebuild_patch_folds`, written back by the
+///   same batch) on a two-operand strip folded by stacked collapses.
 #[test]
-fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
+fn side_labels_survive_re_cdt_batch_and_the_fold_rebuild() {
     // (a) Multi-patch `apply_rebuild_batch` with interleaved foreign triangles and
     // an appended Steiner seed vertex on patch B:
     // Slots:
@@ -691,52 +692,13 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
         "foreign survivors keep their labels; each rebuilt patch's replacement CDT tris inherit that patch's exact side label"
     );
 
-    // (b) `retriangulate_collapsed_fan_regions`:
+    // (b) The fold rebuild:
     // Two-operand strip with distinct side labels per operand; after stacked
-    // collapses create a fold on the minted seam edge (1, 4), the fan repair
-    // re-CDTs both clusters while preserving each operand's side label.
+    // collapses create a fold on the seam edge (1, 4), operand A's lapping
+    // triangles are replaced and every triangle keeps its operand's side label.
     let z_plane = Surface::Plane {
         normal: Vector3::new(0.0, 0.0, 1.0),
         d: 0.0,
-    };
-    let one_face = |surface: Surface| {
-        BRep::new(
-            vec![
-                BRepVertex {
-                    point: pt(0.0, 0.0, 0.0),
-                },
-                BRepVertex {
-                    point: pt(1.0, 0.0, 0.0),
-                },
-                BRepVertex {
-                    point: pt(0.0, 1.0, 0.0),
-                },
-            ],
-            vec![
-                BRepEdge {
-                    start: 0,
-                    end: 1,
-                    curve: Curve::LineSegment,
-                },
-                BRepEdge {
-                    start: 1,
-                    end: 2,
-                    curve: Curve::LineSegment,
-                },
-                BRepEdge {
-                    start: 2,
-                    end: 0,
-                    curve: Curve::LineSegment,
-                },
-            ],
-            vec![BRepFace {
-                surface,
-                outer_loop: vec![0, 1, 2],
-                inner_loops: Vec::new(),
-                reversed: false,
-            }],
-        )
-        .expect("one-face brep")
     };
     let verts = vec![
         pt(0.0, 0.0, 0.0),   // 0 s0
@@ -806,18 +768,34 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
     collapse_vertex(&mut fan_mesh, &mut fan_attr, &mut fan_lbls, 7, 1);
     collapse_vertex(&mut fan_mesh, &mut fan_attr, &mut fan_lbls, 8, 4);
 
-    let brep_a = one_face(z_plane);
-    let brep_b = one_face(z_plane);
-    let minted: HashSet<u32> = [1u32, 4u32].into_iter().collect();
-    assert!(retriangulate_collapsed_fan_regions(
+    let a_idx: Vec<u32> = (0..fan_mesh.tris.len() as u32)
+        .filter(|&t| fan_attr[t as usize] == attr(InputId::A, 0))
+        .collect();
+    let plan = rebuild_patch_folds(
+        &fan_mesh,
+        0,
+        z_plane,
+        &a_idx,
+        &vec![0.0; fan_mesh.tris.len()],
+        None,
+    )
+    .expect("the fold on the (1, 4) edge rebuilds");
+    let mut fan_attribution = TriangleAttributionMap {
+        attributions: fan_attr,
+    };
+    let mut fan_label_map = TriangleSideLabelMap { labels: fan_lbls };
+    let mut fan_bounds =
+        crate::brep::TriangleErrorBoundMap::from_bounds(vec![0.0; fan_mesh.tris.len()]);
+    apply_rebuild_batch(
         &mut fan_mesh,
-        &mut fan_attr,
-        &mut fan_lbls,
-        &brep_a,
-        &brep_b,
-        &HashSet::new(),
-        &minted,
-    ));
+        &mut fan_attribution,
+        &mut fan_label_map,
+        &mut fan_bounds,
+        &[plan],
+        None,
+    )
+    .expect("the fold rebuild writes back");
+    let (fan_attr, fan_lbls) = (fan_attribution.attributions, fan_label_map.labels);
     assert_eq!(fan_mesh.tris.len(), fan_attr.len());
     assert_eq!(fan_mesh.tris.len(), fan_lbls.len());
     for (ti, (at, &lbl)) in fan_attr.iter().zip(fan_lbls.iter()).enumerate() {
@@ -827,7 +805,7 @@ fn side_labels_survive_re_cdt_batch_and_fan_retriangulation() {
         };
         assert_eq!(
             lbl, expected,
-            "post-fan-repair triangle {ti} must carry its operand's exact side label"
+            "triangle {ti} must carry its operand's exact side label after the fold rebuild"
         );
     }
 }

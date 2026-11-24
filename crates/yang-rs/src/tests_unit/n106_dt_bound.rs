@@ -22,14 +22,13 @@ use crate::brep::{
 };
 use crate::geom::{Curve, Surface};
 use crate::stage4_construct::{
-    apply_rebuild_batch, rebuild_patch_planar_bounded_ex, refill_fan_hole_seeded_with_bounds,
-    update_patches_ex_with_bounds, PatchRebuild,
+    apply_rebuild_batch, rebuild_patch_folds, rebuild_patch_planar_bounded_ex,
+    refill_fan_hole_seeded_with_bounds, update_patches_ex_with_bounds, PatchRebuild,
 };
 use crate::stage4_correct::{
     collapse_subresolution_intersection_segments_with_bounds,
     collapse_subtauwork_mesh_edges_with_bounds, collapse_vertex_scoped_with_bounds,
-    compact_unreferenced_verts_with_bounds, retriangulate_collapsed_fan_regions_ex_with_bounds,
-    weld_coincident_relocated_ex_with_bounds,
+    compact_unreferenced_verts_with_bounds, weld_coincident_relocated_ex_with_bounds,
 };
 use crate::stage4_project::SurfaceChart;
 use crate::stage4_relocate::{
@@ -584,8 +583,8 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
 
     // 5. `collapse_subtauwork_mesh_edges_with_bounds`,
     // `collapse_subresolution_intersection_segments_with_bounds`,
-    // `weld_coincident_relocated_ex_with_bounds`, and
-    // `retriangulate_collapsed_fan_regions_ex_with_bounds`.
+    // `weld_coincident_relocated_ex_with_bounds`, and the update's fold
+    // rebuild (`rebuild_patch_folds`).
     let z_plane = Surface::Plane {
         normal: Vector3::new(0.0, 0.0, 1.0),
         d: 0.0,
@@ -719,9 +718,9 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
     }
 
     {
-        // Stacked-collapse fan retriangulation (`retriangulate_collapsed_fan_regions_ex_with_bounds`):
-        // untouched triangles outside the repaired cluster keep their sentinel bounds,
-        // while replacement CDT triangles on planar `z_plane` receive 0.0.
+        // The fold stacked collapses leave (`rebuild_patch_folds`): triangles
+        // outside the lapping part keep their sentinel bounds, while the
+        // replacement CDT triangles on planar `z_plane` receive 0.0.
         let verts = vec![
             pt(0.0, 0.0, 0.0),   // 0
             pt(1.0, 0.0, 0.0),   // 1 P (mint)
@@ -799,27 +798,25 @@ fn n106_d2_pin_b_bounds_survive_stage4_mutators_and_boolean_pipeline() {
             );
         }
         assert_eq!(fan_bounds.len(), fan_mesh.tris.len());
-        let minted: HashSet<u32> = [1u32, 4u32].into_iter().collect();
-        assert!(retriangulate_collapsed_fan_regions_ex_with_bounds(
-            &mut fan_mesh,
-            &mut fan_attr,
-            &mut fan_lbls,
-            &mut fan_bounds,
-            &brep_a,
-            &brep_b,
-            &HashSet::new(),
-            &minted,
-            false,
-        ));
-        assert_eq!(fan_bounds.len(), fan_mesh.tris.len());
-        // Disjoint triangle `[9, 13, 12]` (originally A-slot 14, bound 214.0) is outside
-        // the `{1, 4}` fan cluster and must retain its exact sentinel bound 214.0.
-        let untouched_slot = fan_mesh
-            .tris
+        let a_idx: Vec<u32> = (0..fan_mesh.tris.len() as u32)
+            .filter(|&t| fan_attr[t as usize] == attr(InputId::A, 0))
+            .collect();
+        let plan = rebuild_patch_folds(&fan_mesh, 0, z_plane, &a_idx, &fan_bounds, None)
+            .expect("the fold on the (1, 4) edge rebuilds");
+        assert_eq!(plan.new_tris.len(), plan.new_tri_bounds.len());
+        // Disjoint triangle `[9, 13, 12]` (originally A-slot 14, bound 214.0) has no
+        // vertex on the over-covered edge `(1, 4)` and must retain its exact
+        // sentinel bound 214.0.
+        let untouched_slot = plan
+            .new_tris
             .iter()
             .position(|&t| t == [9, 13, 12])
-            .expect("disjoint triangle [9, 13, 12] must survive");
-        assert_eq!(fan_bounds[untouched_slot], 214.0);
+            .expect("disjoint triangle [9, 13, 12] must be carried over");
+        assert_eq!(plan.new_tri_bounds[untouched_slot], 214.0);
+        assert!(
+            plan.new_tri_bounds.contains(&0.0),
+            "the replacement triangles are planar: d(T) = 0"
+        );
     }
 
     // 6. `update_patches_ex_with_bounds`: rebuilds the moved-degenerate A(0) patch
@@ -977,41 +974,6 @@ fn n106_d2_pin_c_apply_rebuild_batch_panics_on_rebuild_bounds_mismatch() {
     );
 }
 
-/// Pin (c.4): `repair_fan_cluster_ex_with_bounds` panics in both debug and
-/// release builds when `tri_bounds.len() < mesh.tris.len()`, rather than
-/// silently dropping triangles.
-#[test]
-#[should_panic(expected = "must be 1:1 with mesh.tris")]
-fn n106_d2_pin_c_repair_fan_cluster_panics_on_short_tri_bounds() {
-    let bx = rj_box([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
-    let mut mesh = Mesh::new(
-        vec![
-            pt(0.0, 0.0, 0.0),
-            pt(1.0, 0.0, 0.0),
-            pt(1.0, 1.0, 0.0),
-            pt(0.0, 1.0, 0.0),
-        ],
-        vec![[0, 1, 2], [0, 2, 3]],
-    );
-    let mut attr_vec = vec![attr(InputId::A, 0); 2];
-    let mut side_labels = vec![side_lbl(0, [false, false], [true, false]); 2];
-    let mut short_bounds = vec![0.0]; // short!
-    let _ = crate::stage4_correct::repair_fan_cluster_ex_with_bounds(
-        &mut mesh,
-        &mut attr_vec,
-        &mut side_labels,
-        &mut short_bounds,
-        &bx,
-        &bx,
-        &BTreeSet::new(),
-        &BTreeMap::new(),
-        &HashSet::new(),
-        &HashSet::new(),
-        false,
-        false,
-    );
-}
-
 /// Review D2.2 pin: whenever `d_of_t` fails or a triangle's surface attribution
 /// is missing, the stored bound is `f64::NAN` — never `0.0` (which is reserved
 /// strictly for exact planar surfaces so an unknown bound can never masquerade
@@ -1138,7 +1100,7 @@ fn n106_d2_failed_d_of_t_and_unattributed_tris_store_nan_never_zero() {
 /// created curved triangle across:
 ///   (1) `TriangleErrorBoundMap::from_stage2_kept` (surviving Stage-1 inner = `d_ε`,
 ///       surviving Stage-1 boundary = `tri_dt`, Stage-2 split = `recompute_tri_bound_from_world`),
-///   (2) `retriangulate_collapsed_fan_regions_ex_with_bounds` (curved cylinder fan),
+///   (2) `rebuild_patch_folds` (the fold stacked collapses leave on a curved cylinder),
 ///   (3) `update_patches_ex_with_bounds` (new curved cylinder triangles),
 ///   (4) `decimate_patch_chains_441_with_bounds` (curved cylinder × plane chain decimation),
 ///   (5) `rebuild_merge_fan` + `apply_rebuild_batch` (curved cylinder fan rebuild).
@@ -1418,8 +1380,8 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
     let lbl_b = side_lbl(8, [false, false], [false, true]);
 
     // -------------------------------------------------------------------------
-    // (2) `retriangulate_collapsed_fan_regions_ex_with_bounds` on curved `cyl5`:
-    // lift the 17-vertex stacked-collapse fan onto `cyl5_surf` (`r = 5.0`).
+    // (2) `rebuild_patch_folds` on curved `cyl5`: lift the 17-vertex
+    // stacked-collapse fan onto `cyl5_surf` (`r = 5.0`).
     // -------------------------------------------------------------------------
     {
         let uv_coords = [
@@ -1454,46 +1416,6 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
                 }
             })
             .collect();
-        let plane_z0 = BRep::new(
-            vec![
-                BRepVertex {
-                    point: pt(0.0, 0.0, 0.0),
-                },
-                BRepVertex {
-                    point: pt(0.0, 6.0, 0.0),
-                },
-                BRepVertex {
-                    point: pt(6.0, 0.0, 0.0),
-                },
-            ],
-            vec![
-                BRepEdge {
-                    start: 0,
-                    end: 1,
-                    curve: Curve::LineSegment,
-                },
-                BRepEdge {
-                    start: 1,
-                    end: 2,
-                    curve: Curve::LineSegment,
-                },
-                BRepEdge {
-                    start: 2,
-                    end: 0,
-                    curve: Curve::LineSegment,
-                },
-            ],
-            vec![BRepFace {
-                surface: Surface::Plane {
-                    normal: Vector3::new(0.0, 0.0, -1.0),
-                    d: 0.0,
-                },
-                outer_loop: vec![0, 1, 2],
-                inner_loops: Vec::new(),
-                reversed: false,
-            }],
-        )
-        .expect("plane_z0 brep");
         let a_tris = [
             [0, 1, 6],
             [1, 2, 7],
@@ -1551,46 +1473,46 @@ fn n106_d2_pin_b_curved_mutators_recompute_exact_d_of_t() {
                 None,
             );
         }
-        let minted: HashSet<u32> = [1u32, 4u32].into_iter().collect();
-        assert!(retriangulate_collapsed_fan_regions_ex_with_bounds(
-            &mut fan_mesh,
-            &mut fan_attr,
-            &mut fan_lbls,
-            &mut fan_bounds,
-            &cyl5,
-            &plane_z0,
-            &HashSet::new(),
-            &minted,
-            false,
-        ));
-        assert_eq!(fan_bounds.len(), fan_mesh.tris.len());
-        let untouched_slot = fan_mesh
-            .tris
+        let a_idx: Vec<u32> = (0..fan_mesh.tris.len() as u32)
+            .filter(|&t| fan_attr[t as usize] == attr(InputId::A, 0))
+            .collect();
+        let plan = rebuild_patch_folds(&fan_mesh, 0, cyl5_surf, &a_idx, &fan_bounds, None)
+            .expect("the fold on the (1, 4) edge rebuilds");
+        assert_eq!(plan.new_tris.len(), plan.new_tri_bounds.len());
+        let untouched_slot = plan
+            .new_tris
             .iter()
             .position(|&t| t == [9, 13, 12])
-            .expect("disjoint triangle [9, 13, 12] must survive");
-        assert_eq!(fan_bounds[untouched_slot], 214.0);
+            .expect("disjoint triangle [9, 13, 12] must be carried over");
+        assert_eq!(plan.new_tri_bounds[untouched_slot], 214.0);
 
         let mut n_new_curved = 0usize;
-        for (ti, (&tri, &bound)) in fan_mesh.tris.iter().zip(fan_bounds.iter()).enumerate() {
-            if fan_attr[ti] == attr(InputId::A, 0) && bound < 100.0 {
+        for (ti, (&tri, &bound)) in plan
+            .new_tris
+            .iter()
+            .zip(plan.new_tri_bounds.iter())
+            .enumerate()
+        {
+            if bound < 100.0 {
                 n_new_curved += 1;
                 let pts = tri.map(|vi| fan_mesh.verts[vi as usize]);
                 let exact_dt = crate::brep::recompute_tri_bound_from_world(cyl5_surf, pts);
                 assert!(
                     bound > 0.0,
-                    "new curved retriangulate tri {ti} must have positive d(T), got {bound}"
+                    "new curved fold-rebuild tri {ti} must have positive d(T), got {bound}"
                 );
-                assert_eq!(
-                    bound.to_bits(),
-                    exact_dt.to_bits(),
-                    "new curved retriangulate tri {ti} bound must match recomputed d_of_t"
+                // The rebuild recalculates d(T) on the surface's parameter
+                // domain, whose azimuth branch may differ from the world
+                // read's by a whole period: equal up to that rounding.
+                assert!(
+                    (bound - exact_dt).abs() <= 1e-12 * exact_dt,
+                    "new curved fold-rebuild tri {ti} bound {bound} must equal d_of_t {exact_dt}"
                 );
             }
         }
         assert!(
             n_new_curved >= 8,
-            "expected >= 8 newly created curved cylinder triangles from retriangulate, got {n_new_curved}"
+            "expected >= 8 newly created curved cylinder triangles from the fold rebuild, got {n_new_curved}"
         );
     }
 

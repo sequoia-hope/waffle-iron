@@ -3610,6 +3610,191 @@ fn local_fig11a_patch_plans(
     (!rebuilds.is_empty()).then_some((rebuilds, final_tris, used_splits))
 }
 
+/// Whether more than two of the triangles share an edge: triangles lapping
+/// over each other (a fold).
+fn has_fold(tris: &[[u32; 3]]) -> bool {
+    let mut count: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for t in tris {
+        for k in 0..3 {
+            let (u, v) = (t[k], t[(k + 1) % 3]);
+            let c = count
+                .entry(if u < v { (u, v) } else { (v, u) })
+                .or_default();
+            *c += 1;
+            if *c > 2 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The cycles of a directed edge set in which every vertex has exactly one
+/// edge out and one in; `None` otherwise (a boundary that touches itself at a
+/// vertex is not paired here).
+fn chain_simple_cycles(edges: &[(u32, u32)]) -> Option<Vec<Vec<u32>>> {
+    let mut next: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut heads: BTreeSet<u32> = BTreeSet::new();
+    for &(u, v) in edges {
+        if next.insert(u, v).is_some() || !heads.insert(v) {
+            return None;
+        }
+    }
+    let mut cycles: Vec<Vec<u32>> = Vec::new();
+    let mut seen: BTreeSet<u32> = BTreeSet::new();
+    for &start in next.keys() {
+        if seen.contains(&start) {
+            continue;
+        }
+        let mut cyc = vec![start];
+        seen.insert(start);
+        let mut cur = start;
+        loop {
+            cur = *next.get(&cur)?;
+            if cur == start {
+                break;
+            }
+            if !seen.insert(cur) {
+                return None;
+            }
+            cyc.push(cur);
+        }
+        cycles.push(cyc);
+    }
+    Some(cycles)
+}
+
+/// A FOLD on a patch the update does not rebuild whole: the triangles that
+/// lap over each other are replaced by the CDT of their own boundary, on the
+/// same chart (§4.4.1, `refs/text/yang2025_hybrid_boolean.txt:557-562`:
+/// "through CDT we obtain valid discretizations of the trimmed meshes").
+///
+/// A point merge that carries a vertex across its neighbours — a relocated
+/// point merged into the junction it overran — rewrites indices and leaves
+/// triangles lapping over each other: an edge that more than two of the
+/// patch's triangles share. The paper merges the points of the curve and
+/// then triangulates, so it never holds such triangles; the whole-patch CDT
+/// replaces them like any others. Where the update refuses the whole patch
+/// on the d(T) budget (ledger N106) they are replaced alone: the triangles
+/// at the endpoints of every over-covered edge, one edge-connected part at a
+/// time, each rebuilt by [`rebuild_patch_domain`] against the cycles of its
+/// net directed boundary — no vertex moves, none is added, and the boundary
+/// of each part stands, so the rest of the patch and every neighbour still
+/// fit. Returned as ONE plan for the whole patch (the triangles outside the
+/// parts carried over with their bounds). `Err` names why nothing is built:
+/// `no-fold`, or the part that did not rebuild.
+pub(crate) fn rebuild_patch_folds(
+    mesh: &Mesh,
+    patch_index: usize,
+    surface: Surface,
+    tri_indices: &[u32],
+    tri_bounds: &[f64],
+    d_eps: Option<f64>,
+) -> Result<PatchRebuild, String> {
+    let edge_key = |u: u32, v: u32| if u < v { (u, v) } else { (v, u) };
+    let mut edge_tris: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+    for &t in tri_indices {
+        let tri = mesh.tris[t as usize];
+        for k in 0..3 {
+            edge_tris
+                .entry(edge_key(tri[k], tri[(k + 1) % 3]))
+                .or_default()
+                .push(t);
+        }
+    }
+    let at_fold: BTreeSet<u32> = edge_tris
+        .iter()
+        .filter(|(_, ts)| ts.len() > 2)
+        .flat_map(|(&(u, v), _)| [u, v])
+        .collect();
+    if at_fold.is_empty() {
+        return Err("no-fold".into());
+    }
+    let region: BTreeSet<u32> = tri_indices
+        .iter()
+        .copied()
+        .filter(|&t| mesh.tris[t as usize].iter().any(|v| at_fold.contains(v)))
+        .collect();
+    // Edge-connected parts of the region.
+    let mut parts: Vec<Vec<u32>> = Vec::new();
+    let mut seen: BTreeSet<u32> = BTreeSet::new();
+    for &seed in &region {
+        if !seen.insert(seed) {
+            continue;
+        }
+        let mut part = vec![seed];
+        let mut queue = std::collections::VecDeque::from([seed]);
+        while let Some(t) = queue.pop_front() {
+            let tri = mesh.tris[t as usize];
+            for k in 0..3 {
+                for &n in &edge_tris[&edge_key(tri[k], tri[(k + 1) % 3])] {
+                    if region.contains(&n) && seen.insert(n) {
+                        part.push(n);
+                        queue.push_back(n);
+                    }
+                }
+            }
+        }
+        part.sort_unstable();
+        parts.push(part);
+    }
+    let mut replaced: BTreeSet<u32> = BTreeSet::new();
+    let mut new_tris: Vec<[u32; 3]> = Vec::new();
+    let mut new_bounds: Vec<f64> = Vec::new();
+    for part in &parts {
+        let old: Vec<[u32; 3]> = part.iter().map(|&t| mesh.tris[t as usize]).collect();
+        let cycles = chain_simple_cycles(&directed_boundary(&old))
+            .ok_or_else(|| format!("part-boundary-not-simple tris={}", part.len()))?;
+        let sub = SplicePatch {
+            cycles,
+            tris: part.clone(),
+            surface,
+        };
+        // No d(T) budget: lapping triangles certify nothing a rebuild could
+        // degrade. d(T) is recalculated per new triangle and carried
+        // (`:568-571`).
+        let r = rebuild_patch_domain_gated(mesh, patch_index, &sub, d_eps, &BTreeSet::new(), false)
+            .map_err(|e| format!("part:{}", format!("{e:?}").replace(' ', "")))?;
+        if !r.new_verts.is_empty() {
+            return Err(format!("part-needs-new-vertices tris={}", part.len()));
+        }
+        replaced.extend(part.iter().copied());
+        new_tris.extend(r.new_tris);
+        new_bounds.extend(r.new_tri_bounds);
+    }
+    let mut final_tris: Vec<[u32; 3]> = Vec::with_capacity(tri_indices.len());
+    let mut final_bounds: Vec<f64> = Vec::with_capacity(tri_indices.len());
+    for &t in tri_indices {
+        if !replaced.contains(&t) {
+            final_tris.push(mesh.tris[t as usize]);
+            final_bounds.push(tri_bounds[t as usize]);
+        }
+    }
+    final_tris.extend(new_tris);
+    final_bounds.extend(new_bounds);
+    let old_all: Vec<[u32; 3]> = tri_indices.iter().map(|&t| mesh.tris[t as usize]).collect();
+    if !plan_matches_boundary(&final_tris, &directed_boundary(&old_all)) {
+        return Err("patch-boundary-mismatch".into());
+    }
+    let kept: BTreeSet<u32> = final_tris.iter().flatten().copied().collect();
+    let dropped: BTreeSet<u32> = old_all
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|v| !kept.contains(v))
+        .collect();
+    Ok(PatchRebuild {
+        patch: patch_index,
+        old_tris: tri_indices.to_vec(),
+        new_tris: final_tris,
+        new_tri_bounds: final_bounds,
+        new_verts: Vec::new(),
+        dropped,
+        plan_verts: mesh.verts.len() as u32,
+        plan_tris: mesh.tris.len() as u32,
+    })
+}
+
 pub(crate) fn log_update_census(msg: &str) {
     if let Some(path) = std::env::var_os("YANG_441_UPDATE_CENSUS") {
         use std::io::Write as _;
@@ -3873,6 +4058,9 @@ pub(crate) fn update_patches_ex_with_bounds(
                         if has_split_bd {
                             fig11a_cdt_patches += 1;
                         }
+                        if std::env::var_os("YANG_REPAIR_CENSUS").is_some() && has_fold(old_tris) {
+                            crate::repair_census::log("fold_whole_patch_rebuilt", 1);
+                        }
                         let post_tris = plan.new_tris.clone();
                         patch_plans[pi] = Some((vec![plan], post_tris));
                         patch_splices[pi] = Some(patch.clone());
@@ -3993,6 +4181,41 @@ pub(crate) fn update_patches_ex_with_bounds(
                     };
                     patch_plans[pi] = Some((vec![whole], final_tris));
                 }
+            }
+        }
+
+        // A fold on a patch the update refuses on the d(T) budget (N106):
+        // the lapping triangles are replaced alone, by the same CDT on the
+        // same chart ([`rebuild_patch_folds`]).
+        if patch_plans[pi].is_none() && chord_degradation && patch_req_splits[pi].is_empty() {
+            match rebuild_patch_folds(
+                mesh,
+                pi,
+                info.inherited,
+                &p.tri_indices,
+                &tri_bounds.bounds,
+                chord_band,
+            ) {
+                Ok(whole) => {
+                    crate::repair_census::log("fold_parts_rebuilt", 1);
+                    log_update_census(&format!(
+                        "FOLD_PARTS patch={pi} surface={} tris={} -> {} applied=true",
+                        surface_kind_name(&info.inherited),
+                        p.tri_indices.len(),
+                        whole.new_tris.len(),
+                    ));
+                    let post = whole.new_tris.clone();
+                    patch_plans[pi] = Some((vec![whole], post));
+                }
+                Err(why) if why != "no-fold" => {
+                    crate::repair_census::log("fold_parts_refused", 1);
+                    log_update_census(&format!(
+                        "FOLD_PARTS patch={pi} surface={} tris={} applied=false why={why}",
+                        surface_kind_name(&info.inherited),
+                        p.tri_indices.len(),
+                    ));
+                }
+                Err(_) => {}
             }
         }
 
@@ -4814,6 +5037,34 @@ mod tests {
         );
         // A chain absent from the cycles is named too.
         assert_eq!(collapse_patch_runs(&cycles, &[vec![2, 3, 4]]), Err(0));
+    }
+
+    #[test]
+    fn chain_simple_cycles_walks_each_loop_once() {
+        // A triangle and a square, edges given out of order.
+        let edges = [(5, 6), (0, 1), (7, 4), (2, 0), (6, 7), (1, 2), (4, 5)];
+        assert_eq!(
+            chain_simple_cycles(&edges),
+            Some(vec![vec![0, 1, 2], vec![4, 5, 6, 7]])
+        );
+        assert_eq!(chain_simple_cycles(&[]), Some(Vec::new()));
+    }
+
+    #[test]
+    fn chain_simple_cycles_refuses_a_boundary_that_touches_itself() {
+        // Two triangles through vertex 0: two edges out of it.
+        let bowtie = [(0, 1), (1, 2), (2, 0), (0, 3), (3, 4), (4, 0)];
+        assert_eq!(chain_simple_cycles(&bowtie), None);
+        // An open chain is not a cycle.
+        assert_eq!(chain_simple_cycles(&[(0, 1), (1, 2)]), None);
+    }
+
+    #[test]
+    fn has_fold_reads_an_edge_three_triangles_share() {
+        let quad = [[0, 1, 2], [0, 2, 3]];
+        assert!(!has_fold(&quad));
+        // A third triangle on the diagonal laps over one of the two.
+        assert!(has_fold(&[[0, 1, 2], [0, 2, 3], [0, 2, 4]]));
     }
 
     fn square_fan_mesh() -> Mesh {

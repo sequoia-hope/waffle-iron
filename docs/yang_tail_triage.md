@@ -43,6 +43,64 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-24 (F2 item 3) — **`repair_fan_cluster` is deleted: the §4.4.1 update replaces triangles a point merge left lapping over each other**
+
+Corpus 360C / 0W / 9E / 5EE / 0T before and after, `results.json`
+byte-identical. Whole-corpus rotation sweep: 1,870 of 1,870 lines
+identical, geometry hash included. Prospector seed 6 189C / 0W / 9E / 2T,
+every verdict and signature as before; the fold rebuild ran in none of its
+200 candidates. No named dip.
+
+**The fold, read where it is made.** P0020 (a cylinder intersected with a
+12-tooth gear prism), the run the §4.5.2 loop adopts, with the old pass
+switched off and the over-covered edges censused after each Stage-4 pass
+(`YANG_NM_EDGE_PROBE=1`): none after relocation; one after the moved×mint
+weld, which the §4.5.3 sweep removes; four after
+`trim_beyond_corner_phantoms`. The trim merges 152 relocated points into
+Stage-1 mints in that run. 16 of the merges carry the point across a
+neighbour it shares with the mint, and three edges between two mints end
+with four triangles of the cylinder A:2 each, two one way and two the
+other (0.012 to 0.068 long; a tooth crease grazes the cylinder there and
+crosses it at the two mints). The old pass re-triangulated a cluster
+around each such edge before the sweep. Without it the update refused the
+cylinder patch (`NotManifold`), the lapping triangles reached the emitted
+mesh, and the build stopped at every density to the ceiling
+(`NonManifoldMesh`, 3 to 5 over-covered edges).
+
+**The mechanism.** The paper merges the points of the curve and then
+triangulates the patch by CDT (`:557-562`); it never holds lapping
+triangles. The patch chart now develops a folded patch (an edge covered as
+often one way as the other), so the whole-patch CDT replaces the lapping
+triangles with the rest. P0020's cylinder patch is one the d(T) budget
+refuses whole (N106: 3.8e-2 against 1.9e-3), with or without a fold; there
+`rebuild_patch_folds` replaces the lapping part alone — the patch's
+triangles at the endpoints of the over-covered edges, rebuilt by the same
+CDT against the cycles of their own net boundary (580 → 574 triangles).
+No vertex moves and none is added. The part is rebuilt without the d(T)
+budget, as the old pass rebuilt it: d(T) is recalculated per triangle and
+carried.
+
+**Measured with the old pass switched off** (one release binary, the
+corpus unmoved and under four rigid motions): 1,870 of 1,870 sweep lines
+identical to the baseline, hash included. The part rebuild ran in P0020
+unmoved and under motion 3 (the two builds where the old pass repaired an
+adopted run) and in R0050 under motions 1 and 2, on a torus patch in natural runs the
+loop discards: rebuilt under motion 2 (517 → 515 triangles), refused under
+motion 1 (`patch-boundary-mismatch`: the rebuilt part and the carried
+triangles do not close to the patch's boundary; the fold there appears
+after the Fig. 11(b) merge, beside four seam edges that each operand
+covers twice; not read further). The old pass's
+six repairs in P0044 under motion 2 were in a run the loop discards
+(iteration 0; iteration 1 is adopted): P0044 builds the same body without
+the pass and without the rebuild.
+
+**P0020 moved rigidly is an open tail row.** Under motions 0, 1 and 2 it
+stops loudly, before this change and after it: every refined run ends
+`ReassemblyStop … s6-boundary-walk-no-start` on gear face B:333, with no
+over-covered edge in the run, and the loop reaches its ceiling. Not read
+further. It belongs to no milestone yet; the anchoring step is the
+boundary walk's input on B:333 under motion 0.
+
 ## 2026-11-22, later (F2 item 3) — **the Stage-5 corner merge is deleted: the §4.4.1 update reads a boundary chain the relocation put out of order as Fig. 11(a)**
 
 Corpus 360C / 0W / 9E / 5EE / 0T before and after. One detail string of
