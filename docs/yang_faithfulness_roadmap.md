@@ -255,9 +255,19 @@ intersected patches.
       ~~`remove_doubled_membranes` (N41)~~ *(retired 2026-11-06: the N106
       inc-2 separation subsumes it, with 0 removals on the corpus, seed 6
       and the refusal-off trial; a residual fin is a loud gate failure and a
-      T4 site)*, `collapse_subtauwork_mesh_edges` (N89 item 1; 0 fires too,
-      but its replacement is the Fig. 11(b) merge's threshold, the item
-      below). *(Census 2026-11-06, `YANG_REPAIR_CENSUS`, main corpus: the
+      T4 site)*, `collapse_subtauwork_mesh_edges` (N89 item 1) *(censused
+      2026-11-25: NOT this milestone's to retire whole. Its edges are four
+      populations — two intersection points an ulp apart (F0059 moved
+      rigidly needs it), two rim points the boundary-curve relocation
+      brings together after the update (R0015), a rim vertex beside a
+      vertex inside a face (C0043, harmless), and two points of ONE
+      operand's mesh (`pocket_operand_reenters_plain_boolean`, the class it
+      was built for). The first two are the Fig. 11(b) item below and the
+      Stage-4 split; the last is a Stage-1 defect the paper's update has no
+      merge for, and goes with F5b. A merge with the paper's domain in
+      place of the pass held the corpus, 1,864 of 1,870 sweep lines, seed 6
+      and the always-on harness, and stopped in the rewrite tier on the
+      operand-self twins; backed out.)* *(Census 2026-11-06, `YANG_REPAIR_CENSUS`, main corpus: the
       construct pass fires in 230 cases, fold-merge in 6, rehome in 1
       (R0003), `repair_fan_cluster` in 1 (P0020), the pinch split in 4,
       absorb in 0; on seed 6 absorb fires once. Census 2026-11-21 at
@@ -288,6 +298,13 @@ intersected patches.
       selector are deleted.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
+      *(2026-11-25: the merge's domain is the paper's already in effect —
+      each of the 1,112 merges it made over the corpus run and the sweep has
+      an intersection point at one end — but its result depends on the ORDER of the merges at a pinch:
+      taking the same pairs in index order makes F0060 a WRONG (N55). The
+      faithful form merges points of the update's CDT input, which has no
+      order; it also takes the sub-τ collapse's intersection-point pairs,
+      N89 item 1.)*
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
       validate. The §4.3 removals move into optimization (N81).
@@ -309,7 +326,7 @@ intersected patches.
       `stage0/reloc.rs`); the §4.5.5 overlay itself stays.
 - **Re-adjudicate on touch:** N47, N55, N56 (the weld band), N30, N31,
   N40, N41, N22.
-- **Resolves:** N2, N81, N82, N86, N89 items 1 and 7.
+- **Resolves:** N2, N81, N82, N86, N89 item 7 (item 1 retires with F5b).
 
 ### F3 — §4.5 failure handling complete (N62, N84, N68, N87, N90, N83)
 
@@ -390,6 +407,14 @@ must absorb first.
       (`specs/loft.md`, option (b)). Resolves D14.
 - [ ] Retire the cross-patch folds (N88) and the self-contact guard (its
       switches go with it, cleanup §4) into the certificate and the loop.
+- [ ] One operand's patches share their boundary samples bit for bit
+      (§4.1.2 `:395-402`: "re-sample the boundary curves, and reconstruct
+      the triangulation around the boundaries"), so its mesh holds no two points an ulp apart and
+      the arrangement mints none of its own. Customer: the sub-τ collapse's
+      operand-self twins (N89 item 1; pinned by
+      `yang-rs/tests/stage6_arc_orientation.rs::pocket_operand_reenters_plain_boolean`,
+      an operand that is the output of an earlier boolean);
+      `collapse_subtauwork_mesh_edges` retires here.
 - **Re-adjudicate on touch:** N5, N9, N27, N28, N34, N35.
 - **Resolves:** N5, N61, N85, N88, N93, N106, D14.
 
@@ -502,3 +527,4 @@ the first known item.
 | 2026-11-22 | F2 item 3: the corner merge's on-curve arm (§I13c, `oncurve_terminal_overrun`) deleted. The merge's 113 applied sites over its six customers under rotation are 26 on a crease of one operand and 87 on the intersection curve; the 87 are curve vertices §4.5.3 left in place and recorded, in natural runs the loop discards, and without the arm T3c reads 176 conic folds in eleven such runs (R0070, R0095, F0064) and in no adopted body. Every sweep line identical; F0064's message reads 20 unresolved sites for 14. The crease arm stays (P0027, pinned) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | c1e01769 |
 | 2026-11-22 | F2 item 3: the Stage-5 corner merge (`run_fold_merge_passes`, `stage4_fold_risk`, the construct/merge alternation) deleted. Each of its 26 crease sites arrives at the §4.4.1 update as a boundary chain that walks out to a vertex and back: a point relocated past the next chain vertex. The update now splits the constrained edge that contains the relocated point (Fig. 11(a), `seed_fig11a_chain_folds`, N2); a curved holder the d(T) budget refuses takes the local fan re-CDT. Under rotation: 32 splits seeded, 9 fan arms, the Stage-5 pass then applied in none of 1,870 builds; 6 sweep lines differ in the hash and the late digits of the render-mesh volume, verdicts as before (P0027, R0050, R0070): five natural runs the update refused and the loop refined are adopted as built. F0064's natural run has five plane patches rebuilt that the update refused, and its message reads 18 unresolved sites for 20. Matrix 4.4-12 stays PARTIAL: straight chains only | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | 2888a53b |
 | 2026-11-24 | F2 item 3: `repair_fan_cluster` (`retriangulate_collapsed_fan_regions`, its seam-run canonicalization and §4.3.4 sample drop) deleted (N58 amended). Its load-bearing folds are made by the beyond-corner trim's index-rewriting merges (N112; P0020: 152 merges, three edges left with four cylinder triangles each). The §4.4.1 update now holds them: the patch chart develops a folded patch, and a patch the d(T) budget refuses has its lapping triangles alone replaced by the CDT of their own boundary (`rebuild_patch_folds`, N2). With the pass switched off, 1,870 of 1,870 rotated builds line-identical, hash included; `results.json` byte-identical; seed 6 189C / 0W / 9E / 2T, every verdict and signature as before. P0020 moved rigidly stops under three of four motions before and after, on an unrelated face (open tail row) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
+| 2026-11-25 | F2 item 3, measured, nothing landed: `collapse_subtauwork_mesh_edges` censused (ledger N89 item 1). It acts in 10 of 1,496 rotated builds and in no corpus build; its edges are intersection-point pairs (F0059 needs it), rim points the late boundary-curve relocation brings together (R0015), a harmless rim-to-interior pair (C0043) and twins of one operand's own mesh (`pocket_operand_reenters_plain_boolean`). A merge with the paper's domain in its place held everything but the rewrite tier, which stopped on the operand-self twins: a Stage-1 defect, moved to F5b. Folding the N55 merge into the same domain makes F0060 a WRONG (the merges' order decides at a pinch); not done. The change was backed out | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (kernel unchanged) | (this commit) |

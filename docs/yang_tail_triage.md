@@ -43,6 +43,70 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-25 (F2 item 3, measured; nothing landed) — **the sub-τ edge collapse is not the update's to retire: one of its four populations is twins of ONE operand's own mesh, a Stage-1 defect**
+
+Kernel unchanged; corpus 360C / 0W / 9E / 5EE / 0T as before. Ledger N89
+item 1 and N55 hold the record; this is the per-case reading.
+
+**Where `collapse_subtauwork_mesh_edges` acts** (`4a8ec737`,
+`YANG_REPAIR_CENSUS`): in no corpus build; in 10 of the 1,496 rotated
+builds. Every edge it takes is 3e-20 to 2e-13 long.
+
+| build | site | with the pass off | what the edge joins |
+|---|---|---|---|
+| F0059 motions 0, 1 | Stage 4 | OK → ERROR: `TessellationFailed`, "ring rejected by CDT" on a face loop with two vertices 1e-16 apart | two intersection points: an operand's rim vertex beside the other operand's lying on it, or two arrangement points of one junction. In the mesh at Stage-4 entry |
+| F0059 motions 2, 3 | Stage 4 (and Stage 5 on motion 2) | ERROR either way (§4.5.2 exhausted on a crossing patch) | the same, and cylinder × cylinder arrangement points 2e-15 to 1e-14 apart |
+| F0055 motion 2 | Stage 4 | ERROR either way, same line | two arrangement points of one plane × cylinder loop, 2.3e-13 apart at scale 4.7e3 |
+| P0041 motion 0 | Stage 4 | same line | two arrangement points of one cylinder × plane loop, one of them on the plane's edge |
+| C0043 motions 1, 2 | Stage 5 (no Stage 4 runs: the kept mesh has no intersection curve) | OK either way; motion 2's mesh hash differs | A's rim vertex and a vertex of B's cap rim that the Stage-0 overlay left inside A's cap. No output edge holds the pair |
+| C0043 motion 3 | Stage 4 | ERROR either way, same line | the same pairs, and A's rim vertex beside B's rim vertex lying on A's lateral |
+| R0015 motion 1 | Stage 5 | OK either way, hash differs: the body leaves with an edge 3.1e-20 long | two points of A's rim that the boundary-curve relocation, which runs after the update, brings to one point |
+
+Outside the corpus and its motions:
+`yang-rs/tests/stage6_arc_orientation.rs::pocket_operand_reenters_plain_boolean`
+(a cylinder minus a channel, then that result minus a sunk tool). Read at
+the Stage-2 boundary, every sub-band edge joins two vertices on faces of A
+alone: A's lateral and A's caps sample the shared rim an ulp apart, and
+the arrangement mints lateral × cap points of A beside them. Without the
+pass the build stops as `NonManifoldMesh` on A's own faces at every
+density. This is the #194 class the pass was written for, in a test the
+corpus, the sweep, seed 6 and the always-on harness do not hold.
+
+**The replacement that was tried.** A merge with the paper's domain (§4.3
+`:535-536`, Fig. 11(b) `:562-563`): a vertex joined by an edge to an
+intersection point and within the same band merges with it; before the
+update, and again after the boundary-curve relocation; the pass deleted at
+both sites. Measured on that code: `results.json` byte-identical; 1,864 of
+1,870 sweep lines identical — C0043 motion 2 (hash; the rim-to-interior
+pair is not merged), F0059 motion 0 (hash), F0059 motions 2 and 3 (ERROR
+either way: the natural run now passes the update and the build stops on
+`InvalidBooleanOutput`, "twin output edges carry inconsistent ellipse-arc
+curves", and on the render tessellator), P0041 motions 0 and 2 (hash; on
+motion 2 the merge removes, before validation, the twin that had stopped
+the natural run, and the natural run is adopted); seed 6 189C / 0W / 9E /
+2T with no verdict or signature moved; always-on harness 105 binaries,
+none failing. The rewrite tier stopped on the pocket test: the paper's
+domain leaves out two points of one operand's mesh by construction. Backed
+out.
+
+**The fold that was tried with it.** Making the N55 merge and the new one
+ONE merge (every N55 merge has an intersection point at one end): F0060
+becomes a non-manifold body, WRONG (2 unpaired render-mesh edges, χ 6 for
+4), and the unmoved bodies of P0005, P0017, P0027, P0040 and P0059 change.
+On F0060 the one merge takes two pairs the N55 scan never takes. The order
+of index-rewriting merges decides the result at a pinch (ledger N55).
+
+**Where each population goes.** The intersection-point pairs and the rim
+pairs: F2's Fig. 11(b) item, as points of the update's CDT input, and the
+split of Stage 4 that puts every relocation before the update (N81). The
+operand-self twins: F5b (one operand's patches share their boundary
+samples). The pass stays until then.
+
+**Seen along the way, not read further.** F0059 moved rigidly fails under
+motions 2 and 3 at HEAD (§4.5.2 exhausted on a plane patch whose cycles
+cross): an open row of the rotated tail. F0055's four motions are as read
+on 2026-11-15.
+
 ## 2026-11-24 (F2 item 3) — **`repair_fan_cluster` is deleted: the §4.4.1 update replaces triangles a point merge left lapping over each other**
 
 Corpus 360C / 0W / 9E / 5EE / 0T before and after, `results.json`

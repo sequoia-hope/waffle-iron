@@ -101,6 +101,19 @@ like this. the fixes must be principled. the principles are the paper."*
   rebuild of triangles that lap over each other cannot be held to
   `min(old max, d_ε)`: the triangles it replaces certify nothing. Carry the
   recalculated d(T) instead (`rebuild_patch_domain_gated`, ledger N106).
+- **Run `cargo test -p yang-rs` before the corpus when you retire a
+  repair.** A pass's first customer can live only in a yang-rs integration
+  test. `collapse_subtauwork_mesh_edges` was replaced by a merge with the
+  paper's Fig. 11(b) domain; the corpus, 1,496 rigid motions, seed 6 and the
+  always-on harness all held, and
+  `tests/stage6_arc_orientation.rs::pocket_operand_reenters_plain_boolean`
+  then stopped: its twins are two points of ONE operand's mesh, which the
+  paper's update never merges (2026-11-25, ledger N89 item 1). The suite is
+  minutes; the corpus, sweep and seed are hours.
+- **The order of index-rewriting merges decides the result at a pinch.**
+  Taking the N55 merge's own pairs in another order makes F0060 a WRONG
+  (2026-11-25, ledger N55). Do not reorder, fold or re-scope a
+  `collapse_vertex` scan as a neutral refactor; measure F0060 and F0058.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.
