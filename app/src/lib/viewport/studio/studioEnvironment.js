@@ -523,8 +523,29 @@ export function getSharpBackdropInfo(presetId) {
 }
 
 /**
+ * Detect CPU software WebGL rasterizers (SwiftShader, llvmpipe, lavapipe, softpipe)
+ * so high-tap anisotropic filtering does not explode software texel-fetch cost.
+ *
+ * @param {THREE.WebGLRenderer | null | undefined} renderer
+ * @returns {boolean}
+ */
+export function isSoftwareWebGLRenderer(renderer) {
+	try {
+		const gl = renderer?.getContext?.();
+		if (!gl) return false;
+		const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+		const label = String(
+			(dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) || ''
+		);
+		return /swiftshader|llvmpipe|lavapipe|softpipe|software/i.test(label);
+	} catch {
+		return false;
+	}
+}
+
+/**
  * Load (or retrieve from cache) the `4096×2048` sharp equirectangular backdrop
- * texture for `presetId`, enabling full mipmap pyramid + hardware anisotropy.
+ * texture for `presetId`, enabling full mipmap pyramid.
  *
  * @param {THREE.WebGLRenderer} renderer
  * @param {string} presetId
@@ -552,7 +573,8 @@ export async function loadSharpBackdropTexture(renderer, presetId) {
 					tex.generateMipmaps = true;
 					tex.minFilter = THREE.LinearMipmapLinearFilter;
 					tex.magFilter = THREE.LinearFilter;
-					tex.anisotropy = Math.min(16, renderer?.capabilities?.getMaxAnisotropy?.() || 4);
+					// Sampled via explicit `texture2DLodEXT`, so anisotropy=1 avoids software overhead.
+					tex.anisotropy = 1;
 					tex.needsUpdate = true;
 					SHARP_BACKDROP_CACHE.set(meta.id, tex);
 					resolve(tex);
@@ -610,37 +632,59 @@ function bakeSceneToPmrem(renderer, envScene, sigma = 0) {
 	return envTarget;
 }
 
+/** Reusable PMREM baking scene primitives so ShaderMaterials compile once per page. */
+let sharedEquirectScene = null;
+let sharedEquirectDome = null;
+let sharedProceduralScene = null;
+let sharedCycloramaDome = null;
+/** @type {Array<{ mesh: THREE.Mesh, geo: THREE.PlaneGeometry, mat: THREE.ShaderMaterial }>} */
+const sharedPanelPool = [];
+
 function buildProceduralTarget(renderer, presetId) {
-	const envScene = new THREE.Scene();
 	const cfg = proceduralPresetConfig(presetId);
-	const disposables = [];
-
-	const dome = makeCycloramaDome(cfg.dome);
-	envScene.add(dome.mesh);
-	disposables.push(dome);
-
-	for (const p of cfg.panels) {
-		const panel = makeSoftboxPanel(p);
-		envScene.add(panel.mesh);
-		disposables.push(panel);
+	if (!sharedProceduralScene || !sharedCycloramaDome) {
+		sharedProceduralScene = new THREE.Scene();
+		sharedCycloramaDome = makeCycloramaDome(cfg.dome);
+		sharedProceduralScene.add(sharedCycloramaDome.mesh);
+	} else {
+		sharedCycloramaDome.mat.uniforms.uZenith.value.copy(cfg.dome.zenithColor);
+		sharedCycloramaDome.mat.uniforms.uHorizon.value.copy(cfg.dome.horizonColor);
+		sharedCycloramaDome.mat.uniforms.uNadir.value.copy(cfg.dome.nadirColor);
 	}
 
-	const envTarget = bakeSceneToPmrem(renderer, envScene, 0.025);
-	for (const d of disposables) {
-		d.geo.dispose();
-		d.mat.dispose();
+	while (sharedPanelPool.length < cfg.panels.length) {
+		const p = makeSoftboxPanel({ width: 1, height: 1, position: [0, 0, 1], color: 0xffffff, intensity: 1 });
+		sharedPanelPool.push(p);
+		sharedProceduralScene.add(p.mesh);
 	}
-	return envTarget;
+
+	for (let i = 0; i < sharedPanelPool.length; i++) {
+		const slot = sharedPanelPool[i];
+		if (i < cfg.panels.length) {
+			const p = cfg.panels[i];
+			slot.mesh.visible = true;
+			slot.mesh.scale.set(p.width, p.height, 1);
+			slot.mesh.position.set(p.position[0], p.position[1], p.position[2]);
+			slot.mesh.lookAt(0, 0, 0);
+			slot.mat.uniforms.uColor.value.set(p.color).multiplyScalar(p.intensity);
+		} else {
+			slot.mesh.visible = false;
+		}
+	}
+
+	return bakeSceneToPmrem(renderer, sharedProceduralScene, 0.025);
 }
 
 function buildEquirectTarget(renderer, hdrTex, baseYawDeg = 0) {
-	const envScene = new THREE.Scene();
-	const dome = makeZUpEquirectDome(hdrTex, baseYawDeg);
-	envScene.add(dome.mesh);
-	const envTarget = bakeSceneToPmrem(renderer, envScene, 0.0);
-	dome.geo.dispose();
-	dome.mat.dispose();
-	return envTarget;
+	if (!sharedEquirectScene || !sharedEquirectDome) {
+		sharedEquirectScene = new THREE.Scene();
+		sharedEquirectDome = makeZUpEquirectDome(hdrTex, baseYawDeg);
+		sharedEquirectScene.add(sharedEquirectDome.mesh);
+	} else {
+		sharedEquirectDome.mat.uniforms.tEquirect.value = hdrTex;
+		sharedEquirectDome.mat.uniforms.uBaseYaw.value = (baseYawDeg * Math.PI) / 180;
+	}
+	return bakeSceneToPmrem(renderer, sharedEquirectScene, 0.0);
 }
 
 function fetchPresetHdrTexture(preset) {

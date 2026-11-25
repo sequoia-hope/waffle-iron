@@ -30,6 +30,7 @@
 		getSectionState,
 		getShowDatumPlanes,
 		getShowOriginTriad,
+		getCameraRefs,
 		isBodyVisible
 	} from '$lib/engine/store.svelte.js';
 	import { getSettings, getColorVersion } from '$lib/ui/settings.svelte.js';
@@ -45,7 +46,8 @@
 		getStudioPresetMeta,
 		hasCustomStudioEnvironment,
 		subscribeCustomStudioEnvironment,
-		disposeStudioEnvironments
+		disposeStudioEnvironments,
+		isSoftwareWebGLRenderer
 	} from './studioEnvironment.js';
 	import {
 		STUDIO_SHARED_UNIFORMS,
@@ -83,6 +85,7 @@
 			(renderer.extensions.has('EXT_color_buffer_float') ||
 				renderer.extensions.has('EXT_color_buffer_half_float'))
 	);
+	const softwareGL = isSoftwareWebGLRenderer(renderer);
 	const packedGBuffer = !floatRenderable;
 	const hdrTargetType = floatRenderable ? THREE.HalfFloatType : THREE.UnsignedByteType;
 
@@ -414,6 +417,9 @@
 			envRequestSeq += 1;
 			envLoading = false;
 			activeEnvTarget = null;
+			if (renderer.getRenderTarget() !== null) {
+				renderer.setRenderTarget(null);
+			}
 			autoRender.set(true);
 			scene.environment = null;
 			scene.environmentRotation.set(0, 0, 0);
@@ -625,6 +631,18 @@
 		invalidate();
 	});
 
+	function isControlsDamping() {
+		const { controls } = getCameraRefs();
+		if (!controls || !controls.enableDamping) return false;
+		const sd = controls._sphericalDelta;
+		const po = controls._panOffset;
+		return (
+			Math.abs(sd?.theta ?? 0) >= 1e-5 ||
+			Math.abs(sd?.phi ?? 0) >= 1e-5 ||
+			(po?.lengthSq?.() ?? 0) >= 1e-10
+		);
+	}
+
 	setStudioFreshnessCheck(() => {
 		if (
 			!studioActive ||
@@ -632,7 +650,8 @@
 			!scene ||
 			envLoading ||
 			backdropLoading ||
-			isStudioSurfaceLoading()
+			isStudioSurfaceLoading() ||
+			isControlsDamping()
 		) {
 			return false;
 		}
@@ -668,7 +687,8 @@
 			// Ensure world & projection matrices are current before computing signature
 			cam.updateMatrixWorld();
 			const { sig, camKey } = computeStateSignature(cam, drawW, drawH);
-			const cameraMoved = lastCamKey !== '' && camKey !== lastCamKey;
+			const cameraMoved =
+				(lastCamKey !== '' && camKey !== lastCamKey) || isControlsDamping();
 			lastCamKey = camKey;
 
 			if (sig !== lastSig) {
@@ -882,30 +902,37 @@
 				accumReadIsA = !accumReadIsA;
 
 				// Pass F: Tone-map & output to canvas (preserving CSS --viewport-bg where alpha == 0
-				// unless studioBackdrop is enabled)
-				const unjitteredProj = extractCameraProjParams(cam);
-				_envRotMat4.makeRotationZ(-yawRad);
+				// unless studioBackdrop is enabled). On CPU software WebGL (SwiftShader / llvmpipe),
+				// present sample 0 immediately and the final converged sample (TARGET_SAMPLES - 1),
+				// skipping 6 intermediate 4x-MSAA swapchain resolves + compositor blits whose output
+				// is immediately overwritten in linear HDR accumTargetA/B.
+				const presentToCanvas =
+					!softwareGL || sampleCount === 0 || sampleCount + 1 >= TARGET_SAMPLES || assetsLoading;
+				if (presentToCanvas) {
+					const unjitteredProj = extractCameraProjParams(cam);
+					_envRotMat4.makeRotationZ(-yawRad);
 
-				compositeMat.uniforms.tAccum.value = nextAccum.texture;
-				compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
-				compositeMat.uniforms.tSharpBackdrop.value = sharpBg.tex ?? FALLBACK_WHITE_AO_TEX;
-				compositeMat.uniforms.uSharpBackdropMode.value = sharpBg.tex ? sharpBg.mode : 0;
-				compositeMat.uniforms.uBackdropBaseYaw.value = sharpBg.baseYawRad;
-				compositeMat.uniforms.uBackdropBlur.value = settings.studioBackdropBlur ?? 0;
-				compositeMat.uniforms.uEnvCubeUVParams.value.copy(getEnvCubeUVParams(activeEnvTarget));
-				compositeMat.uniforms.uShowBackdrop.value =
-					settings.studioBackdrop && Boolean(scene.environment) ? 1.0 : 0.0;
-				compositeMat.uniforms.uIsOrtho.value = unjitteredProj.isOrtho;
-				compositeMat.uniforms.uProjParams.value.copy(unjitteredProj.projParams);
-				compositeMat.uniforms.uCamWorldRot.value.setFromMatrix4(cam.matrixWorld);
-				compositeMat.uniforms.uEnvRotMat.value.setFromMatrix4(_envRotMat4);
-				compositeMat.uniforms.uToneMapping.value = settings.studioToneMapping === 'agx' ? 1 : 0;
-				compositeMat.uniforms.uExposure.value = 1.05;
-				renderer.setRenderTarget(null);
-				renderer.setClearColor(0x000000, 0.0);
-				renderer.clear(true, true, false);
-				quadMesh.material = compositeMat;
-				renderer.render(quadScene, quadCamera);
+					compositeMat.uniforms.tAccum.value = nextAccum.texture;
+					compositeMat.uniforms.tEnvMap.value = activeEnvTarget?.texture ?? scene.environment;
+					compositeMat.uniforms.tSharpBackdrop.value = sharpBg.tex ?? FALLBACK_WHITE_AO_TEX;
+					compositeMat.uniforms.uSharpBackdropMode.value = sharpBg.tex ? sharpBg.mode : 0;
+					compositeMat.uniforms.uBackdropBaseYaw.value = sharpBg.baseYawRad;
+					compositeMat.uniforms.uBackdropBlur.value = settings.studioBackdropBlur ?? 0;
+					compositeMat.uniforms.uEnvCubeUVParams.value.copy(getEnvCubeUVParams(activeEnvTarget));
+					compositeMat.uniforms.uShowBackdrop.value =
+						settings.studioBackdrop && Boolean(scene.environment) ? 1.0 : 0.0;
+					compositeMat.uniforms.uIsOrtho.value = unjitteredProj.isOrtho;
+					compositeMat.uniforms.uProjParams.value.copy(unjitteredProj.projParams);
+					compositeMat.uniforms.uCamWorldRot.value.setFromMatrix4(cam.matrixWorld);
+					compositeMat.uniforms.uEnvRotMat.value.setFromMatrix4(_envRotMat4);
+					compositeMat.uniforms.uToneMapping.value = settings.studioToneMapping === 'agx' ? 1 : 0;
+					compositeMat.uniforms.uExposure.value = 1.05;
+					renderer.setRenderTarget(null);
+					renderer.setClearColor(0x000000, 0.0);
+					renderer.clear(true, true, false);
+					quadMesh.material = compositeMat;
+					renderer.render(quadScene, quadCamera);
+				}
 
 				sampleCount += 1;
 				passCount += 1;
@@ -934,9 +961,7 @@
 				}
 			} finally {
 				renderer.setClearColor(_savedClearColor, savedClearAlpha);
-				if (savedTarget !== null) {
-					renderer.setRenderTarget(savedTarget);
-				}
+				renderer.setRenderTarget(savedTarget);
 			}
 		},
 		{ stage: renderStage, autoInvalidate: false }

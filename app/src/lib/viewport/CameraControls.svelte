@@ -50,6 +50,7 @@
 		const _toTarget = new THREE.Vector3();
 		const _lastPosition = new THREE.Vector3().copy(camera.position);
 		const _lastQuaternion = new THREE.Quaternion().copy(camera.quaternion);
+		let _lastUpdateTime = performance.now();
 		const EPS = 1e-10;
 
 		// The point an orbit turns about, set at the start of every rotate
@@ -71,11 +72,21 @@
 				this._rotateLeft(this._getAutoRotationAngle(_deltaTime));
 			}
 
-			// --- Compute damped rotation amounts ---
+			// --- Compute damped step (frame-rate independent below 50 fps) ---
+			// At >=50 fps (`dtSec <= 0.02`), `frames60 = 1` keeps exact 60 Hz behavior;
+			// on slow software-GL CI frames (`dtSec ~ 0.1..0.25 s`), scaling by `dt * 60`
+			// reaches rest in ~0.4 s wall time instead of crawling across ~40 frames.
+			const now = performance.now();
+			const dtSec = Math.min(0.25, Math.max(0, (now - _lastUpdateTime) * 0.001));
+			_lastUpdateTime = now;
+			const effDamping = this.enableDamping
+				? 1 - Math.pow(1 - this.dampingFactor, dtSec > 0.02 ? dtSec * 60 : 1)
+				: 1;
+
 			let dTheta, dPhi;
 			if (this.enableDamping) {
-				dTheta = this._sphericalDelta.theta * this.dampingFactor;
-				dPhi = this._sphericalDelta.phi * this.dampingFactor;
+				dTheta = this._sphericalDelta.theta * effDamping;
+				dPhi = this._sphericalDelta.phi * effDamping;
 			} else {
 				dTheta = this._sphericalDelta.theta;
 				dPhi = this._sphericalDelta.phi;
@@ -122,7 +133,7 @@
 			// --- Apply pan (moves what the camera looks at, and the pivot
 			// with it, so a pan does not leave the pivot behind) ---
 			if (Math.abs(this._panOffset.lengthSq()) > EPS) {
-				const damp = this.enableDamping ? this.dampingFactor : 1;
+				const damp = this.enableDamping ? effDamping : 1;
 				this.target.addScaledVector(this._panOffset, damp);
 				camera.position.addScaledVector(this._panOffset, damp);
 				if (this.orbitPivot) this.orbitPivot.addScaledVector(this._panOffset, damp);
@@ -147,9 +158,16 @@
 
 			// --- Damping decay ---
 			if (this.enableDamping) {
-				this._sphericalDelta.theta *= (1 - this.dampingFactor);
-				this._sphericalDelta.phi *= (1 - this.dampingFactor);
-				this._panOffset.multiplyScalar(1 - this.dampingFactor);
+				const keep = 1 - effDamping;
+				this._sphericalDelta.theta *= keep;
+				this._sphericalDelta.phi *= keep;
+				this._panOffset.multiplyScalar(keep);
+				// Snap imperceptible sub-pixel exponential tail (~0.007 px at 1280 px) to
+				// zero so damped orbits reach exact rest in ~24 frames instead of creeping
+				// down to EPS=1e-10 over ~73 frames and resetting Studio accumulation.
+				if (Math.abs(this._sphericalDelta.theta) < 1e-5) this._sphericalDelta.theta = 0;
+				if (Math.abs(this._sphericalDelta.phi) < 1e-5) this._sphericalDelta.phi = 0;
+				if (this._panOffset.lengthSq() < 1e-10) this._panOffset.set(0, 0, 0);
 			} else {
 				this._sphericalDelta.set(0, 0, 0);
 				this._panOffset.set(0, 0, 0);

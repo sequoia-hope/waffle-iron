@@ -22,11 +22,12 @@
 	} from '$lib/engine/store.svelte.js';
 	import { getSettings } from '$lib/ui/settings.svelte.js';
 	import { placementMatrix } from '../placement.js';
-	import { resolveStudioSurface } from './studioEnvironment.js';
+	import { resolveStudioSurface, isSoftwareWebGLRenderer } from './studioEnvironment.js';
 	import { createStudioStageMaterial } from './studioMaterial.js';
 	import { updateStudioStats, bumpStudioSurfaceRevision } from './studioState.js';
 
 	const { renderer, camera, invalidate } = useThrelte();
+	const softwareGL = isSoftwareWebGLRenderer(renderer);
 
 	const SURFACE_CONFIGS = {
 		workbench: {
@@ -102,7 +103,9 @@
 					tex.generateMipmaps = true;
 					tex.minFilter = THREE.LinearMipmapLinearFilter;
 					tex.magFilter = THREE.LinearFilter;
-					tex.anisotropy = Math.min(16, renderer?.capabilities?.getMaxAnisotropy?.() || 4);
+					tex.anisotropy = softwareGL
+						? 1
+						: Math.min(8, renderer?.capabilities?.getMaxAnisotropy?.() || 4);
 					tex.needsUpdate = true;
 					OWNED_TEXTURES.push(tex);
 					resolve(tex);

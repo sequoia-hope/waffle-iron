@@ -110,7 +110,7 @@ async function sampleCanvasPoints(page, points, radius = 2) {
 }
 
 /** Wait until the Studio progressive accumulator settles on the current view. */
-async function waitForStudioSettled(page, timeout = 30000) {
+async function waitForStudioSettled(page, timeout = 60000) {
 	await page.waitForFunction(
 		() => {
 			const st = window.__waffle?.getStudioStats?.();
@@ -123,9 +123,10 @@ async function waitForStudioSettled(page, timeout = 30000) {
 
 test.describe('Studio PBR Renderer & Real Materials', () => {
 	// Multi-pass WebGL2 Studio pipelines (PMREM + GTAO + SSR + 8x Halton settle)
-	// run on CPU SwiftShader on 4-vCPU CI runners; run tests in parallel across
-	// workers and cover hooks + body generously.
-	test.describe.configure({ mode: 'parallel', timeout: 180000 });
+	// run on CPU SwiftShader on 4-vCPU CI runners; keep tests within this file
+	// serial on one worker so 4 concurrent SwiftShader instances do not contend
+	// on the same 4 vCPUs, and cover hooks + body generously.
+	test.describe.configure({ timeout: 180000 });
 	test('defaults to classic Shaded mode and persists Studio settings across reload', async ({
 		waffle
 	}) => {
@@ -576,7 +577,7 @@ test.describe('Studio PBR Renderer & Real Materials', () => {
 });
 
 test.describe('Studio PBR adversarial & cross-mode invariants', () => {
-	test.describe.configure({ mode: 'parallel', timeout: 180000 });
+	test.describe.configure({ timeout: 180000 });
 	test('handles empty scene, invalid material refusals, rig cycling, context-menu toggle, sketch transparency, section cap, and assembly instances cleanly', async ({
 		waffle
 	}) => {
@@ -775,7 +776,13 @@ test.describe('Studio PBR adversarial & cross-mode invariants', () => {
 		// Environment Backdrop: off => exact CSS --viewport-bg parity with Classic Shaded (Invariant I6);
 		// on => visible Z-up sky/horizon HDRI dome in BOTH Orthographic & Perspective cameras
 		await page.evaluate(() => window.__waffle.updateSettings({ viewportShading: 'shaded' }));
-		await page.waitForTimeout(150);
+		await page.waitForFunction(() => window.__waffle?.getStudioStats?.()?.active === false);
+		await page.evaluate(
+			() =>
+				new Promise((resolve) =>
+					requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+				)
+		);
 		const [shadedBgTop] = await sampleCanvasPoints(page, [{ x: 0.08, y: 0.08 }], 2);
 
 		await page.evaluate(() =>
