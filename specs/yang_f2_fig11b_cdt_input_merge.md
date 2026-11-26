@@ -1,6 +1,6 @@
 # F2 — the Fig. 11(b) merge as input of the §4.4.1 update's CDT
 
-Status: increment 0 DONE, increment 1 landed with it (2026-11-25); next increment 2. Roadmap: `docs/yang_faithfulness_roadmap.md`
+Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §7 experiment: an order-free rewrite does NOT hold F0060 (two crossing-point pairs); increment 2 waits on reading them. Roadmap: `docs/yang_faithfulness_roadmap.md`
 F2, item "The Fig. 11(b) merge carries the paper's threshold". Ledger: N55
 (the merge), N89 item 7 (threshold), N89 item 1 (the sub-τ collapse).
 Matrix: rows 4.4-13, 4.3-17; finding 5.
@@ -226,3 +226,53 @@ sweep lines byte-identical to the 4a8ec737 baseline.
   merge), P0041 #2 (5.7e-14), R0032 #0/#1 (1.8e-12, 2.2e-12). R0032's pairs
   are an order of magnitude above every pair merged today and inside the
   band; increment 2 reads them by name.
+
+## 7. Experiment: every class at once, by index rewrite (2026-11-25)
+
+Question (§5 "Pinch topology"): is F0060's failure the ORDER of the merges,
+so that an order-free index rewrite of every class already holds it, or is
+something else needed? Uncommitted switch in the (3c) block: build the
+classes there (the junction / conic-endpoint rank of the scan), rewrite every
+`victim -> survivor` at once, drop the degenerate triangles, cancel
+opposite-winding duplicate pairs once, then let the scan run (it finds
+nothing). One release binary, switch off vs on. The diff is not kept in the
+tree.
+
+| case | scan (today) | all classes at once |
+|---|---|---|
+| F0060 | CORRECT | **WRONG**: 2 non-manifold edges, χ = 6 (want 4) |
+| F0058, R0032, P0041, P0005, P0017, P0027, P0040, P0059 | CORRECT | CORRECT |
+
+Reading F0060 (authored equal-radius perpendicular cylinders; the two
+intersection ellipses cross):
+
+- The scan makes 34 merges and two membrane cancellations; the class rewrite
+  makes 36 merges (22 classes) and no cancellation. After either, the mesh
+  has 172 triangles, no open edge and no edge used more than twice
+  (`YANG_NM_EDGE_PROBE`, `after-3c-merge` and `before-validate`). The fault
+  appears later, at reassembly.
+- The survivor rule is not the cause: picking the scan's survivor (lowest
+  index at equal rank) is still WRONG, the same two edges.
+- **The cause is two pairs the scan never merges**: 9/10 at
+  (0, 0.3, −0.3), 1.5e-16 apart, and 21/24 at (0, −0.3, 0.3), 9.2e-17 apart
+  — the points where the two ellipses cross. Each is an intersection point
+  pair joined by a curve edge (one A and one B triangle on it). In the scan,
+  merging a neighbouring class first turns the triangle on that edge into
+  half of an opposite-winding duplicate pair, which is cancelled, so the edge
+  is gone before it is read. Leaving out either pair gives 1 non-manifold
+  edge; leaving out both gives CORRECT.
+
+So F0060 is not decided by merge order once the merge is order-free: it is
+decided by whether 9/10 and 21/24 become one vertex. Merging them makes the
+crossing of the two curves one vertex where four sheets meet, which the
+downstream pinch handling (N74/N78, two sheets) and the reassembly do not
+carry. The scan avoids it by accident of its cancellations, not by a rule.
+Building the merge into the update's CDT does not change this by itself: the
+same two pairs are in the same classes.
+
+Open before increment 2 (ledger N89 item 7): is a pair at a crossing of two
+intersection curves "too close" in §4.4.1's sense? The paper's merge acts on
+"an endpoint p of the split edge" (`:562-563`), the edge of ONE constrained
+curve split by q; at a crossing the two points belong to two curves. Read
+next: which curve each of 9 and 10 lies on (`vert_ellipse`), and where the
+two non-manifold edges are first made (Stage 5 / emission).
