@@ -7617,6 +7617,12 @@ Each is OPEN, each small; recorded together so none is invisible.
    threshold is settled; the MECHANISM is not: the merge is still an ordered
    index rewrite ahead of the CDT (N55 amendment 2026-11-25), which the
    update's CDT input replaces (`specs/yang_f2_fig11b_cdt_input_merge.md`).
+   *Census 2026-11-25 (spec §6, print-only primitive
+   `stage4_fig11b::fig11b_vertex_classes`):* every N55 merge (294 corpus,
+   884 sweep) lies in a class of the update-input domain, exact duplicates
+   included; no class is wider than the band; the classes add five merges
+   no pass makes today (F0060 ×2, P0041 #2, R0032 #0/#1 at 1.8e-12 and
+   2.2e-12, the widest pairs the band admits anywhere measured).
 8. **The Stage-2 broad phase** is a median-split BVH (`shell_contact.rs`
    `struct Bvh`), not the paper's octree (`:434`) — performance-only, same
    candidate set; D12 (HISTORICAL) cites deleted code, and cherchi-rs's own

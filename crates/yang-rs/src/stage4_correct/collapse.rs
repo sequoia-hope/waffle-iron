@@ -1177,6 +1177,14 @@ pub(crate) fn collapse_subtauwork_mesh_edges_ex_with_bounds(
                 d2.sqrt(),
             );
         }
+        if crate::stage4_fig11b::census_on() {
+            crate::stage4_fig11b::log(&format!(
+                "taken\tpass=s194\tvictim={victim}:{} survivor={survivor}:{} dist={:.3e}",
+                crate::stage4_fig11b::pos_key(mesh, victim),
+                crate::stage4_fig11b::pos_key(mesh, survivor),
+                d2.sqrt(),
+            ));
+        }
         collapse_vertex_scoped_with_bounds(
             mesh,
             attribution,

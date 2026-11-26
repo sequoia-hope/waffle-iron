@@ -1,6 +1,6 @@
 # F2 — the Fig. 11(b) merge as input of the §4.4.1 update's CDT
 
-Status: DESIGN (2026-11-25). Roadmap: `docs/yang_faithfulness_roadmap.md`
+Status: increment 0 DONE, increment 1 landed with it (2026-11-25); next increment 2. Roadmap: `docs/yang_faithfulness_roadmap.md`
 F2, item "The Fig. 11(b) merge carries the paper's threshold". Ledger: N55
 (the merge), N89 item 7 (threshold), N89 item 1 (the sub-τ collapse).
 Matrix: rows 4.4-13, 4.3-17; finding 5.
@@ -62,8 +62,10 @@ A pair `(p, q)` is eligible when:
    is read from `VertexParamMap` (`params[v][i].face.input` names A and B),
    and from the triangle star only where a vertex carries no parameters. This
    is the stashed trial's rule (`merge_points_into_intersection_points`);
-3. `0 < |pq| < TAU_WORK·(1 + scale)`, where `scale` is the largest
-   coordinate magnitude of the pair.
+3. `|pq| < TAU_WORK·(1 + scale)`, where `scale` is the largest coordinate
+   magnitude of the pair. Two indices at ONE position (`|pq| = 0`) are
+   eligible: the N55 scan merges them today (11 of its pairs, census
+   2026-11-25), and §4.4.1 sets `r_A = r_B = r`.
 
 Two vertices of one operand's mesh, with no intersection point between them,
 are never eligible (that is population 4; the paper's update never merges two
@@ -105,6 +107,18 @@ boundary cycles and the Fig. 11(a) splits are known, and before
    `collapse_vertex` or its membrane cancellation.
 4. Recompute d(T) on the rebuilt triangles (the update already does this,
    `stage4_dt`).
+5. Map the boundary a plan must reproduce through the same classes. The
+   update accepts a plan only when `plan_matches_boundary(new_tris, want_bd)`
+   holds, where `want_bd` is the patch's old directed boundary (or
+   `expected_boundary_after_splits`). Unmapped, that check would refuse every
+   merged patch; mapped, the two faces of a shared edge expect the same
+   merged boundary, which is what keeps the result conformal.
+
+Open for increment 2 (no answer is assumed here): a victim may be an
+INTERIOR vertex of its patch (a mesh vertex beside the curve, not on the
+cycle). Whether the update's CDT keeps or drops such a vertex decides
+whether the class map must also be applied to the interior points the
+rebuild keeps.
 
 If the CDT refuses a patch the merge marked (a crossing, or the d(T) budget),
 the refusal is the update's existing typed failure for that patch. It is
@@ -184,3 +198,30 @@ held the only customer for population 4).
 - **Rotated-only customers.** The N55 scan's corner customers (P0027, R0050
   under rotation) appear only in the sweep, so the sweep is a gate, not an
   afterthought.
+
+## 6. Increment 0 result (2026-11-25)
+
+Census `YANG_FIG11B_CENSUS=<file>` (`stage4_fig11b::census`), release
+corpus plus the 1,870-line rigid-motion sweep (374 cases × (ref + 4
+motions)). The census is print-only: corpus 360C/0W/9E/5EE/0T and all 1,870
+sweep lines byte-identical to the 4a8ec737 baseline.
+
+- **Every N55 merge is in a class formed before the scan**: 294/294 on the
+  corpus, 884/884 over the sweep. The first run found 12 outside; 11 were
+  exact duplicates (`|pq| = 0`), which the first draft refused (copied from
+  the sub-τ collapse's `d2 == 0` skip) and the N55 scan merges, so §3.1
+  admits them. The 12th was a census record that two children's appends
+  interleaved (`writeln!` on a `File` is several writes; fixed to one
+  `write_all`).
+- **No component is wider than the band** (0 `too_wide`).
+- **Sub-τ collapse:** 37 of its 46 sweep merges are classes at the
+  update's input (population 1, which N55's triangle-area filter does not
+  take). The other 9: C0043 #1/#2 (population 3), R0015 #1 (population 2),
+  and F0059 #2's four Stage-5 merges, made after the construct passes
+  (1.7e-15…1.1e-14), the same shape as population 2. None is answered by a
+  merge at the update's input.
+- **Classes no pass merges today** (new merges once wired): F0060 ×2
+  (1.5e-16, 9.2e-17 — the pairs that made F0060 WRONG under the ordered
+  merge), P0041 #2 (5.7e-14), R0032 #0/#1 (1.8e-12, 2.2e-12). R0032's pairs
+  are an order of magnitude above every pair merged today and inside the
+  band; increment 2 reads them by name.

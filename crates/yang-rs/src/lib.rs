@@ -165,6 +165,9 @@ mod stage4_splice;
 // belong to §4.5.2 local refinement. See spec §4-I10 (f).
 mod stage4_truncate;
 mod stage4_update;
+// §4.4.1 Fig. 11(b): the merge classes of the update's CDT input
+// (spec `specs/yang_f2_fig11b_cdt_input_merge.md`).
+mod stage4_fig11b;
 
 // Print-only census for ledger N100's possible silent paths.
 mod n100_census;

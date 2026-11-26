@@ -4927,6 +4927,22 @@ fn stage4_relocate_and_correct_inner(
             .chain(vert_junction.keys())
             .copied()
             .collect();
+        // Spec `yang_f2_fig11b_cdt_input_merge.md` §4 increment 0 (print-only,
+        // `YANG_FIG11B_CENSUS`): the classes the CDT-input merge would form
+        // here, before this scan takes any pair.
+        crate::stage4_fig11b::census(
+            "before-3c",
+            mesh,
+            &attr_vec,
+            Some(&*vertex_params),
+            &|v: u32| {
+                if junction_verts.contains(&v) {
+                    2
+                } else {
+                    u8::from(conic_endpoint.contains(&v))
+                }
+            },
+        );
         // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
         let max_merge_passes = mesh.tris.len() + 1;
         let mut merge_passes = 0usize;
@@ -5030,6 +5046,13 @@ fn stage4_relocate_and_correct_inner(
                         eprintln!(
                             "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
                         );
+                    }
+                    if crate::stage4_fig11b::census_on() {
+                        crate::stage4_fig11b::log(&format!(
+                            "taken\tpass=n55\tvictim={victim}:{} survivor={survivor}:{}",
+                            crate::stage4_fig11b::pos_key(mesh, victim),
+                            crate::stage4_fig11b::pos_key(mesh, survivor),
+                        ));
                     }
                     let dropped = collapse_vertex_scoped_with_bounds(
                         mesh,
@@ -5151,6 +5174,13 @@ fn stage4_relocate_and_correct_inner(
     // per-patch update — every intersected patch re-triangulated in its
     // chart against its own cycles, before the repairs below.
     s4_lap("before-441-update", mesh);
+    crate::stage4_fig11b::census(
+        "before-441-update",
+        mesh,
+        &attribution.attributions,
+        Some(&*vertex_params),
+        &|_| 0,
+    );
     if crate::stage4_construct::update_patches_ex_with_bounds(
         mesh,
         attribution,
