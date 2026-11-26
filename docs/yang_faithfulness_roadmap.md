@@ -304,7 +304,10 @@ intersected patches.
       taking the same pairs in index order makes F0060 a WRONG (N55). The
       faithful form merges points of the update's CDT input, which has no
       order; it also takes the sub-τ collapse's intersection-point pairs,
-      N89 item 1.)*
+      N89 item 1.)* *(2026-11-25: threshold RULED by the owner — "too close"
+      is the same point within roundoff, `TAU_WORK·(1+scale)`; a quality
+      threshold is a later, separately measured increment. Spec:
+      `specs/yang_f2_fig11b_cdt_input_merge.md`.)*
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
       validate. The §4.3 removals move into optimization (N81).

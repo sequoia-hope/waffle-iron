@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | **RESOLVED 2026-11-13** (both transits deleted; an out-of-domain boundary or corner junction is detected and answered by the §4.5.2 loop) | The crease and corner transits applied §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4; amended 2026-11-13) | Stage-1 mechanisms that read other patches: the chart-crossing re-run and the P0008 chord split (the cylinder-pair and thin-band folds deleted 2026-11-13) |
-| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27; item 1 censused 2026-11-25: it stays — its operand-self twins are a Stage-1 defect, F5b) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27; item 1 censused 2026-11-25: it stays — its operand-self twins are a Stage-1 defect, F5b; item 7 threshold RULED by the owner 2026-11-25: same point within roundoff, `TAU_WORK·(1+scale)`; mechanism open) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–4: §4.3 tangency-point Newton, Stage-1 `cyl_cyl_tangent_points` retirement, `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT, exact Fig. 10(c) barycenter seeding, and `:502-506` L curve-redundancy removal landed) | Tangent points, small loops and sub-band contacts: all §4.2.2/§4.3 tangency & interior small-loop mechanisms (`stage4_tangency.rs`, `gauss_map.rs`, `stage4_small_loop.rs`, `C0116`) landed; non-cylinder 0D tangent mesh insertion (`N82`), post-collapse single-survivor census (`N81`), and external 0D solid kiss policy (`C0107`–`C0109`) remain open |
 | N92 | **RESOLVED** (2026-10-27, roadmap F4 Step 3; folded into N91 from parked branch `agy/f4-n92-gaussmap` `1519f6ed`) | Closed-form conservative `GaussMap` (`crates/yang-rs/src/gauss_map.rs`, all 5 analytic surfaces) is wired in its §4.2.2 (`:440-446` R, Fig. 10(b) `:489-491` L) role as the admission test for `< 2d_ε` non-crossing small-loop / tangency candidate areas (`stage4_small_loop.rs`, `stage4_tangency.rs`) with zero trim-boundary exemption (`C0116` admitted unconditionally; orthogonal proximity pruned); Bézier Theorem 4.1 remains out of scope under D14 |
@@ -7601,6 +7601,22 @@ Each is OPEN, each small; recorded together so none is invisible.
    the curve-endpoint guard and the paper-order removal of Phase 2a.
 7. **The Fig. 11(b) merge threshold.** N55 records identity-only merging but
    not that the paper's merge is a QUALITY threshold ("too close", `:560-566`).
+   **Threshold RULED by the owner, 2026-11-25 (prose sign-off, A15.7):**
+   Fig. 11(b)'s "too close" (`refs/text/yang2025_hybrid_boolean.txt:562-563`)
+   is read as *the same point within floating-point roundoff*,
+   `TAU_WORK·(1 + scale)` (`is_relocation_coincidence`). The paper gives no
+   number; this is our recorded choice where it is silent. Basis: every pair
+   the merges take is 3e-20…2e-13 apart (N89 item 1 census, N55 amendment
+   2026-11-25), so no measured customer needs more; d_ε is a per-surface
+   chord bound (7e-4…1e2 across pinned cases) that changes under rotation
+   (N5), so it is no merge distance; a wider merge moves operand rim vertices
+   and must agree across the two faces of a boundary edge. A quality
+   threshold (a ratio of the split edge's length, guarded by the d(T)
+   recompute of `:569-571`) is a separate increment, taken only with a
+   census of |pq| against the split edge that names a customer. The
+   threshold is settled; the MECHANISM is not: the merge is still an ordered
+   index rewrite ahead of the CDT (N55 amendment 2026-11-25), which the
+   update's CDT input replaces (`specs/yang_f2_fig11b_cdt_input_merge.md`).
 8. **The Stage-2 broad phase** is a median-split BVH (`shell_contact.rs`
    `struct Bvh`), not the paper's octree (`:434`) — performance-only, same
    candidate set; D12 (HISTORICAL) cites deleted code, and cherchi-rs's own
