@@ -37,6 +37,15 @@ vertex-fan split cannot and must not touch (§2 row: non-manifold edges
 unchanged). It currently emits Ok with χ=0 + 2 non-manifold edges
 (tolerated by the fwd=rev pairing rule).
 
+> **2026-11-26 — F0060's verdict rests on roundoff.** At each end of a
+> pinch line the two sheets hold two different vertices 1.5e-16 and 9.2e-17
+> apart; the assay's exact-bit edge pairing keeps the sheets' line edges
+> apart for that reason alone. With the pair one vertex (any exact merge)
+> the kernel still emits four closed solids, and the watertight and Euler
+> oracles count the shared half-lines as two non-manifold edges
+> (`specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). What a line pinch is
+> emitted as and what the oracle accepts is open with the owner.
+
 ### 0a. The EDGE pinch, located and specified (2026-09-13, F0060)
 
 Measured with the new `YANG_NM_EDGE_PROBE` census (the over-2 edge list with

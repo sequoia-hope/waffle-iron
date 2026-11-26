@@ -8,9 +8,11 @@
 //! `TAU_WORK·(1 + 2.09…)` ≈ 3.1e-12.
 
 use super::m4_substitute::p;
-use crate::stage4_fig11b::{fig11b_vertex_classes, Fig11bClasses};
+use crate::param_surface::carried::FaceRef;
+use crate::stage4_fig11b::{fig11b_vertex_classes, pair_kind, Fig11bClasses, PairKind};
 use crate::*;
 use cad_primitives::TAU_WORK;
+use std::collections::BTreeSet;
 
 fn of(input: InputId) -> Option<TriangleAttribution> {
     Some(TriangleAttribution { input, face: 0 })
@@ -178,4 +180,69 @@ fn a_chain_wider_than_the_band_is_left_alone() {
     assert_eq!(c.too_wide.len(), 1);
     assert_eq!(c.too_wide[0].members, vec![0, 1, 2]);
     assert!(c.survivor_map().is_empty());
+}
+
+fn faces(list: &[(InputId, u32)]) -> BTreeSet<FaceRef> {
+    list.iter()
+        .map(|&(input, face)| FaceRef { input, face })
+        .collect()
+}
+
+/// Fig. 11(b) (`:562-563`): p is a mesh vertex on the edge between two faces
+/// of A, q the point where the intersection curve with a face of B meets
+/// that edge. In either order.
+#[test]
+fn a_boundary_vertex_beside_the_intersection_point_on_its_curve_is_fig11b() {
+    use InputId::{A, B};
+    let p = faces(&[(A, 0), (A, 1)]);
+    let q = faces(&[(A, 0), (A, 1), (B, 4)]);
+    assert_eq!(pair_kind(&p, &q), PairKind::BoundaryEndpoint);
+    assert_eq!(pair_kind(&q, &p), PairKind::BoundaryEndpoint);
+}
+
+/// §4.4.1 (`:563-564`): a mesh vertex inside one face, beside an
+/// intersection point on that face, is the near-curve removal, not Fig. 11(b).
+#[test]
+fn an_interior_vertex_beside_the_curve_is_the_near_curve_removal() {
+    use InputId::{A, B};
+    let p = faces(&[(A, 0)]);
+    let q = faces(&[(A, 0), (B, 4)]);
+    assert_eq!(pair_kind(&p, &q), PairKind::NearCurveInterior);
+    assert_eq!(pair_kind(&q, &p), PairKind::NearCurveInterior);
+}
+
+/// §4.3.3 (`:535-536`): two intersection points on the same two faces are
+/// two points of one loop; where one also lies on a further face it is the
+/// loop's end there.
+#[test]
+fn two_intersection_points_are_one_curve_or_its_end() {
+    use InputId::{A, B};
+    let on_curve = faces(&[(A, 0), (B, 4)]);
+    let at_end = faces(&[(A, 0), (A, 1), (B, 4)]);
+    assert_eq!(pair_kind(&on_curve, &on_curve), PairKind::SameCurve);
+    assert_eq!(pair_kind(&on_curve, &at_end), PairKind::CurveEnd);
+    assert_eq!(pair_kind(&at_end, &on_curve), PairKind::CurveEnd);
+}
+
+/// Two points each recorded on a face the other is not: the ends of two
+/// different curves, or a mesh vertex of a face the intersection point is not
+/// on. No single statement of the paper names the pair.
+#[test]
+fn points_recorded_on_different_faces_are_their_own_kind() {
+    use InputId::{A, B};
+    let end_on_a = faces(&[(A, 0), (A, 1), (B, 4)]);
+    let end_on_b = faces(&[(A, 0), (B, 4), (B, 5)]);
+    assert_eq!(pair_kind(&end_on_a, &end_on_b), PairKind::DifferentFaces);
+    let other_face = faces(&[(A, 2)]);
+    assert_eq!(pair_kind(&other_face, &end_on_a), PairKind::DifferentFaces);
+}
+
+/// Two vertices of one operand's mesh, or a vertex with no recorded face,
+/// fall under no statement.
+#[test]
+fn one_operand_pairs_and_bare_vertices_are_unread() {
+    use InputId::A;
+    let p = faces(&[(A, 0), (A, 1)]);
+    assert_eq!(pair_kind(&p, &p), PairKind::Unread);
+    assert_eq!(pair_kind(&p, &BTreeSet::new()), PairKind::Unread);
 }

@@ -114,6 +114,14 @@ like this. the fixes must be principled. the principles are the paper."*
   Taking the N55 merge's own pairs in another order makes F0060 a WRONG
   (2026-11-25, ledger N55). Do not reorder, fold or re-scope a
   `collapse_vertex` scan as a neutral refactor; measure F0060 and F0058.
+- **F0060's CORRECT rests on two vertices an ulp apart.** It is a solid
+  pinched along two lines; at each line's end its two sheets hold two
+  different vertices (1.5e-16 apart), and the assay pairs edges by exact
+  bits. Any change that makes that point one vertex turns F0060 WRONG with
+  the same four closed solids (2026-11-26,
+  `specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). Read a WRONG there with
+  `ASSAY_WATERTIGHT_PROBE` before reading it as a kernel fault; the ruling on
+  line pinches is the owner's.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.

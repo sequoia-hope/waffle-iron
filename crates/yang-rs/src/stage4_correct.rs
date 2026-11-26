@@ -4942,6 +4942,7 @@ fn stage4_relocate_and_correct_inner(
                     u8::from(conic_endpoint.contains(&v))
                 }
             },
+            &|v: u32| moved.contains(&v),
         );
         // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
         let max_merge_passes = mesh.tris.len() + 1;
@@ -5049,9 +5050,14 @@ fn stage4_relocate_and_correct_inner(
                     }
                     if crate::stage4_fig11b::census_on() {
                         crate::stage4_fig11b::log(&format!(
-                            "taken\tpass=n55\tvictim={victim}:{} survivor={survivor}:{}",
+                            "taken\tpass=n55\tvictim={victim}:{} survivor={survivor}:{} kind={}",
                             crate::stage4_fig11b::pos_key(mesh, victim),
                             crate::stage4_fig11b::pos_key(mesh, survivor),
+                            crate::stage4_fig11b::pair_kind(
+                                &crate::stage4_fig11b::faces_of(Some(&*vertex_params), victim),
+                                &crate::stage4_fig11b::faces_of(Some(&*vertex_params), survivor),
+                            )
+                            .tag(),
                         ));
                     }
                     let dropped = collapse_vertex_scoped_with_bounds(
@@ -5180,6 +5186,7 @@ fn stage4_relocate_and_correct_inner(
         &attribution.attributions,
         Some(&*vertex_params),
         &|_| 0,
+        &|v: u32| moved.contains(&v),
     );
     if crate::stage4_construct::update_patches_ex_with_bounds(
         mesh,

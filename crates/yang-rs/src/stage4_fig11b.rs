@@ -17,9 +17,9 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
 use crate::brep::InputId;
-use crate::param_surface::carried::VertexParamMap;
+use crate::param_surface::carried::{FaceRef, VertexParamMap};
 use crate::{Mesh, TriangleAttribution};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// One merge class: vertices that are one point.
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +220,96 @@ pub(crate) fn fig11b_vertex_classes(
     out
 }
 
+/// Which statement of the paper a close pair falls under, read from the
+/// faces each of its two points lies on ([`VertexParamMap`], §4.2.3). The
+/// classes above are one union-find over all of them; the paper has a
+/// different rule for each (spec §8).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum PairKind {
+    /// Fig. 11(b) (`:562-563`): p is a vertex of one operand's mesh on a
+    /// boundary curve of that operand (two or more of its faces), and q is an
+    /// intersection point on that curve — "an endpoint p of the split edge".
+    BoundaryEndpoint,
+    /// §4.4.1 (`:563-564`): p is a vertex of one operand's mesh inside a
+    /// face, and q an intersection point on that face — "we remove a mesh
+    /// vertex if it is too close to the intersection curve".
+    NearCurveInterior,
+    /// §4.3.3 (`:535-536`): two intersection points on the same faces —
+    /// "we remove a point if it is too close to another point on the same
+    /// loop".
+    SameCurve,
+    /// §4.3.3, at the curve's end: two intersection points, one lying on
+    /// every face of the other and on more (where the curve meets a
+    /// boundary curve or another intersection curve).
+    CurveEnd,
+    /// Each point is recorded on a face the other is not. Within the
+    /// roundoff band every measured pair (9 over the rotation sweep, census
+    /// 2026-11-26) is the end of two curves at one corner of both operands —
+    /// A's rim on a face of B beside B's rim on a face of A — which the paper
+    /// holds as one intersection point (`r_A = r_B = r`, `:550-554`); neither
+    /// §4.3.3 nor Fig. 11 names the pair. A wider band would make this two
+    /// points of the model (the containment rule of the §4.3 weld, §4-I8).
+    DifferentFaces,
+    /// A point with no recorded face, or two points of one operand's mesh.
+    Unread,
+}
+
+impl PairKind {
+    pub(crate) fn tag(self) -> &'static str {
+        match self {
+            PairKind::BoundaryEndpoint => "fig11b",
+            PairKind::NearCurveInterior => "near-curve",
+            PairKind::SameCurve => "same-curve",
+            PairKind::CurveEnd => "curve-end",
+            PairKind::DifferentFaces => "different-faces",
+            PairKind::Unread => "unread",
+        }
+    }
+}
+
+/// The faces vertex `v` carries parameters on.
+pub(crate) fn faces_of(vertex_params: Option<&VertexParamMap>, v: u32) -> BTreeSet<FaceRef> {
+    vertex_params
+        .and_then(|vp| vp.params.get(v as usize))
+        .map(|entries| entries.iter().map(|e| e.face).collect())
+        .unwrap_or_default()
+}
+
+/// The [`PairKind`] of two points lying on the faces `fu` and `fv`. No
+/// surface type and no curve type is read: only which faces, of which
+/// operand, each point lies on.
+pub(crate) fn pair_kind(fu: &BTreeSet<FaceRef>, fv: &BTreeSet<FaceRef>) -> PairKind {
+    let on_both = |f: &BTreeSet<FaceRef>| {
+        f.iter().any(|x| x.input == InputId::A) && f.iter().any(|x| x.input == InputId::B)
+    };
+    if fu.is_empty() || fv.is_empty() {
+        return PairKind::Unread;
+    }
+    match (on_both(fu), on_both(fv)) {
+        (true, true) => {
+            if fu == fv {
+                PairKind::SameCurve
+            } else if fu.is_subset(fv) || fv.is_subset(fu) {
+                PairKind::CurveEnd
+            } else {
+                PairKind::DifferentFaces
+            }
+        }
+        (false, false) => PairKind::Unread,
+        (p_is_u, _) => {
+            // `p`: the vertex of one operand's mesh; `q`: the intersection point.
+            let (p, q) = if p_is_u { (fv, fu) } else { (fu, fv) };
+            if !p.is_subset(q) {
+                PairKind::DifferentFaces
+            } else if p.len() >= 2 {
+                PairKind::BoundaryEndpoint
+            } else {
+                PairKind::NearCurveInterior
+            }
+        }
+    }
+}
+
 /// Append one census line for the current case (`YANG_FIG11B_CENSUS=<file>`,
 /// keyed by `ASSAY_CASE` like `repair_census`, subprocess-safe). No effect on
 /// any result.
@@ -255,12 +345,54 @@ pub(crate) fn census(
     attribution: &[Option<TriangleAttribution>],
     vertex_params: Option<&VertexParamMap>,
     rank: &dyn Fn(u32) -> u8,
+    moved: &dyn Fn(u32) -> bool,
 ) {
     if !census_on() {
         return;
     }
     let cls = fig11b_vertex_classes(mesh, attribution, vertex_params, rank);
     let bits = operand_bits(mesh, attribution, vertex_params);
+    let faces_tag = |v: u32| -> String {
+        let f = faces_of(vertex_params, v);
+        if f.is_empty() {
+            return "-".into();
+        }
+        f.iter()
+            .map(|x| {
+                format!(
+                    "{}{}",
+                    match x.input {
+                        InputId::A => 'A',
+                        InputId::B => 'B',
+                    },
+                    x.face
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("+")
+    };
+    // The mesh edges that join two members of one class, each with the
+    // paper statement it falls under.
+    let class_of: BTreeMap<u32, u32> = cls
+        .classes
+        .iter()
+        .chain(cls.too_wide.iter())
+        .flat_map(|c| c.members.iter().map(move |&m| (m, c.members[0])))
+        .collect();
+    let mut class_edges: BTreeMap<u32, BTreeSet<(u32, u32)>> = BTreeMap::new();
+    for tri in &mesh.tris {
+        for k in 0..3 {
+            let (u, v) = (tri[k].min(tri[(k + 1) % 3]), tri[k].max(tri[(k + 1) % 3]));
+            if u == v || !(bits[u as usize] == 3 || bits[v as usize] == 3) {
+                continue;
+            }
+            if let (Some(cu), Some(cv)) = (class_of.get(&u), class_of.get(&v)) {
+                if cu == cv && same_point(mesh, u, v) {
+                    class_edges.entry(*cu).or_default().insert((u, v));
+                }
+            }
+        }
+    }
     for (kind, list) in [("class", &cls.classes), ("too_wide", &cls.too_wide)] {
         for c in list {
             let members: Vec<String> = c
@@ -268,20 +400,35 @@ pub(crate) fn census(
                 .iter()
                 .map(|&m| {
                     format!(
-                        "{m}:{}:r{}:b{}",
+                        "{m}:{}:r{}:b{}:{}:f{}",
                         pos_key(mesh, m),
                         rank(m),
-                        bits[m as usize]
+                        bits[m as usize],
+                        if moved(m) { 'm' } else { 's' },
+                        faces_tag(m),
+                    )
+                })
+                .collect();
+            let edges: Vec<String> = class_edges
+                .get(&c.members[0])
+                .into_iter()
+                .flatten()
+                .map(|&(u, v)| {
+                    format!(
+                        "{u}-{v}:{}:{:.3e}",
+                        pair_kind(&faces_of(vertex_params, u), &faces_of(vertex_params, v)).tag(),
+                        dist(mesh, u, v).0,
                     )
                 })
                 .collect();
             log(&format!(
-                "site={site}\t{kind}\tsize={}\tdiam={:.3e}\tsurvivor={}:{}\tmembers=[{}]",
+                "site={site}\t{kind}\tsize={}\tdiam={:.3e}\tsurvivor={}:{}\tmembers=[{}]\tedges=[{}]",
                 c.members.len(),
                 c.diameter,
                 c.survivor,
                 pos_key(mesh, c.survivor),
-                members.join(" ")
+                members.join(" "),
+                edges.join(" ")
             ));
         }
     }
