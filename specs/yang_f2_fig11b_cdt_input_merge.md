@@ -114,11 +114,12 @@ boundary cycles and the Fig. 11(a) splits are known, and before
    merged patch; mapped, the two faces of a shared edge expect the same
    merged boundary, which is what keeps the result conformal.
 
-Open for increment 2 (no answer is assumed here): a victim may be an
-INTERIOR vertex of its patch (a mesh vertex beside the curve, not on the
-cycle). Whether the update's CDT keeps or drops such a vertex decides
-whether the class map must also be applied to the interior points the
-rebuild keeps.
+Interior victims (read 2026-11-25): a victim may be an INTERIOR vertex of
+its patch (a mesh vertex beside the curve, not on the cycle). The update's
+rebuild carries a patch's interior vertices (`rebuild_patch_domain`, "the
+interior vertices carried") and already takes an `excluded_interiors` set;
+an interior victim goes in that set, so the CDT neither keeps it as a
+Steiner point nor needs its index mapped.
 
 If the CDT refuses a patch the merge marked (a crossing, or the d(T) budget),
 the refusal is the update's existing typed failure for that patch. It is
