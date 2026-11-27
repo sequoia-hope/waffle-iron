@@ -111,20 +111,25 @@ like this. the fixes must be principled. the principles are the paper."*
   paper's update never merges (2026-11-25, ledger N89 item 1). The suite is
   minutes; the corpus, sweep and seed are hours.
 - **The order of index-rewriting merges decides the result at a pinch.**
-  Taking the N55 merge's own pairs in another order makes F0060 a WRONG
-  (2026-11-25, ledger N55). Do not reorder, fold or re-scope a
-  `collapse_vertex` scan as a neutral refactor; measure F0060 and F0058.
-- **F0060's CORRECT rests on two vertices an ulp apart.** It is a solid
-  pinched along two lines; at each line's end its two sheets hold two
-  different vertices (1.5e-16 apart), and the assay pairs edges by exact
-  bits. Any change that makes that point one vertex turns F0060 WRONG with
-  the same four closed solids (2026-11-26,
-  `specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). Read a WRONG there with
-  `ASSAY_WATERTIGHT_PROBE` before reading it as a kernel fault. The owner
-  ruled the same day that a line pinch is one copy of the line per sheet, and
-  the assay now reads a four-use mesh edge as two sheets where the B-Rep
-  holds two edges there (`oracle::line_pinch_sheets`); a four-use edge the
-  B-Rep does not back is still a failure. Do not widen that reading.
+  The same-point merge before the §4.4.1 update is therefore applied per
+  CLASS, every class at once (`stage4_fig11b::fig11b_vertex_classes`,
+  `collapse::merge_vertex_classes_with_bounds`, ledger N55). Do not turn it
+  back into a pair-at-a-time `collapse_vertex` scan, and do not reorder or
+  re-scope the other `collapse_vertex` passes as a neutral refactor; measure
+  F0060 and F0058.
+- **F0060 is a solid pinched along two lines, emitted as one copy of each
+  line per sheet** (owner ruling 2026-11-26,
+  `specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). The assay reads a mesh
+  edge used four times as two sheets only where the B-Rep holds two edges
+  there (`oracle::line_pinch_sheets`); a four-use edge the B-Rep does not
+  back is still a failure. Do not widen that reading. Read a WRONG on F0060
+  with `ASSAY_WATERTIGHT_PROBE` before reading it as a kernel fault.
+- **A same-point class needs a mesh edge between its points.** Two
+  intersection points of two different curves at one position (the crossing
+  of F0059's two ellipses under one rotation) are joined by no edge and stay
+  two vertices; the render gate refuses the face loudly. That is a tangent
+  crossing, a customer of the degenerate-contact matrix — not a reason to
+  merge by position alone.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.

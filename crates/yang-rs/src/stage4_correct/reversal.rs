@@ -1412,37 +1412,34 @@ pub(crate) fn incidence_rank(
     }
 }
 
-/// §4.4.1(b) merge direction (spec `yang_453_junction_protected_collapse`
-/// §3b): which vertex of a sub-feature-floor edge `(u, v)` is REMOVED?
-/// Returns `(victim, survivor)` for [`collapse_vertex`].
-///
-/// Yang Fig. 11(b) merges the split-edge endpoint INTO the existing exact
-/// intersection point ("if an endpoint p of the split edge is too close to q,
-/// we merge p with q") — the exact vertex survives. Rank: closed-form
-/// junction (exact on TWO curves) > single-curve conic endpoint > plain mesh
-/// vertex; equal ranks keep the lower-index-survives rule byte-identical to
-/// the pre-fix behavior.
-///
-/// WIRED at the §4.4.1(b) merge call site 2026-07-21 (task #186). The §3b
-/// bank condition is satisfied: R0091's output χ = −4 was VERIFIED (Cherchi
-/// sidecar reference parity on the exact operand meshes + independent
-/// voxel-CSG derivation from the authored numbers — the meta's naive 3-op
-/// default χ=2 was the authoring error, corrected in `R0091.meta.json`).
+/// How exact a merge survivor's POSITION is (spec
+/// `yang_453_junction_protected_collapse` §3b): a closed-form junction
+/// (exact on TWO curves) outranks a single-curve conic endpoint, which
+/// outranks any other vertex. The same-point merge keeps the best-ranked
+/// intersection point of a class ([`crate::stage4_fig11b::fig11b_vertex_classes`]).
+pub(crate) fn merge_rank(
+    junction_verts: &std::collections::BTreeSet<u32>,
+    conic_endpoint: &std::collections::BTreeSet<u32>,
+    v: u32,
+) -> u8 {
+    if junction_verts.contains(&v) {
+        2
+    } else {
+        u8::from(conic_endpoint.contains(&v))
+    }
+}
+
+/// [`merge_rank`] read for one pair: `(victim, survivor)`, the better rank
+/// surviving and equal ranks keeping the lower index. The pin of the rank
+/// order; the production merge decides per class, not per pair.
+#[cfg(test)]
 pub(crate) fn sub_feature_merge_direction(
     junction_verts: &std::collections::BTreeSet<u32>,
     conic_endpoint: &std::collections::BTreeSet<u32>,
     u: u32,
     v: u32,
 ) -> (u32, u32) {
-    let rank = |x: u32| -> u8 {
-        if junction_verts.contains(&x) {
-            2
-        } else if conic_endpoint.contains(&x) {
-            1
-        } else {
-            0
-        }
-    };
+    let rank = |x: u32| merge_rank(junction_verts, conic_endpoint, x);
     match rank(u).cmp(&rank(v)) {
         std::cmp::Ordering::Greater => (v, u),
         std::cmp::Ordering::Less => (u, v),

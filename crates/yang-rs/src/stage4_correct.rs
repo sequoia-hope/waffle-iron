@@ -4881,52 +4881,27 @@ fn stage4_relocate_and_correct_inner(
     star_probe("before-3c-merge", mesh, attribution);
     coincident_vertex_census("after-453-sweep", mesh);
     nonmanifold_edge_census("before-3c-merge", mesh, attribution);
-    // (3c) §4.4.1(b) sub-feature-size vertex merge (Yang Fig. 11(b): "if an
-    // endpoint p of the split edge is too close to q, we merge p with q"). After
-    // relocation a degenerate triangle can have two vertices nearer than
-    // MIN_FEATURE_SIZE — the governance feature floor (A14.2): two points closer
-    // than the smallest representable feature ARE the same point. This is the
-    // curved-input analog of the I6 near-weld (which is bit-exact-only for curved
-    // inputs — "Stage-4 owns junction-duplicate collapse"). Merge such a pair via
-    // the watertight-preserving `collapse_vertex` (higher index → lower, dropping
-    // the now-degenerate slivers), iterating to a fixed point. P9/P10: the gate is
-    // the GOVERNANCE feature floor, not a tuned tolerance, and a genuinely-spread
-    // degenerate (vertices ≥ the floor apart — e.g. a monotonic-collinear sliver
-    // on a curved patch) is left UNTOUCHED for `validate_relocated_triangles` to
-    // STOP loudly / the curved-patch re-CDT (N2-2) to handle. Spec
-    // `specs/yang_n2_stage4_cdt_mesh_updating.md` §5 increment N2-1.
+    // (3c) The same-point merge. Two vertices joined by a mesh edge, one of
+    // them an intersection point, within roundoff of each other
+    // (`TAU_WORK·(1 + scale)`, owner ruling 2026-11-25) are one point of the
+    // model. By the faces they lie on they are §4.3.3's "a point too close to
+    // another point on the same loop" (`:535-536`), Fig. 11(b)'s endpoint p
+    // beside the intersection point q on its boundary curve (`:562-563`), or
+    // the mesh vertex too close to the curve (`:563-564`); the census
+    // (`YANG_FIG11B_CENSUS`) prints which. The merge is decided per CLASS
+    // (`stage4_fig11b::fig11b_vertex_classes`) and applied to all of them at
+    // once, so it has no order (spec `yang_f2_fig11b_cdt_input_merge.md`
+    // §8.6, ledger N55). A merge can make two survivors neighbours, so the
+    // classes are formed again until none is left; every round removes a
+    // vertex from the mesh, which bounds the rounds.
     //
-    // SCOPE NOTE (M8 holed-disc increment 3, 2026-07-06): a GLOBAL widening of
-    // this scan (all triangles + a Stage-4 ENTRY pass) was tried and REVERTED —
-    // at micro model scale (R0091, 1.6e-4) the ABSOLUTE floor collapses
-    // legitimately-distinct arrangement geometry (Euler flipped to −4,
-    // SUPPORTED_WRONG). The relocation/conic-adjacent eligibility below is
-    // LOAD-BEARING: it keeps the merge away from pre-existing arrangement
-    // slivers that `boolean()` legitimately kept for watertightness.
-    // #169 N55: Yang §4.4.1(b) numerical-duplicate merge — COMPLIANT and
-    // ALWAYS-ON (replaces the retired absolute-floor `subfeature` weld). The
-    // paper's Fig-11(b) "if p is too close to q, merge p with q" is a
-    // NUMERICAL-COINCIDENCE test (two relocated points that Newton-converged to
-    // the SAME intersection point), not a feature-size floor. The criterion is
-    // therefore the scale-relative working tolerance `TAU_WORK·(1+scale)` at the
-    // edge gate below (an exact-dedup merge — the kind the compliance ratchet
-    // KEEPS), NOT the absolute `MIN_FEATURE_SIZE` the weld used (which also
-    // collapsed genuine sub-resolution edges at micro-scale — R0072's ~1e-7
-    // merges, the R0091 hazard — now correctly refused → curved re-CDT). `floor`
-    // here is only the DEGENERACY DETECTOR (a triangle below the feature floor
-    // is a merge candidate); the actual same-point decision is the tighter
-    // numerical band. Deviation N55.
+    // It is still an index rewrite ahead of the update's CDT; the update
+    // re-triangulates the patches it can, and a patch it refuses keeps the
+    // rewritten triangles (N106).
     {
-        let floor = cad_primitives::MIN_FEATURE_SIZE;
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        // KV9-F3 (spec `kv9_f3_output_vertex_identity` E-V2): junction
-        // duplicates that are ALREADY on their exact curve (rho ≤ TAU_WORK)
-        // are never `moved`, yet they are precisely the population the I6
-        // weld delegates to Stage-4 ("Stage-4 owns junction-duplicate
-        // collapse" — curved inputs weld bit-exact only). Scan eligibility
-        // therefore includes triangles touching any CONIC-ENDPOINT vertex;
-        // the merge criterion below is unchanged (the governance
-        // MIN_FEATURE_SIZE floor, A14.2 — never a tuned tolerance).
+        // Vertices already on their exact curve are never `moved`; the rank
+        // of a survivor's position reads them here.
         let conic_endpoint: std::collections::BTreeSet<u32> = vert_circle
             .keys()
             .chain(vert_line.keys())
@@ -4938,163 +4913,69 @@ fn stage4_relocate_and_correct_inner(
             .chain(vert_circle_junction.keys())
             .copied()
             .collect();
-        // Spec `yang_453_junction_protected_collapse` §3b: closed-form junction
-        // vertices (exact on TWO curves) outrank single-curve conic endpoints,
-        // which outrank plain mesh vertices, in merge-survivor selection.
         let junction_verts: std::collections::BTreeSet<u32> = vert_ell_junction
             .keys()
             .chain(vert_circle_junction.keys())
             .chain(vert_junction.keys())
             .copied()
             .collect();
-        // Spec `yang_f2_fig11b_cdt_input_merge.md` §4 increment 0 (print-only,
-        // `YANG_FIG11B_CENSUS`): the classes the CDT-input merge would form
-        // here, before this scan takes any pair.
+        let rank = |v: u32| reversal::merge_rank(&junction_verts, &conic_endpoint, v);
         crate::stage4_fig11b::census(
             "before-3c",
             mesh,
             &attr_vec,
             Some(&*vertex_params),
-            &|v: u32| {
-                if junction_verts.contains(&v) {
-                    2
-                } else {
-                    u8::from(conic_endpoint.contains(&v))
-                }
-            },
+            &rank,
             &|v: u32| moved.contains(&v),
         );
-        // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
-        let max_merge_passes = mesh.tris.len() + 1;
-        let mut merge_passes = 0usize;
-        let mut last_merge: Option<(u32, u32, f64, usize)> = None;
+        let max_rounds = mesh.verts.len() + 1;
+        let mut rounds = 0usize;
         loop {
-            merge_passes += 1;
-            if merge_passes > max_merge_passes {
-                // §4.4.1(b) diagnosis probe (read-only, env-gated): the budget
-                // guard should be unreachable if every pass drops ≥1 triangle
-                // — print the terminal state to localize a livelock.
-                if std::env::var_os("YANG_S4_MERGE_PROBE").is_some() {
-                    eprintln!(
-                        "[s4-merge-probe] BUDGET EXHAUSTED: passes={merge_passes} \
-                         max={max_merge_passes} tris_now={} last_merge={last_merge:?}",
-                        mesh.tris.len()
-                    );
-                }
-                if std::env::var_os("YANG_LRR_PROBE").is_some() {
-                    eprintln!("YANG_LRR_STOP site=merge_budget");
-                }
+            let classes = crate::stage4_fig11b::fig11b_vertex_classes(
+                mesh,
+                &attr_vec,
+                Some(&*vertex_params),
+                &rank,
+            );
+            let map = classes.survivor_map();
+            if map.is_empty() {
+                break;
+            }
+            rounds += 1;
+            if rounds > max_rounds {
                 attribution.attributions = attr_vec;
                 return Err(YangError::stage4_region_invalid(
                     u32::MAX,
                     Stage4InvalidReason::LocalRefinementRequired,
                 ));
             }
-            let mut to_merge: Option<(u32, u32)> = None;
-            for tri in &mesh.tris {
-                if !tri
-                    .iter()
-                    .any(|v| moved.contains(v) || conic_endpoint.contains(v))
-                {
-                    continue;
-                }
-                let p0 = mesh.verts[tri[0] as usize].as_array();
-                let p1 = mesh.verts[tri[1] as usize].as_array();
-                let p2 = mesh.verts[tri[2] as usize].as_array();
-                let nrm = tri_area_vector(p0, p1, p2);
-                let twice_area = (nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]).sqrt();
-                if twice_area * 0.5 >= floor * floor {
-                    continue; // not degenerate — leave it
-                }
-                // Degenerate relocated triangle: if its SHORTEST edge is below the
-                // feature floor, those two endpoints are the same point → merge.
-                let dist = |a: [f64; 3], b: [f64; 3]| {
-                    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
-                };
-                let edges = [
-                    (tri[0], tri[1], dist(p0, p1)),
-                    (tri[1], tri[2], dist(p1, p2)),
-                    (tri[2], tri[0], dist(p2, p0)),
-                ];
-                let (u, v, len) = edges
-                    .iter()
-                    .copied()
-                    .min_by(|x, y| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal))
-                    .expect("3 edges");
-                // §4.4.1(b) same-point test: the shortest edge is a numerical
-                // coincidence iff below the scale-relative working tolerance
-                // `TAU_WORK·(1+scale)` (`scale` = max |coord| of the pair). This
-                // is the model's own "numerically identical" threshold — 5 orders
-                // tighter than `MIN_FEATURE_SIZE` — so it merges only relocation
-                // twins that converged onto one point (~machine ε; R0055/F0056/
-                // F0057/F0059) and never a genuine sub-feature edge (R0072's ~1e-7
-                // collapse at micro-scale is refused → loud STOP → curved re-CDT).
-                let scale = {
-                    let pu = mesh.verts[u as usize].as_array();
-                    let pv = mesh.verts[v as usize].as_array();
-                    pu.iter()
-                        .chain(pv.iter())
-                        .fold(0.0f64, |m, &c| m.max(c.abs()))
-                };
-                let merge = is_relocation_coincidence(len, scale);
-                if std::env::var_os("YANG_S44B_MEASURE").is_some() {
-                    eprintln!(
-                        "[s44b] cand u={u} v={v} len={len:.4e} scale={scale:.4e} \
-                         band={:.4e} merge={merge}",
-                        cad_primitives::TAU_WORK * (1.0 + scale)
-                    );
-                }
-                if merge {
-                    // Spec `yang_453_junction_protected_collapse` §3b: the
-                    // exactness-ranked survivor (Yang Fig. 11(b) — "merge p
-                    // with q": the exact intersection point q survives).
-                    // WIRED 2026-07-21 (task #186): the §3b blocker was the
-                    // unverified R0091 χ — resolved by verifying the output's
-                    // true χ = −4 via Cherchi sidecar reference parity on the
-                    // exact operand meshes + an independent voxel-CSG
-                    // derivation from the authored numbers (the meta's naive
-                    // 3-op default χ=2 was the authoring error; corrected).
-                    let (victim, survivor) =
-                        sub_feature_merge_direction(&junction_verts, &conic_endpoint, u, v);
-                    to_merge = Some((victim, survivor));
-                    break;
+            if crate::stage4_fig11b::census_on() {
+                for (&victim, &survivor) in &map {
+                    crate::stage4_fig11b::log(&format!(
+                        "taken\tpass=classes\tvictim={victim}:{} survivor={survivor}:{} kind={}",
+                        crate::stage4_fig11b::pos_key(mesh, victim),
+                        crate::stage4_fig11b::pos_key(mesh, survivor),
+                        crate::stage4_fig11b::pair_kind(
+                            &crate::stage4_fig11b::faces_of(Some(&*vertex_params), victim),
+                            &crate::stage4_fig11b::faces_of(Some(&*vertex_params), survivor),
+                        )
+                        .tag(),
+                    ));
                 }
             }
-            match to_merge {
-                Some((victim, survivor)) => {
-                    if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
-                        eprintln!(
-                            "[collapse-site] s4.4.1b-merge victim={victim} survivor={survivor}"
-                        );
-                    }
-                    if crate::stage4_fig11b::census_on() {
-                        crate::stage4_fig11b::log(&format!(
-                            "taken\tpass=n55\tvictim={victim}:{} survivor={survivor}:{} kind={}",
-                            crate::stage4_fig11b::pos_key(mesh, victim),
-                            crate::stage4_fig11b::pos_key(mesh, survivor),
-                            crate::stage4_fig11b::pair_kind(
-                                &crate::stage4_fig11b::faces_of(Some(&*vertex_params), victim),
-                                &crate::stage4_fig11b::faces_of(Some(&*vertex_params), survivor),
-                            )
-                            .tag(),
-                        ));
-                    }
-                    let dropped = collapse_vertex_scoped_with_bounds(
-                        mesh,
-                        &mut attr_vec,
-                        &mut side_labels.labels,
-                        &mut tri_bounds.bounds,
-                        victim,
-                        survivor,
-                        full_arrangement,
-                        Some(tangential_verts),
-                    );
-                    last_merge = Some((victim, survivor, dropped as f64, mesh.tris.len()));
-                    collapsed_any = true;
-                }
-                None => break,
+            if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+                eprintln!("[collapse-site] s4.4.1b-merge classes {map:?}");
             }
+            collapse::merge_vertex_classes_with_bounds(
+                mesh,
+                &mut attr_vec,
+                &mut side_labels.labels,
+                &mut tri_bounds.bounds,
+                &map,
+                full_arrangement,
+                Some(tangential_verts),
+            );
+            collapsed_any = true;
         }
         attribution.attributions = attr_vec;
     }

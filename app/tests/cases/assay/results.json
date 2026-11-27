@@ -594,7 +594,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 2.220e-15 m, rel 2.043e-16, solids 1 at (-1.971248e0, -3.283739e0, 6.467136e0); mesh_on_surface: plane rel 2.043e-16, chord ratio 8.700e-1 at (1.383037e0, -5.521400e0, 8.525331e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 2.276e-15 m, rel 2.094e-16, solids 1 at (-9.715965e-1, -6.722187e0, 8.823108e0); mesh_on_surface: plane rel 2.401e-16, chord ratio 8.700e-1 at (1.115468e0, -4.867141e0, 8.911483e0), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 3 checked, 0 not covered, 0 violation(s)",
       "id": "R0099",
       "status": "pass"
     },

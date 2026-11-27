@@ -257,8 +257,9 @@ intersected patches.
       and the refusal-off trial; a residual fin is a loud gate failure and a
       T4 site)*, `collapse_subtauwork_mesh_edges` (N89 item 1) *(censused
       2026-11-25: NOT this milestone's to retire whole. Its edges are four
-      populations — two intersection points an ulp apart (F0059 moved
-      rigidly needs it), two rim points the boundary-curve relocation
+      populations — two intersection points an ulp apart (merged before
+      the update since 2026-11-26; the pass's Stage-4 site now takes nothing
+      on the corpus or the sweep), two rim points the boundary-curve relocation
       brings together after the update (R0015), a rim vertex beside a
       vertex inside a face (C0043, harmless), and two points of ONE
       operand's mesh (`pocket_operand_reenters_plain_boolean`, the class it
@@ -298,23 +299,22 @@ intersected patches.
       selector are deleted.)*
 - [ ] The Fig. 11(b) merge carries the paper's threshold (N89 item 7; N55
       re-adjudicated), and Fig. 11(c) insert is real, not inherited (M-5).
-      *(2026-11-25: the merge's domain is the paper's already in effect —
-      each of the 1,112 merges it made over the corpus run and the sweep has
-      an intersection point at one end — but its result depends on the ORDER of the merges at a pinch:
-      taking the same pairs in index order makes F0060 a WRONG (N55). The
-      faithful form merges points of the update's CDT input, which has no
-      order; it also takes the sub-τ collapse's intersection-point pairs,
-      N89 item 1.)* *(2026-11-25: threshold RULED by the owner — "too close"
-      is the same point within roundoff, `TAU_WORK·(1+scale)`; a quality
-      threshold is a later, separately measured increment. Spec:
-      `specs/yang_f2_fig11b_cdt_input_merge.md`.)* *(2026-11-26, spec §8: the
-      classes sorted by paper statement — five of six of the N55 scan's
-      merges are §4.3.3's same-loop removal, 33 of 294 on the corpus are the
-      figure's pair; one merge at the CDT's input still serves all of them.
-      Wiring waits on the owner's ruling for a LINE pinch: F0060 is CORRECT
-      today because each end of its two pinch lines is left as two vertices
-      an ulp apart, and the harness pins that two shells sharing an edge
-      fail. F0060 is also the named blocker of F1's I3b.)*
+      *(Spec: `specs/yang_f2_fig11b_cdt_input_merge.md`. Threshold RULED by
+      the owner 2026-11-25: "too close" is the same point within roundoff,
+      `TAU_WORK·(1+scale)`; a quality threshold is a later, separately
+      measured increment. The same-point classes are three paper statements
+      — §4.3.3's same-loop removal in five merges of six, the figure's pair
+      in 33 of 296 on the corpus, the near-curve removal — and one merge
+      serves them all. **Increment 2a LANDED 2026-11-26:** the ordered N55
+      scan is deleted; the classes are merged in its place, all at once, so
+      the result has no order of pairs. F0060 is CORRECT with each pinch-line
+      end one point per sheet (line pinch RULED 2026-11-26, gate 3.7); the
+      sub-τ collapse no longer sees an intersection-point pair. Open:
+      increment 2b — the classes as input of the update's CDT, which waits
+      on N106's d(T) refusals; the survivor's face record; two points of two
+      different curves at one position, which no mesh edge joins (F0059
+      under one rotation, loud at the render gate — a tangent crossing,
+      gate 3.7). F0060 is also the named blocker of F1's I3b.)*
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
       validate. The §4.3 removals move into optimization (N81). *(Measured
@@ -322,8 +322,10 @@ intersected patches.
       same-point pairs the relocation leaves are merged in three places —
       ahead of the §4.5.3 sweep, by the N55 scan and N47 weld behind it, by
       the sub-τ collapse after the update — and the sweep itself removes a
-      third of the Fig. 11(b) pairs as reversals. First step: form the
-      classes once, after the relocation.)*
+      third of the Fig. 11(b) pairs as reversals. Since increment 2a the
+      place behind the sweep is one order-free merge and no pair reaches the
+      update. First step here: form the classes once, after the relocation,
+      so the sweep reads each class as one point.)*
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
       ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
@@ -546,3 +548,4 @@ the first known item.
 | 2026-11-25 | F2 item 3, measured, nothing landed: `collapse_subtauwork_mesh_edges` censused (ledger N89 item 1). It acts in 10 of 1,496 rotated builds and in no corpus build; its edges are intersection-point pairs (F0059 needs it), rim points the late boundary-curve relocation brings together (R0015), a harmless rim-to-interior pair (C0043) and twins of one operand's own mesh (`pocket_operand_reenters_plain_boolean`). A merge with the paper's domain in its place held everything but the rewrite tier, which stopped on the operand-self twins: a Stage-1 defect, moved to F5b. Folding the N55 merge into the same domain makes F0060 a WRONG (the merges' order decides at a pinch); not done. The change was backed out | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (kernel unchanged) | (this commit) |
 | 2026-11-26 | F2 Fig. 11(b), measured, nothing wired: every close pair read by the faces its points lie on (`stage4_fig11b::pair_kind`, print-only). The N55 scan is §4.3.3's removal in five merges of six (259 of 294 corpus, 731 of 884 sweep), Fig. 11(b) in 33 and 147. F0060 read with every class merged: four closed solids whose pinch-line edges coincide, which the watertight oracle counts as two non-manifold edges — it is CORRECT today on two vertices an ulp apart at each line end. A line pinch is put to the owner (spec §8.3) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical; 1,870 sweep lines identical) | (this commit) |
 | 2026-11-26 | F2 sub-step split (N81), measured, nothing wired: each same-point pair followed from the relocation to the update. §4.3.3's removal is made ahead of the §4.5.3 sweep (42 of 280 same-faces pairs on the corpus, 250 of 880 over the sweep), by the N55 scan and N47 weld behind it (238, 597) and by the sub-τ collapse (0, 21); the sweep removes 12 of 36 Fig. 11(b) pairs (78 of 179) as reversals | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical; 1,870 sweep lines identical) | (this commit) |
+| 2026-11-26 | F2 Fig. 11(b), increment 2a: the ordered N55 scan DELETED; the same-point classes merged in its place, all at once (`collapse::merge_vertex_classes_with_bounds`). 296 merges on the corpus (the scan's 294 + F0060's two pinch-line ends); no class reaches the update; the sub-τ collapse's Stage-4 site takes nothing on corpus or sweep (46 pairs in 10 rotated builds → 5 in 3, at its Stage-5 site). Sweep 1,379 OK / 106 ERR (was 1,378 / 107): F0059 m2 converts, F0059 m3 fails at the render gate on two crossing-point vertices no mesh edge joins; 39 lines differ in mesh hash only. Seed 6 unchanged | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json`: one detail string, R0099) | (this commit) |

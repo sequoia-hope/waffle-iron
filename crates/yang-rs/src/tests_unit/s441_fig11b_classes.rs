@@ -246,3 +246,90 @@ fn one_operand_pairs_and_bare_vertices_are_unread() {
     assert_eq!(pair_kind(&p, &p), PairKind::Unread);
     assert_eq!(pair_kind(&p, &BTreeSet::new()), PairKind::Unread);
 }
+
+fn merge(
+    mesh: &mut Mesh,
+    labels: &mut Vec<TriangleSideLabel>,
+    map: &[(u32, u32)],
+    scoped: bool,
+) -> usize {
+    let mut attr: Vec<Option<TriangleAttribution>> = vec![of(InputId::A); mesh.tris.len()];
+    let mut bounds = vec![0.0; mesh.tris.len()];
+    let dropped = crate::stage4_correct::merge_vertex_classes_with_bounds(
+        mesh,
+        &mut attr,
+        labels,
+        &mut bounds,
+        &map.iter().copied().collect(),
+        scoped,
+        None,
+    );
+    assert_eq!(attr.len(), mesh.tris.len());
+    assert_eq!(bounds.len(), mesh.tris.len());
+    assert_eq!(labels.len(), mesh.tris.len());
+    dropped
+}
+
+fn far_verts(n: usize) -> Vec<Point3> {
+    (0..n).map(|i| p(i as f64, (i * i) as f64, 0.0)).collect()
+}
+
+/// Every class is applied in one rewrite: a triangle that loses an edge is
+/// dropped, the others take the survivors' indices.
+#[test]
+fn every_class_is_merged_in_one_rewrite() {
+    // 1 -> 0 and 3 -> 2: [0,1,4] and [2,3,4] lose an edge, [1,3,4] becomes [0,2,4].
+    let mut mesh = Mesh::new(far_verts(5), vec![[0, 1, 4], [2, 3, 4], [1, 3, 4]]);
+    let mut labels = vec![TriangleSideLabel::default(); 3];
+    let dropped = merge(&mut mesh, &mut labels, &[(1, 0), (3, 2)], false);
+    assert_eq!(dropped, 2);
+    assert_eq!(mesh.tris, vec![[0, 2, 4]]);
+}
+
+/// The membrane (spec `yang_collapse_membrane_cancellation`): two triangles
+/// that the merge puts on one vertex triple with opposite windings are a
+/// zero-volume flap, and both go. It is read once, over the whole result —
+/// here the pair exists only after BOTH classes are merged, so no single
+/// pair read in any order finds it.
+#[test]
+fn a_membrane_made_by_two_classes_together_is_cancelled() {
+    // [0,1,2] and [3,5,4] with 3 -> 0 and 4 -> 1, 5 -> 2: the second becomes
+    // [0,2,1], the first's mirror.
+    let mut mesh = Mesh::new(far_verts(7), vec![[0, 1, 2], [3, 5, 4], [0, 1, 6]]);
+    let mut labels = vec![TriangleSideLabel::default(); 3];
+    let dropped = merge(&mut mesh, &mut labels, &[(3, 0), (4, 1), (5, 2)], false);
+    assert_eq!(dropped, 2);
+    assert_eq!(mesh.tris, vec![[0, 1, 6]]);
+
+    // Same winding: a doubled triangle is not a membrane and stays.
+    let mut mesh = Mesh::new(far_verts(6), vec![[0, 1, 2], [3, 4, 5]]);
+    let mut labels = vec![TriangleSideLabel::default(); 2];
+    let dropped = merge(&mut mesh, &mut labels, &[(3, 0), (4, 1), (5, 2)], false);
+    assert_eq!(dropped, 0);
+    assert_eq!(mesh.tris.len(), 2);
+}
+
+/// On the full arrangement a membrane is cancelled only within one side
+/// label: a kept patch never cancels against a dropped one, nor across
+/// operands (§4.4.2 `:572-578`).
+#[test]
+fn a_membrane_across_two_side_labels_is_not_cancelled() {
+    let tris = vec![[0, 1, 2], [3, 5, 4]];
+    let map = [(3, 0), (4, 1), (5, 2)];
+    let other = TriangleSideLabel {
+        cherchi_patch: 7,
+        ..TriangleSideLabel::default()
+    };
+
+    let mut mesh = Mesh::new(far_verts(6), tris.clone());
+    let mut labels = vec![TriangleSideLabel::default(), other];
+    assert_eq!(merge(&mut mesh, &mut labels, &map, true), 0);
+    assert_eq!(mesh.tris.len(), 2);
+    assert_eq!(labels[1], other, "labels stay 1:1 with the triangles");
+
+    // Unscoped (the kept submesh), the same pair is a membrane.
+    let mut mesh = Mesh::new(far_verts(6), tris);
+    let mut labels = vec![TriangleSideLabel::default(), other];
+    assert_eq!(merge(&mut mesh, &mut labels, &map, false), 2);
+    assert!(mesh.tris.is_empty());
+}

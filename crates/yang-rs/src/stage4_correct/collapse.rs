@@ -134,6 +134,110 @@ pub(crate) fn collapse_vertex_scoped(
     )
 }
 
+/// Every `victim -> survivor` of `map` applied at once (spec
+/// `yang_f2_fig11b_cdt_input_merge.md` §8.6, increment 2a).
+///
+/// The points of a class are one point (§4.3.3 `:535-536`, Fig. 11(b)
+/// `:562-563`, `:563-564`, `r_A = r_B = r` `:550-554`), so the merge has no
+/// order: all indices are rewritten together, the triangles that lose an
+/// edge are dropped, and then — once, over the result — every pair of
+/// triangles on one vertex triple with opposite windings is cancelled (the
+/// zero-volume membrane of [`collapse_vertex_scoped_with_bounds`], scoped the
+/// same way). One pair at a time, an earlier merge's cancellation could
+/// delete the edge a later pair was read from, and the result depended on
+/// the order of the pairs (F0060, ledger N55 amendment 2026-11-25).
+///
+/// Returns the number of triangles removed.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_vertex_classes_with_bounds(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    map: &std::collections::BTreeMap<u32, u32>,
+    scope_by_side_label: bool,
+    tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> usize {
+    assert_eq!(
+        tri_bounds.len(),
+        mesh.tris.len(),
+        "merge_vertex_classes: tri_bounds must be 1:1 with mesh.tris"
+    );
+    if map.is_empty() {
+        return 0;
+    }
+    if let Some(tv) = tangential_verts {
+        for (victim, survivor) in map {
+            if tv.remove(victim) {
+                tv.insert(*survivor);
+            }
+        }
+    }
+    let m = |v: u32| map.get(&v).copied().unwrap_or(v);
+    let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
+    let mut kept: Vec<usize> = Vec::with_capacity(mesh.tris.len());
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let mapped = tri.map(m);
+        if mapped[0] == mapped[1] || mapped[1] == mapped[2] || mapped[2] == mapped[0] {
+            continue;
+        }
+        new_tris.push(mapped);
+        kept.push(t);
+    }
+    type ScopeKey = Option<TriangleSideLabel>;
+    let label_of = |t: usize| side_labels.get(t).copied().unwrap_or_default();
+    let mut by_triple: std::collections::BTreeMap<[u32; 3], Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (i, tri) in new_tris.iter().enumerate() {
+        let mut s = *tri;
+        s.sort_unstable();
+        by_triple.entry(s).or_default().push(i);
+    }
+    // Cyclic-winding key: the smallest index first; equal keys ⇔ same winding.
+    let winding_key = |tri: [u32; 3]| -> [u32; 3] {
+        let k = (0..3).min_by_key(|&i| tri[i]).expect("3 verts");
+        [tri[k], tri[(k + 1) % 3], tri[(k + 2) % 3]]
+    };
+    let mut cancel: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    for group in by_triple.values() {
+        // Within one scope, exactly two triangles on the triple with
+        // opposite windings are a membrane; any other count is left for the
+        // gates downstream to read.
+        let mut by_scope: Vec<(ScopeKey, Vec<usize>)> = Vec::new();
+        for &i in group {
+            let scope: ScopeKey = scope_by_side_label.then(|| label_of(kept[i]));
+            match by_scope.iter_mut().find(|(s, _)| *s == scope) {
+                Some((_, list)) => list.push(i),
+                None => by_scope.push((scope, vec![i])),
+            }
+        }
+        for (_, list) in by_scope {
+            if let [x, y] = list.as_slice() {
+                if winding_key(new_tris[*x]) != winding_key(new_tris[*y]) {
+                    cancel.insert(*x);
+                    cancel.insert(*y);
+                }
+            }
+        }
+    }
+    let before = mesh.tris.len();
+    let keep: Vec<usize> = (0..new_tris.len())
+        .filter(|i| !cancel.contains(i))
+        .collect();
+    let tris: Vec<[u32; 3]> = keep.iter().map(|&i| new_tris[i]).collect();
+    let attr: Vec<Option<TriangleAttribution>> = keep
+        .iter()
+        .map(|&i| attribution.get(kept[i]).copied().flatten())
+        .collect();
+    let lbls: Vec<TriangleSideLabel> = keep.iter().map(|&i| label_of(kept[i])).collect();
+    let bounds: Vec<f64> = keep.iter().map(|&i| tri_bounds[kept[i]]).collect();
+    *mesh = Mesh::new(std::mem::take(&mut mesh.verts), tris);
+    *attribution = attr;
+    *side_labels = lbls;
+    *tri_bounds = bounds;
+    before - mesh.tris.len()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn collapse_vertex_scoped_with_bounds(
     mesh: &mut Mesh,

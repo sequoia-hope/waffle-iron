@@ -154,7 +154,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N52 | HISTORICAL | Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class wait… |
 | N53 | HISTORICAL | Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170) |
 | N54 | HISTORICAL | Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for … |
-| N55 | DELEGATED (B) — amended 2026-11-25: its result depends on the ORDER of its merges at a pinch (F0060); amended 2026-11-26: five of six of its merges are §4.3.3's removal, and F0060 holds on two vertices an ulp apart | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
+| N55 | DELEGATED (B) — amended 2026-11-26: the ordered scan is DELETED, the same-point classes are merged in its place all at once (five of six merges are §4.3.3's removal); still an index rewrite ahead of the CDT, the survivor keeps its own face record, and a class needs a mesh edge (F0059 m3) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
 | N56 | DELEGATED (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | N57 | DELEGATED (P5 self-sign) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | N58 | **OPEN** (reopened 2026-10-30; amended 2026-11-24: `repair_fan_cluster` and its seam-order canonicalization are DELETED — the §4.4.1 update replaces lapping triangles by the CDT of their boundary. What stays open is the chain decimation: `stage4_chain_decimate::decimate_patch_chains_441` decimates arrangement polylines by forward §4.3.4 where the paper inserts by parameter-domain midpoint subdivision, the `0`-operand-vertex closed-loop `point_cmp` start sample, and `N105` class-(b) elision) | §4.4.1 polyline chain decimation (formerly also the #169 P3b inc-4c Stage-4 post-merge fan re-CDT + seam-order canonicalization) |
@@ -180,7 +180,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N78 | RESOLVED (2026-10-03 night, P0020; the edge-pinch arm reads its §0a certificate at Stage-4 ENTRY only, always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351 — its `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` kill switch deleted 2026-10-16; the §4.5.3 collapse still minting an over-2 edge is its second remediation, no customer) | the edge-pinch split ran at a second site where the pinch was Stage 4's own (§N78 below) |
 | N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; 2026-10-28/30: I3b customer #3 `b2_pipe::s_bend` `17/17` green under reproducible uncommitted I3b trial after Step 1 `N81` decimation/seam-merge re-site; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
-| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the N55 scan and N47 weld behind it, and by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
+| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
 | N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4; amended 2026-11-22) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops. Since 2026-11-22 T3c also reads a loop that folds back over itself along one curve (`output_loop_spurs`), on every face type |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
@@ -188,7 +188,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N86 | OPEN (2026-10-16, matrix U-2) | Stage 0 carries its own Fig-11 mesh-updating subsystem (`stage0/reloc.rs`, ~2.4k production lines) |
 | N87 | **RESOLVED 2026-11-13** (both transits deleted; an out-of-domain boundary or corner junction is detected and answered by the §4.5.2 loop) | The crease and corner transits applied §4.5.1 to the boundary / corner points the paper sends to §4.5.2 (`:635-657`) |
 | N88 | OPEN (2026-10-16, matrix U-4; amended 2026-11-13) | Stage-1 mechanisms that read other patches: the chart-crossing re-run and the P0008 chord split (the cylinder-pair and thin-band folds deleted 2026-11-13) |
-| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27; item 1 censused 2026-11-25: it stays — its operand-self twins are a Stage-1 defect, F5b; item 7 threshold RULED by the owner 2026-11-25: same point within roundoff, `TAU_WORK·(1+scale)`; mechanism open; 2026-11-26: the classes are three paper statements, wiring waits on a line-pinch ruling, F0060) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
+| N89 | OPEN (2026-10-16, matrix U-5; item 3 RESOLVED 2026-10-24, REOPENED 2026-10-27, RE-RESOLVED 2026-10-27 with sweep-level pins; item 4 RESOLVED 2026-10-27; item 5 → N103 PROPOSED 2026-10-27; item 1 censused 2026-11-25: it stays — its operand-self twins are a Stage-1 defect, F5b; item 7 threshold RULED by the owner 2026-11-25: same point within roundoff, `TAU_WORK·(1+scale)`; mechanism open; 2026-11-26: the classes are three paper statements; the line pinch RULED and the classes merged order-free before the update — item 1's first population has left the sub-τ collapse, whose Stage-4 site now takes nothing on corpus or sweep) | Six smaller unledgered divergences (sub-TAU_WORK edge collapse, T6 floor, ~~Parabola/Hyperbola reversal gap~~ RESOLVED 2026-10-27, ~~Stage-0 ellipse wall~~ RESOLVED 2026-10-27, ~~coincident-cylinder Stage 0~~ → N103 PROPOSED 2026-10-27, overtake arms, Fig-11(b) threshold, BVH broad phase) |
 | N90 | OPEN (2026-10-16, matrix M-2; 2026-10-23: cone ∩ plane interior failures RECORDED and repaired from the bounds' midpoint by `s451_plan_repairs`; continuation on S1 pinned but unwired, q1/q2 open) | §4.5.1 for INTERIOR points is half built (no truncation at C_b, no continuation on S1, no q1/q2) |
 | N91 | OPEN (2026-10-16, matrix M-3; 2026-10-27 F4 Steps 2–4: §4.3 tangency-point Newton, Stage-1 `cyl_cyl_tangent_points` retirement, `GaussMap` admission + Bajaj small-loop tracing + §4.3.4 midpoint refinement + §4.4.1 / Fig. 11(c) local chart CDT, exact Fig. 10(c) barycenter seeding, and `:502-506` L curve-redundancy removal landed) | Tangent points, small loops and sub-band contacts: all §4.2.2/§4.3 tangency & interior small-loop mechanisms (`stage4_tangency.rs`, `gauss_map.rs`, `stage4_small_loop.rs`, `C0116`) landed; non-cylinder 0D tangent mesh insertion (`N82`), post-collapse single-survivor census (`N81`), and external 0D solid kiss policy (`C0107`–`C0109`) remain open |
 | N92 | **RESOLVED** (2026-10-27, roadmap F4 Step 3; folded into N91 from parked branch `agy/f4-n92-gaussmap` `1519f6ed`) | Closed-form conservative `GaussMap` (`crates/yang-rs/src/gauss_map.rs`, all 5 analytic surfaces) is wired in its §4.2.2 (`:440-446` R, Fig. 10(b) `:489-491` L) role as the admission test for `< 2d_ε` non-crossing small-loop / tangency candidate areas (`stage4_small_loop.rs`, `stage4_tangency.rs`) with zero trim-boundary exemption (`C0116` admitted unconditionally; orthogonal proximity pruned); Bézier Theorem 4.1 remains out of scope under D14 |
@@ -4122,6 +4122,47 @@ that backing still fails
 (`oracle.rs::euler_characteristic_two_shells_sharing_an_edge_still_fail`,
 `::a_four_use_edge_the_brep_does_not_back_still_fails`).
 
+**Amendment (2026-11-26, later) — the scan is DELETED; the same-point
+classes are merged in its place, all at once (F2, spec §8.6).** At the
+scan's site, before the §4.4.1 update,
+`stage4_fig11b::fig11b_vertex_classes` forms the classes (vertices joined by
+a mesh edge, one end an intersection point, the same point within
+`TAU_WORK·(1 + scale)`, owner ruling 2026-11-25) and
+`collapse::merge_vertex_classes_with_bounds` rewrites every victim onto its
+class's survivor in one step, cancelling the opposite-winding triangle pairs
+once, after every class is applied; the classes are formed again until none
+is left. The result no longer depends on the order of the pairs (the
+2026-11-25 amendment), and the scan's sub-`MIN_FEATURE_SIZE²` triangle
+test, `moved` set and per-merge membrane cancellation are gone.
+
+Measured (release; baselines of `1951452d`): corpus 360C / 0W / 9E / 5EE /
+0T unchanged, `results.json` moving in one detail string (R0099); 296
+merges on the corpus (the scan's 294 and F0060's two pinch-line ends, which
+F0060 now passes on by the owner's line-pinch reading, not on two vertices
+an ulp apart); over the 1,870 sweep lines 1,379 OK / 106 ERR against 1,378
+/ 107 — F0059 m2 converts, F0059 m3 stays an ERROR with another refusal,
+and 39 lines differ in mesh hash, mesh volume's sixth digit or distance to
+the reference only; seed 6 189C / 9E / 2T with no case moved; rewrite tier
+and CI's always-on harness (683 passed) green.
+
+**What stays a deviation.** (i) The merge is still an index rewrite ahead of
+the update's CDT, not points merged in the CDT's input (`:557-563`): a patch
+the update refuses on its d(T) budget (N106) keeps the rewritten triangles.
+The CDT-input form (spec §3.3, increment 2b) waits on N106. (ii) A survivor
+keeps its own face record, not the union of its class's (the rank picks a
+conic endpoint on two faces over a curve end on three in 10 corpus classes).
+(iii) A class needs a mesh edge between its points. **F0059 m3** shows the
+gap: at each of the two points where its two ellipses cross (equal
+cylinders, tangent there) the output holds two vertices 4.5e-16 and 4.3e-16
+apart that no mesh edge joins — one per branch — and kernel-v2's render gate
+refuses the face whose loop passes both (`TessellationFailed … "patch
+triangle collapsed at render precision"`; before, the same build ended
+§4.5.2 with two `IllegalIntersection` sites unresolved). Two intersection
+points of two DIFFERENT curves at one position are named by neither §4.3.3
+(same loop) nor Fig. 11(b); it is the singular point of a tangent crossing
+and a customer of the degenerate-contact matrix (`docs/kernel_1_0.md` gate
+3.7). Loud today.
+
 ### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
@@ -7279,7 +7320,10 @@ distance, and §4.5.3's rule removes one as a reversal. So one statement of
 §4.3.3 is made in three places and one figure of §4.4.1 in two, each by a
 different rule and survivor. The remediation is unchanged; its first step is
 to form the same-point classes once, when the relocation is done, and let
-every later reader see each class as one point (spec §8.4 item 4).
+every later reader see each class as one point (spec §8.4 item 4). Since
+2026-11-26 the place behind the sweep is one order-free merge of the classes
+(N55 amendment, spec §8.6) and no class reaches the update; the places ahead
+of the sweep and the sweep's own removals are as measured here.
 
 **State: OPEN** (found 2026-10-16; polyline decimation re-sited 2026-10-28 and switched to forward §4.3.4 2026-10-30).
 
@@ -7597,6 +7641,16 @@ Each is OPEN, each small; recorded together so none is invisible.
    shared boundary samples; the pass retires when no operand mesh holds
    them). The other populations go with F2's Fig. 11(b) item (N55, item 7
    below) and the split of Stage 4 along the paper's sub-steps (N81).
+
+   **Re-censused 2026-11-26, with the same-point classes merged before the
+   update (N55 amendment, spec §8.6).** The first population has left the
+   pass: its Stage-4 site takes nothing on the corpus or over the sweep's
+   1,870 builds, and no class reaches the update (38 did). Over the sweep
+   the pass took 46 pairs in 10 builds; it takes 5 in 3, all at its Stage-5
+   site — the boundary-relocation pair (R0015 m1) and the rim-beside-interior
+   pairs (C0043 m1, m2). The pass is unchanged: the fourth population is
+   pinned by `pocket_operand_reenters_plain_boolean` and belongs to F5b, and
+   R0015's pair to the Stage-4 sub-step split (N81).
 2. **The T6 detection floor** `2·max(TAU_MODEL, scale·TAU_WORK)`
    (`shell_contact.rs:316`, `:463-476`): a site needs both leaves to cross
    the other's exact surface by more than the band, so tangencies and
@@ -7699,8 +7753,11 @@ Each is OPEN, each small; recorded together so none is invisible.
    sweep) and the near-curve removal of `:563-564`. The ruling above was
    given for Fig. 11(b)'s "too close"; every pair of the other two kinds is
    inside the same roundoff band, so the wiring needs no further threshold
-   (N55 amendment 2026-11-26). Wiring waits on the owner's ruling for a
-   line pinch (F0060, spec §8.3).
+   (N55 amendment 2026-11-26). *Wired 2026-11-26 as an order-free merge at
+   the scan's site (spec §8.6, N55 amendment):* the line pinch is ruled, the
+   scan is deleted, and the classes add the predicted merges (F0060 ×2,
+   P0041, R0032 m0/m1) with the corpus held. The CDT-input form is the open
+   remainder.
 8. **The Stage-2 broad phase** is a median-split BVH (`shell_contact.rs`
    `struct Bvh`), not the paper's octree (`:434`) — performance-only, same
    candidate set; D12 (HISTORICAL) cites deleted code, and cherchi-rs's own

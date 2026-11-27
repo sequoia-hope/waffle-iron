@@ -1,6 +1,6 @@
 # F2 — the Fig. 11(b) merge as input of the §4.4.1 update's CDT
 
-Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §7 experiment: an order-free rewrite does NOT hold F0060; §8 (2026-11-26): the classes sorted by paper statement, and F0060 read — it passes today on two vertices an ulp apart at the ends of its pinch lines. The line pinch is RULED (§8.3, 2026-11-26) and the harness reads it per sheet; increment 2 is next. Roadmap: `docs/yang_faithfulness_roadmap.md`
+Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §8 (2026-11-26): the classes sorted by paper statement; the line pinch RULED (§8.3) and read per sheet by the harness; **increment 2a LANDED (§8.6): the N55 scan is deleted and the classes are merged in its place, all at once**; increment 3 (the sub-τ collapse re-censused) is recorded with it. Next: increment 4 (the classes formed ahead of the §4.5.3 sweep), then 2b (the classes as the update's CDT input, with N106). Roadmap: `docs/yang_faithfulness_roadmap.md`
 F2, item "The Fig. 11(b) merge carries the paper's threshold". Ledger: N55
 (the merge), N89 item 7 (threshold), N89 item 1 (the sub-τ collapse).
 Matrix: rows 4.4-13, 4.3-17; finding 5.
@@ -43,28 +43,29 @@ increment that needs its own census (N89 item 7).
 
 ## 2. What the code does today
 
-Two passes stand in for Fig. 11(b), both as `collapse_vertex` index rewrites
-made ahead of, or after, the update's CDT:
+Two passes stand in for Fig. 11(b) and §4.3.3's removal, both as index
+rewrites made ahead of, or after, the update's CDT:
 
 | pass | site | domain | order |
 |---|---|---|---|
-| N55 §4.4.1(b) merge | `stage4_correct.rs` "(3c)" block, before `update_patches_ex_with_bounds` | shortest edge of a sub-`MIN_FEATURE_SIZE²` triangle touching a `moved` or conic-endpoint vertex | first degenerate triangle in `mesh.tris` order, one merge per scan |
+| same-point class merge (N55) | `stage4_correct.rs` "(3c)" block, before `update_patches_ex_with_bounds` | the classes of `stage4_fig11b::fig11b_vertex_classes`: vertices joined by a mesh edge, one end an intersection point, the same point within `TAU_WORK·(1 + scale)` | none — every class is rewritten onto its survivor at once (`collapse::merge_vertex_classes_with_bounds`), and the classes are formed again until none is left |
 | #194 sub-τ collapse | `stage4_correct.rs` before the §4.4.3 gate; `stage5_topology.rs` after KV15b | any mesh edge | `BTreeSet<(u32,u32)>` order |
 
-Measured 2026-11-25 (N55 amendment, N89 item 1):
+Measured 2026-11-26 with the class merge in place (§8.6):
 
-- Every N55 merge has an intersection point at one end (294 on the corpus,
-  818 over the sweep's 1,870 builds).
-- The sub-τ collapse acts on four populations: (1) two intersection points an
-  ulp apart at Stage-4 entry (F0059 m0/m1, F0055, P0041); (2) two rim points
-  that the boundary-curve relocation brings together after the update
-  (R0015 m1); (3) a rim vertex beside a vertex Stage 0 left inside a face
-  (C0043, harmless); (4) two points of ONE operand's mesh
-  (`pocket_operand_reenters_plain_boolean`). Population (4) is a Stage-1
-  conformity defect, moved to F5b, and is out of this spec.
-- Taking the union of the N55 pairs and population (1) in index order makes
-  F0060 WRONG and changes six corpus bodies, because the order of merges
-  decides the result at a pinch.
+- The class merge makes 296 merges on the corpus and 846 over the sweep's
+  1,870 builds, and no class reaches the update.
+- The sub-τ collapse's edges are four populations, named by number below:
+  (1) two intersection points an ulp apart at Stage-4 entry; (2) two rim
+  points that the boundary-curve relocation brings together after the
+  update; (3) a rim vertex beside a vertex Stage 0 left inside a face
+  (harmless: the body is the same without the pass); (4) two points of ONE
+  operand's mesh (`pocket_operand_reenters_plain_boolean`), a Stage-1
+  conformity defect that belongs to F5b and is out of this spec.
+- Population (1) is taken by the class merge. The Stage-4 site of the sub-τ
+  collapse takes nothing on the corpus or the sweep; its Stage-5 site takes
+  five pairs in three rotated builds — population (2) in R0015 m1 and
+  population (3) in C0043 m1 and m2. The pass is kept for population (4).
 
 ## 3. Design
 
@@ -146,17 +147,16 @@ never a fallback to the index rewrite.
 
 ### 3.4 What it retires
 
-- The N55 scan (the "(3c)" block, `stage4_correct.rs`) is DELETED in the
-  same commit the merge is wired; N55 moves to RESOLVED-pending-owner with
-  the paper cite.
-- Population (1) leaves the Stage-4 sub-τ collapse. That pass stays (with
-  its Stage-5 site) for population (4) until F5b, and its census must show
-  it acting only on (4) and (3).
-- Population (2) is NOT answered here unless increment 0 shows that its
-  relocation runs before the update. If it runs after the update, it belongs
-  to the roadmap's next item (split `stage4_relocate_and_correct_inner` into
-  relocate → §4.3 dedup → §4.5.3 → update → validate), and it stays with the
-  sub-τ collapse until then.
+- The N55 scan (the "(3c)" block, `stage4_correct.rs`) is DELETED
+  (increment 2a, §8.6). N55 stays open until the merge is the update's CDT
+  input (increment 2b).
+- Two intersection points an ulp apart at Stage-4 entry have left the
+  sub-τ collapse (§8.6). That pass stays, with its Stage-5 site, for two
+  points of one operand's mesh until F5b.
+- Two rim points that the boundary-curve relocation brings together run
+  after the update (R0015 m1). They belong to the roadmap's next item (split
+  `stage4_relocate_and_correct_inner` into relocate → §4.3 dedup → §4.5.3 →
+  update → validate) and stay with the sub-τ collapse until then.
 
 Fig. 11(c)'s interior-point insertion ("If there are no other mesh vertices
 within an intersection loop, we insert one point") belongs to the same
@@ -188,8 +188,10 @@ held the only customer for population 4).
      the same cycles.
    The stashed trial's tests (`tests_unit/s441_fig11b_merge.rs`,
    `git stash` "trial 2026-11-25") are the starting point.
-2. **Wire into the update and delete the N55 scan, in one commit.** Gates,
-   in order:
+2. **Wire the classes and delete the N55 scan.** Taken in two steps (§8.6):
+   **2a, DONE** — the classes merged in the scan's place, all at once;
+   **2b** — the classes as input of the update's CDT (§3.3), which waits on
+   N106. Gates of each step, in order:
    - `cargo test -p yang-rs`;
    - `./scripts/test.sh rewrite`;
    - the release corpus (WRONG = 0; any loss is a named dip, roadmap §1
@@ -201,9 +203,10 @@ held the only customer for population 4).
      (`cargo test --release -p test-harness --no-fail-fast -- --skip smoke_corpus_boundary_categories`).
    The ledger (N55, N89 items 1 and 7) and matrix rows 4.4-13 and 4.3-17 move
    in the same commit.
-3. **Re-census the sub-τ collapse.** After increment 2, confirm that it acts
-   only on populations (3) and (4), plus (2) if increment 0 placed it after
-   the update. Record that in N89 item 1.
+3. **Re-census the sub-τ collapse. DONE with 2a (§8.6):** its Stage-4 site
+   takes nothing on the corpus or the sweep; its Stage-5 site takes the
+   boundary-relocation pair (R0015 m1) and the Stage-0 pair (C0043 m1, m2).
+   Recorded in N89 item 1.
 
 ## 5. Risks
 
@@ -434,12 +437,8 @@ that backing still fails
 
 ### 8.4 Increments, restated
 
-2. (unchanged in mechanism, §3.3–§4) Wire the classes into the update and
-   delete the N55 scan in one commit. §8.3 is ruled and the harness reads a
-   line pinch per sheet, so F0060's expected verdict is CORRECT with each
-   pinch-line end ONE point per sheet. The survivor is left on the union of
-   its class's faces. F0060 and F0058 are read individually.
-3. Re-census the sub-τ collapse (unchanged).
+2. Wire the classes and delete the N55 scan: 2a DONE, 2b open (§8.6).
+3. Re-census the sub-τ collapse: DONE with 2a (§8.6).
 4. New, with the roadmap's sub-step split: measure whether the §4.5.3 sweep
    removes or reorders members of a class, and move the §4.3.3 kinds ahead of
    it if it does (N81).
@@ -490,3 +489,74 @@ change to measure; it is its own increment (§8.4 item 4) and it moves which
 pass takes 12 corpus pairs and 78 over the sweep, so it is not result-neutral
 by construction.
 
+### 8.6 Increment 2a: the classes merged in the scan's place (2026-11-26)
+
+**What landed.** The N55 scan is deleted. At its site, before the update,
+`fig11b_vertex_classes` forms the same-point classes and
+`collapse::merge_vertex_classes_with_bounds` rewrites every victim onto its
+class's survivor in one step: triangles that lose an edge are dropped, and
+the opposite-winding pairs the rewrite leaves on one vertex triple are
+cancelled once, after every class is applied (within one side label when the
+arrangement is whole). A merge can make two survivors neighbours, so the
+classes are formed again until none is left; each round removes a vertex.
+The survivor is the class's (`reversal::merge_rank`, then position, then
+index), so neither the partition nor the result depends on an order of
+pairs. The scan's sub-`MIN_FEATURE_SIZE²` triangle test, its `moved` set and
+its per-merge membrane cancellation are gone with it.
+
+**Why two steps.** §3.3's form — the classes mapped through the cycles and
+`want_bd` of every patch that holds a victim, each such patch rebuilt by the
+CDT, a refusal loud — needs the update to accept those patches. Today it
+refuses 1,281 of 16,368 patch updates on the d(T) budget (N106), and a
+refused patch keeps its old triangles. Under 2b a class touching a refused
+patch would stop the build, and a d(T) refusal is decided by rounding on
+gear cone patches (N106). So 2a removes the ORDER (the property F0060 and
+the 2026-11-25 trial failed on) with the rewrite the scan already used, and
+2b replaces the rewrite when N106 is answered (F5b). What stays unfaithful
+after 2a is recorded in N55: the merge is an index rewrite ahead of the CDT,
+and a survivor keeps its own face record instead of the union of its
+class's.
+
+**Measured** (release, 900 s; baselines of commit `1951452d`):
+
+| | before | after |
+|---|---|---|
+| corpus | 360C / 0W / 9E / 5EE / 0T | the same; `results.json` moves in one detail string (R0099, on-surface figures at 2e-15) |
+| merges at the site, corpus | 294 (245 / 14 / 33 / 2) | 296 (247 `same-curve` / 14 `curve-end` / 33 `fig11b` / 2 `near-curve`) — the two more are F0060's pinch-line ends |
+| classes reaching the update, sweep | 38 | 0 |
+| sub-τ collapse, sweep | 46 pairs in 10 builds | 5 pairs in 3 builds, all at its Stage-5 site |
+| sweep, 1,870 lines | 1,378 OK / 107 ERR | 1,379 OK / 106 ERR |
+| seed 6 | 189C / 9E / 2T | the same, no case moved |
+
+- **F0060** is CORRECT with each pinch-line end one point per sheet, read by
+  the harness's sheet reading (§8.3). F0058, P0041, R0032 and C0056 are
+  CORRECT.
+- **Sweep, read line by line.** 41 lines differ. 39 differ in the mesh
+  hash, the mesh volume's sixth digit or the distance to the reference
+  only (C0044, C0047, C0064, F0056, F0057, F0059 m0/m1, F0060, P0005,
+  P0017, P0027, P0037, P0041, P0059, R0050, R0099): bodies, χ and the exact
+  volume are identical. The class's survivor is the other vertex of the pair
+  in 81 builds, and seven builds gain the merges the scan left to the sub-τ
+  collapse or to no pass (C0043 m3, F0055 m2, F0059 m0/m1, P0041 m0, R0032
+  m0/m1). P0041 m2 now finishes on the first §4.5.2 run: the scan left one
+  pair there, and the loop refined.
+- **F0059 m2: ERROR → OK**, at the reference's exact volume.
+- **F0059 m3: ERROR → ERROR, another refusal.** Before, the scan left
+  three pairs, the run failed two `IllegalIntersection` sites and the loop
+  ended unresolved. Now all 13 classes merge, the first run validates, and
+  kernel-v2's render gate refuses the result
+  (`TessellationFailed … "patch triangle collapsed at render precision"`).
+  The output holds, at each of the two points where F0059's two ellipses
+  CROSS (equal cylinders, tangent there), two vertices 4.5e-16 and 4.3e-16
+  apart, each on two ellipse edges (`KV2_OUT_TWIN_PROBE`,
+  `KV2_SUBRES_PROBE`): the two branches pass the point as two touching
+  curves instead of crossing at one vertex. No census site holds either
+  pair in a class and the sub-τ collapse does not take them, so no mesh
+  edge joins them: they are two intersection points of two different
+  curves at one position, which neither §4.3.3's same-loop removal nor
+  Fig. 11(b) names. The other four builds of F0059 hold one vertex there.
+  This is the singular point of a tangent crossing — a customer of the
+  degenerate-contact matrix (`docs/kernel_1_0.md` gate 3.7), loud today.
+
+Gates: `cargo test -p yang-rs` 1,528 passed; clippy and fmt clean; the
+rewrite tier; CI's always-on harness 683 passed, none failed.
