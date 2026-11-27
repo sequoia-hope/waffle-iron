@@ -4105,6 +4105,23 @@ What a line pinch is emitted as, and what the oracle accepts, is put to the
 owner (spec §8.3; the paper has no tangency along a curve). The merge is not
 wired before that ruling.
 
+**Owner ruling, 2026-11-26 (prose sign-off, A15.7: "approved, go
+ahead with your recommendation").** A solid pinched along a line is emitted
+the way a solid pinched at a point already is: each sheet holds its own copy
+of the line's vertices and edges, at identical positions, and each sheet is
+a closed manifold shell. The paper is silent (its intersection curves are
+regular, `:561-562`; its tangent case is an isolated point, §4.3.3), so this
+is the recorded choice for `docs/kernel_1_0.md` gate 3.7's "tangency along a
+curve". The harness reads it by the B-Rep, not by position alone: a mesh
+edge used four times is two sheets only where its four triangles lie in four
+faces and pair, in exactly one way, into two pairs that cross the edge in
+opposite directions and whose faces share a B-Rep edge
+(`oracle::line_pinch_sheets`, `check_watertight_mesh_with_sheets`,
+`check_mesh_euler_characteristic_with_sheets`). A four-use edge without
+that backing still fails
+(`oracle.rs::euler_characteristic_two_shells_sharing_an_edge_still_fail`,
+`::a_four_use_edge_the_brep_does_not_back_still_fails`).
+
 ### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).

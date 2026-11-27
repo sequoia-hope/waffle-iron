@@ -1725,6 +1725,30 @@ impl ModelBuilder {
         Ok(merge_meshes(self.tessellate_last_bodies_with_tol(tol)?))
     }
 
+    /// The output bodies of the last active solid-bearing feature — the
+    /// bodies [`Self::tessellate_last_bodies_with_tol`] tessellates. A feature
+    /// can carry several disjoint bodies (a disjoint union, a cut that falls
+    /// apart).
+    pub fn last_body_handles(&self) -> Vec<KernelSolidHandle> {
+        let tree = &self.state.engine.tree;
+        let limit = tree.active_index.unwrap_or(tree.features.len());
+        for feature in tree.features[..limit].iter().rev() {
+            if feature.suppressed {
+                continue;
+            }
+            if let Some(result) = self.state.engine.get_result(feature.id) {
+                if !result.outputs.is_empty() {
+                    return result
+                        .outputs
+                        .iter()
+                        .map(|(_, b)| b.handle.clone())
+                        .collect();
+                }
+            }
+        }
+        Vec::new()
+    }
+
     /// [`Self::tessellate_last_with_tol`] WITHOUT the merge: one `RenderMesh`
     /// per output body of the last solid-bearing feature, in output order.
     ///
@@ -1736,28 +1760,7 @@ impl ModelBuilder {
         &mut self,
         tol: f64,
     ) -> Result<Vec<RenderMesh>, HarnessError> {
-        let tree = &self.state.engine.tree;
-        let limit = tree.active_index.unwrap_or(tree.features.len());
-        // Find the last active solid-bearing feature, then tessellate ALL its
-        // output bodies and merge them — a feature can carry several disjoint
-        // bodies (e.g. a disjoint union), and the aggregate is the geometry the
-        // oracle must judge.
-        let mut handles: Vec<_> = Vec::new();
-        for feature in tree.features[..limit].iter().rev() {
-            if feature.suppressed {
-                continue;
-            }
-            if let Some(result) = self.state.engine.get_result(feature.id) {
-                if !result.outputs.is_empty() {
-                    handles = result
-                        .outputs
-                        .iter()
-                        .map(|(_, b)| b.handle.clone())
-                        .collect();
-                    break;
-                }
-            }
-        }
+        let handles = self.last_body_handles();
         if handles.is_empty() {
             return Err(HarnessError::NoSolid {
                 name: "no active features with solids".into(),

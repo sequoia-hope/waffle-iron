@@ -1,6 +1,6 @@
 # F2 — the Fig. 11(b) merge as input of the §4.4.1 update's CDT
 
-Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §7 experiment: an order-free rewrite does NOT hold F0060; §8 (2026-11-26): the classes sorted by paper statement, and F0060 read — it passes today on two vertices an ulp apart at the ends of its pinch lines. Increment 2 waits on the owner's ruling for a line pinch (§8.3). Roadmap: `docs/yang_faithfulness_roadmap.md`
+Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §7 experiment: an order-free rewrite does NOT hold F0060; §8 (2026-11-26): the classes sorted by paper statement, and F0060 read — it passes today on two vertices an ulp apart at the ends of its pinch lines. The line pinch is RULED (§8.3, 2026-11-26) and the harness reads it per sheet; increment 2 is next. Roadmap: `docs/yang_faithfulness_roadmap.md`
 F2, item "The Fig. 11(b) merge carries the paper's threshold". Ledger: N55
 (the merge), N89 item 7 (threshold), N89 item 1 (the sub-τ collapse).
 Matrix: rows 4.4-13, 4.3-17; finding 5.
@@ -415,13 +415,30 @@ owner's ruling (governance A15.7; `docs/kernel_1_0.md` gate 3.7, "tangency
 along a curve"). Increment 2 is not wired before it: under either answer
 F0060 changes category.
 
+**Ruled by the owner, 2026-11-26 (prose sign-off, A15.7: "approved, go
+ahead with your recommendation").** A solid pinched along a line is emitted
+the way a solid pinched at a point already is: each sheet holds its own copy
+of the line's vertices and edges, at identical positions, and each sheet is
+a closed manifold shell. The paper is silent (its intersection curves are
+regular, `:561-562`; its tangent case is an isolated point, §4.3.3), so this
+is the recorded choice for `docs/kernel_1_0.md` gate 3.7's "tangency along a
+curve". The harness reads it by the B-Rep, not by position alone: a mesh
+edge used four times is two sheets only where its four triangles lie in four
+faces and pair, in exactly one way, into two pairs that cross the edge in
+opposite directions and whose faces share a B-Rep edge
+(`oracle::line_pinch_sheets`, `check_watertight_mesh_with_sheets`,
+`check_mesh_euler_characteristic_with_sheets`). A four-use edge without
+that backing still fails
+(`oracle.rs::euler_characteristic_two_shells_sharing_an_edge_still_fail`,
+`::a_four_use_edge_the_brep_does_not_back_still_fails`).
+
 ### 8.4 Increments, restated
 
 2. (unchanged in mechanism, §3.3–§4) Wire the classes into the update and
-   delete the N55 scan in one commit — after §8.3 is ruled. The survivor is
-   left on the union of its class's faces. F0060 and F0058 are read
-   individually, and F0060's expected verdict is whatever the ruling makes
-   it.
+   delete the N55 scan in one commit. §8.3 is ruled and the harness reads a
+   line pinch per sheet, so F0060's expected verdict is CORRECT with each
+   pinch-line end ONE point per sheet. The survivor is left on the union of
+   its class's faces. F0060 and F0058 are read individually.
 3. Re-census the sub-τ collapse (unchanged).
 4. New, with the roadmap's sub-step split: measure whether the §4.5.3 sweep
    removes or reorders members of a class, and move the §4.3.3 kinds ahead of

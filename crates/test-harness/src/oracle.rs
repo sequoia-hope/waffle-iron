@@ -9,7 +9,7 @@ use modeling_ops::types::OpResult;
 use waffle_types::kernel::units::{
     TAU_COINCIDENT, TAU_NORMALIZE_SQ, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WELD_MAX,
 };
-use waffle_types::kernel::{FaceRange, RenderMesh};
+use waffle_types::kernel::{FaceRange, KernelId, RenderMesh};
 use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle};
 use waffle_types::Role;
 
@@ -654,6 +654,260 @@ fn t_split_chain(a: QKey, b: QKey, verts: &[QKey]) -> Vec<QEdge> {
     }
     chain.push(make_qedge(prev, b));
     chain
+}
+
+/// The pairs of faces that share a B-Rep edge, as the kernel reports them.
+///
+/// It is the kernel's own statement of which faces meet along an edge, and
+/// the only thing the line-pinch reading below takes from the B-Rep.
+#[derive(Clone, Debug, Default)]
+pub struct FaceAdjacency {
+    pairs: std::collections::HashSet<(u64, u64)>,
+}
+
+impl FaceAdjacency {
+    fn key(a: KernelId, b: KernelId) -> (u64, u64) {
+        (a.0.min(b.0), a.0.max(b.0))
+    }
+
+    /// One pair per B-Rep edge of `solids` that bounds two different faces.
+    pub fn from_solids(introspect: &dyn KernelIntrospect, solids: &[KernelSolidHandle]) -> Self {
+        let mut out = Self::default();
+        for solid in solids {
+            for edge in introspect.list_edges(solid) {
+                let faces = introspect.edge_faces(edge);
+                if let [a, b] = faces.as_slice() {
+                    if a != b {
+                        out.pairs.insert(Self::key(*a, *b));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// From explicit face pairs.
+    pub fn from_pairs(pairs: impl IntoIterator<Item = (KernelId, KernelId)>) -> Self {
+        Self {
+            pairs: pairs.into_iter().map(|(a, b)| Self::key(a, b)).collect(),
+        }
+    }
+
+    fn share_an_edge(&self, a: KernelId, b: KernelId) -> bool {
+        a != b && self.pairs.contains(&Self::key(a, b))
+    }
+}
+
+/// The sheets of a mesh whose solid is pinched along a line.
+struct LinePinchSheets {
+    /// One mesh per sheet: the triangles joined across two-use edges and
+    /// across each accepted pair of a four-use edge. All share the input's
+    /// vertex array, so every sheet is quantized on the same grid.
+    parts: Vec<RenderMesh>,
+    /// Mesh edges used four times and read as two sheets.
+    shared_edges: usize,
+}
+
+/// A solid pinched along a LINE (owner ruling 2026-11-26, spec
+/// `yang_f2_fig11b_cdt_input_merge.md` §8.3; `yang_tangency_pinch_split.md`
+/// §0a): the kernel emits one copy of the line's vertices and edges per
+/// sheet, at identical positions — as it emits one vertex per sheet at a
+/// point pinch — so the render mesh holds each mesh edge of the line four
+/// times.
+///
+/// A four-use edge is read as two sheets only where the B-Rep backs it: its
+/// four triangles lie in four different faces and fall, in exactly one way,
+/// into two pairs that each cross the edge in opposite directions and whose
+/// two faces share a B-Rep edge ([`FaceAdjacency`]). That is two B-Rep edges
+/// at one place, each bounding two of the four faces. A four-use edge
+/// without that backing — one face range, two faces that share no edge, an
+/// ambiguous pairing — is not a line pinch, and `None` leaves the mesh to
+/// the plain reading, which fails it.
+///
+/// Returns `None` when the mesh has no four-use edge at all.
+fn line_pinch_sheets(mesh: &RenderMesh, adjacency: &FaceAdjacency) -> Option<LinePinchSheets> {
+    let n = mesh.indices.len() / 3;
+    let key = |idx: u32| -> ExactVertexBits {
+        let i = idx as usize * 3;
+        (
+            mesh.vertices[i].to_bits(),
+            mesh.vertices[i + 1].to_bits(),
+            mesh.vertices[i + 2].to_bits(),
+        )
+    };
+    // (triangle, forward): `forward` when the triangle walks the edge from
+    // its lesser key to its greater.
+    let mut uses: HashMap<ExactEdge, Vec<(usize, bool)>> = HashMap::new();
+    for (t, tri) in mesh.indices.chunks_exact(3).enumerate() {
+        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            let (ka, kb) = (key(a), key(b));
+            let (e, forward) = if ka <= kb {
+                ((ka, kb), true)
+            } else {
+                ((kb, ka), false)
+            };
+            uses.entry(e).or_default().push((t, forward));
+        }
+    }
+    if !uses.values().any(|u| u.len() == 4) {
+        return None;
+    }
+    let mut tri_face: Vec<Option<KernelId>> = vec![None; n];
+    for r in &mesh.face_ranges {
+        let (first, last) = (
+            r.start_index as usize / 3,
+            (r.end_index as usize / 3).min(n),
+        );
+        for slot in tri_face.iter_mut().take(last).skip(first) {
+            *slot = Some(r.face_id);
+        }
+    }
+
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    let union = |p: &mut Vec<usize>, a: usize, b: usize| {
+        let (ra, rb) = (find(p, a), find(p, b));
+        if ra != rb {
+            p[ra.max(rb)] = ra.min(rb);
+        }
+    };
+    let backed = |x: (usize, bool), y: (usize, bool)| -> bool {
+        x.1 != y.1
+            && matches!(
+                (tri_face[x.0], tri_face[y.0]),
+                (Some(fx), Some(fy)) if adjacency.share_an_edge(fx, fy)
+            )
+    };
+    let mut shared_edges = 0usize;
+    // The residue (every edge that is not two-use and not an accepted
+    // four-use edge) joins its triangles through the same quantized,
+    // T-subdivided keys the pairing uses, so a one-sided chord split does
+    // not cut a sheet in two.
+    let mut residue: Vec<(ExactEdge, Vec<usize>)> = Vec::new();
+    for (e, u) in &uses {
+        match u.len() {
+            2 => union(&mut parent, u[0].0, u[1].0),
+            4 => {
+                let faces: std::collections::HashSet<u64> = u
+                    .iter()
+                    .filter_map(|&(t, _)| tri_face[t].map(|f| f.0))
+                    .collect();
+                let matchings = [[(0, 1), (2, 3)], [(0, 2), (1, 3)], [(0, 3), (1, 2)]];
+                let valid: Vec<&[(usize, usize); 2]> = matchings
+                    .iter()
+                    .filter(|m| m.iter().all(|&(i, j)| backed(u[i], u[j])))
+                    .collect();
+                if faces.len() != 4 || valid.len() != 1 {
+                    return None;
+                }
+                for &(i, j) in valid[0] {
+                    union(&mut parent, u[i].0, u[j].0);
+                }
+                shared_edges += 1;
+            }
+            _ => residue.push((*e, u.iter().map(|&(t, _)| t).collect())),
+        }
+    }
+    if !residue.is_empty() {
+        let inv_grid = 1.0 / mesh_grid_size(mesh);
+        let qof = |k: ExactVertexBits| -> QKey {
+            let q = |bits: u32| (f32::from_bits(bits) as f64 * inv_grid).round() as i64;
+            (q(k.0), q(k.1), q(k.2))
+        };
+        let qverts: Vec<QKey> = {
+            let mut s: std::collections::HashSet<QKey> = std::collections::HashSet::new();
+            for ((a, b), _) in &residue {
+                s.insert(qof(*a));
+                s.insert(qof(*b));
+            }
+            s.into_iter().collect()
+        };
+        let mut first_on: HashMap<QEdge, usize> = HashMap::new();
+        for ((a, b), tris) in &residue {
+            for sub in t_split_chain(qof(*a), qof(*b), &qverts) {
+                for &t in tris {
+                    match first_on.get(&sub) {
+                        Some(&t0) => union(&mut parent, t, t0),
+                        None => {
+                            first_on.insert(sub, t);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // One mesh per component, triangles in their original order.
+    let mut part_of_root: HashMap<usize, usize> = HashMap::new();
+    let mut parts: Vec<RenderMesh> = Vec::new();
+    for (t, tri) in mesh.indices.chunks_exact(3).enumerate() {
+        let root = find(&mut parent, t);
+        let pi = *part_of_root.entry(root).or_insert_with(|| {
+            parts.push(RenderMesh {
+                vertices: mesh.vertices.clone(),
+                normals: mesh.normals.clone(),
+                indices: Vec::new(),
+                face_ranges: Vec::new(),
+            });
+            parts.len() - 1
+        });
+        let part = &mut parts[pi];
+        let start = part.indices.len() as u32;
+        part.indices.extend_from_slice(tri);
+        if let Some(face_id) = tri_face[t] {
+            match part.face_ranges.last_mut() {
+                Some(r) if r.face_id == face_id && r.end_index == start => r.end_index = start + 3,
+                _ => part.face_ranges.push(FaceRange {
+                    face_id,
+                    start_index: start,
+                    end_index: start + 3,
+                }),
+            }
+        }
+    }
+    Some(LinePinchSheets {
+        parts,
+        shared_edges,
+    })
+}
+
+/// [`check_watertight_mesh`] for a body the kernel may have pinched along a
+/// line: where the plain check fails and every four-use edge is two sheets
+/// the B-Rep backs ([`line_pinch_sheets`]), each sheet is checked alone.
+/// A mesh the plain check passes, and one with no backed four-use edge, get
+/// the plain verdict unchanged.
+pub fn check_watertight_mesh_with_sheets(
+    mesh: &RenderMesh,
+    adjacency: &FaceAdjacency,
+) -> OracleVerdict {
+    let whole = check_watertight_mesh(mesh);
+    if whole.passed {
+        return whole;
+    }
+    let Some(sheets) = line_pinch_sheets(mesh, adjacency) else {
+        return whole;
+    };
+    if sheets
+        .parts
+        .iter()
+        .any(|p| !check_watertight_mesh(p).passed)
+    {
+        return whole;
+    }
+    OracleVerdict::pass(
+        "watertight_mesh",
+        format!(
+            "{} sheet(s) each closed; {} edge(s) shared by two sheets, each sheet's a B-Rep edge of its own (line pinch)",
+            sheets.parts.len(),
+            sheets.shared_edges
+        ),
+    )
 }
 
 /// Check that the mesh is watertight: every triangle edge shared by exactly 2 triangles.
@@ -1782,14 +2036,73 @@ pub fn check_mesh_euler_characteristic_with_shells(
     expected_chi: i64,
     authored_shells: Option<usize>,
 ) -> OracleVerdict {
-    use std::collections::HashSet;
-
     if mesh.vertices.is_empty() || mesh.indices.is_empty() {
         return OracleVerdict::pass(
             "mesh_euler_characteristic",
             "skipped: empty mesh".to_string(),
         );
     }
+    euler_verdict(&euler_counts(mesh), expected_chi, authored_shells, "")
+}
+
+/// [`check_mesh_euler_characteristic_with_shells`] for a body the kernel may
+/// have pinched along a line: where every four-use edge is two sheets the
+/// B-Rep backs ([`line_pinch_sheets`]), V, E, F and the shells are counted
+/// per sheet and summed, so each sheet's copy of the line counts once. A
+/// mesh with no backed four-use edge gets the plain verdict unchanged.
+pub fn check_mesh_euler_characteristic_with_sheets(
+    mesh: &RenderMesh,
+    expected_chi: i64,
+    authored_shells: Option<usize>,
+    adjacency: &FaceAdjacency,
+) -> OracleVerdict {
+    if mesh.vertices.is_empty() || mesh.indices.is_empty() {
+        return check_mesh_euler_characteristic_with_shells(mesh, expected_chi, authored_shells);
+    }
+    let Some(sheets) = line_pinch_sheets(mesh, adjacency) else {
+        return check_mesh_euler_characteristic_with_shells(mesh, expected_chi, authored_shells);
+    };
+    let mut total = EulerCounts {
+        verts: 0,
+        pinch_extra: 0,
+        edges: 0,
+        faces: 0,
+        shells: 0,
+        exact: true,
+    };
+    for part in &sheets.parts {
+        let c = euler_counts(part);
+        total.verts += c.verts;
+        total.pinch_extra += c.pinch_extra;
+        total.edges += c.edges;
+        total.faces += c.faces;
+        total.shells += c.shells;
+        total.exact &= c.exact;
+    }
+    let note = format!(
+        "; {} sheet(s) counted apart at {} line-pinch edge(s)",
+        sheets.parts.len(),
+        sheets.shared_edges
+    );
+    euler_verdict(&total, expected_chi, authored_shells, &note)
+}
+
+/// V, E, F and the shell count of a welded render mesh.
+struct EulerCounts {
+    /// Welded vertices (without the per-sheet copies in `pinch_extra`).
+    verts: usize,
+    /// Per-sheet vertex copies the position weld fused
+    /// ([`shell_decomposition`]).
+    pinch_extra: usize,
+    edges: usize,
+    faces: usize,
+    shells: usize,
+    /// Counted from exact f32 keys (the mesh pairs bitwise).
+    exact: bool,
+}
+
+fn euler_counts(mesh: &RenderMesh) -> EulerCounts {
+    use std::collections::HashSet;
 
     let inv_grid = 1.0 / mesh_grid_size(mesh);
     // PR-KV8c: when the mesh is EXACTLY paired (bitwise), count V/E/shells
@@ -1830,52 +2143,45 @@ pub fn check_mesh_euler_characteristic_with_shells(
             tri_keys.push([key(ks[0], ks[1]), key(ks[1], ks[2]), key(ks[2], ks[0])]);
         }
         let dec = shell_decomposition(&tri_vids, &tri_keys);
-        let shells = dec.shells as i64;
-        if let Some(n) = authored_shells {
-            if shells != n as i64 {
-                return OracleVerdict::fail_val(
-                    "mesh_euler_characteristic",
-                    format!("{shells} shell(s) != authored expected_shell_count {n} (exact bits)"),
-                    shells as f64,
-                );
-            }
-        }
-        let meta_shells = match authored_shells {
-            Some(n) => n as i64,
-            None => expected_chi.div_euclid(2).max(1),
-        };
-        let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
-        let v = (unique_verts.len() + dec.pinch_extra) as i64;
-        let e = exact.len() as i64;
-        let f = (mesh.indices.len() / 3) as i64;
-        let chi = v - e + f;
-        let detail = format!(
-            "V({}{}) - E({}) + F({}) = {} (expected {} for {} shell(s), exact bits)",
-            unique_verts.len(),
-            pinch_note(dec.pinch_extra),
-            e,
-            f,
-            chi,
-            expected_total,
-            shells
-        );
-        return if chi == expected_total {
-            OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
-        } else {
-            OracleVerdict::fail_val("mesh_euler_characteristic", detail, chi as f64)
+        return EulerCounts {
+            verts: unique_verts.len(),
+            pinch_extra: dec.pinch_extra,
+            edges: exact.len(),
+            faces: mesh.indices.len() / 3,
+            shells: dec.shells,
+            exact: true,
         };
     }
     // PR-KV11: hybrid complex — exactly-paired edges keep exact identity
     // (provably closed, never aliased by the weld); only residue edges and
     // their endpoints are quantized (see [`hybrid_edge_complex`]).
     let hybrid = hybrid_edge_complex(mesh, inv_grid);
+    EulerCounts {
+        verts: hybrid.vertex_count,
+        pinch_extra: hybrid.pinch_extra,
+        edges: hybrid.closed_edges + hybrid.residue_sub.len(),
+        faces: mesh.indices.len() / 3,
+        shells: hybrid.shells,
+        exact: false,
+    }
+}
 
-    let shells = hybrid.shells as i64;
+/// The verdict of [`check_mesh_euler_characteristic_with_shells`] on
+/// `counts`. `note` is appended inside the detail's parenthesis; it is empty
+/// on the plain path, whose detail strings are unchanged.
+fn euler_verdict(
+    counts: &EulerCounts,
+    expected_chi: i64,
+    authored_shells: Option<usize>,
+    note: &str,
+) -> OracleVerdict {
+    let exact_note = if counts.exact { " (exact bits)" } else { "" };
+    let shells = counts.shells as i64;
     if let Some(n) = authored_shells {
         if shells != n as i64 {
             return OracleVerdict::fail_val(
                 "mesh_euler_characteristic",
-                format!("{shells} shell(s) != authored expected_shell_count {n}"),
+                format!("{shells} shell(s) != authored expected_shell_count {n}{exact_note}{note}"),
                 shells as f64,
             );
         }
@@ -1888,21 +2194,21 @@ pub fn check_mesh_euler_characteristic_with_shells(
         None => expected_chi.div_euclid(2).max(1),
     };
     let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
-
-    let v = (hybrid.vertex_count + hybrid.pinch_extra) as i64;
-    let e = (hybrid.closed_edges + hybrid.residue_sub.len()) as i64;
-    let f = (mesh.indices.len() / 3) as i64;
+    let v = (counts.verts + counts.pinch_extra) as i64;
+    let e = counts.edges as i64;
+    let f = counts.faces as i64;
     let chi = v - e + f;
-
     let detail = format!(
-        "V({}{}) - E({}) + F({}) = {} (expected {} for {} shell(s))",
-        hybrid.vertex_count,
-        pinch_note(hybrid.pinch_extra),
+        "V({}{}) - E({}) + F({}) = {} (expected {} for {} shell(s){}{})",
+        counts.verts,
+        pinch_note(counts.pinch_extra),
         e,
         f,
         chi,
         expected_total,
-        shells
+        shells,
+        if counts.exact { ", exact bits" } else { "" },
+        note
     );
     if chi == expected_total {
         OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
@@ -3289,6 +3595,120 @@ mod tests {
             verdict.detail.contains("1 shell(s)") && !verdict.detail.contains("pinch"),
             "one component, no vertex credit: {}",
             verdict.detail
+        );
+    }
+
+    /// A unit cube at `o` with one face range per side, ids `first..first+6`.
+    fn push_cube_with_faces(mesh: &mut RenderMesh, o: [f32; 3], first: u64) {
+        let start = mesh.indices.len() as u32;
+        push_plain_cube(mesh, o);
+        for side in 0..6u32 {
+            mesh.face_ranges.push(FaceRange {
+                face_id: KernelId(first + side as u64),
+                start_index: start + side * 6,
+                end_index: start + side * 6 + 6,
+            });
+        }
+    }
+
+    /// Every pair of sides of one cube (opposite sides never meet at an
+    /// edge, so naming them adjacent changes no reading).
+    fn cube_adjacency(first: u64) -> Vec<(KernelId, KernelId)> {
+        let mut out = Vec::new();
+        for a in 0..6u64 {
+            for b in (a + 1)..6 {
+                out.push((KernelId(first + a), KernelId(first + b)));
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn two_sheets_sharing_an_edge_the_brep_backs_are_two_closed_shells() {
+        // Owner ruling 2026-11-26 (spec `yang_f2_fig11b_cdt_input_merge.md`
+        // §8.3): a solid pinched along a line is emitted with one copy of the
+        // line's edges per sheet. Cubes at the origin and at (1,1,0) share
+        // the edge (1,1,0)–(1,1,1); each cube's two sides at that edge share
+        // a B-Rep edge of their own.
+        let mut mesh = empty_mesh();
+        push_cube_with_faces(&mut mesh, [0.0, 0.0, 0.0], 0);
+        push_cube_with_faces(&mut mesh, [1.0, 1.0, 0.0], 6);
+        let adjacency =
+            FaceAdjacency::from_pairs(cube_adjacency(0).into_iter().chain(cube_adjacency(6)));
+        // The plain reading still fails it.
+        assert!(!check_watertight_mesh(&mesh).passed);
+        let wt = check_watertight_mesh_with_sheets(&mesh, &adjacency);
+        assert!(wt.passed, "two backed sheets: {}", wt.detail);
+        assert!(
+            wt.detail.contains("2 sheet(s)") && wt.detail.contains("1 edge(s)"),
+            "detail names the sheets and the shared edge: {}",
+            wt.detail
+        );
+        let chi = check_mesh_euler_characteristic_with_sheets(&mesh, 2, None, &adjacency);
+        assert!(chi.passed, "χ = 2 per sheet: {}", chi.detail);
+        assert_eq!(chi.value, Some(4.0));
+        assert!(
+            chi.detail.contains("2 shell(s)") && chi.detail.contains("1 line-pinch edge(s)"),
+            "{}",
+            chi.detail
+        );
+    }
+
+    #[test]
+    fn a_four_use_edge_the_brep_does_not_back_still_fails() {
+        let mut mesh = empty_mesh();
+        push_cube_with_faces(&mut mesh, [0.0, 0.0, 0.0], 0);
+        push_cube_with_faces(&mut mesh, [1.0, 1.0, 0.0], 6);
+        // No B-Rep edge between the second cube's sides.
+        let half = FaceAdjacency::from_pairs(cube_adjacency(0));
+        let wt = check_watertight_mesh_with_sheets(&mesh, &half);
+        assert!(!wt.passed, "one sheet unbacked: {}", wt.detail);
+        assert!(wt.detail.contains("non-manifold"), "{}", wt.detail);
+        let chi = check_mesh_euler_characteristic_with_sheets(&mesh, 2, None, &half);
+        assert!(!chi.passed, "{}", chi.detail);
+        assert!(chi.detail.contains("1 shell(s)"), "{}", chi.detail);
+
+        // The same triangles in ONE face range: no faces to pair.
+        let mut one = empty_mesh();
+        push_plain_cube(&mut one, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut one, [1.0, 1.0, 0.0]);
+        finish_single_range(&mut one);
+        let all = FaceAdjacency::from_pairs(cube_adjacency(0).into_iter().chain(cube_adjacency(6)));
+        assert!(!check_watertight_mesh_with_sheets(&one, &all).passed);
+    }
+
+    #[test]
+    fn a_four_use_edge_with_two_possible_pairings_still_fails() {
+        // If the B-Rep also said each cube's side meets the OTHER cube's
+        // side along an edge, the four triangles would pair two ways; the
+        // reading refuses to choose.
+        let mut mesh = empty_mesh();
+        push_cube_with_faces(&mut mesh, [0.0, 0.0, 0.0], 0);
+        push_cube_with_faces(&mut mesh, [1.0, 1.0, 0.0], 6);
+        let mut pairs = cube_adjacency(0);
+        pairs.extend(cube_adjacency(6));
+        for a in 0..6u64 {
+            for b in 6..12u64 {
+                pairs.push((KernelId(a), KernelId(b)));
+            }
+        }
+        let wt = check_watertight_mesh_with_sheets(&mesh, &FaceAdjacency::from_pairs(pairs));
+        assert!(!wt.passed, "ambiguous pairing: {}", wt.detail);
+    }
+
+    #[test]
+    fn a_mesh_with_no_four_use_edge_reads_the_same_with_sheets() {
+        let mut mesh = empty_mesh();
+        push_cube_with_faces(&mut mesh, [0.0, 0.0, 0.0], 0);
+        push_cube_with_faces(&mut mesh, [1.0, 1.0, 1.0], 6);
+        let adjacency =
+            FaceAdjacency::from_pairs(cube_adjacency(0).into_iter().chain(cube_adjacency(6)));
+        let plain = check_mesh_euler_characteristic_with_shells(&mesh, 2, None);
+        let sheets = check_mesh_euler_characteristic_with_sheets(&mesh, 2, None, &adjacency);
+        assert_eq!(plain.detail, sheets.detail);
+        assert_eq!(
+            check_watertight_mesh(&mesh).detail,
+            check_watertight_mesh_with_sheets(&mesh, &adjacency).detail
         );
     }
 

@@ -43,8 +43,17 @@ unchanged). It currently emits Ok with χ=0 + 2 non-manifold edges
 > apart for that reason alone. With the pair one vertex (any exact merge)
 > the kernel still emits four closed solids, and the watertight and Euler
 > oracles count the shared half-lines as two non-manifold edges
-> (`specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). What a line pinch is
-> emitted as and what the oracle accepts is open with the owner.
+> (`specs/yang_f2_fig11b_cdt_input_merge.md` §8.3).
+>
+> **Ruled by the owner the same day:** a line pinch is emitted as a point
+> pinch is — one copy of the line's vertices and edges per sheet, identical
+> positions, each sheet a closed shell — and the harness accepts a mesh edge
+> used four times only where the B-Rep holds two edges there, each bounding
+> two of the four faces (`oracle::line_pinch_sheets`). §2's "non-manifold
+> edges unchanged" row and the "EDGE pinch … must not touch" wording above
+> describe the vertex-fan split; the line's own separation is §0a's entry
+> split, and its verdict no longer depends on the two sheets differing in
+> the last bits.
 
 ### 0a. The EDGE pinch, located and specified (2026-09-13, F0060)
 

@@ -347,10 +347,24 @@ fn categorize_loaded(
         }
     };
     let mesh = crate::workflow::merge_meshes(bodies.clone());
+    // Which faces share a B-Rep edge, for the line-pinch reading of a
+    // four-use mesh edge (`oracle::check_watertight_mesh_with_sheets`).
+    let face_adjacency = oracle::FaceAdjacency::from_solids(
+        builder.kernel_ref().as_introspect(),
+        &builder.last_body_handles(),
+    );
 
     // 5. Validation: the legacy replay's mesh oracles + meta expectations.
     let mut failures: Vec<String> = Vec::new();
     for v in oracle::run_all_mesh_checks(&mesh) {
+        // A solid pinched along a line holds each mesh edge of the line once
+        // per sheet (owner ruling 2026-11-26): a failed watertight verdict is
+        // re-read per sheet where the B-Rep backs every four-use edge.
+        let v = if v.oracle_name == "watertight_mesh" && !v.passed {
+            oracle::check_watertight_mesh_with_sheets(&mesh, &face_adjacency)
+        } else {
+            v
+        };
         // `no_self_intersection` asks whether ONE solid penetrates itself, so
         // it is judged per BODY below. On the merge of a multi-body result it
         // would report two separate live bodies that legitimately overlap —
@@ -419,10 +433,11 @@ fn categorize_loaded(
                 ));
             }
         }
-        let v = oracle::check_mesh_euler_characteristic_with_shells(
+        let v = oracle::check_mesh_euler_characteristic_with_sheets(
             &mesh,
             meta.oracles.euler_target,
             meta.oracles.expected_shell_count,
+            &face_adjacency,
         );
         if meta.oracles.derived_meta {
             // Prospector candidate: no adjudicated target — χ must be even.

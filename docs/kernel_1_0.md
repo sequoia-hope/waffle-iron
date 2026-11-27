@@ -94,6 +94,12 @@ The supported envelope, each item with a corpus or pinned customer:
    CORRECT or returns a typed refusal that names the contact class. No cell
    is WRONG, untyped, or untested. A refusal the paper does not cover is a
    SILENT row with a signed rationale (gate 2.3).
+   *Tangency along a curve, where the solid is pinched to zero thickness
+   along it (owner ruling 2026-11-26, customer F0060): the kernel emits one
+   copy of the line's vertices and edges per sheet, each sheet a closed
+   shell, and the harness accepts a mesh edge used four times only where
+   the B-Rep holds two edges there
+   (`specs/yang_f2_fig11b_cdt_input_merge.md` §8.3).*
 
 ### Gate 4 — Bounded, not fast
 
@@ -260,3 +266,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-22 | step 2, F2 item 3: the Stage-5 corner merge retired — the §4.4.1 update reads a boundary chain the relocation put out of order and splits the edge that contains the relocated point (Fig. 11(a)); the pass, its selector and the construct/merge alternation are deleted | corpus 360C/0W/9E/5EE/0T held (F0064's message counts 18 unresolved sites for 20: the update rebuilds five plane patches it refused); the rotation sweep differs in 6 of 1,870 lines (hash and late digits of the render-mesh volume; verdicts as before): five natural runs the loop refined are adopted as built; seed 6 189C/0W/9E/2T, every verdict as before | 78 / 157 | seed 6 ERROR 4.5 % | seed 6: 2 T | 2888a53b |
 | 2026-11-24 | step 2, F2 item 3: `repair_fan_cluster` retired — the §4.4.1 update charts a folded patch and, where the d(T) budget refuses the whole patch, replaces the lapping triangles alone by the CDT of their own boundary; the pass and its seam-run canonicalization are deleted | corpus 360C/0W/9E/5EE/0T held, `results.json` byte-identical; the rotation sweep line for line identical, hash included (1,870 builds); seed 6 189C/0W/9E/2T, every verdict as before | 78 / 157 | seed 6 ERROR 4.5 % | seed 6: 2 T | (this commit) |
 | 2026-11-26 | step 2, F2 Fig. 11(b): the merge classes sorted by paper statement (print-only census) — §4.3.3 in five merges of six; F0060's CORRECT read: it rests on two vertices an ulp apart at the ends of its pinch lines, and the oracle pins that two shells sharing an edge fail. Gate 3.7's "tangency along a curve" cell needs the owner's ruling before the merge is wired | corpus 360C/0W/9E/5EE/0T held, `results.json` byte-identical; the rotation sweep line for line identical | 78 / 157 | — | — | (this commit) |
+| 2026-11-26 | gate 3.7, tangency along a curve — RULED by the owner: a line pinch is one copy of the line per sheet, each sheet a closed shell. The harness reads a mesh edge used four times as two sheets only where the B-Rep holds two edges there (`oracle::line_pinch_sheets`); unbacked, it still fails | corpus 360C/0W/9E/5EE/0T, `results.json` byte-identical; rotation sweep line for line identical; always-on harness 683 passed; F0060 with its pinch-line ends merged reads CORRECT (was WRONG by the oracle alone) | 78 / 157 | one contact class has a stated answer | — | (this commit) |

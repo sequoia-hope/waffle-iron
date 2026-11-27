@@ -120,8 +120,11 @@ like this. the fixes must be principled. the principles are the paper."*
   bits. Any change that makes that point one vertex turns F0060 WRONG with
   the same four closed solids (2026-11-26,
   `specs/yang_f2_fig11b_cdt_input_merge.md` §8.3). Read a WRONG there with
-  `ASSAY_WATERTIGHT_PROBE` before reading it as a kernel fault; the ruling on
-  line pinches is the owner's.
+  `ASSAY_WATERTIGHT_PROBE` before reading it as a kernel fault. The owner
+  ruled the same day that a line pinch is one copy of the line per sheet, and
+  the assay now reads a four-use mesh edge as two sheets where the B-Rep
+  holds two edges there (`oracle::line_pinch_sheets`); a four-use edge the
+  B-Rep does not back is still a failure. Do not widen that reading.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.
