@@ -1242,7 +1242,10 @@ fn build_case_from_operands(ops: &PairOperands, op: MatrixOp) -> Result<Generate
     })
 }
 
-fn canonicalize_document(val: &mut Value, seed: u64) {
+/// Rewrite a saved document's timestamps and UUIDs to values drawn from
+/// `seed`, so a generated `.waffle` is byte-for-byte deterministic. Shared
+/// with the Gate 3.7 contact matrix (`assay::contact_matrix`).
+pub(crate) fn canonicalize_document(val: &mut Value, seed: u64) {
     if let Some(doc_meta) = val.get_mut("document").and_then(Value::as_object_mut) {
         doc_meta.insert(
             "created".to_string(),

@@ -16,6 +16,8 @@
 pub mod catalog;
 /// The corpus categorizer — the verdict of the corpus score, callable on any document.
 pub mod categorize;
+/// Kernel 1.0 Gate 3.7 — the degenerate-contact matrix generator and report.
+pub mod contact_matrix;
 pub mod corpus;
 pub mod coverage;
 /// CPU-budgeted subprocess and in-process case runner shared by categorized suites.

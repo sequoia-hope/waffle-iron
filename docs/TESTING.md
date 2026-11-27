@@ -691,6 +691,87 @@ what the §4.4.1 update's reading of an out-of-order boundary chain answers
 (same geometry, different rim samples) and holds the union to the
 document's volume.
 
+## Running the contact matrix (kernel 1.0 gate 3.7, degenerate contacts)
+
+`crates/test-harness/tests/assay_contact_matrix.rs` crosses the 15 analytic
+surface pairs of {plane, cylinder, cone, sphere, torus} with the six contact
+classes of `docs/kernel_1_0.md` gate 3.7 — coincident surfaces, tangency
+along a curve, tangency at a point, an edge lying in a face, a vertex lying
+on a face, a shared edge — and runs `union`, `cut` and `intersect` on every
+authored configuration through the corpus categorizer
+(`test_harness::assay::categorize`) in CPU-budgeted subprocesses, like the
+corpus run. The generator is `assay::contact_matrix`; its sibling for
+general position is the pair matrix (`assay_pair_matrix`, gate 3.1).
+
+```
+# the whole matrix (about 280 documents)
+ASSAY_JOBS=8 cargo test --release -p test-harness --test assay_contact_matrix contact_matrix -- --ignored --exact --nocapture
+
+# one document, with its verdict and the contact in words
+ASSAY_CASE=cm_05_cylinder_cylinder_tangentcurve_kiss_union \
+  cargo test --release -p test-harness --test assay_contact_matrix single_case -- --ignored --exact --nocapture
+```
+
+Knobs: `ASSAY_CASE_TIMEOUT_SECS` (CPU seconds per document, default 900),
+`CONTACT_MATRIX_FILTER=<text>[,<text>…]` (only the ids containing one of the
+texts; writes `report.filtered.*` so a partial run does not replace the full
+report), `CONTACT_MATRIX_DUMP=<dir>` on `single_case` (writes the `.waffle`),
+`CONTACT_MATRIX_STRICT=1` (fail the test on any finding or untested cell).
+
+A case id reads `cm_<pair index>_<a>_<b>_<class>_<configuration>_<op>`. A
+cell may hold several configurations (`kiss`, `through`, `internal`,
+`pocket`, …); each records how its two solids sit — they meet in the contact
+only (kiss), one lies in the other (nested), they are the same solid
+(identical), or the contact lies on the boundary of a real overlap. Most
+documents take a second or a few; the tangencies along a circle of a torus
+run to the budget, so the whole matrix takes about half an hour at 8 jobs.
+
+Output: the grid on stdout (one letter per boolean, worst over the cell's
+configurations), then one line per run, then the findings with their error
+text and replay command and counted by kind; the same as `target/contact-matrix/report.json`
+and `report.txt`, and every finding's document under
+`target/contact-matrix/findings/`.
+
+| letter | verdict | meets the gate |
+|---|---|---|
+| `C` | `SUPPORTED_CORRECT` | yes |
+| `R` | an error or refusal whose text names the contact class | yes |
+| `W` | `SUPPORTED_WRONG` | no — a finding |
+| `T` | `TIMEOUT` | no — a finding |
+| `E` | an `ERROR` (a kernel STOP, a crash) that does not name the contact class | no — a finding |
+| `U` | an `UNSUPPORTED(…)` wall for something other than the contact class | no — a finding |
+| `B` | blocked: the case's setup boolean is not CORRECT | no — a finding about the setup |
+| `—` | the pair does not admit the class (the reason is printed) | n/a |
+
+The measurement does not fail on a finding: the gate is open and a finding
+is a result to read, as in the pair matrix. What the binary's always-on
+tests hold instead is the authoring: every admitted cell has a case and
+every other cell a reason; every case is the contact it claims
+(`verify_contact_geometry` — the named surfaces meet in the named points to
+1e-12, tangent or crossing as the class says, on the boundary of both
+solids, the solids arranged as stated, all with no kernel call); every
+primitive builds its surface in kernel-v2.
+
+Reading a result:
+
+- **"Names the contact class" is read from the error text**
+  (`ContactClass::refusal_word_groups`), because text is all the categorizer
+  returns. It errs toward "not named"; read the printed error before
+  counting an `E` as untyped.
+- **A trimmed operand is a setup step.** A sphere or torus has no edge and a
+  full cylinder no vertex, so those cells use a half torus (a 180° revolve)
+  where its end circle will do, and otherwise cut one primitive with another
+  first. That setup runs alone as `…_setupa` / `…_setupb`; when it is not
+  CORRECT the cell reads `B`, which says nothing about the contact. A
+  trimmed sphere builds but is refused as a boolean operand, so its cells
+  read `U`.
+- **An empty result is authored as empty.** Where the solids only kiss, the
+  intersection is empty by construction, and the meta says so
+  (`expected_solid_count = 0`); the exact chain alone cannot tell empty from
+  thinner than its lattice.
+- The six B-spline pairs are not buildable (no B-spline face source), as in
+  the pair matrix.
+
 ## Running the SI5 corpus gate (exact STEP ingestion over real CAD)
 
 `crates/test-harness/tests/si5_c7_corpus_gate.rs` (SI5 checkpoint C7,
