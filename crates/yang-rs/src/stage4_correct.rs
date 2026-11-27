@@ -4544,6 +4544,18 @@ fn stage4_relocate_and_correct_inner(
     star_probe("after-reloc", mesh, attribution);
     nonmanifold_edge_census("after-reloc", mesh, attribution);
     coincident_vertex_census("after-reloc", mesh);
+    // Spec `yang_f2_fig11b_cdt_input_merge.md` §8.4 increment 4 (print-only):
+    // the same-point classes as the relocation leaves them — §4.3.3 removes
+    // such points "during optimization" (`:535-536`) — before any of the
+    // passes below takes a pair.
+    crate::stage4_fig11b::census(
+        "after-reloc",
+        mesh,
+        &attribution.attributions,
+        Some(&*vertex_params),
+        &|_| 0,
+        &|v: u32| moved.contains(&v),
+    );
     // (3) §4.5.3 reversed-intersection correction sweep.
     // (`collapsed_any` starts true when §4.5.1 repairs collapsed vertices
     // above — the post-collapse Phase-A recompute must run for those too.)
@@ -4840,6 +4852,14 @@ fn stage4_relocate_and_correct_inner(
     }
     fold_probe("post", mesh, &attr_vec, &probe_minted_verts);
     s4_lap("before-453-sweep", mesh);
+    crate::stage4_fig11b::census(
+        "before-453-sweep",
+        mesh,
+        &attr_vec,
+        Some(&*vertex_params),
+        &|_| 0,
+        &|v: u32| moved.contains(&v),
+    );
     let sweep_result = sweep_reversed_intersections(
         mesh,
         &mut attr_vec,

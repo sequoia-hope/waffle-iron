@@ -317,7 +317,13 @@ intersected patches.
       fail. F0060 is also the named blocker of F1's I3b.)*
 - [ ] Split `stage4_relocate_and_correct_inner` along the paper's
       sub-steps: relocate → §4.3 dedup → §4.5.3 → `update_patch` →
-      validate. The §4.3 removals move into optimization (N81).
+      validate. The §4.3 removals move into optimization (N81). *(Measured
+      2026-11-26, `specs/yang_f2_fig11b_cdt_input_merge.md` §8.5: the
+      same-point pairs the relocation leaves are merged in three places —
+      ahead of the §4.5.3 sweep, by the N55 scan and N47 weld behind it, by
+      the sub-τ collapse after the update — and the sweep itself removes a
+      third of the Fig. 11(b) pairs as reversals. First step: form the
+      classes once, after the relocation.)*
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
       ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
@@ -539,3 +545,4 @@ the first known item.
 | 2026-11-24 | F2 item 3: `repair_fan_cluster` (`retriangulate_collapsed_fan_regions`, its seam-run canonicalization and §4.3.4 sample drop) deleted (N58 amended). Its load-bearing folds are made by the beyond-corner trim's index-rewriting merges (N112; P0020: 152 merges, three edges left with four cylinder triangles each). The §4.4.1 update now holds them: the patch chart develops a folded patch, and a patch the d(T) budget refuses has its lapping triangles alone replaced by the CDT of their own boundary (`rebuild_patch_folds`, N2). With the pass switched off, 1,870 of 1,870 rotated builds line-identical, hash included; `results.json` byte-identical; seed 6 189C / 0W / 9E / 2T, every verdict and signature as before. P0020 moved rigidly stops under three of four motions before and after, on an unrelated face (open tail row) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T | (this commit) |
 | 2026-11-25 | F2 item 3, measured, nothing landed: `collapse_subtauwork_mesh_edges` censused (ledger N89 item 1). It acts in 10 of 1,496 rotated builds and in no corpus build; its edges are intersection-point pairs (F0059 needs it), rim points the late boundary-curve relocation brings together (R0015), a harmless rim-to-interior pair (C0043) and twins of one operand's own mesh (`pocket_operand_reenters_plain_boolean`). A merge with the paper's domain in its place held everything but the rewrite tier, which stopped on the operand-self twins: a Stage-1 defect, moved to F5b. Folding the N55 merge into the same domain makes F0060 a WRONG (the merges' order decides at a pinch); not done. The change was backed out | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (kernel unchanged) | (this commit) |
 | 2026-11-26 | F2 Fig. 11(b), measured, nothing wired: every close pair read by the faces its points lie on (`stage4_fig11b::pair_kind`, print-only). The N55 scan is §4.3.3's removal in five merges of six (259 of 294 corpus, 731 of 884 sweep), Fig. 11(b) in 33 and 147. F0060 read with every class merged: four closed solids whose pinch-line edges coincide, which the watertight oracle counts as two non-manifold edges — it is CORRECT today on two vertices an ulp apart at each line end. A line pinch is put to the owner (spec §8.3) | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical; 1,870 sweep lines identical) | (this commit) |
+| 2026-11-26 | F2 sub-step split (N81), measured, nothing wired: each same-point pair followed from the relocation to the update. §4.3.3's removal is made ahead of the §4.5.3 sweep (42 of 280 same-faces pairs on the corpus, 250 of 880 over the sweep), by the N55 scan and N47 weld behind it (238, 597) and by the sub-τ collapse (0, 21); the sweep removes 12 of 36 Fig. 11(b) pairs (78 of 179) as reversals | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical; 1,870 sweep lines identical) | (this commit) |

@@ -426,3 +426,50 @@ F0060 changes category.
 4. New, with the roadmap's sub-step split: measure whether the §4.5.3 sweep
    removes or reorders members of a class, and move the §4.3.3 kinds ahead of
    it if it does (N81).
+
+### 8.5 Which pass takes each pair today (census, 2026-11-26)
+
+The same census at two more sites — `after-reloc` (the relocation done,
+nothing merged yet: where §4.3.3 removes its points, "during optimization")
+and `before-453-sweep` — follows every same-point pair of a Stage-4 run to
+the last site that still holds it. Counts are per run (the §4.5.2 loop's
+re-runs included): 568 runs on the corpus, 2,210 over the sweep. Print-only;
+corpus and sweep unchanged.
+
+| kind at `after-reloc` | corpus | taken before the §4.5.3 sweep | by the sweep | by the scan or the N47 weld after it | reach the update |
+|---|---|---|---|---|---|
+| `same-curve` | 280 | 42 | 0 | 238 | 0 |
+| `curve-end` | 14 | 0 | 0 | 14 | 0 |
+| `fig11b` | 36 | 0 | 12 | 24 | 0 |
+| `near-curve` | 10 | 0 | 0 | 10 | 0 |
+
+| kind at `after-reloc` | sweep | before the §4.5.3 sweep | by the sweep | by the scan or the N47 weld | reach the update |
+|---|---|---|---|---|---|
+| `same-curve` | 880 | 250 | 5 (+7 in runs that stopped there) | 597 | 21 |
+| `curve-end` | 121 | 0 | 1 | 105 | 15 |
+| `fig11b` | 179 | 0 | 78 | 101 | 0 |
+| `near-curve` | 11 | 0 | 0 | 11 | 0 |
+| `different-faces` | 6 | 0 | 0 | 3 | 3 |
+
+- **§4.3.3's removal is made in three places before the update:** the passes
+  ahead of the sweep (the PR-KV9 junction-twin collapse, the moved × minted
+  weld, the beyond-corner trim — 15 % of the same-curve pairs on the corpus,
+  28 % over the sweep), the N55 scan and the N47 weld behind it, and the
+  sub-τ collapse after the update for the pairs that reach it.
+- **The §4.5.3 sweep takes a third of the Fig. 11(b) pairs on the corpus and
+  44 % over the sweep, and almost no other kind.** An operand vertex and the
+  relocated intersection point within roundoff of it have no order along
+  their curve, and the sweep reads the pair as a reversal and removes a
+  point. That is Fig. 11(b)'s merge made by §4.5.3's rule.
+- Pairs also APPEAR after `after-reloc`: 8 `fig11b` and 8 `same-curve` on the
+  corpus are first seen at `before-3c` (41 and 24 over the sweep) — a
+  removal by the sweep makes two points neighbours that were not.
+
+For the sub-step split (N81): the classes exist as soon as the relocation is
+done, the sweep's reading of a same-point pair as a reversal is a reading of
+roundoff, and the paper's order puts the removal first. Forming the classes
+at `after-reloc` and letting the sweep read each class as one point is the
+change to measure; it is its own increment (§8.4 item 4) and it moves which
+pass takes 12 corpus pairs and 78 over the sweep, so it is not result-neutral
+by construction.
+
