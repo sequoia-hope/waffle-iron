@@ -1,6 +1,6 @@
 # F2 — the Fig. 11(b) merge as input of the §4.4.1 update's CDT
 
-Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §8 (2026-11-26): the classes sorted by paper statement; the line pinch RULED (§8.3) and read per sheet by the harness; **increment 2a LANDED (§8.6): the N55 scan is deleted and the classes are merged in its place, all at once**; increment 3 (the sub-τ collapse re-censused) is recorded with it. Next: increment 4 (the classes formed ahead of the §4.5.3 sweep), then 2b (the classes as the update's CDT input, with N106). Roadmap: `docs/yang_faithfulness_roadmap.md`
+Status: increment 0 DONE, increment 1 landed with it (2026-11-25); §8 (2026-11-26): the classes sorted by paper statement; the line pinch RULED (§8.3) and read per sheet by the harness; **increment 2a LANDED (§8.6): the N55 scan is deleted and the classes are merged in its place, all at once**; increment 3 (the sub-τ collapse re-censused) is recorded with it. Increment 4 (the classes merged ahead of the §4.5.3 sweep) is MEASURED and not landed (§8.7): it moves one case, P0053, to a loud ERROR that the next sub-step of the Stage-4 split answers. Then 2b (the classes as the update's CDT input, with N106). Roadmap: `docs/yang_faithfulness_roadmap.md`
 F2, item "The Fig. 11(b) merge carries the paper's threshold". Ledger: N55
 (the merge), N89 item 7 (threshold), N89 item 1 (the sub-τ collapse).
 Matrix: rows 4.4-13, 4.3-17; finding 5.
@@ -441,7 +441,7 @@ that backing still fails
 3. Re-census the sub-τ collapse: DONE with 2a (§8.6).
 4. New, with the roadmap's sub-step split: measure whether the §4.5.3 sweep
    removes or reorders members of a class, and move the §4.3.3 kinds ahead of
-   it if it does (N81).
+   it if it does (N81). Measured (§8.5) and tried (§8.7); not landed.
 
 ### 8.5 Which pass takes each pair today (census, 2026-11-26)
 
@@ -560,3 +560,57 @@ class's.
 
 Gates: `cargo test -p yang-rs` 1,528 passed; clippy and fmt clean; the
 rewrite tier; CI's always-on harness 683 passed, none failed.
+
+### 8.7 Increment 4 tried: the classes merged right after the relocation (2026-11-26)
+
+**The trial** (one binary, switch `YANG_FIG11B_EARLY`; kept in `git stash`,
+"experiment 2026-11-26", not in the tree). The merge of §8.6 also runs at
+`after-reloc`, ahead of the junction-twin collapse, the moved × minted weld,
+the beyond-corner trim and the §4.5.3 sweep; the merge before the update
+stays for the pairs that appear later. A Stage-1 minted junction outranks
+every other member as survivor (its bits are its identity across the two
+operands, N54).
+
+**Measured against §8.6's state** (`f9da3ccc`):
+
+| | switch off | switch on |
+|---|---|---|
+| `cargo test -p yang-rs` | 1,528 passed | 1,528 passed |
+| corpus | 360C / 0W / 9E / 5EE / 0T | 359C / 0W / 10E / 5EE / 0T — **P0053 CORRECT → ERROR** (`NonManifoldOutput`); P0055 one detail string |
+| sweep, 1,870 lines | 1,379 OK / 106 ERR / 11 DIFF | 1,375 / 109 / 12 — P0053's reference and three rotations fail, its fourth is compared with a failed reference; 7 other lines (F0059, P0005, P0055, R0050) differ in mesh hash only |
+| merges, corpus | 296 before the update | 385 after the relocation, 18 before the update (P0017, P0020, P0059, R0032, P0055) |
+| merges, sweep | 846 | 1,334 and 79 |
+| classes at `before-453-sweep` | 284 corpus, 878 sweep | 3 and 19 (made by the passes between) |
+
+So the sweep no longer reads a same-point pair as a reversal, and one case
+moves.
+
+**P0053, read.** A gear flank of coplanar faces (A287…A294) cut by a
+cylinder (B2). Its natural run fails with the switch off too: the
+patch-boundary walk ahead of the sweep stops at vertex 913
+(`s6-wedge-walk-not-outgoing`; 913 is a member of a same-point pair at
+distance 0), the failure names (B, 2), §4.5.2 refines the cylinder and then
+every face, and the second refined run is adopted. With the switch on that
+pair is merged and the walk passes. The sweep then removes three points as
+reversals; removing 899 and reconnecting to 898 turns the triangle
+(899, 900, 890) on A288 — all three vertices on the one intersection curve
+— into (898, 900, 890), with 898 lying between 890 and 900 along the curve:
+it now lies folded over its neighbour (301, 890, 898), and both carry the
+directed edge 890 → 898. The sweep re-derives its loops from every patch's
+boundary cycles after each removal (`reversal.rs`,
+`compute_phase_a_with_side_labels`); that walk stops
+(`s6-boundary-walk-no-start: vertex 890`) and names (A, 288) alone. A288 is a plane, refining it changes nothing (the same 14 classes at
+each of the four density rungs), and the loop ends unresolved. The
+boundary-domain certificate names nothing in the build.
+
+**Reading.** The fold is one the §4.4.1 update rebuilds from the patch's
+boundary. The STOP comes from the sweep's own reading of its curves: the
+paper walks each intersection curve C (§4.5.3 `:679-689`), and the sweep
+reads C out of the boundary cycles of every patch, so a patch that is
+mid-repair stops it, and the STOP names only that patch's face. P0053
+passed before by accident of which walk stopped first (the earlier STOP
+happened to name a curved face). Increment 4 therefore lands together with
+the sub-step that answers P0053: the sweep reading C from the chains of
+intersection edges and leaving patch cycles to the update, or its STOP
+naming every face its vertex lies on (§4.5.2's "faces involved"). Which of
+the two is not decided here.
