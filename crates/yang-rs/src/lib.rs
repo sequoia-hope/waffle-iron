@@ -165,6 +165,10 @@ mod stage4_splice;
 // belong to §4.5.2 local refinement. See spec §4-I10 (f).
 mod stage4_truncate;
 mod stage4_update;
+// §4.5.3: each intersection curve C read as its chain of intersection
+// edges (print-only beside the sweep's loops; spec
+// `specs/yang_f2_fig11b_cdt_input_merge.md` §8.8).
+mod stage4_chains;
 // §4.4.1 Fig. 11(b): the merge classes of the update's CDT input
 // (spec `specs/yang_f2_fig11b_cdt_input_merge.md`).
 mod stage4_fig11b;

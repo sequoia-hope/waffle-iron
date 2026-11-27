@@ -130,6 +130,16 @@ like this. the fixes must be principled. the principles are the paper."*
   two vertices; the render gate refuses the face loudly. That is a tangent
   crossing, a customer of the degenerate-contact matrix — not a reason to
   merge by position alone.
+- **The §4.5.3 sweep walks patch boundary loops, not curves.** Its loops
+  also carry edges of one operand, and the two overtake arms act there. A
+  chain of intersection edges (`stage4_chains`, print-only,
+  `YANG_CHAIN_CENSUS`) holds none of those edges, and on a coplanar plane
+  that `merge_same_plane_patches` merged, Phase A names a crease of B as
+  A × B. Do not swap the sweep onto chains before the overtake arms have a
+  home (spec `yang_f2_fig11b_cdt_input_merge.md` §8.8).
+- **The contact matrix (`assay_contact_matrix`) reports findings; it does
+  not fail on them.** A finding is read to its cause from its replay command
+  and attached to a roadmap milestone before any kernel change answers it.
 - **Grade a matrix row FAITHFUL only when the code does what the row's quote
   says,** including its trigger. A Claude session reviews every kernel commit
   independently before it lands; an overclaimed grade gets reverted.

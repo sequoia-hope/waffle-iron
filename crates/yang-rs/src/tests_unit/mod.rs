@@ -78,6 +78,7 @@ mod s452_missed_intersection;
 mod s452_refinement_loop;
 mod s452_under_resolution_ladder;
 mod s453_carried_curve_overtake;
+mod s453_intersection_chains;
 mod s453_line_overtake;
 mod s454_output_loop_crossings;
 mod s455_edge_in_plane;

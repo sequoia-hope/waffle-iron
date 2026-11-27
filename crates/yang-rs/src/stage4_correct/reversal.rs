@@ -164,6 +164,77 @@ pub(crate) fn sweep_reversed_intersections(
             }
         }
 
+        // `YANG_CHAIN_CENSUS` (print-only; spec
+        // `yang_f2_fig11b_cdt_input_merge.md` §8.8): each curve C read as its
+        // chain of intersection edges, beside the loops this sweep walks.
+        let chain_census = crate::stage4_chains::census_on()
+            .then(|| crate::stage4_chains::IntersectionEdges::read(mesh, attribution));
+        // [the sweep calls p_r an endpoint][the chains' reading of p_r].
+        let mut census_sites = [[0usize; 5]; 2];
+        let mut census_refused: Vec<String> = Vec::new();
+        if let (Some(edges), 1) = (&chain_census, passes) {
+            let loop_cross: std::collections::BTreeSet<(u32, u32)> = loops
+                .iter()
+                .flat_map(|(cycle, _)| cycle.iter())
+                .map(|&(s, e)| if s < e { (s, e) } else { (e, s) })
+                .filter(|key| {
+                    incidence.get(key).is_some_and(|entries| {
+                        entries.iter().any(|&(i, _)| i == InputId::A)
+                            && entries.iter().any(|&(i, _)| i == InputId::B)
+                    })
+                })
+                .collect();
+            let agree = crate::stage4_chains::edge_agreement(edges, &loop_cross);
+            // The first few edges only one reading holds, with what each
+            // reading sees on them.
+            let detail = |tag: &str, key: (u32, u32)| {
+                let surfaces: Vec<String> = incidence
+                    .get(&key)
+                    .map(|entries| {
+                        entries
+                            .iter()
+                            .map(|(i, s)| {
+                                format!("{i:?}:{}", crate::stage4_chains::variant_name(s))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                crate::stage4_chains::log(&format!(
+                    "{tag}\tedge={}-{}\tincidence=[{}]\ttriangles=[{}]",
+                    key.0,
+                    key.1,
+                    surfaces.join(","),
+                    crate::stage4_chains::faces_on_edge(mesh, attribution, key).join(","),
+                ));
+            };
+            for &key in loop_cross
+                .iter()
+                .filter(|k| !edges.pairs.contains_key(k))
+                .take(4)
+            {
+                detail("only-loop", key);
+            }
+            for &key in edges
+                .pairs
+                .keys()
+                .filter(|k| !loop_cross.contains(k))
+                .take(4)
+            {
+                detail("only-chain", key);
+            }
+            let chains = edges.chains();
+            crate::stage4_chains::log(&format!(
+                "entry\tloops={}\tchains={}\tclosed={}\tloop_cross={}\tchain_edges={}\tonly_loop={}\tonly_chain={}",
+                loops.len(),
+                chains.len(),
+                chains.iter().filter(|c| c.closed).count(),
+                agree.loop_cross,
+                agree.chain_edges,
+                agree.only_loop,
+                agree.only_chain,
+            ));
+        }
+
         // Find the FIRST reversal across all loops; remove one point, then
         // restart the whole sweep (re-deriving loops). Deterministic: loops are
         // in the deterministic patch/cycle order; within a loop the walk
@@ -248,6 +319,10 @@ pub(crate) fn sweep_reversed_intersections(
                 let p_n = verts[(i + 1) % m];
                 let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
                 let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
+                let census_site = chain_census.as_ref().map(|e| e.site(p_b, p_r, p_n));
+                if let Some(site) = census_site {
+                    census_sites[usize::from(endpoint[i])][site as usize] += 1;
+                }
                 // Spec `yang_453_line_overtake`: an OVERTAKE verdict (the
                 // straight-run arm, or the carried-curve arm on an operand's
                 // own B-Rep edge) names its own (victim = p_r, survivor = the
@@ -301,6 +376,13 @@ pub(crate) fn sweep_reversed_intersections(
                     };
                     test = Some(SiteTest::AngleBand(tan));
                 }
+                let census_kind = match (&overtake, &test) {
+                    (Some(_), _) => "overtake",
+                    (None, Some(SiteTest::AngleBand(_))) => "angle",
+                    (None, Some(SiteTest::ParamOrder(_))) => "param",
+                    (None, Some(SiteTest::Progression(_))) => "progression",
+                    (None, None) => "-",
+                };
                 let (victim, survivor) = if let Some(vs) = overtake {
                     vs
                 } else {
@@ -353,6 +435,12 @@ pub(crate) fn sweep_reversed_intersections(
                             );
                         }
                         refused.push((p_r, survivor, dist));
+                        if let Some(site) = census_site {
+                            census_refused.push(format!(
+                                "refused\tkind={census_kind}\tsite={}\tp_b={p_b}\tp_r={p_r}\tp_n={p_n}\tdist={dist:.3e}",
+                                site.tag()
+                            ));
+                        }
                         continue;
                     }
                     (victim, survivor)
@@ -370,6 +458,18 @@ pub(crate) fn sweep_reversed_intersections(
                     eprintln!(
                         "[collapse-site] s4.5.3-reversal victim={victim} survivor={survivor}"
                     );
+                }
+                if let (Some(edges), Some(site)) = (&chain_census, census_site) {
+                    crate::stage4_chains::log(&format!(
+                        "removal\tkind={census_kind}\tsite={}\tendpoint={}\tp_b={p_b}\tp_r={p_r}\tp_n={p_n}\tvictim={victim}\tsurvivor={survivor}\tjoin={}",
+                        site.tag(),
+                        endpoint[i],
+                        if edges.is_intersection_edge(victim, survivor) {
+                            "chain-edge"
+                        } else {
+                            "not-chain-edge"
+                        },
+                    ));
                 }
                 let dropped = collapse_vertex_scoped_with_bounds(
                     mesh,
@@ -402,6 +502,27 @@ pub(crate) fn sweep_reversed_intersections(
             }
         }
 
+        if !acted && chain_census.is_some() {
+            use crate::stage4_chains::SiteKind;
+            for line in &census_refused {
+                crate::stage4_chains::log(line);
+            }
+            let row = |r: &[usize; 5]| {
+                [
+                    SiteKind::Interior,
+                    SiteKind::Branch,
+                    SiteKind::Straddle,
+                    SiteKind::OneEdge,
+                    SiteKind::Off,
+                ]
+                .iter()
+                .map(|&k| format!("{}={}", k.tag(), r[k as usize]))
+                .collect::<Vec<_>>()
+                .join("\t")
+            };
+            crate::stage4_chains::log(&format!("exit\tsweep=point\t{}", row(&census_sites[0])));
+            crate::stage4_chains::log(&format!("exit\tsweep=endpoint\t{}", row(&census_sites[1])));
+        }
         if !acted {
             // Fixed point: no removable reversal remains. A reversal the
             // 2·d_ε gate left in place is not a resolution artifact this

@@ -180,7 +180,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N78 | RESOLVED (2026-10-03 night, P0020; the edge-pinch arm reads its §0a certificate at Stage-4 ENTRY only, always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351 — its `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` kill switch deleted 2026-10-16; the §4.5.3 collapse still minting an over-2 edge is its second remediation, no customer) | the edge-pinch split ran at a second site where the pinch was Stage 4's own (§N78 below) |
 | N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; 2026-10-28/30: I3b customer #3 `b2_pipe::s_bend` `17/17` green under reproducible uncommitted I3b trial after Step 1 `N81` decimation/seam-merge re-site; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
-| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; merging the classes right after the relocation TRIED 2026-11-26 and not landed — P0053 stops in the sweep's own patch-cycle walk on a fold the update rebuilds; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
+| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; merging the classes right after the relocation TRIED 2026-11-26 and not landed — P0053 stops in the sweep's own patch-cycle walk on a fold the update rebuilds; the chain reading of C built print-only and censused 2026-11-26 — every §4.5.3 test removal is at an interior point of a chain, the overtake arms are off the chains; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
 | N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4; amended 2026-11-22) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops. Since 2026-11-22 T3c also reads a loop that folds back over itself along one curve (`output_loop_spurs`), on every face type |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
@@ -7325,6 +7325,23 @@ every later reader see each class as one point (spec §8.4 item 4). Since
 (N55 amendment, spec §8.6) and no class reaches the update; the places ahead
 of the sweep and the sweep's own removals are as measured here.
 
+**The sweep's curves against chains of intersection edges (2026-11-26,
+print-only; spec §8.8).** `stage4_chains::IntersectionEdges` reads each
+curve C as the chain of mesh edges that carry a triangle of each operand,
+per (face of A, face of B) — no patch walk. Under `YANG_CHAIN_CENSUS` the
+sweep prints both readings. Corpus (179 cases reach the sweep) and rotation
+sweep (882 lines), results identical to the build without the census: every
+removal the §4.5.3 tests make is at an interior point of a chain (2,272
+corpus, 11,500 sweep) except 31 on C0043 under two rotations; the two
+overtake arms' removals (83 in 18 cases; 383 in 26) are on an edge of one
+operand, off every chain; the readings hold different edges in 15 corpus
+cases (17 over the sweep), all at a coplanar plane `merge_same_plane_patches`
+has merged — Phase A gives B's crease A's name there and makes the seam
+patch-interior — or where two faces touch along an edge without crossing
+(P0020). What stays open before the sweep can read chains: a home for the
+overtake arms, the endpoint rule (mints, a third surface), incidence and
+typed curves without Phase A, and the merged planes.
+
 **Tried (2026-11-26), not landed — the classes merged right after the
 relocation** (spec §8.7; one binary, switch on against off; the patch is in
 `git stash`). The sweep then reads no same-point pair as a reversal (classes
@@ -7342,7 +7359,8 @@ from every patch's boundary cycles after each removal (`reversal.rs`,
 alone, which no refinement changes. The paper's sweep walks the
 intersection curve C (`:679-689`), not patch boundaries. The early merge
 lands with the sub-step that makes the sweep read C from the chains of
-intersection edges, or makes its STOP name the faces its vertex lies on;
+intersection edges, or makes its STOP name the faces its vertex lies on
+(the chain reading is built and censused, print-only — next paragraph);
 P0053 is the customer.
 
 **State: OPEN** (found 2026-10-16; polyline decimation re-sited 2026-10-28 and switched to forward §4.3.4 2026-10-30).

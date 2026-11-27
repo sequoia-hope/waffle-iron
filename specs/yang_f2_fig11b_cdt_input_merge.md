@@ -614,3 +614,73 @@ the sub-step that answers P0053: the sweep reading C from the chains of
 intersection edges and leaving patch cycles to the update, or its STOP
 naming every face its vertex lies on (§4.5.2's "faces involved"). Which of
 the two is not decided here.
+
+### 8.8 The sweep's curves read as chains of intersection edges: census (2026-11-26)
+
+**The reading** (`stage4_chains::IntersectionEdges`, print-only beside the
+sweep; `YANG_CHAIN_CENSUS=<file>`). An intersection edge is a mesh edge with
+a triangle of each operand on it. A curve C is the chain of such edges one
+face of A and one face of B share; it ends where that pair has one edge at a
+vertex, or more than two. The reading uses the triangles' face attribution
+only: no patch, no boundary walk, no surface type. An edge of one operand
+lying in a face of the other is an edge of two curves.
+
+**Measured** (kernel of `f9da3ccc` plus the census; corpus `results.json`
+and all 1,870 sweep lines identical to §8.6's):
+
+| | corpus | rotation sweep |
+|---|---|---|
+| cases that reach the sweep / sweep calls | 179 / 564 | 180 (882 lines) / 2,184 |
+| intersection edges in the sweep's loops / in the chains | 117,628 / 114,644 | 461,195 / 447,002 |
+| edges only the loops hold / only the chains hold | 3,720 / 736, in 15 cases (24 calls) | 17,572 / 3,379, in 17 cases (72 calls) |
+| removals | 2,355 | 11,914 |
+| — at an interior point of a chain, joined along a chain edge | 2,272 | 11,500 |
+| — the two overtake arms, on an edge of one operand | 83, in 18 cases | 383, in 26 cases |
+| — a §4.5.3 test on an edge of one operand | 0 | 31 (C0043, two rotations) |
+| reversals the 2·d_ε gate leaves, all at interior points of a chain | 48 | 220 |
+| at the fixed point, positions the sweep reads as points between C's endpoints: chain interior / off the chains / at a branch | 175,378 / 5,888 / 0 | 661,400 / 27,803 / 2 (R0070) |
+| positions the sweep reads as endpoints and the chains as interior | 63, in 7 cases | 1,206, in 21 cases |
+
+**The disagreements, read** (census detail lines on the 15 corpus cases and
+C0043; each names the surfaces Phase A carries on the edge and the face of
+every triangle on it).
+
+- *Edges only the loops hold* (13 cases): both triangles on the edge belong
+  to B — the edge is a crease of B — and Phase A names it A × B. One of B's
+  two faces there is a plane that `merge_same_plane_patches` (PR-YR27) has
+  merged with A's coplanar face, and the merged patch carries A's name. The
+  5,888 off-chain positions and C0043's 31 removals are on these edges.
+- *Edges only the chains hold*: one triangle of A and one of B, and no
+  Phase-A incidence at all (13 cases) — the seam inside such a merged plane,
+  which the merge makes patch-interior; or Phase A names one operand alone
+  (P0029, R0015); or two triangles of each operand with nothing dropped
+  between them (P0020, one edge) — the faces touch along the edge without
+  crossing.
+- *Endpoints*: where the sweep ends C and the chain runs through, the vertex
+  is a Stage-1 mint or carries a third surface (`curve_endpoint_ranked`).
+
+So on every case with no coplanar merge the two readings hold the same
+edges, every §4.5.3 removal is at an interior point of a chain, and the
+chain reading can replace the loops without changing a removal — given the
+four things below.
+
+**What wiring the reading has to answer** (not built):
+
+1. *The overtake arms* (matrix 4.5.3-12) act on an edge of ONE operand — a
+   relocated junction that passed points of that operand's own boundary
+   curve. A chain-only sweep drops them (18 corpus cases). They need their
+   own walk over the operand's boundary curves, or their paper home
+   (§4.4.1 Fig. 11(a), the split of a boundary edge), first.
+2. *Endpoints*: a mint or a third surface ends C though the face pair does
+   not change; the endpoint rule stays on top of the chains.
+3. *Incidence and curves without Phase A*: the sweep's tests read the
+   surfaces and the typed curve of each edge; both follow from the two
+   faces of a chain edge (`build_intersection_curves`).
+4. *The coplanar merge*: on the kept mesh a merged plane hides the seam and
+   renames a crease. The chains read the triangles as they are; what the
+   sweep should do on those 13 cases is decided with the wiring (on the full
+   arrangement, N80, neither sheet is dropped).
+
+Then P0053 with the early merge (§8.7) is the customer run: the sweep no
+longer stops on the folded patch; whether the update then rebuilds it is
+what that run measures.
