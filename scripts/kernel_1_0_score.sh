@@ -115,7 +115,22 @@ echo
 # Gate 3.7 (contact matrix), gate 3.2 (F5a) and gate 1.4 (OCCT oracle): each
 # prints its report when one exists; until its harness is built it says so.
 if [ -f target/contact-matrix/report.json ]; then
-  echo "   degenerate-contact matrix: report at target/contact-matrix/report.json"
+  python3 - target/contact-matrix/report.json <<'PY'
+import json, sys
+
+r = json.load(open(sys.argv[1]))
+t = r["totals"]
+print(f"   degenerate-contact matrix (assay_contact_matrix, commit {r['commit']}): "
+      f"{r['cells_met']} of {r['admitted_cells']} admitted cells met, "
+      f"{r['cells_with_findings']} with a finding, {r['cells_untested']} untested "
+      f"(target: every admitted cell)")
+print(f"   boolean runs {r['boolean_runs']}: {t['correct']} CORRECT / {t['refused_named']} refusal naming the class / "
+      f"{t['wrong']} WRONG / {t['timeout']} TIMEOUT / {t['error_unnamed']} ERROR not naming it / "
+      f"{t['unsupported_unnamed']} NotSupported not naming it / {t['blocked']} blocked by a setup step")
+print(f"   {r['not_admitted_cells']} cells not admitted by their pair, {r['not_buildable_cells']} not buildable (B-spline)")
+PY
+elif [ -f crates/test-harness/tests/assay_contact_matrix.rs ]; then
+  echo "   degenerate-contact matrix test: present (no target/contact-matrix/report.json — run assay_contact_matrix)"
 else
   echo "   degenerate-contact matrix: not built (target: every cell CORRECT or typed)"
 fi

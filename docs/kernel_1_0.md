@@ -87,7 +87,8 @@ The supported envelope, each item with a corpus or pinned customer:
 7. **Every degenerate contact has a stated answer.** The paper's test sets
    are randomly rotated pairs, so it covers general position, coplanar planes
    (§4.5.5) and isolated tangent points (§4.3.3). Mechanical models are mostly
-   the other cases. A contact matrix in `crates/test-harness/` (new) crosses
+   the other cases. The contact matrix (`assay_contact_matrix`,
+   `docs/TESTING.md` §"Running the contact matrix") crosses
    each surface pair with each contact class that pair admits: coincident
    surfaces, tangency along a curve, tangency at a point, an edge lying in a
    face, a vertex lying on a face, a shared edge. Every cell categorizes
@@ -100,6 +101,32 @@ The supported envelope, each item with a corpus or pinned customer:
    shell, and the harness accepts a mesh edge used four times only where
    the B-Rep holds two edges there
    (`specs/yang_f2_fig11b_cdt_input_merge.md` §8.3).*
+
+   *Measured (2026-11-26, kernel of f9da3ccc, release, 900 s CPU per
+   document):* of the 90 analytic cells, 16 are not admitted by their pair
+   (each prints its geometric reason) and 74 are authored as 85
+   configurations, each checked with no kernel call to be the contact it
+   claims (`verify_contact_geometry`). **19 cells are met, 55 hold a finding,
+   none is untested, and no run is WRONG.** Of 255 boolean runs 117 are
+   CORRECT; no failing run names its contact class — each is a general
+   kernel STOP, read from its text because text is all the categorizer
+   returns (gate 3.5 types it). The 138 failing runs by stop:
+
+   | runs | configurations | stop | the contacts |
+   |---|---|---|---|
+   | 36 | 13 | Stage-4 `LocalRefinementRequired` | a circular edge shared by two coaxial bodies; a rim circle lying in a curved face; three tangencies (nested equal-slope cones, a torus seated on a cone, a pin in a torus's hole) |
+   | 21 | 7 | `NotSupported`: a boolean-output sphere patch cannot re-enter Stage 1 | every cell that needs a spherical face with an edge; the trimmed sphere builds and is then refused as an operand, so the contact is never reached |
+   | 20 | 16 | `reassembled output would be non-2-manifold` | the union of two solids that touch at one point of a sphere or a torus (14) and the cut there (3); a cylinder touching a larger one from inside along a ruling (cut); a sphere inscribed in a cone (cut, intersect) |
+   | 15 | 5 | Stage-3 `AmbiguousCurve` (12), `IntersectFailed(DegenerateInput)` (3) | a rim circle on a coaxial cone or on a sphere; a sphere in a cylinder of its own radius; two frusta of one cone |
+   | 13 | 5 | TIMEOUT | tangency along a circle of a torus (plane, cylinder, sphere, torus); a torus against the same torus trimmed |
+   | 10 | 5 | §4.5.2 refinement exhausted | a rim circle on a sphere; a plane tangent to a torus at a saddle point; coincident cylinders (overlapping, pin in hole); a half torus's end circle on a second torus |
+   | 10 | 4 | `torus patch UV-CDT failed` | nine runs blocked because the setup boolean that trims a torus along a parallel fails this way, and one contact run |
+   | 13 | 7 | other | two identical spheres or tori: `geometric face resolution failed` (6); `input B-Rep is not 2-manifold` on two valid operands (2); Stage-4 `DegenerateTriangle` (2); `cone patch loop has zero developed area` (2); `InvalidBooleanOutput` (1) |
+
+   No finding is attached to a roadmap milestone yet: each is read to its
+   cause from its replay command first (roadmap §4). The corpus customers
+   agree with the matrix: its configurations of the F0060, F0059 and C0056
+   contacts are CORRECT in all three booleans.
 
 ### Gate 4 — Bounded, not fast
 
@@ -134,7 +161,7 @@ roadmap checkpoint, next to the roadmap's own scoreboard.
 | 3 | surface pairs with a CORRECT customer | **15 of 21** (`assay_pair_matrix` on 75f2f1be, 3 seeds: 135 / 135 CORRECT, 0 WRONG, 0 ERROR, 132 with exact-volume agreement); the 6 B-spline pairs are not buildable (F5) | 21 of 21 |
 | 3 | B-spline end to end | no | yes |
 | 3 | parameter coordinates carried per vertex per face (F5a) | carried, unread: every vertex at every stage (2026-11-17, F5a inc 3); Stage 4 still projects 3D points (matrix 4.3-05) | yes |
-| 3 | degenerate-contact matrix cells CORRECT or typed | matrix not built (2026-11-12) | every cell |
+| 3 | degenerate-contact matrix cells CORRECT or typed | **19 of 74** admitted cells (`assay_contact_matrix`, kernel of f9da3ccc: 255 boolean runs, 117 CORRECT, 0 WRONG, 0 refusals naming their class, 138 findings); 16 cells not admitted by their pair; the 36 B-spline cells are not buildable (F5) | every admitted cell |
 | 3 | fresh-seed ERROR rate | seed 6: 6 % (12/200; 2 are the empty-result harness verdict) | ≤ 5 %, all typed |
 | 4 | corpus + seed TIMEOUTs | corpus 0; seed 6: 4 | 0 |
 | 4 | undocumented panic sites in yang-rs (K7) | ~60 (review count; not yet gated) | 0 |
@@ -268,3 +295,4 @@ of building the paper's mechanism (memory, 2026-10-31).
 | 2026-11-26 | step 2, F2 Fig. 11(b): the merge classes sorted by paper statement (print-only census) — §4.3.3 in five merges of six; F0060's CORRECT read: it rests on two vertices an ulp apart at the ends of its pinch lines, and the oracle pins that two shells sharing an edge fail. Gate 3.7's "tangency along a curve" cell needs the owner's ruling before the merge is wired | corpus 360C/0W/9E/5EE/0T held, `results.json` byte-identical; the rotation sweep line for line identical | 78 / 157 | — | — | (this commit) |
 | 2026-11-26 | gate 3.7, tangency along a curve — RULED by the owner: a line pinch is one copy of the line per sheet, each sheet a closed shell. The harness reads a mesh edge used four times as two sheets only where the B-Rep holds two edges there (`oracle::line_pinch_sheets`); unbacked, it still fails | corpus 360C/0W/9E/5EE/0T, `results.json` byte-identical; rotation sweep line for line identical; always-on harness 683 passed; F0060 with its pinch-line ends merged reads CORRECT (was WRONG by the oracle alone) | 78 / 157 | one contact class has a stated answer | — | (this commit) |
 | 2026-11-26 | step 2, F2 Fig. 11(b) increment 2a: the ordered same-point scan (N55) deleted, the classes merged in its place all at once; the sub-τ collapse re-censused (its Stage-4 site takes nothing on corpus or sweep) | corpus 360C/0W/9E/5EE/0T held (`results.json`: one detail string); rotation sweep 1,379 OK / 106 ERR (F0059 m2 converts; 39 lines differ in mesh hash only); seed 6 189C/9E/2T unchanged; rewrite tier and always-on harness (683 passed) green | 78 / 157 | F0060 CORRECT with each pinch-line end one point per sheet; one new customer named for the contact matrix: two crossing-point vertices at a tangent crossing of equal cylinders (F0059 m3, loud) | — | (this commit) |
+| 2026-11-26 | gate 3.7: the degenerate-contact matrix built and measured (`assay_contact_matrix`; 74 admitted cells as 85 configurations, each verified without the kernel; test-harness only, no kernel change) | 0 WRONG over 255 boolean runs | 78 / 157 | 19 of 74 admitted cells met; 55 with a finding (138 runs: 95 ERROR, 21 NotSupported, 13 TIMEOUT, 9 blocked); no failing run names its contact class | 13 TIMEOUT, all on a torus | (this commit) |
