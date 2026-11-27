@@ -684,3 +684,58 @@ four things below.
 Then P0053 with the early merge (§8.7) is the customer run: the sweep no
 longer stops on the folded patch; whether the update then rebuilds it is
 what that run measures.
+
+### 8.9 The sweep on chains, tried (2026-11-27)
+
+**The trial** (one binary, switch `YANG_453_CHAINS`; kept in `git stash`,
+"experiment 2026-11-27", not in the tree). The sweep takes Phase A's own
+patches — the same flood fill and coplanar merge — and the same edge
+incidence and `build_intersection_curves`, so the merged planes of §8.8 and
+the overtake arms keep what they have today; only the walk changes. An edge
+is on a patch's boundary when the patch's triangles along it do not cancel
+in direction (one triangle, or a fold's two on one side). A loop is a CHAIN:
+the boundary edges one set of patches shares, between the vertices where
+that set has one edge or more than two; a chain that returns to its start is
+a closed loop. No patch boundary is walked as a cycle, so a patch folded
+mid-repair cannot stop the sweep. A chain is admitted when one of its
+patches has an intersection edge; the angle band is the test on closed
+all-conic rings and nowhere else.
+
+**The two readings on one mesh** (first pass of all 564 corpus sweep calls,
+switch off, both computed): the incidence and the typed curve of every edge
+are identical. Site triples (p_b, p_r, p_n): 369,601 in the cycles, 400,182
+in the chains. 105,471 are in the cycles only — 15,236 of them with both
+edges intersection edges, where one curve ends and the next begins.
+136,052 are in the chains only — 3 with both edges intersection edges
+(P0017, R0061); the rest are on one operand's edges, which the cycle
+reading reaches only on a cycle that holds an intersection edge. On 1,718
+intersection sites in 25 cases the two readings apply a different test: in
+the cycle reading a site takes the angle band when a patch cycle through it
+is all conic and exact parameter order when one is mixed, and a site on two
+cycles can take both.
+
+**Measured, switch on against off:**
+
+| | off | on |
+|---|---|---|
+| `cargo test -p yang-rs` | 1,537 passed | 1,537 passed |
+| corpus | 360C / 0W / 9E / 5EE / 0T | the same; three detail strings (F0064 ends with 16 unresolved sites for 18; P0007, P0055) |
+| sweep, 1,870 lines | 1,379 OK / 106 ERR / 11 DIFF | 1,383 / 102 / 11 — C0058 one rotation and P0020 three go ERR → OK; 11 lines differ in hash, mesh volume or deviation only (C0058, P0007, P0055, R0026); none is worse |
+| test removals, corpus | 2,272 | 2,376 — P0020 15 → 73, P0053 5 → 28, R0061 2 → 20, P0055 1 → 4, P0007 2 → 4 |
+| test removals, sweep | 11,531 | 11,898, in 8 cases (C0058 0 → 16, P0020 255 → 390, P0053 27 → 144, R0061 10 → 95) |
+| overtake removals | 83 corpus, 383 sweep | 85 and 394 (P0007, P0055) |
+
+**Not landed.** Every score holds or improves, but the sweep makes more
+removals in a handful of cases and they are not read site by site. Two
+causes were found, fixed in the trial and ruled out as the whole of it —
+the table is the same with and without each: an edge where two faces touch
+without crossing counted as a boundary edge (P0020), and a loop that returns
+to its start read as an open chain (C0058). What is left to read is the
+test a site takes (the 1,718 sites) and the removals that follow from the
+first one that differs. The trial carries `YANG_453_SITE_PROBE` for that.
+
+**Next.** Read P0020, C0058, R0061 and P0053 site by site on one build; fix
+the rule for which test a chain's sites take, from the paper (Fig. 15 is
+the angle band; parameter order is matrix 4.5.3-07's substitute); land the
+chain walk with the cycle walk deleted from the sweep; then the early merge
+of §8.7 with P0053 as its customer run.

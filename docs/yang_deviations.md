@@ -7342,6 +7342,20 @@ patch-interior — or where two faces touch along an edge without crossing
 overtake arms, the endpoint rule (mints, a third surface), incidence and
 typed curves without Phase A, and the merged planes.
 
+**Tried (2026-11-27), not landed — the sweep on chains of patch-boundary
+edges** (spec §8.9; one binary, switch on against off; the patch is in
+`git stash`). The sweep keeps Phase A's patches, incidence and typed curves
+and walks each boundary as chains between two patches instead of as patch
+cycles, so a folded patch cannot stop it. On one mesh the two readings give
+every edge the same incidence and curve (564 corpus sweep calls). Switch on:
+yang-rs 1,537 passed, corpus 360C/0W/9E/5EE/0T held, rotation sweep 1,383
+OK / 102 ERR for 1,379 / 106 (C0058 once and P0020 three times go ERR → OK,
+no line worse). It also makes more test removals in a few cases (corpus
+2,272 → 2,376: P0020, P0053, R0061, P0055, P0007), and those are not read
+site by site yet, so it is not landed. The known difference left is which
+test a site takes: today that follows from the patch cycle the site is
+walked in (1,718 sites in 25 cases differ).
+
 **Tried (2026-11-26), not landed — the classes merged right after the
 relocation** (spec §8.7; one binary, switch on against off; the patch is in
 `git stash`). The sweep then reads no same-point pair as a reversal (classes
