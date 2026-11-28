@@ -1872,7 +1872,8 @@ fn boolean_once_timed(
     // near-coincident-but-structurally-distinct vertices at ruling-line /
     // tangency junctions (one copy per incident surface's chord ring) and
     // reconciles them ITSELF in Stage-4 relocation with curve knowledge
-    // (the KV9 junction duplicate collapse); welding them at step (2)
+    // (the same-point class merge and the weld of coincident relocated
+    // vertices); welding them at step (2)
     // collapses lens-tip seam edges into degenerate (<3-edge) output loops
     // — found by kv9_cyl_cyl_special RED on the first attempt.
     // Per-triangle B-Rep face maps for the operand meshes — the inputs' OWN

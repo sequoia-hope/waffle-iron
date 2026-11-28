@@ -788,8 +788,86 @@ and turned F0058 into a loud `NonManifold` ERROR; every other corpus case
 held. So the junction-twin collapse keeps customers the classes do not
 cover — exact twins of one junction in the tangent-crossing family (F0058,
 F0059, F0060, C0058) — and the weld's band is wider than a class
-(`TAU_MODEL·(1 + scale)`); neither is retired here.
+(`TAU_MODEL·(1 + scale)`); neither is retired here. §8.11 reads the two apart.
 
 **Open.** The two passes above; the second run of the merge (it takes what
 later collapses join); the sweep's own removals of a Fig. 11(b) pair, now
 only where a pass in between forms one.
+
+### 8.11 The passes between the merge and the sweep, read apart; the junction-twin collapse retired (landed 2026-11-28)
+
+**Method.** The junction-twin collapse and the moved × minted weld were
+each switched off in one release binary (temporary switches, deleted), and
+every pair a weld takes was printed (`weld-pair`: distance, one point
+within roundoff or not, a mesh edge between the two or not), with the
+vertex copies the Stage-4 entry split makes (`entry-pinch-split`).
+
+| switched off | `cargo test -p yang-rs` | corpus | rotation sweep |
+|---|---|---|---|
+| the junction-twin collapse | 1,545 passed | F0058 → ERROR (kernel-v2 `NonManifoldVertex` at the pinch) | F0058: its reference and all four motions |
+| the moved × minted weld | `c0058_authored_geometry_union_mints_its_tangent_points` fails | byte-identical | C0058: all four motions → ERR |
+| the junction-twin collapse, with the entry split kept to line pinches | 1,545 passed | byte-identical | (the landed code, below) |
+
+**The junction-twin collapse had two populations, and neither needs it.**
+
+- *Point-pinch copies of the entry split* (F0058 2, F0060 2). The Stage-4
+  entry split exists for the LINE pinch (spec `yang_tangency_pinch_split.md`
+  §0a), but it also separated every vertex whose star is two closed fans.
+  The junction arm relocated both copies to one point, the collapse made
+  them one vertex again, and the (4a2) split separated them a second time.
+  With the collapse off and nothing else changed the entry copies reach
+  kernel-v2 as one non-manifold vertex (F0058). The entry call now splits
+  a vertex only when one of its edges holds four triangles, so a point
+  pinch is one vertex — one point of both curves through it — until (4a2).
+  F0060's entry split makes 10 copies for 14.
+- *Exact twins no mesh edge joins* (F0059, two pairs a run). The weld after
+  the sweep takes them (`weld-pair`, d = 0).
+
+**The moved × minted weld stays, and its customer is not its band.** Its 28
+corpus pairs are two populations:
+
+| pairs the weld takes (corpus) | ahead of the sweep | after the sweep |
+|---|---|---|
+| one point within roundoff, no mesh edge between them | 22 (17 onto a minted junction): P0005, P0020, P0053, P0055, R0061 | 8: F0059, P0061, P0062, R0050 |
+| 1e-9 to 1e-7 apart, a mesh edge between them | 5, and 1 more with no edge: P0007, P0017 | 39: P0007, P0017, P0048, R0019, R0061, R0085 |
+
+No pair is one point AND joined by an edge: the classes take all of those.
+C0058 is the first row. At each of its two tangent points the relocation
+puts a second vertex on the minted one (2.3e-16 and 2.1e-16 away) with no
+mesh edge between them; left there, a removal of the sweep joins the two by
+an edge, and that edge cannot be typed (`AmbiguousCurve`: both ellipses pass
+through its one point).
+
+**What this says about the classes.** §4.3.3 removes a point "too close to
+another point on the same loop" (`:535-536`). The classes read the two ends
+of a mesh edge (§3.1 item 1, Fig. 11(b)'s "endpoint p of the split edge"),
+which is narrower: two points of one loop at one position with other points
+of the loop between them are not read. That is the weld's first row, and it
+is why the weld cannot retire into the classes as they stand.
+
+**Landed** (kernel of this commit against §8.10's): the collapse deleted,
+the entry call restricted.
+
+| | §8.10 | now |
+|---|---|---|
+| `cargo test -p yang-rs` | 1,545 passed | 1,546 passed (1 new) |
+| corpus | 360C / 0W / 9E / 5EE / 0T | the same; `results.json` byte-identical |
+| rotation sweep, 1,870 lines | 1,383 OK / 102 ERR / 11 DIFF | 1,383 OK / 103 ERR / 10 DIFF: one line moves, F0060 under motion 2, from a quiet three bodies for four to a loud `LocalRefinementRequired` — what its other three motions already report |
+| prospector seed 6 | 189C / 9E / 2T | the same; no document changes category or signature |
+
+F0060 under motion 2 is the line pinch moved rigidly. Rotated, the pinch is
+not handed over as §0a's chain of four-triangle edges: the entry call made
+4 copies there, 3 of them at vertices with no four-triangle edge (of its
+two such edges one carries the certificate and one fails it), and the build
+came out as three
+bodies, one cap a whole disc (`docs/yang_tail_triage.md`, 2026-11-15). With
+the entry call kept to line pinches it makes 1 copy and the sweep does not
+settle.
+The ruled answer is four bodies (§8.3), so the quiet line was a wrong count
+and the loud one names the open customer: a line pinch that is not handed
+over as an exact chain (kernel 1.0 gate 3.7, tangency along a curve).
+
+**Open.** The first row read by the paper's own statement: same point, same
+loop, any distance apart along it (a census of those pairs by chain comes
+first). The second row is N47's band and stays with the weld after the
+sweep.

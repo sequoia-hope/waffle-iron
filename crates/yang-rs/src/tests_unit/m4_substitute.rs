@@ -209,6 +209,61 @@ pub(crate) fn split_pinch_vertices_leaves_open_fan_untouched() {
     );
 }
 
+/// A POINT pinch — one vertex whose star is two closed fans, no edge with
+/// four triangles — is one vertex through Stage 4 and is separated by the
+/// (4a2) call (`edge_pinch = false`). The Stage-4 ENTRY call
+/// (`edge_pinch = true`) separates line pinches and leaves it alone: copies
+/// made there were relocated to one junction and collapsed back into one
+/// vertex before (4a2) split them again (ledger N121).
+#[test]
+pub(crate) fn the_entry_call_leaves_a_point_pinch_to_the_late_call() {
+    let fixture = || {
+        Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),   // 0 the pinch
+                p(1.0, 0.0, 1.0),   // 1
+                p(0.0, 1.0, 1.0),   // 2
+                p(-1.0, 0.0, 1.0),  // 3
+                p(1.0, 0.0, -1.0),  // 4
+                p(0.0, 1.0, -1.0),  // 5
+                p(-1.0, 0.0, -1.0), // 6
+            ],
+            vec![
+                [0, 1, 2],
+                [0, 2, 3],
+                [0, 3, 1],
+                [0, 5, 4],
+                [0, 6, 5],
+                [0, 4, 6],
+            ],
+        )
+    };
+    let side_labels = vec![TriangleSideLabel::default(); 6];
+
+    let mut at_entry = fixture();
+    let mut relocations: Vec<(u32, f64)> = Vec::new();
+    let splits = split_pinch_vertices(&mut at_entry, &mut relocations, &[], &side_labels, true);
+    assert_eq!(splits, 0, "no edge of the star holds four triangles");
+    assert_eq!(at_entry.tris, fixture().tris);
+    assert_eq!(at_entry.verts.len(), 7);
+
+    let mut late = fixture();
+    let mut relocations: Vec<(u32, f64)> = vec![(0, 0.25)];
+    let splits = split_pinch_vertices(&mut late, &mut relocations, &[], &side_labels, false);
+    assert_eq!(splits, 1, "one copy per fan");
+    assert_eq!(late.verts.len(), 8);
+    assert_eq!(late.verts[7].as_array(), late.verts[0].as_array());
+    assert_eq!(
+        &late.tris[..3],
+        &fixture().tris[..3],
+        "the first fan keeps 0"
+    );
+    assert!(late.tris[3..]
+        .iter()
+        .all(|t| t.contains(&7) && !t.contains(&0)));
+    assert_eq!(relocations, vec![(0, 0.25), (7, 0.25)]);
+}
+
 /// ADVERSARY (spec §8/I4, task #86): a bowtie patch — two triangle lobes
 /// meeting at ONE mesh-manifold pinch vertex — must walk into TWO
 /// separate boundary cycles, one per lobe, NOT one chained self-crossing

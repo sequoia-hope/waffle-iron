@@ -2497,6 +2497,15 @@ pub(crate) fn split_pinch_vertices(
     )
 }
 
+/// The pinch split of one Stage-4 site (spec `yang_tangency_pinch_split.md`).
+///
+/// `edge_pinch = true` is the Stage-4 ENTRY call: it separates the vertices of
+/// a LINE pinch (an edge with four triangles carrying the §0a certificate)
+/// while the arrangement still holds the certificate, and no other vertex.
+/// `edge_pinch = false` is the (4a2) call: it separates a POINT pinch (a
+/// vertex whose star is two or more closed fans) and leaves a vertex with a
+/// four-triangle edge alone. A point pinch is therefore one vertex — one
+/// point of both curves through it — for the whole of Stage 4.
 pub(crate) fn split_pinch_vertices_with_bounds(
     mesh: &mut Mesh,
     relocations: &mut Vec<(u32, f64)>,
@@ -2507,7 +2516,7 @@ pub(crate) fn split_pinch_vertices_with_bounds(
     params: Option<&mut crate::param_surface::carried::VertexParamMap>,
 ) -> usize {
     if edge_pinch {
-        split_pinch_vertices_scoped_with_bounds(
+        split_pinch_vertices_where(
             mesh,
             relocations,
             attribution,
@@ -2515,10 +2524,11 @@ pub(crate) fn split_pinch_vertices_with_bounds(
             tri_bounds,
             None,
             params,
+            true,
         )
     } else {
         let empty = std::collections::BTreeSet::new();
-        split_pinch_vertices_scoped_with_bounds(
+        split_pinch_vertices_where(
             mesh,
             relocations,
             attribution,
@@ -2526,6 +2536,7 @@ pub(crate) fn split_pinch_vertices_with_bounds(
             tri_bounds,
             Some(&empty),
             params,
+            false,
         )
     }
 }
@@ -2561,7 +2572,34 @@ pub(crate) fn split_pinch_vertices_scoped_with_bounds(
     side_labels: &[crate::brep::TriangleSideLabel],
     tri_bounds: &[f64],
     allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
+    params: Option<&mut crate::param_surface::carried::VertexParamMap>,
+) -> usize {
+    split_pinch_vertices_where(
+        mesh,
+        relocations,
+        attribution,
+        side_labels,
+        tri_bounds,
+        allowed_edge_pinch_verts,
+        params,
+        false,
+    )
+}
+
+/// The split itself. With `line_pinch_only` a vertex is separated only when
+/// one of its edges carries four triangles (a line pinch, certified per
+/// edge); a vertex whose star is two closed fans and nothing else is left as
+/// one vertex.
+#[allow(clippy::too_many_arguments)]
+fn split_pinch_vertices_where(
+    mesh: &mut Mesh,
+    relocations: &mut Vec<(u32, f64)>,
+    attribution: &[Option<TriangleAttribution>],
+    side_labels: &[crate::brep::TriangleSideLabel],
+    tri_bounds: &[f64],
+    allowed_edge_pinch_verts: Option<&std::collections::BTreeSet<u32>>,
     mut params: Option<&mut crate::param_surface::carried::VertexParamMap>,
+    line_pinch_only: bool,
 ) -> usize {
     debug_assert_eq!(
         side_labels.len(),
@@ -2621,6 +2659,9 @@ pub(crate) fn split_pinch_vertices_scoped_with_bounds(
         // unchanged.
         let mut pairs: Vec<(usize, usize)> = Vec::new();
         let mut bail = false;
+        if line_pinch_only && by_u.values().all(|l| l.len() != 4) {
+            continue;
+        }
         for (&u, l) in &by_u {
             let edge_allowed =
                 allowed_edge_pinch_verts.is_none_or(|s| s.contains(&v) && s.contains(&u));

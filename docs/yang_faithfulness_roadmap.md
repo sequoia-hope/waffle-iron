@@ -332,11 +332,15 @@ intersected patches.
       are merged right after the relocation, so §4.3.3's removal is made
       ahead of §4.5.3 (334 of 367 corpus merges; the rest are classes the
       collapses in between form, merged ahead of the update as before) and
-      the sweep meets a class as one point. Open: the junction-twin
-      collapse and the moved × minted weld ahead of the sweep, which keep
-      customers the classes do not cover (F0058 and the C0058 pin; a band
-      wider than a class); the walk direction of a chain; the Case-IV
-      rule-out and the §4.3.4 refinement, still after the update.)*
+      the sweep meets a class as one point. Landed 2026-11-28 (spec
+      §8.11): the PR-KV9 junction-twin collapse is deleted (N121 RESOLVED);
+      it was collapsing point-pinch copies the Stage-4 entry split had just
+      made, and that call now separates line pinches only. Open: the moved
+      × minted weld ahead of the sweep (customer: C0058's tangent points —
+      pairs at one position that no mesh edge joins, §4.3.3's "another
+      point on the same loop", which a class does not read yet); the walk
+      direction of a chain; the Case-IV rule-out and the §4.3.4 refinement,
+      still after the update.)*
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
       ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
@@ -565,3 +569,4 @@ the first known item.
 | 2026-11-27 | F2 sub-step split (N81), tried, not landed: the §4.5.3 sweep walking chains of patch-boundary edges instead of patch cycles (switch on against off in one binary). Same incidence and typed curve on every edge; yang-rs suite holds; rotation sweep 1,383 OK / 102 ERR for 1,379 / 106 (C0058, P0020 ×3 convert; none worse); test removals 2,272 → 2,376 on the corpus in five cases, not yet read site by site | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (unchanged with the switch on) | (this commit) |
 | 2026-11-28 | F2 sub-step split (N81): the §4.5.3 sweep walks each curve as a chain of patch-boundary edges (`reversal.rs::curve_chains`) and no patch's boundary loop, on the kept mesh and the full arrangement; a patch folded by a reversal no longer stops the correction. The site test is per site: the paper's angle band on every site of one planar conic (N29) — 812 corpus removals by the band for 50, the 1,561 left on parameter order all on surface-pair curves. The removals read call by call: the extra ones (2,272 → 2,376) are on four meshes the patch-loop walk refused (P0020, P0053, R0061, P0055) and one changed walk direction (P0007). Rotation sweep 1,383 OK / 102 ERR (was 1,379 / 106): C0058 once and P0020 three times convert, none worse. yang-rs 1,544 passed; seed 6 189C / 9E / 2T unchanged; rewrite tier and always-on harness (689 passed) green | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json`: three detail strings — F0064, P0007, P0055) | (this commit) |
 | 2026-11-28 | F2 sub-step split (N81): the same-point classes merged right after the relocation (`merge_same_point_classes`), ahead of the §4.5.3 sweep, and again ahead of the update for the classes the collapses in between form — §4.3.3's removal in the paper's place for 334 of 367 corpus merges (1,085 of 1,252 over the rotation sweep). Classes at the sweep's entry 284 → 3 (878 → 19); the sweep's overtake removals 85 → 71 (394 → 306). P0053, which this merge turned into an ERROR on the patch-loop walk, holds. Not retired: the junction-twin collapse (F0058 and the C0058 pin need it) and the moved × minted weld. yang-rs 1,545 passed; rotation sweep 1,383 OK / 102 ERR, no line changes status; seed 6 189C / 9E / 2T unchanged; rewrite tier and always-on harness (689 passed) green | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical) | (this commit) |
+| 2026-11-28 | F2 sub-step split (N81): the PR-KV9 junction-twin collapse DELETED (N121 RESOLVED). Read per pair, its corpus vertices were the point-pinch copies the Stage-4 entry split had just made (F0058, F0060 — collapsed back, then split again at (4a2)) and two exact twins of F0059; the entry call now separates line pinches only, and the N47 weld after the sweep takes the twins. The moved × minted weld stays: off, C0058 fails under all four rotations and its tangent-point pin fails; 22 of its 28 corpus pairs are one point that no mesh edge joins (§4.3.3's "another point on the same loop", which a class does not read), 6 are 1e-8 to 1e-7 apart. yang-rs 1,546 passed; rotation sweep 1,383 OK / 103 ERR / 10 DIFF — one line moves, F0060 under one motion, from a quiet three bodies for four to a loud ERROR (a line pinch moved rigidly, gate 3.7); seed 6 189C / 9E / 2T, no document moving; rewrite tier and always-on harness (689 passed) green | 77 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical) | (this commit) |

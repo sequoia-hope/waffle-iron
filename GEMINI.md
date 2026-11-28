@@ -145,11 +145,17 @@ like this. the fixes must be principled. the principles are the paper."*
   (`stage4_correct.rs::merge_same_point_classes`): right after the
   relocation — §4.3.3's removal, ahead of the §4.5.3 sweep — and again ahead
   of the §4.4.1 update for classes the collapses in between form. The
-  junction-twin collapse and the moved × minted weld between them are NOT
-  covered by it: leaving them out fails F0058 and
-  `c0058_authored_geometry_union_mints_its_tangent_points`. Count what a
-  pass takes with the `pass-took` lines of `YANG_FIG11B_CENSUS` before
-  proposing to retire it.
+  moved × minted weld between the first merge and the sweep is NOT covered
+  by it: its pairs are one point that no mesh edge joins, and a class reads
+  only the two ends of a mesh edge; switched off,
+  `c0058_authored_geometry_union_mints_its_tangent_points` fails. Read what
+  a pass takes pair by pair (`pass-took`, `weld-pair` lines of
+  `YANG_FIG11B_CENSUS`) before proposing to retire it.
+- **The Stage-4 ENTRY pinch split separates line pinches only.** A vertex is
+  split there only when one of its edges holds four triangles; a point pinch
+  (two closed fans at one vertex) stays one vertex through Stage 4 and is
+  split at (4a2). Splitting it at entry made two copies that a later pass
+  had to collapse back (the deleted PR-KV9 junction-twin collapse, N121).
 - **The contact matrix (`assay_contact_matrix`) reports findings; it does
   not fail on them.** A finding is read to its cause from its replay command
   and attached to a roadmap milestone before any kernel change answers it.

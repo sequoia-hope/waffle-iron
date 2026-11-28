@@ -43,6 +43,29 @@ after the reconciliation run (release, 8 jobs, 360 s; wall 577 s, F0085
 regression since 2026-08-01 is outstanding (checked over every commit of
 `results.json`).
 
+## 2026-11-28 (F2 sub-step split: the junction-twin collapse retired, N121) — **F0060 under motion 2 turns from a quiet three bodies for four into a loud ERROR; the rotated tail has five quiet mismatches**
+
+Corpus 360C / 0W / 9E / 5EE / 0T, `results.json` byte-identical. Rotation
+sweep 1,383 OK / 103 ERR / 10 DIFF: one line moves.
+
+**F0060, motion 2** (the line pinch moved rigidly; read 2026-11-15 below).
+Rotated, the pinch does not reach Stage 4 as the chain of four-triangle
+edges the unmoved case has: it has two such edges, one with the certificate
+and one refused. The Stage-4 entry split used to separate every vertex
+whose star is two closed fans as well, made 4 copies there, and the build
+came out as three bodies (one cap a whole disc). The entry call now
+separates line-pinch vertices only (1 copy), and the §4.5.3 sweep does not
+settle: `Stage-4 relocation region around vertex 9 is invalid:
+LocalRefinementRequired`, the stop its motions 0 and 1 already report. The
+ruled answer for a line pinch is one copy of the line per sheet, four
+bodies (kernel 1.0 gate 3.7, 2026-11-26), so the quiet line was a wrong
+count. Customer: a line pinch that is not handed over as an exact chain
+(gate 3.7, tangency along a curve).
+
+Of 1,440 rotated runs of the 360 CORRECT cases, 60 do not reproduce the
+unmoved result: 55 loud, 5 quiet (F0055 motions 0 and 1, F0094 motions 0
+and 3, R0057 motion 0).
+
 ## 2026-11-25 (F2 item 3, measured; nothing landed) — **the sub-τ edge collapse is not the update's to retire: one of its four populations is twins of ONE operand's own mesh, a Stage-1 defect**
 
 Kernel unchanged; corpus 360C / 0W / 9E / 5EE / 0T as before. Ledger N89

@@ -678,10 +678,11 @@ R0085, F0085 and F0072 take several minutes a build). Run those under their
 own one-core `reserve` booking and the rest under the wide one.
 
 Baseline, 2026-11-28: of 1,440 rotated runs of the 360 CORRECT cases, 60 do
-not reproduce the unmoved result — 54 loud, 6 quiet
-(`docs/yang_tail_triage.md`). All six quiet ones are the unmoved solid in
-place (`geo` 2.1e-4 to 3.1e-4) under a different count of bodies, faces or
-vertices. Over all 374 cases: 1,383 `OK`, 102 `ERR`, 11 `DIFF`.
+not reproduce the unmoved result — 55 loud, 5 quiet
+(`docs/yang_tail_triage.md`). All five quiet ones (F0055 ×2, F0094 ×2,
+R0057) are the unmoved solid in place (`geo` 2.1e-4 to 3.1e-4) under a
+different count of bodies, faces or vertices. Over all 374 cases: 1,383
+`OK`, 103 `ERR`, 10 `DIFF`.
 
 `p0027_moved_rigidly_is_the_unmoved_body`, in the same file, is a pin
 rather than a probe: it holds P0027 to `OK` under its four motions, which is

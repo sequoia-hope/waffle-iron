@@ -122,6 +122,18 @@ measured rather than assumed:
   two and refuses the third, and the shell still reads χ = 3 with the same
   `v=45 e=128 f=86` as the baseline. At entry it splits **18 vertex copies** and
   F0060 stops being a `NonManifoldOutput` altogether.
+- **What the entry call separates.** The vertices of a line pinch and no
+  other: a vertex is split at entry only when one of its edges holds four
+  triangles (`split_pinch_vertices_with_bounds`, `edge_pinch = true`). A POINT
+  pinch — a vertex whose star is two closed fans — is one vertex through
+  Stage 4, one point of the curves through it, and is separated at (4a2).
+  Split at entry, its copies were relocated to one junction, collapsed back
+  into one vertex by the PR-KV9 junction-twin collapse and split again at
+  (4a2) (F0058: both entry copies; F0060: 4 of its 14); without that collapse
+  F0058's copies reached kernel-v2 as one non-manifold vertex. Since
+  2026-11-28 the entry call leaves them alone and the collapse is deleted
+  (ledger N121). Pin:
+  `tests_unit::m4_substitute::the_entry_call_leaves_a_point_pinch_to_the_late_call`.
 
 **Why the gate is still OFF, measured — the gap is DOWNSTREAM, in the B-Rep
 emission.** With the split armed F0060 COMPLETES but grades `SUPPORTED_WRONG`

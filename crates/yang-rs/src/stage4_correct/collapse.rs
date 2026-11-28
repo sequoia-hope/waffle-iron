@@ -632,6 +632,33 @@ pub(crate) fn weld_coincident_relocated_ex_with_bounds(
                         mesh.verts[survivor as usize]
                     );
                 }
+                // `YANG_FIG11B_CENSUS` (print-only): the pair, its distance, whether
+                // it is one point within roundoff and whether a mesh edge joins it.
+                if crate::stage4_fig11b::census_on() {
+                    let (pv, ps) = (
+                        mesh.verts[victim as usize].as_array(),
+                        mesh.verts[survivor as usize].as_array(),
+                    );
+                    let d = ((pv[0] - ps[0]).powi(2)
+                        + (pv[1] - ps[1]).powi(2)
+                        + (pv[2] - ps[2]).powi(2))
+                    .sqrt();
+                    let scale = pv
+                        .iter()
+                        .chain(ps.iter())
+                        .fold(0.0f64, |m, &c| m.max(c.abs()));
+                    crate::stage4_fig11b::log(&format!(
+                        "weld-pair\tvictim={victim}:{}\tsurvivor={survivor}:{}\td={d:.3e}\t\
+                         same_point={}\tjoined={}\tmint_survivor={}",
+                        crate::stage4_fig11b::pos_key(mesh, victim),
+                        crate::stage4_fig11b::pos_key(mesh, survivor),
+                        crate::stage4_correct::is_relocation_coincidence(d, scale),
+                        mesh.tris
+                            .iter()
+                            .any(|t| t.contains(&victim) && t.contains(&survivor)),
+                        minted.contains(&survivor),
+                    ));
+                }
                 collapse_vertex_scoped_with_bounds(
                     mesh,
                     attribution,

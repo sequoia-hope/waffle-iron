@@ -1134,8 +1134,10 @@ pub(crate) fn stage4_relocate_and_correct_ex(
     // reads. Run late, only 2 of F0060's 3 survivors are still certifiable, and
     // a half-certified chain does not separate at all: a chain-interior vertex
     // needs BOTH of its pinch edges paired before its fan ring falls into two
-    // components. Splitting a 2-valent-only mesh is a no-op, so this call is
-    // inert wherever there is no line pinch.
+    // components. The call separates line-pinch vertices only: a vertex with
+    // no four-triangle edge is left whole (a POINT pinch stays one vertex — one
+    // point of the curves through it — until (4a2)), so it is inert wherever
+    // there is no line pinch.
     //
     // ALWAYS-ON since 2026-09-13 (spec §0c; the `YANG_EDGE_PINCH_SPLIT`
     // off-switch was deleted 2026-10-16). The adjudication that kept it off — "the boundary it produces
@@ -1166,6 +1168,12 @@ pub(crate) fn stage4_relocate_and_correct_ex(
         );
         if splits > 0 && std::env::var_os("YANG_EDGE_PINCH_PROBE").is_some() {
             eprintln!("[edge-pinch] entry split {splits} vertex copies");
+        }
+        if splits > 0 {
+            crate::stage4_fig11b::log(&format!(
+                "entry-pinch-split\tn={splits}\tfirst={}",
+                mesh.verts.len() - splits
+            ));
         }
     }
     let census = cfg!(debug_assertions)
@@ -4712,95 +4720,6 @@ fn stage4_relocate_and_correct_inner(
             crate::stage4_fig11b::log(&format!("pass-took\tpass={pass}\tn={}", before - after));
         }
     };
-    let live_before_kv9 = live_verts(mesh);
-    // PR-KV9: junction vertices that landed on the SAME exact point are
-    // duplicates of one geometric junction (near a tangency-grade curve
-    // crossing the two chord polylines can intersect several times, giving
-    // several arrangement vertices for ONE junction). Collapse the extras
-    // onto the lowest index — the standard edge-collapse, which drops the
-    // degenerate slivers between them and keeps the half-edge pairing
-    // watertight.
-    {
-        let mut by_pos: std::collections::BTreeMap<[u64; 3], Vec<u32>> =
-            std::collections::BTreeMap::new();
-        for &v in vert_ell_junction.keys() {
-            let p = mesh.verts[v as usize];
-            by_pos
-                .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
-                .or_default()
-                .push(v);
-        }
-        // P0020 probe (read-only): the group above is drawn ONLY from the
-        // junction arm's own output, so a junction point that is ALSO
-        // occupied by a vertex another arm placed (or that the arrangement
-        // already put exactly there) is not a "twin" by this population and
-        // is never identified. Report every such outside occupant, with
-        // whether a triangle joins it to the junction vertex.
-        if std::env::var_os("YANG_KV9_TWIN_PROBE").is_some() {
-            for (key, group) in &by_pos {
-                let outside: Vec<u32> = mesh
-                    .verts
-                    .iter()
-                    .enumerate()
-                    .filter(|(v, p)| {
-                        !group.contains(&(*v as u32))
-                            && [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()] == *key
-                    })
-                    .map(|(v, _)| v as u32)
-                    .collect();
-                if outside.is_empty() {
-                    eprintln!(
-                        "[kv9-twin] junction group {group:?} at {:?} has no outside occupant",
-                        mesh.verts[group[0] as usize].as_array(),
-                    );
-                    continue;
-                }
-                let joined: Vec<(u32, u32)> = mesh
-                    .tris
-                    .iter()
-                    .flat_map(|t| {
-                        let g: Vec<u32> = t.iter().copied().filter(|v| group.contains(v)).collect();
-                        let o: Vec<u32> = t
-                            .iter()
-                            .copied()
-                            .filter(|v| outside.contains(v))
-                            .collect::<Vec<_>>();
-                        g.into_iter()
-                            .flat_map(move |a| o.clone().into_iter().map(move |b| (a, b)))
-                    })
-                    .collect();
-                eprintln!(
-                    "[kv9-twin] junction group {group:?} at {:?} shares its exact position \
-                     with non-junction vert(s) {outside:?}; triangles joining them: {joined:?}",
-                    mesh.verts[group[0] as usize].as_array(),
-                );
-            }
-        }
-        for (_, group) in by_pos {
-            if group.len() < 2 {
-                continue;
-            }
-            let survivor = *group.iter().min().expect("non-empty");
-            for &victim in group.iter().filter(|&&v| v != survivor) {
-                if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
-                    eprintln!(
-                        "[collapse-site] PR-KV9 junction-twin victim={victim} survivor={survivor}"
-                    );
-                }
-                collapse_vertex_scoped_with_bounds(
-                    mesh,
-                    &mut attr_vec,
-                    &mut side_labels.labels,
-                    &mut tri_bounds.bounds,
-                    victim,
-                    survivor,
-                    full_arrangement,
-                    Some(tangential_verts),
-                );
-                collapsed_any = true;
-            }
-        }
-    }
     // P3b inc-4a (R0061): weld relocated verts that converged onto a Stage-1
     // MINTED junction, ahead of the §4.5.3 sweep. Same §4.3 op and band as
     // the (3b′) weld — `TAU_MODEL·(1 + scale)`, wider than a same-point class
@@ -4870,7 +4789,6 @@ fn stage4_relocate_and_correct_inner(
         }
     };
     fold_probe("pre", mesh, &attr_vec, &probe_minted_verts);
-    took("kv9-twin", live_before_kv9, live_verts(mesh));
     let live_before_weld = live_verts(mesh);
     if !minted_junction_keys.is_empty() {
         let minted_verts: HashSet<u32> = mesh

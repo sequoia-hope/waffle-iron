@@ -180,7 +180,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N78 | RESOLVED (2026-10-03 night, P0020; the edge-pinch arm reads its §0a certificate at Stage-4 ENTRY only, always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351 — its `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` kill switch deleted 2026-10-16; the §4.5.3 collapse still minting an over-2 edge is its second remediation, no customer) | the edge-pinch split ran at a second site where the pinch was Stage 4's own (§N78 below) |
 | N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; 2026-10-28/30: I3b customer #3 `b2_pipe::s_bend` `17/17` green under reproducible uncommitted I3b trial after Step 1 `N81` decimation/seam-merge re-site; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
-| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; since 2026-11-28 the same-point classes are merged right after the relocation, so §4.3.3's removal is made ahead of §4.5.3 for 334 of 367 corpus merges (the junction-twin collapse and the moved × minted weld keep customers the classes do not cover); since 2026-11-28 the §4.5.3 sweep walks each curve as a chain of patch-boundary edges and no patch's boundary loop — a patch folded by a reversal no longer stops the correction — and takes the paper's angle band at every site on one planar conic (N29); 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
+| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; since 2026-11-28 the same-point classes are merged right after the relocation, so §4.3.3's removal is made ahead of §4.5.3 for 334 of 367 corpus merges (the moved × minted weld keeps a customer the classes do not cover: points at one position that no mesh edge joins; the junction-twin collapse beside it is deleted, N121); since 2026-11-28 the §4.5.3 sweep walks each curve as a chain of patch-boundary edges and no patch's boundary loop — a patch folded by a reversal no longer stops the correction — and takes the paper's angle band at every site on one planar conic (N29); 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
 | N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4; amended 2026-11-22) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops. Since 2026-11-22 T3c also reads a loop that folds back over itself along one curve (`output_loop_spurs`), on every face type |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
@@ -220,12 +220,12 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N118 | OPEN (2026-11-17; F6, F2) | 1×1 Stage 0 `absorbable_sub_band_lifts` absorbs unminted vertices within `TAU_WORK·(1+uv_scale)` of a mint into its `CollapseGroups` for atomic fold-revert (F0067, R0050); `nary.rs` omits it |
 | N119 | OPEN (2026-11-17; F2, F1, F7) | I6.6 `cancel_subresolution_pleats` (`boolean.rs`) deletes an opposite-winding twin pair of kept triangles with no `f64` area before the I6 `NonManifoldInput` guard (R0049, R0019); the paper keeps implicit points, so the twins never exist (`:510-516`) |
 | N120 | OPEN (2026-11-17; F5a, F2, F7) | Post-Stage-2 near-welds before `keep_set`: KV10 (all-planar pairs) and KV15 (planar-only vertices of mixed pairs) weld vertices within `TAU_WORK·(1+scale)` to reconcile `f64` rounding of implicit points (matrix 4.2-22); PR-6 is N103, `weld_lpi_pencils` N70 |
-| N121 | OPEN (2026-11-17; F2, F3) | PR-KV9 collapses ellipse-junction vertices that relocated onto the same exact `f64` point (one curve crossing met by the chords several times); bit-exact, no band; §4.3 removes same-loop points during optimization (`:535-536`) |
+| N121 | **RESOLVED 2026-11-28** (the junction-twin collapse DELETED, roadmap F2: on the corpus it merged the point-pinch copies the Stage-4 entry split had just made — F0058, F0060; the entry call now separates line pinches only — and two exact twins of F0059, which the N47 weld takes) | PR-KV9 collapsed ellipse-junction vertices that relocated onto the same exact `f64` point (one curve crossing met by the chords several times); bit-exact, no band; §4.3 removes same-loop points during optimization (`:535-536`) |
 | N122 | OPEN (2026-11-18; F2 — the update's one chart since 2026-11-20) | The §4.4.1 domain chart supplies the seam and degenerate edges our faces lack: a patch that wraps a period is cut along a chosen seam, an apex or pole inside a patch is a degenerate polygon edge whose double-degenerate CDT triangles are dropped, and the CDT's Delaunay criterion runs in the chart scaled to arc length at the patch centre; the paper's NURBS faces carry seams and degenerate edges in the face loop (`:560-561`) |
 | #137 diag | HISTORICAL | #137 (2026-07-15): C0065/R0074 — the torus∩plane solver EXISTS and RUNS; the blocker is mesh RESOLUTION nea… |
 | #137 diag 2 | HISTORICAL | #137 (2026-07-15, follow-up): resolution ALONE is not the fix — it flips the loud STOP into a silent-wrong … |
 
-**OPEN count (2026-11-21 — N113 RESOLVED: run absorption, group absorption and corner re-homing deleted, F2): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-18 (N122 ledgered: the §4.4.1 domain chart's seams, degenerate edges and Delaunay metric, F2 increment 2): 39 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 79 items of paper-compliance debt. Earlier 2026-11-17, later (N119–N121 ledgered: the I6.6 pleat cancellation, the KV10/KV15 post-Stage-2 near-welds, the PR-KV9 junction-twin collapse; N113, N116, N117 and N25 amended): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-17 (N110–N118 ledgered: nine live mechanisms the matrix re-audit found with no entry — the Stage-6 envelope prepass, the cylinder patch merge, two Stage-4/5 fold repairs, the I6.5 wedge dedup, four Stage-0 reconciliation passes): 35 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 75 items of paper-compliance debt. Earlier 2026-11-17 (N109 ledgered: vertex parameter coordinates from a closed-form inverse, F5a increment 3): 26 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 66 items of paper-compliance debt. Earlier 2026-11-15 (N108 ledgered: a crossing disc pair has no §4.5.5 overlay): 25 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-11-14 (N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
+**OPEN count (2026-11-28 — N121 RESOLVED: the PR-KV9 junction-twin collapse deleted, F2): 37 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 77 items of paper-compliance debt. Earlier 2026-11-21 (N113 RESOLVED: run absorption, group absorption and corner re-homing deleted, F2): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-18 (N122 ledgered: the §4.4.1 domain chart's seams, degenerate edges and Delaunay metric, F2 increment 2): 39 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 79 items of paper-compliance debt. Earlier 2026-11-17, later (N119–N121 ledgered: the I6.6 pleat cancellation, the KV10/KV15 post-Stage-2 near-welds, the PR-KV9 junction-twin collapse; N113, N116, N117 and N25 amended): 38 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 78 items of paper-compliance debt. Earlier 2026-11-17 (N110–N118 ledgered: nine live mechanisms the matrix re-audit found with no entry — the Stage-6 envelope prepass, the cylinder patch merge, two Stage-4/5 fold repairs, the I6.5 wedge dedup, four Stage-0 reconciliation passes): 35 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 75 items of paper-compliance debt. Earlier 2026-11-17 (N109 ledgered: vertex parameter coordinates from a closed-form inverse, F5a increment 3): 26 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 66 items of paper-compliance debt. Earlier 2026-11-15 (N108 ledgered: a crossing disc pair has no §4.5.5 overlay): 25 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-11-14 (N107 ledgered with the T9 curve-domain certificate): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-11-13 (N87 RESOLVED, both transits deleted): 23 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-11-06 (F2 — N41 RESOLVED, its cancellation retired): 24 standing + 38 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-31 (F2 Step 2 rework — N106 ledgered): 24 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 65 items of paper-compliance debt. Earlier 2026-10-30 (F2 Step 1 review fixes — N58 reopened, N105 ledgered): 23 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-30 (N104 ledgered — the Stage-3 typing gap behind N100 item 3's three measured cases): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (F4 Step 3 — N92 RESOLVED; after user sign-offs N24 PERMANENT, N103 PROPOSED → OPEN): 20 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 61 items of paper-compliance debt. Earlier 2026-10-27 (after the user's sign-offs: N24 PERMANENT, N103 PROPOSED → OPEN): 21 standing + 39 DELEGATED + 2 PROPOSED (N64, N94) = 62 items of paper-compliance debt. Earlier 2026-10-27 (after N98 RESOLVED): 20 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after N103 ledgered): 21 standing + 40 DELEGATED + 3 PROPOSED (N64, N94, N103) = 64 items of paper-compliance debt (N103 is the coincident-cylinder Stage 0 — an existing extension of §4.5.5, newly ledgered, not new code). Earlier 2026-10-27 (after N99 RESOLVED): 21 standing (the 19 below + N98, N100) + 40 DELEGATED (N13, N15, N17, N99 RESOLVED) + 2 PROPOSED (N64, N94) = 63 items of paper-compliance debt. Earlier 2026-10-27 (after the literature check): 22 standing (the 19 below + N98, N99, N100) + 40 DELEGATED (N13, N15, N17 RESOLVED) + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Earlier 2026-10-27 (D14 reopened by the user): 19 standing (the 18 below + D14) + 43 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt (unchanged total; D14 moved DELEGATED → OPEN). At 2026-10-17: 18 standing (N2, N74; N62 and N68 reopened; N80–N93 from the compliance matrix) + 44 DELEGATED + 2 PROPOSED (N64, N94) = 64 items of paper-compliance debt. Before the matrix catch-up:** 2 standing + 44 DELEGATED + 1 PROPOSED = 47 items of paper-compliance debt (re-graded 2026-10-14 under A15.7; the DELEGATED set is N5, N9–N47, N55–N57 and D14 — N62 RESOLVED 2026-10-14 by the one §4.5.2 loop; the PROPOSED one is N64).** Pre-2026-10-14 text of this line: **OPEN count: 2** (N78 RESOLVED 2026-10-03 night; N77 is TAKEN and RESOLVED-but-GATED 2026-10-03 night — P0019 component-wise seam anchoring, flip owes a corpus run; **N78 is TAKEN, added 2026-10-03 night-later** — the edge-pinch arm runs at a SECOND site where the pinch is Stage 4's own, not the arrangement's; remediation BUILT and GATED OFF (`YANG_EDGE_PINCH_ENTRY_ONLY=1`), P0020 and its lineage both convert, flip owes a corpus run; the next free number is **N79**. N77 reserved elsewhere. N76 is TAKEN and RESOLVED 2026-10-03 night; N69 RESOLVED-pending-corpus; N74, added 2026-10-03 night — the Stage-6 pinch-sheet emission gap, netted loud at the consumer; N68 RESOLVED 2026-10-03 late night; N2 — its remit includes the §4.5.4 removal half transferred from N6 at the 2026-07-17 user-ratified closure; N60 RESOLVED 2026-08-26 — and N67, added 2026-10-03 with its remediation tracked in `specs/yang_p0013_tip_land_under_the_chord.md` §4 P3). **N69 moved OPEN → RESOLVED-pending-corpus 2026-10-03 late** — the §5 ray-graze remediation is landed always-on; what is outstanding is its `full_corpus_categorized` proof, not the capability. Capability gaps that are roadmap milestones, not deviations: M8 coplanar residue (task #130), M5 degree-4 SSI, KV6 revolve tail, #137 grazing-corner epic.
 
 ---
 
@@ -4010,6 +4010,18 @@ The 2026-10-14 directive's "a collapse keyed on the model band alone is
 forbidden" now holds for all three §4.3 collapses (N47 here, N56 `subres`
 since I1c, N55 by identity — its own amendment).
 
+**Amendment 2026-11-28 — what the weld takes, per pair.** Read with the
+`weld-pair` lines of `YANG_FIG11B_CENSUS` (distance, whether the pair is one
+point within roundoff, whether a mesh edge joins it), the weld holds two
+populations and no third: pairs that are ONE POINT within roundoff and that
+no mesh edge joins (§4.3.3's "another point on the same loop"; the
+same-point classes read only the two ends of a mesh edge), and pairs 1e-9
+to 1e-7 apart that a mesh edge does join (this entry's band, wider than the
+owner's same-point ruling of 2026-11-25). Counts and the pre-sweep call's
+one customer (C0058's tangent points) are in N81, "What the passes between
+that merge and the sweep take". The exact junction twins the PR-KV9
+collapse took are in the first population since that pass was deleted (N121).
+
 **Sign-off:** solo-operator variant (P5); unit oracles (P3/P4) + full-corpus
 byte-stability gate (P1 implementation-blind check). Deviation entry per P2
 Yang-increment clarification.
@@ -7404,13 +7416,38 @@ mesh hash); the sweep's overtake arms make 71 removals for 85 (306 for 394
 over the rotation sweep) and its tests 2,375 for 2,376. Tried 2026-11-26 on the sweep that
 walked patch loops, the same merge turned P0053 into a loud ERROR — the
 sweep stopped on a patch its own removal had folded; on the chain walk
-(paragraph above) P0053 is CORRECT. Still made elsewhere: the
-junction-twin collapse takes 8 vertices in three corpus cases (F0058, F0059,
-F0060 — the tangent-crossing family: exact twins of one junction that the
-classes do not join; leaving it and the weld out fails
-`c0058_authored_geometry_union_mints_its_tangent_points` and F0058), the
-moved × minted weld 29 in seven (its band, `TAU_MODEL·(1 + scale)`, is
-wider than a class), and the second class merge the 33.
+(paragraph above) P0053 is CORRECT. Still made elsewhere: the moved ×
+minted weld 29 vertices in seven corpus cases (next paragraph) and the
+second class merge the 33.
+
+**What the passes between that merge and the sweep take (2026-11-28; spec
+§8.11).** Read per pair (`weld-pair`, `entry-pinch-split` lines of
+`YANG_FIG11B_CENSUS`) and by switching each pass off in one binary (the
+switches are deleted):
+
+- *The PR-KV9 junction-twin collapse is deleted (N121 RESOLVED).* Its 8
+  corpus vertices were two populations. In F0058 and F0060 it merged the two
+  copies of a point pinch that the Stage-4 ENTRY split had made minutes
+  before, and the (4a2) split separated them again; with the collapse off,
+  F0058's entry copies reached kernel-v2 as one non-manifold vertex (the
+  only corpus or sweep case that moved). The entry call now separates the
+  vertices of a line pinch only (`split_pinch_vertices_with_bounds`,
+  `edge_pinch = true`; spec `yang_tangency_pinch_split.md` §0a), so a point
+  pinch is one vertex through Stage 4. In F0059 it merged two pairs of
+  junction vertices at bit-identical positions that no mesh edge joins; the
+  N47 weld after the sweep takes them now.
+- *The moved × minted weld stays.* Off, the corpus is byte-identical and
+  the rotation sweep moves on one case: C0058 turns into an ERROR under all
+  four rotations, and `c0058_authored_geometry_union_mints_its_tangent_points`
+  fails (`SsiRefinementFailed … AmbiguousCurve` inside the sweep, on an edge
+  between a minted tangent point and a relocated point at the same
+  position; no mesh edge joins the two when the sweep starts). 22 of its 28
+  corpus pairs are one point within
+  roundoff that no mesh edge joins (17 of them onto a minted junction) —
+  §4.3.3's "another point on the same loop", which a class does not read
+  because it joins only the ends of a mesh edge; the other 6 (P0007, P0017)
+  are 1e-8 to 1e-7 apart, the band of N47 and not of the owner's ruling. The
+  weld after the sweep takes the same two populations: 8 and 39 pairs.
 
 **State: OPEN** (found 2026-10-16; polyline decimation re-sited 2026-10-28 and switched to forward §4.3.4 2026-10-30).
 
@@ -9866,7 +9903,46 @@ repairs it subsumes").
 
 **How it departs from the paper.** The removal is §4.3's same-point removal in spirit, but it runs on the relocated mesh across loops and by junction-arm membership, not on one loop during optimization, and it exists because one curve crossing produced several mesh crossings (a Stage-1 resolution artifact §4.5.2 would refine away). It also edits the mesh by collapse, where §4.4.1 rebuilds the patch by CDT.
 
-**Remediation.** F2 (§4.4.1 per-patch CDT update takes the junction as one constrained point) and F3 (§4.5.2 refinement where one crossing meets the chords several times); retire with N112, which runs beside it. **State: OPEN** (found 2026-11-17: matrix §4.4 "Code with no paper row" and the second read-only Gemini pass; bit-exact, so lower risk than the banded welds).
+**Remediation.** F2 (§4.4.1 per-patch CDT update takes the junction as one constrained point) and F3 (§4.5.2 refinement where one crossing meets the chords several times). **State: RESOLVED 2026-11-28** — the collapse is deleted, see the amendment (found 2026-11-17: matrix §4.4 "Code with no paper row" and the second read-only Gemini pass).
+
+**Amendment (2026-11-28): the collapse is RETIRED** (roadmap F2, sub-step
+split; spec `specs/yang_f2_fig11b_cdt_input_merge.md` §8.11).
+
+- **What it took.** 8 vertices on the corpus, in three cases, and 30 over
+  the rotation sweep (`pass-took`, `YANG_FIG11B_CENSUS`, at `885d8344`).
+  - F0058 (2) and F0060 (2): the two copies of a POINT pinch. The Stage-4
+    entry split (`split_pinch_vertices`, meant for line pinches) also
+    separated every vertex whose star is two closed fans; the junction arm
+    relocated both copies to one point, this pass collapsed them back into
+    one vertex, and the (4a2) split separated them again.
+  - F0059 (4, two runs of 2): two pairs of junction vertices at
+    bit-identical positions that no mesh edge joins.
+- **What replaces it.** Nothing new. The entry call separates the vertices
+  of a line pinch only (a vertex is split there only when one of its edges
+  holds four triangles), so the first population is never made; the second
+  is taken by the N47 weld after the §4.5.3 sweep (`weld-pair`, d = 0).
+- **Measured with the pass off in one binary first** (a temporary switch,
+  deleted): collapse off alone, F0058 turns into an ERROR (kernel-v2
+  `NonManifoldVertex` at the pinch: the entry copies reach the output as
+  one vertex) and no other corpus or sweep line moves; with the entry call
+  restricted as well, yang-rs passes in full and the corpus
+  `results.json` is byte-identical.
+- **On the landed code:** yang-rs 1,546 passed (1 new); corpus 360C / 0W /
+  9E / 5EE / 0T with `results.json` byte-identical; rotation sweep 1,383 OK /
+  103 ERR / 10 DIFF, one line moving: F0060 under motion 2 turns from a
+  quiet three bodies for four into a loud `LocalRefinementRequired`, as its
+  other three motions already are. That motion's pinch is not handed over
+  as a chain of four-triangle edges, and the entry call's vertex-fan split
+  had separated part of it (4 copies, now 1); the ruled answer is four
+  bodies, so the quiet line was a wrong count (customer: a line pinch moved
+  rigidly, kernel 1.0 gate 3.7).
+  Prospector seed 6 189C / 9E / 2T with no document moving; WASM rebuilt;
+  rewrite tier and always-on harness (689 passed) green.
+- **Pin:** `tests_unit::m4_substitute::the_entry_call_leaves_a_point_pinch_to_the_late_call`.
+- **Not answered here.** Vertices at one position that no mesh edge joins
+  are still not read by the same-point classes; the N47 weld (DELEGATED,
+  band `TAU_MODEL·(1 + scale)`) takes them, before the sweep only beside a
+  minted junction (N81, 2026-11-28).
 
 ### N122 — the §4.4.1 domain chart's seams, degenerate edges and Delaunay metric
 
