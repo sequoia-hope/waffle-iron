@@ -984,7 +984,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 18 unresolved failure site(s): BoundaryDomainFire×2 CurveLeftDomain×4 IllegalIntersection×6 MissedIntersection×2 ReversalUnresolved×4; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: §4.5.2 local refinement ended with 16 unresolved failure site(s): BoundaryDomainFire×2 CurveLeftDomain×4 IllegalIntersection×6 MissedIntersection×2 ReversalUnresolved×2; first MissedIntersection on faces [(A, 595), (B, 6)]: tris 2485×100 touch within 3.305e-7 at (1.496243e-1, -7.878742e-2, 7.338595e-1); the arrangement joins no triangle pair of their one-rings\"). Body created as standalone.",
       "id": "F0064",
       "status": "error"
     },
@@ -1914,7 +1914,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 3.833e-14 m, rel 1.495e-11, solids 1 at (-3.198790e-4, -3.231690e-4, 8.825801e-5); mesh_on_surface: plane rel 1.664e-16, chord ratio 8.700e-1 at (-3.002322e-4, -4.452342e-4, 1.752439e-4), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 4 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 2.442e-14 m, rel 9.522e-12, solids 1 at (1.729457e-4, -4.205360e-4, 2.396850e-5); mesh_on_surface: plane rel 1.664e-16, chord ratio 8.700e-1 at (-3.002322e-4, 6.425676e-4, 1.647561e-4), solids 1; exact_vs_mesh: exact 0.000000000e0 mesh 0.000000000e0 rel NaN bound_ratio NaN (+1 unmeasured); monotonicity: 1 checked, 4 not covered, 0 violation(s)",
       "id": "P0007",
       "status": "pass"
     },
@@ -2202,7 +2202,7 @@
     },
     {
       "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed; on_surface: max 7.838e-14 m, rel 1.058e-14, solids 3 at (-8.498689e-1, 4.251169e-1, 4.389552e-1); mesh_on_surface: plane rel 8.993e-17, chord ratio 8.700e-1 at (-3.067437e0, -2.306965e0, 3.861383e0), solids 3; exact_vs_mesh: exact 3.322175776e1 mesh 3.318266949e1 rel -1.177e-3 bound_ratio 7.039e-3 (+1 unmeasured); monotonicity: 4 checked, 4 not covered, 0 violation(s)",
+      "detail": "all checks passed; on_surface: max 6.239e-14 m, rel 8.423e-15, solids 3 at (-5.752970e-1, 1.765345e-1, -1.940002e-1); mesh_on_surface: plane rel 8.993e-17, chord ratio 8.700e-1 at (-3.067437e0, -2.306965e0, 3.861383e0), solids 3; exact_vs_mesh: exact 3.322175776e1 mesh 3.318266949e1 rel -1.177e-3 bound_ratio 7.039e-3 (+1 unmeasured); monotonicity: 4 checked, 4 not covered, 0 violation(s)",
       "id": "P0055",
       "status": "pass"
     },
