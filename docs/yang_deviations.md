@@ -154,7 +154,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N52 | HISTORICAL | Re-scoping the Stage-4 "LRR cluster": it is a heterogeneous hard tail, NOT one relocation-region class wait… |
 | N53 | HISTORICAL | Retire the four non-compliant tolerance welds (Yang-paper-compliance north star, #169 / #170) |
 | N54 | HISTORICAL | Stage-0 event-column canonicalization is REFUTED at the overlay level (the N53 "compliant replacement" for … |
-| N55 | DELEGATED (B) — amended 2026-11-26: the ordered scan is DELETED, the same-point classes are merged in its place all at once (five of six merges are §4.3.3's removal); still an index rewrite ahead of the CDT, the survivor keeps its own face record, and a class needs a mesh edge (F0059 m3) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
+| N55 | DELEGATED (B) — amended 2026-11-26: the ordered scan is DELETED, the same-point classes are merged in its place all at once (five of six merges are §4.3.3's removal); since 2026-11-28 the merge runs first right after the relocation, ahead of §4.5.3, and again ahead of the update; still an index rewrite ahead of the CDT, the survivor keeps its own face record, and a class needs a mesh edge (F0059 m3) | the `subfeature` weld was Yang §4.4.1(b) all along; retighten its criterion → COMPLIANT always-on merge (re… |
 | N56 | DELEGATED (B) | `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the so… |
 | N57 | DELEGATED (P5 self-sign) | #178 sub-resolution coplanar-gap STOP: cross pair of DISTINCT parallel planes (gap above rounding noise) re… |
 | N58 | **OPEN** (reopened 2026-10-30; amended 2026-11-24: `repair_fan_cluster` and its seam-order canonicalization are DELETED — the §4.4.1 update replaces lapping triangles by the CDT of their boundary. What stays open is the chain decimation: `stage4_chain_decimate::decimate_patch_chains_441` decimates arrangement polylines by forward §4.3.4 where the paper inserts by parameter-domain midpoint subdivision, the `0`-operand-vertex closed-loop `point_cmp` start sample, and `N105` class-(b) elision) | §4.4.1 polyline chain decimation (formerly also the #169 P3b inc-4c Stage-4 post-merge fan re-CDT + seam-order canonicalization) |
@@ -180,7 +180,7 @@ Presented 2026-07-16; the user's answer (2026-07-17) was **"i have no opinion on
 | N78 | RESOLVED (2026-10-03 night, P0020; the edge-pinch arm reads its §0a certificate at Stage-4 ENTRY only, always-on since the two-gate corpus proof 324C/0W/22E/5EE/0T over 351 — its `YANG_EDGE_PINCH_ENTRY_ONLY=0|off` kill switch deleted 2026-10-16; the §4.5.3 collapse still minting an over-2 edge is its second remediation, no customer) | the edge-pinch split ran at a second site where the pinch was Stage 4's own (§N78 below) |
 | N79 | RESOLVED (2026-10-04, `error_oct4.waffle`) | Stage 0 welded a near-coplanar pair's VERTICES onto the shared plane but left face B's stored plane and rim circle on its own (row added 2026-10-17, matrix L-3) |
 | N80 | OPEN (2026-10-16, matrix O-1; 2026-10-27: I1 plumbing, pre-I3 cost measurement, and I3a full-arrangement primitives landed; 2026-10-28/30: I3b customer #3 `b2_pipe::s_bend` `17/17` green under reproducible uncommitted I3b trial after Step 1 `N81` decimation/seam-merge re-site; I3b `boolean_once` flip gated on F2 `N2` Fig. 11(a) + pre-CDT 2D relabelling) | Inside/outside classification runs BEFORE §4.3 optimization and §4.4.1 updating, on the raw arrangement — the paper trims both meshes, then classifies (`:574-579`) |
-| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; merging the classes right after the relocation TRIED 2026-11-26 and not landed — P0053 stopped in the patch-loop walk the sweep then made, on a fold the update rebuilds; since 2026-11-28 the §4.5.3 sweep walks each curve as a chain of patch-boundary edges and no patch's boundary loop — a patch folded by a reversal no longer stops the correction — and takes the paper's angle band at every site on one planar conic (N29); the early merge is the next step; 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
+| N81 | OPEN (2026-10-16, matrix O-2; 2026-11-26: the §4.3.3 removal censused — made ahead of the §4.5.3 sweep, by the same-point class merge (N55) and N47 weld behind it, and no longer by the sub-τ collapse; the sweep takes a third of the Fig. 11(b) pairs; since 2026-11-28 the same-point classes are merged right after the relocation, so §4.3.3's removal is made ahead of §4.5.3 for 334 of 367 corpus merges (the junction-twin collapse and the moved × minted weld keep customers the classes do not cover); since 2026-11-28 the §4.5.3 sweep walks each curve as a chain of patch-boundary edges and no patch's boundary loop — a patch folded by a reversal no longer stops the correction — and takes the paper's angle band at every site on one planar conic (N29); 2026-10-28/30: Stage-5 `decimate_intersection_runs` deleted and re-sited to §4.4.1 `stage4_chain_decimate::decimate_patch_chains_441` with forward §4.3.4 endpoint subdivision, operand-anchored closed loops, `DecimateStats` census + loud `ChainDecimateError`, and `N105` class-(b) elision (the `Surface::Sphere` skip retired 2026-11-20: the whole-patch rebuild runs on the parameter-domain chart of every surface, N122); `stage5_seam_merge` open + operand-anchored closed conic runs made vertex-index-independent while `0`-operand-vertex closed intersection circles carry a retained index rule, open debt (`R0021` passes by noise `8.489e-5` vs `band 8.55e-5`; `volume_composition` chord-sagitta deficit needs adjudicating); pre-CDT 2D relabelling and construct/fold-merge consolidation remain) | Within Stage 4 the §4.3 removals and the Case-IV rule-out run after §4.5.3 and §4.4.1; §4.4.1 runs in three places |
 | N82 | OPEN (2026-10-16, matrix O-3; 2026-10-27 F4 Step 2b: `cyl_cyl_tangent_points` closed form retired in favor of §4.3 Newton `discover_operand_pair_tangent_points_newton`, Stage-1 ruling splice remains under F2) | Exact junction vertices are minted at Stage 1 (rim-junction insertion, P3a, tangent ruling splice), before the arrangement |
 | N83 | OPEN (2026-10-16, matrix O-4; amended 2026-11-22) | §4.5.4 detection reads the EMITTED B-Rep, not the updated mesh; T3b/T3c skip cone, sphere, torus and axis-wrapping loops. Since 2026-11-22 T3c also reads a loop that folds back over itself along one curve (`output_loop_spurs`), on every face type |
 | N84 | OPEN (2026-10-16, matrix O-5) | Failure collection stops at the first fire (~50 `LocalRefinementRequired` returns end Stage 4) |
@@ -4184,6 +4184,14 @@ points of two DIFFERENT curves at one position are named by neither §4.3.3
 and a customer of the degenerate-contact matrix (`docs/kernel_1_0.md` gate
 3.7). Loud today.
 
+**Amendment (2026-11-28) — the merge runs first right after the relocation
+(F2 sub-step split, spec §8.10, N81).** `merge_same_point_classes` is the
+one pass; it is called once the relocation is done and again at the old
+site ahead of the update. A Stage-1 minted junction ranks above every
+relocated point as survivor. Corpus: 334 merges at the first call, 33 at
+the second; `results.json` byte-identical to the commit before. The three
+deviations above stand.
+
 ### N56 — `coincident` and `subres` are genuine Yang §4.3 operations; reinstate them → 232C→240C, 0W; `f32` is the sole real hack (redundant + regresses C0036) — the N53 audit substantially over-retired (#169)
 
 **State:** DELEGATED (re-graded 2026-10-14 from PERMANENT-by-delegation; A15.7) — disposition delegated by user 2026-07-17 ("no opinion on A/B/C"); P5 solo-operator convention ratified by delegation (batch B).
@@ -7343,8 +7351,9 @@ different rule and survivor. The remediation is unchanged; its first step is
 to form the same-point classes once, when the relocation is done, and let
 every later reader see each class as one point (spec §8.4 item 4). Since
 2026-11-26 the place behind the sweep is one order-free merge of the classes
-(N55 amendment, spec §8.6) and no class reaches the update; the places ahead
-of the sweep and the sweep's own removals are as measured here.
+(N55 amendment, spec §8.6) and no class reaches the update; since
+2026-11-28 that merge is made first, right after the relocation (below),
+and the numbers of this paragraph are those of the state before it.
 
 **The sweep's curves (2026-11-28; spec §8.8–§8.9).** The §4.5.3 sweep walks
 each curve as a CHAIN of mesh edges (`stage4_correct/reversal.rs::curve_chains`):
@@ -7379,23 +7388,29 @@ chain (2,376 of 2,376 on the corpus; 11,868 of 11,899 over the rotation
 sweep, the rest on C0043). Open: the paper fixes no direction for
 the walk along C, and an open chain is walked from its lowest-numbered end.
 
-**Tried (2026-11-26), not landed — the classes merged right after the
-relocation** (spec §8.7; one binary, switch on against off; the patch is in
-`git stash`). The sweep then reads no same-point pair as a reversal (classes
-at `before-453-sweep`: 284 → 3 on the corpus, 878 → 19 over the rotation
-sweep), the yang-rs suite holds, and one case moves: **P0053 CORRECT →
-ERROR** (`NonManifoldOutput`), with its reference and three of its four
-rotations; no other body changes (7 sweep lines differ in mesh hash).
-P0053's natural run fails either way. Today its STOP is in the patch walk
-ahead of the sweep, names the cutting cylinder, and §4.5.2 refines its way
-out. With the early merge that walk passes, the sweep's removal of a point
-leaves a triangle folded over its neighbour on a planar flank face — a fold
-the §4.4.1 update rebuilds — and the sweep of that date, which walked every
-patch's boundary cycle after each removal, stopped on that patch naming the
-plane alone, which no refinement changes. The paper's sweep walks the
-intersection curve C (`:679-689`), not patch boundaries. Since 2026-11-28
-the sweep walks chains and no patch loop (paragraph above), which removes
-that stop; the early merge is re-run on it next, P0053 its customer.
+**The classes merged right after the relocation (2026-11-28; spec §8.10).**
+`merge_same_point_classes` (`stage4_correct.rs`) runs as soon as the
+relocation is done — ahead of the junction-twin collapse (N121), the moved ×
+minted weld, the beyond-corner trim (N112) and the §4.5.3 sweep — and again
+ahead of the update, where it ran alone before. A Stage-1 minted junction
+outranks every other member as survivor. So §4.3.3's removal is made in
+optimization, before §4.5.3 reads the curves, for the pairs the relocation
+leaves: on the corpus 334 merges after the relocation and 33 ahead of the
+update (classes formed by the collapses in between), and 3 classes at the
+sweep's entry for 284. Measured against the commit before: yang-rs 1,545
+passed; corpus 360C/0W/9E/5EE/0T with `results.json` byte-identical;
+rotation sweep 1,383 OK / 102 ERR with no line changing status (6 differ in
+mesh hash); the sweep's overtake arms make 71 removals for 85 (306 for 394
+over the rotation sweep) and its tests 2,375 for 2,376. Tried 2026-11-26 on the sweep that
+walked patch loops, the same merge turned P0053 into a loud ERROR — the
+sweep stopped on a patch its own removal had folded; on the chain walk
+(paragraph above) P0053 is CORRECT. Still made elsewhere: the
+junction-twin collapse takes 8 vertices in three corpus cases (F0058, F0059,
+F0060 — the tangent-crossing family: exact twins of one junction that the
+classes do not join; leaving it and the weld out fails
+`c0058_authored_geometry_union_mints_its_tangent_points` and F0058), the
+moved × minted weld 29 in seven (its band, `TAU_MODEL·(1 + scale)`, is
+wider than a class), and the second class merge the 33.
 
 **State: OPEN** (found 2026-10-16; polyline decimation re-sited 2026-10-28 and switched to forward §4.3.4 2026-10-30).
 

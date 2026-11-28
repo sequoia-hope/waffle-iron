@@ -973,6 +973,72 @@ pub(crate) fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
     }
 }
 
+/// Yang §4.3.3 (`refs/text/yang2025_hybrid_boolean.txt:527-536`) removes the
+/// points of an intersection curve that are too close, and §4.4.1's Fig. 11(b)
+/// (`:562-563`) merges an operand vertex with the intersection point beside
+/// it. Both are one merge here: every class of vertices that are one point
+/// within roundoff ([`crate::stage4_fig11b::fig11b_vertex_classes`]) is
+/// merged onto its best-ranked member, all classes at once, and the classes
+/// are formed again until none is left (spec
+/// `yang_f2_fig11b_cdt_input_merge.md` §8.6, §8.10; ledger N55, N81).
+/// Returns whether a merge was made.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn merge_same_point_classes(
+    pass: &str,
+    mesh: &mut Mesh,
+    attr_vec: &mut Vec<Option<TriangleAttribution>>,
+    side_labels: &mut Vec<TriangleSideLabel>,
+    tri_bounds: &mut Vec<f64>,
+    vertex_params: Option<&crate::param_surface::carried::VertexParamMap>,
+    rank: &dyn Fn(u32) -> u8,
+    full_arrangement: bool,
+    mut tangential_verts: Option<&mut std::collections::BTreeSet<u32>>,
+) -> Result<bool, YangError> {
+    let max_rounds = mesh.verts.len() + 1;
+    let mut rounds = 0usize;
+    loop {
+        let classes =
+            crate::stage4_fig11b::fig11b_vertex_classes(mesh, attr_vec, vertex_params, rank);
+        let map = classes.survivor_map();
+        if map.is_empty() {
+            return Ok(rounds > 0);
+        }
+        rounds += 1;
+        if rounds > max_rounds {
+            return Err(YangError::stage4_region_invalid(
+                u32::MAX,
+                Stage4InvalidReason::LocalRefinementRequired,
+            ));
+        }
+        if crate::stage4_fig11b::census_on() {
+            for (&victim, &survivor) in &map {
+                crate::stage4_fig11b::log(&format!(
+                    "taken\tpass={pass}\tvictim={victim}:{} survivor={survivor}:{} kind={}",
+                    crate::stage4_fig11b::pos_key(mesh, victim),
+                    crate::stage4_fig11b::pos_key(mesh, survivor),
+                    crate::stage4_fig11b::pair_kind(
+                        &crate::stage4_fig11b::faces_of(vertex_params, victim),
+                        &crate::stage4_fig11b::faces_of(vertex_params, survivor),
+                    )
+                    .tag(),
+                ));
+            }
+        }
+        if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
+            eprintln!("[collapse-site] same-point classes ({pass}) {map:?}");
+        }
+        collapse::merge_vertex_classes_with_bounds(
+            mesh,
+            attr_vec,
+            side_labels,
+            tri_bounds,
+            &map,
+            full_arrangement,
+            tangential_verts.as_deref_mut(),
+        );
+    }
+}
+
 /// §4-I11: the failure-population census must also see the runs that STOP.
 ///
 /// `relocation_domain_postcondition` sits at the END of Stage 4, so a run that
@@ -4573,6 +4639,80 @@ fn stage4_relocate_and_correct_inner(
     // above — the post-collapse Phase-A recompute must run for those too.)
     let mut collapsed_any = s451_repaired_any;
     let mut attr_vec = std::mem::take(&mut attribution.attributions);
+    // Vertices already on their exact curve are never `moved`; the rank of a
+    // same-point class's survivor reads them here.
+    let conic_endpoint: std::collections::BTreeSet<u32> = vert_circle
+        .keys()
+        .chain(vert_line.keys())
+        .chain(vert_ellipse.keys())
+        .chain(vert_cone_ellipse.keys())
+        .chain(vert_parabola.keys())
+        .chain(vert_cone_hyperbola.keys())
+        .chain(vert_ell_junction.keys())
+        .chain(vert_circle_junction.keys())
+        .copied()
+        .collect();
+    let junction_verts: std::collections::BTreeSet<u32> = vert_ell_junction
+        .keys()
+        .chain(vert_circle_junction.keys())
+        .chain(vert_junction.keys())
+        .copied()
+        .collect();
+    // How exact a class survivor's position is: a Stage-1 junction mint (an
+    // operand edge through the partner's surface, closed form, never moved)
+    // outranks every relocated point ([`reversal::merge_rank`]).
+    let same_point_rank = |mesh: &Mesh, v: u32| -> u8 {
+        let p = mesh.verts[v as usize];
+        if minted_junction_keys.contains_key(&[p.x().to_bits(), p.y().to_bits(), p.z().to_bits()]) {
+            3
+        } else {
+            reversal::merge_rank(&junction_verts, &conic_endpoint, v)
+        }
+    };
+    // Yang §4.3.3 (`:527-536`): the points that are one point within
+    // roundoff are removed in optimization — here, as soon as the relocation
+    // is done and before §4.5.3 reads the curves, so the sweep meets each
+    // such class as one point and never as a reversal.
+    {
+        let ranks: Vec<u8> = (0..mesh.verts.len() as u32)
+            .map(|v| same_point_rank(mesh, v))
+            .collect();
+        match merge_same_point_classes(
+            "classes-after-reloc",
+            mesh,
+            &mut attr_vec,
+            &mut side_labels.labels,
+            &mut tri_bounds.bounds,
+            Some(&*vertex_params),
+            &|v: u32| ranks[v as usize],
+            full_arrangement,
+            Some(&mut *tangential_verts),
+        ) {
+            Ok(any) => collapsed_any |= any,
+            Err(e) => {
+                attribution.attributions = attr_vec;
+                return Err(e);
+            }
+        }
+    }
+    // `YANG_FIG11B_CENSUS` (print-only): how many vertices each pass between
+    // the class merge above and the §4.5.3 sweep still takes.
+    let live_verts = |mesh: &Mesh| -> usize {
+        if !crate::stage4_fig11b::census_on() {
+            return 0;
+        }
+        let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for t in &mesh.tris {
+            seen.extend(t.iter().copied());
+        }
+        seen.len()
+    };
+    let took = |pass: &str, before: usize, after: usize| {
+        if crate::stage4_fig11b::census_on() && before != after {
+            crate::stage4_fig11b::log(&format!("pass-took\tpass={pass}\tn={}", before - after));
+        }
+    };
+    let live_before_kv9 = live_verts(mesh);
     // PR-KV9: junction vertices that landed on the SAME exact point are
     // duplicates of one geometric junction (near a tangency-grade curve
     // crossing the two chord polylines can intersect several times, giving
@@ -4662,12 +4802,12 @@ fn stage4_relocate_and_correct_inner(
         }
     }
     // P3b inc-4a (R0061): weld relocated verts that converged onto a Stage-1
-    // MINTED junction BEFORE any pass that walks patch boundaries — the §4.5.3
-    // sweep below recomputes Phase A, whose figure-eight wedge walk dies on a
-    // machine-ε moved×mint twin pair (s6-wedge-walk-not-outgoing at R0061's
-    // v173/v186). Same §4.3 op and band as the (3b′) weld; survivor = the mint
-    // (bits are the shared cross-operand junction identity, N54). The (3b′)
-    // call stays as the residual catch after the sweep + §4.4.1(b) merge.
+    // MINTED junction, ahead of the §4.5.3 sweep. Same §4.3 op and band as
+    // the (3b′) weld — `TAU_MODEL·(1 + scale)`, wider than a same-point class
+    // — so it takes the moved × mint pairs the class merge above leaves;
+    // survivor = the mint (bits are the shared cross-operand junction
+    // identity, N54). The (3b′) call stays as the residual catch after the
+    // sweep and the second class merge.
     let probe_minted_verts: HashSet<u32> = if std::env::var_os("YANG_P3B_FOLD_PROBE").is_some() {
         mesh.verts
             .iter()
@@ -4730,6 +4870,8 @@ fn stage4_relocate_and_correct_inner(
         }
     };
     fold_probe("pre", mesh, &attr_vec, &probe_minted_verts);
+    took("kv9-twin", live_before_kv9, live_verts(mesh));
+    let live_before_weld = live_verts(mesh);
     if !minted_junction_keys.is_empty() {
         let minted_verts: HashSet<u32> = mesh
             .verts
@@ -4799,6 +4941,7 @@ fn stage4_relocate_and_correct_inner(
         // edge checkpoint, because P0020's over-2 edges are ABSENT at
         // `after-reloc` and PRESENT at `before-3c-merge` — unlike F0060's,
         // which the arrangement hands over at `s4-entry`.
+        took("moved-mint-weld", live_before_weld, live_verts(mesh));
         nonmanifold_edge_census_attrs("after-moved-mint-weld", mesh, &attr_vec);
         // P3b inc-4b: beyond-corner conformal trim, immediately AFTER the
         // moved×minted weld (the weld owns coincidence ≤ TAU_MODEL band; the
@@ -4841,6 +4984,7 @@ fn stage4_relocate_and_correct_inner(
                 );
             }
         }
+        let live_before_trim = live_verts(mesh);
         if !minted_prov.is_empty()
             && trim_beyond_corner_phantoms_ex_with_bounds(
                 mesh,
@@ -4856,6 +5000,7 @@ fn stage4_relocate_and_correct_inner(
         {
             collapsed_any = true;
         }
+        took("beyond-corner-trim", live_before_trim, live_verts(mesh));
         nonmanifold_edge_census_attrs("after-beyond-corner-trim", mesh, &attr_vec);
         // The two merges above rewrite indices: a vertex merged across its
         // neighbours leaves triangles lapping over each other. The §4.4.1
@@ -4893,8 +5038,10 @@ fn stage4_relocate_and_correct_inner(
     star_probe("before-3c-merge", mesh, attribution);
     coincident_vertex_census("after-453-sweep", mesh);
     nonmanifold_edge_census("before-3c-merge", mesh, attribution);
-    // (3c) The same-point merge. Two vertices joined by a mesh edge, one of
-    // them an intersection point, within roundoff of each other
+    // (3c) The same-point merge, again: the passes since the first one
+    // (after the relocation, above) collapse vertices, and a collapse can
+    // join two points of one class by an edge. Two vertices joined by a mesh
+    // edge, one of them an intersection point, within roundoff of each other
     // (`TAU_WORK·(1 + scale)`, owner ruling 2026-11-25) are one point of the
     // model. By the faces they lie on they are §4.3.3's "a point too close to
     // another point on the same loop" (`:535-536`), Fig. 11(b)'s endpoint p
@@ -4912,82 +5059,33 @@ fn stage4_relocate_and_correct_inner(
     // rewritten triangles (N106).
     {
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
-        // Vertices already on their exact curve are never `moved`; the rank
-        // of a survivor's position reads them here.
-        let conic_endpoint: std::collections::BTreeSet<u32> = vert_circle
-            .keys()
-            .chain(vert_line.keys())
-            .chain(vert_ellipse.keys())
-            .chain(vert_cone_ellipse.keys())
-            .chain(vert_parabola.keys())
-            .chain(vert_cone_hyperbola.keys())
-            .chain(vert_ell_junction.keys())
-            .chain(vert_circle_junction.keys())
-            .copied()
+        let ranks: Vec<u8> = (0..mesh.verts.len() as u32)
+            .map(|v| same_point_rank(mesh, v))
             .collect();
-        let junction_verts: std::collections::BTreeSet<u32> = vert_ell_junction
-            .keys()
-            .chain(vert_circle_junction.keys())
-            .chain(vert_junction.keys())
-            .copied()
-            .collect();
-        let rank = |v: u32| reversal::merge_rank(&junction_verts, &conic_endpoint, v);
         crate::stage4_fig11b::census(
             "before-3c",
             mesh,
             &attr_vec,
             Some(&*vertex_params),
-            &rank,
+            &|v: u32| ranks[v as usize],
             &|v: u32| moved.contains(&v),
         );
-        let max_rounds = mesh.verts.len() + 1;
-        let mut rounds = 0usize;
-        loop {
-            let classes = crate::stage4_fig11b::fig11b_vertex_classes(
-                mesh,
-                &attr_vec,
-                Some(&*vertex_params),
-                &rank,
-            );
-            let map = classes.survivor_map();
-            if map.is_empty() {
-                break;
-            }
-            rounds += 1;
-            if rounds > max_rounds {
+        match merge_same_point_classes(
+            "classes",
+            mesh,
+            &mut attr_vec,
+            &mut side_labels.labels,
+            &mut tri_bounds.bounds,
+            Some(&*vertex_params),
+            &|v: u32| ranks[v as usize],
+            full_arrangement,
+            Some(&mut *tangential_verts),
+        ) {
+            Ok(any) => collapsed_any |= any,
+            Err(e) => {
                 attribution.attributions = attr_vec;
-                return Err(YangError::stage4_region_invalid(
-                    u32::MAX,
-                    Stage4InvalidReason::LocalRefinementRequired,
-                ));
+                return Err(e);
             }
-            if crate::stage4_fig11b::census_on() {
-                for (&victim, &survivor) in &map {
-                    crate::stage4_fig11b::log(&format!(
-                        "taken\tpass=classes\tvictim={victim}:{} survivor={survivor}:{} kind={}",
-                        crate::stage4_fig11b::pos_key(mesh, victim),
-                        crate::stage4_fig11b::pos_key(mesh, survivor),
-                        crate::stage4_fig11b::pair_kind(
-                            &crate::stage4_fig11b::faces_of(Some(&*vertex_params), victim),
-                            &crate::stage4_fig11b::faces_of(Some(&*vertex_params), survivor),
-                        )
-                        .tag(),
-                    ));
-                }
-            }
-            if std::env::var_os("YANG_DOUBLECOVER_PROBE").is_some() {
-                eprintln!("[collapse-site] s4.4.1b-merge classes {map:?}");
-            }
-            collapse::merge_vertex_classes_with_bounds(
-                mesh,
-                &mut attr_vec,
-                &mut side_labels.labels,
-                &mut tri_bounds.bounds,
-                &map,
-                full_arrangement,
-                Some(tangential_verts),
-            );
-            collapsed_any = true;
         }
         attribution.attributions = attr_vec;
     }

@@ -441,7 +441,8 @@ that backing still fails
 3. Re-census the sub-τ collapse: DONE with 2a (§8.6).
 4. New, with the roadmap's sub-step split: measure whether the §4.5.3 sweep
    removes or reorders members of a class, and move the §4.3.3 kinds ahead of
-   it if it does (N81). Measured (§8.5) and tried (§8.7); not landed.
+   it if it does (N81). Measured (§8.5), tried on the patch-loop walk
+   (§8.7), DONE on the chain walk (§8.10).
 
 ### 8.5 Which pass takes each pair today (census, 2026-11-26)
 
@@ -561,7 +562,7 @@ class's.
 Gates: `cargo test -p yang-rs` 1,528 passed; clippy and fmt clean; the
 rewrite tier; CI's always-on harness 683 passed, none failed.
 
-### 8.7 Increment 4 tried: the classes merged right after the relocation (2026-11-26)
+### 8.7 Increment 4 tried on the patch-loop walk (2026-11-26)
 
 **The trial** (one binary, switch `YANG_FIG11B_EARLY`; kept in `git stash`,
 "experiment 2026-11-26", not in the tree). The merge of §8.6 also runs at
@@ -610,7 +611,8 @@ the sweep read C out of the boundary cycles of every patch, so a patch that
 was mid-repair stopped it, and the STOP named only that patch's face. P0053
 passed before by accident of which walk stopped first (the earlier STOP
 happened to name a curved face). The answer is §8.9: the sweep walks chains
-and leaves patch loops to the update. Increment 4 is re-run on it next.
+and leaves patch loops to the update. On that walk increment 4 holds every
+case and is landed (§8.10).
 
 ### 8.8 The sweep's curves read as chains of intersection edges: census (2026-11-26)
 
@@ -750,3 +752,44 @@ ring; `reduce_overlap_incidence`.
 opposite normals on a site's two edges still takes parameter order (no
 corpus removal). The early merge of §8.7, whose P0053 stop was the
 patch-loop walk, is the next step.
+
+### 8.10 Increment 4: the classes merged right after the relocation (landed 2026-11-28)
+
+**What runs** (`stage4_correct.rs::merge_same_point_classes`). §4.3.3 removes
+too-close points "during optimization" (`:535-536`). The merge of §8.6 runs
+as soon as the relocation is done — ahead of the junction-twin collapse, the
+moved × minted weld, the beyond-corner trim and the §4.5.3 sweep — so the
+sweep meets each class as one point and never as a reversal. It runs a
+second time where it ran before, ahead of the update, for the classes the
+passes in between leave: a collapse can join two points of one class by an
+edge. A Stage-1 minted junction outranks every other member as survivor
+(closed form, never moved; its bits are its identity across the two
+operands, N54).
+
+**Measured** (kernel of this commit against §8.9's):
+
+| | §8.9 | now |
+|---|---|---|
+| `cargo test -p yang-rs` | 1,544 passed | 1,545 passed (1 new) |
+| corpus | 360C / 0W / 9E / 5EE / 0T | the same; `results.json` byte-identical |
+| rotation sweep, 1,870 lines | 1,383 OK / 102 ERR / 11 DIFF | the same, no line changes status; 6 differ in mesh hash only (F0059, P0005, P0020 ×3, R0050) |
+| merges | 296 ahead of the update on the corpus, 846 over the sweep (measured at §8.6) | 334 after the relocation and 33 ahead of the update; 1,085 and 167 over the sweep |
+| classes at `before-453-sweep` | 284 corpus, 878 sweep (§8.6) | 3 (P0017, P0055, R0061 — formed by the passes in between) and 19 |
+| §4.5.3 removals | corpus 2,376 by the tests, 85 by the overtake arms; sweep 11,899 and 394 | corpus 2,375 and 71 (fewer in P0005, P0007, P0017, P0018, P0028, P0037, P0055, P0059; one or two more in P0020, R0061); sweep 11,836 and 306 |
+| prospector seed 6 | 189C / 9E / 2T | the same, no document moves |
+
+P0053, the case that stopped in §8.7, is CORRECT.
+
+**What the passes ahead of the sweep still take** (`pass-took` lines of
+`YANG_FIG11B_CENSUS`, corpus): the junction-twin collapse 8 vertices in 3 cases (F0058 2, F0059 4, F0060 2), the moved × minted weld 29 in 7 (P0005, P0007, P0017, P0020, P0053, P0055, R0061), the beyond-corner trim 464 in 14; over the rotation sweep 30, 147 and 2,693. A trial with the junction-twin
+collapse and the moved × minted weld both left out (one binary, switches
+since removed) failed `c0058_authored_geometry_union_mints_its_tangent_points`
+and turned F0058 into a loud `NonManifold` ERROR; every other corpus case
+held. So the junction-twin collapse keeps customers the classes do not
+cover — exact twins of one junction in the tangent-crossing family (F0058,
+F0059, F0060, C0058) — and the weld's band is wider than a class
+(`TAU_MODEL·(1 + scale)`); neither is retired here.
+
+**Open.** The two passes above; the second run of the merge (it takes what
+later collapses join); the sweep's own removals of a Fig. 11(b) pair, now
+only where a pass in between forms one.

@@ -333,3 +333,47 @@ fn a_membrane_across_two_side_labels_is_not_cancelled() {
     assert_eq!(merge(&mut mesh, &mut labels, &map, false), 2);
     assert!(mesh.tris.is_empty());
 }
+
+/// §4.3.3 / Fig. 11(b) as one pass (`stage4_correct::merge_same_point_classes`):
+/// the classes are merged onto their ranked survivors and formed again until
+/// none is left; a mesh without a class is left alone.
+#[test]
+fn the_class_merge_runs_to_a_mesh_with_no_class() {
+    let mut mesh = twin_mesh();
+    // Vertex 1's star holds A and B (an intersection point); vertex 0 is A's.
+    let mut attr = vec![of(InputId::A), of(InputId::A), of(InputId::B)];
+    let mut labels = vec![TriangleSideLabel::default(); 3];
+    let mut bounds = vec![0.0; 3];
+    let merged = crate::stage4_correct::merge_same_point_classes(
+        "test",
+        &mut mesh,
+        &mut attr,
+        &mut labels,
+        &mut bounds,
+        None,
+        &|_| 0,
+        false,
+        None,
+    )
+    .expect("merge");
+    assert!(merged);
+    // The twins are one vertex: the triangle between them is gone and the
+    // intersection point (1) is the survivor.
+    assert_eq!(mesh.tris, vec![[1, 2, 3], [1, 3, 4]]);
+    assert_eq!((attr.len(), labels.len(), bounds.len()), (2, 2, 2));
+    assert!(classes(&mesh, &attr).survivor_map().is_empty());
+    let again = crate::stage4_correct::merge_same_point_classes(
+        "test",
+        &mut mesh,
+        &mut attr,
+        &mut labels,
+        &mut bounds,
+        None,
+        &|_| 0,
+        false,
+        None,
+    )
+    .expect("merge");
+    assert!(!again, "no class, no merge");
+    assert_eq!(mesh.tris.len(), 2);
+}

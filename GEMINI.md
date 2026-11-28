@@ -141,6 +141,15 @@ like this. the fixes must be principled. the principles are the paper."*
   Fig. 15's angle band; do not key the test on a property of the whole chain.
   `stage4_chains::IntersectionEdges` (chains per face pair) is print-only
   census (`YANG_CHAIN_CENSUS`), not what the sweep walks.
+- **The same-point class merge runs twice in Stage 4**
+  (`stage4_correct.rs::merge_same_point_classes`): right after the
+  relocation — §4.3.3's removal, ahead of the §4.5.3 sweep — and again ahead
+  of the §4.4.1 update for classes the collapses in between form. The
+  junction-twin collapse and the moved × minted weld between them are NOT
+  covered by it: leaving them out fails F0058 and
+  `c0058_authored_geometry_union_mints_its_tangent_points`. Count what a
+  pass takes with the `pass-took` lines of `YANG_FIG11B_CENSUS` before
+  proposing to retire it.
 - **The contact matrix (`assay_contact_matrix`) reports findings; it does
   not fail on them.** A finding is read to its cause from its replay command
   and attached to a roadmap milestone before any kernel change answers it.
