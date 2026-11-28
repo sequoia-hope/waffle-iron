@@ -596,24 +596,21 @@ reversals; removing 899 and reconnecting to 898 turns the triangle
 (899, 900, 890) on A288 — all three vertices on the one intersection curve
 — into (898, 900, 890), with 898 lying between 890 and 900 along the curve:
 it now lies folded over its neighbour (301, 890, 898), and both carry the
-directed edge 890 → 898. The sweep re-derives its loops from every patch's
-boundary cycles after each removal (`reversal.rs`,
-`compute_phase_a_with_side_labels`); that walk stops
+directed edge 890 → 898. The sweep of that date re-derived its loops from
+every patch's boundary cycles after each removal (since §8.9 it walks
+chains and no patch loop); that walk stops
 (`s6-boundary-walk-no-start: vertex 890`) and names (A, 288) alone. A288 is a plane, refining it changes nothing (the same 14 classes at
 each of the four density rungs), and the loop ends unresolved. The
 boundary-domain certificate names nothing in the build.
 
 **Reading.** The fold is one the §4.4.1 update rebuilds from the patch's
-boundary. The STOP comes from the sweep's own reading of its curves: the
-paper walks each intersection curve C (§4.5.3 `:679-689`), and the sweep
-reads C out of the boundary cycles of every patch, so a patch that is
-mid-repair stops it, and the STOP names only that patch's face. P0053
+boundary. The STOP came from the sweep's reading of its curves at that
+date: the paper walks each intersection curve C (§4.5.3 `:679-689`), and
+the sweep read C out of the boundary cycles of every patch, so a patch that
+was mid-repair stopped it, and the STOP named only that patch's face. P0053
 passed before by accident of which walk stopped first (the earlier STOP
-happened to name a curved face). Increment 4 therefore lands together with
-the sub-step that answers P0053: the sweep reading C from the chains of
-intersection edges and leaving patch cycles to the update, or its STOP
-naming every face its vertex lies on (§4.5.2's "faces involved"). Which of
-the two is not decided here.
+happened to name a curved face). The answer is §8.9: the sweep walks chains
+and leaves patch loops to the update. Increment 4 is re-run on it next.
 
 ### 8.8 The sweep's curves read as chains of intersection edges: census (2026-11-26)
 
@@ -660,82 +657,96 @@ every triangle on it).
   is a Stage-1 mint or carries a third surface (`curve_endpoint_ranked`).
 
 So on every case with no coplanar merge the two readings hold the same
-edges, every §4.5.3 removal is at an interior point of a chain, and the
-chain reading can replace the loops without changing a removal — given the
-four things below.
+edges, and every §4.5.3 removal is at an interior point of a chain.
 
-**What wiring the reading has to answer** (not built):
+**What the sweep took from this (§8.9).** It does not walk the face-pair
+chains. It walks chains of patch-boundary edges, which keep four things the
+face-pair chains do not hold:
 
 1. *The overtake arms* (matrix 4.5.3-12) act on an edge of ONE operand — a
    relocated junction that passed points of that operand's own boundary
-   curve. A chain-only sweep drops them (18 corpus cases). They need their
-   own walk over the operand's boundary curves, or their paper home
-   (§4.4.1 Fig. 11(a), the split of a boundary edge), first.
+   curve (18 corpus cases). Those edges bound a patch and are chained too.
 2. *Endpoints*: a mint or a third surface ends C though the face pair does
-   not change; the endpoint rule stays on top of the chains.
-3. *Incidence and curves without Phase A*: the sweep's tests read the
-   surfaces and the typed curve of each edge; both follow from the two
-   faces of a chain edge (`build_intersection_curves`).
-4. *The coplanar merge*: on the kept mesh a merged plane hides the seam and
-   renames a crease. The chains read the triangles as they are; what the
-   sweep should do on those 13 cases is decided with the wiring (on the full
-   arrangement, N80, neither sheet is dropped).
+   not change; the endpoint rule (`curve_endpoint_ranked`) runs on the
+   chains unchanged.
+3. *Incidence and curves*: the surfaces and the typed curve of each edge are
+   Phase A's.
+4. *The coplanar merge*: a merged plane is one patch, as in Phase A.
 
-Then P0053 with the early merge (§8.7) is the customer run: the sweep no
-longer stops on the folded patch; whether the update then rebuilds it is
-what that run measures.
+The face-pair chains stay as the census reading.
 
-### 8.9 The sweep on chains, tried (2026-11-27)
+### 8.9 The sweep walks chains (landed 2026-11-28)
 
-**The trial** (one binary, switch `YANG_453_CHAINS`; kept in `git stash`,
-"experiment 2026-11-27", not in the tree). The sweep takes Phase A's own
-patches — the same flood fill and coplanar merge — and the same edge
-incidence and `build_intersection_curves`, so the merged planes of §8.8 and
-the overtake arms keep what they have today; only the walk changes. An edge
-is on a patch's boundary when the patch's triangles along it do not cancel
-in direction (one triangle, or a fold's two on one side). A loop is a CHAIN:
-the boundary edges one set of patches shares, between the vertices where
-that set has one edge or more than two; a chain that returns to its start is
-a closed loop. No patch boundary is walked as a cycle, so a patch folded
-mid-repair cannot stop the sweep. A chain is admitted when one of its
-patches has an intersection edge; the angle band is the test on closed
-all-conic rings and nowhere else.
+**What the sweep reads** (`stage4_correct/reversal.rs::curve_chains`). The
+patches are Phase A's — the same flood fill and coplanar merge — and so are
+the edge incidence and `build_intersection_curves`, so the merged planes of
+§8.8 and the overtake arms keep what they had. An edge is on a patch's
+boundary when the patch's triangles along it do not cancel in direction (one
+triangle, or a fold's two on one side). A CHAIN is the run of boundary edges
+one set of patches shares, between the vertices where that set has one edge
+or more than two (`stage4_chains::chains_by`); a run that returns to its
+start is a closed ring. A chain is read when one of its patches has an
+intersection edge somewhere on its boundary, which brings in the operand's
+own edges beside each curve, where the two overtake arms act. The chains are
+read again after every removal. No patch boundary is walked as a loop; the
+`compute_phase_a` call is gone from the sweep, on the kept mesh and on the
+full arrangement (whose overlap-sheet incidence is
+`reduce_overlap_incidence`, shared with Phase A).
 
-**The two readings on one mesh** (first pass of all 564 corpus sweep calls,
-switch off, both computed): the incidence and the typed curve of every edge
-are identical. Site triples (p_b, p_r, p_n): 369,601 in the cycles, 400,182
-in the chains. 105,471 are in the cycles only — 15,236 of them with both
-edges intersection edges, where one curve ends and the next begins.
-136,052 are in the chains only — 3 with both edges intersection edges
-(P0017, R0061); the rest are on one operand's edges, which the cycle
-reading reaches only on a cycle that holds an intersection edge. On 1,718
-intersection sites in 25 cases the two readings apply a different test: in
-the cycle reading a site takes the angle band when a patch cycle through it
-is all conic and exact parameter order when one is mixed, and a site on two
-cycles can take both.
+**The test is per site.** A site whose two edges are one planar conic
+(`geom::curve_plane`, no curve-variant list) or one straight run takes
+Fig. 15's angle band. Before, a conic site took the band only on a patch
+loop that was all conic and exact parameter order on any other loop, so one
+site could take both. Parameter order stays on a conic stored with opposite
+normals on the two edges and on surface-pair curves; the progression sign
+stays on untyped pair chains (matrix 4.5.3-07).
 
-**Measured, switch on against off:**
+**The removals, read call by call.** `YANG_CHAIN_CENSUS` prints the mesh's
+identity per sweep call, so one call is compared across the two builds. On
+the corpus (179 cases reach the sweep; 568 sweep calls):
 
-| | off | on |
+- 138 cases make the same removals in the same order. 31 make the same
+  removals in another order, or under the band where parameter order made
+  them before.
+- 5 cases make the same number at other points (P0029, P0044, R0016, R0050,
+  R0070): the chain is walked from its other end, and the paper's "remove
+  its next point" then takes the points on the other side of the reversal
+  (R0070: a run of ten collapses onto its far end instead of its near one).
+  The paper fixes no direction for the walk along C; an open chain is walked
+  from its lowest-numbered end.
+- 5 cases make more (P0020 15 → 73, P0053 5 → 28, R0061 2 → 20, P0055 3 → 6,
+  P0007 4 → 8). In P0020, P0053, R0061 and P0055 the extra removals are all
+  in one sweep call each, on a mesh the patch-loop walk refused outright
+  (`NonManifoldOutput` from `patch_boundary_cycle`, before any point was
+  tested): 58, 23, 18 and 3 reversed points the sweep now corrects. In the
+  first three the build still fails later and §4.5.2 refines to the same
+  next mesh as before; in P0055 the builds after it differ. P0007 is the
+  walk direction (one curve entered from its other end), after which its
+  builds differ.
+
+**Measured** (kernel of this commit against the one before):
+
+| | before | now |
 |---|---|---|
-| `cargo test -p yang-rs` | 1,537 passed | 1,537 passed |
-| corpus | 360C / 0W / 9E / 5EE / 0T | the same; three detail strings (F0064 ends with 16 unresolved sites for 18; P0007, P0055) |
-| sweep, 1,870 lines | 1,379 OK / 106 ERR / 11 DIFF | 1,383 / 102 / 11 — C0058 one rotation and P0020 three go ERR → OK; 11 lines differ in hash, mesh volume or deviation only (C0058, P0007, P0055, R0026); none is worse |
-| test removals, corpus | 2,272 | 2,376 — P0020 15 → 73, P0053 5 → 28, R0061 2 → 20, P0055 1 → 4, P0007 2 → 4 |
-| test removals, sweep | 11,531 | 11,898, in 8 cases (C0058 0 → 16, P0020 255 → 390, P0053 27 → 144, R0061 10 → 95) |
-| overtake removals | 83 corpus, 383 sweep | 85 and 394 (P0007, P0055) |
+| `cargo test -p yang-rs` | 1,537 passed | 1,544 passed (7 new) |
+| corpus | 360C / 0W / 9E / 5EE / 0T | the same; three detail strings (F0064's stop lists 2 unresolved reversals for 4; P0007, P0055) |
+| rotation sweep, 1,870 lines | 1,379 OK / 106 ERR / 11 DIFF | 1,383 / 102 / 11 — C0058 under one rotation and P0020 under three go ERR → OK; 11 lines differ in hash, mesh volume or deviation only (C0058 ×3, P0007 ×5, P0055 ×2, R0026); none is worse |
+| test removals, corpus | 2,272: 50 by the angle band, 2,219 by parameter order, 3 by progression | 2,376: 812 by the angle band (613 on ellipses, 124 hyperbolas, 66 circles, 9 straight runs), 1,561 by parameter order — every one on a surface-pair curve — and 3 by progression |
+| test removals, rotation sweep | 11,531: 185 by the angle band, 11,324 by parameter order, 22 by progression | 11,899: 6,024 by the angle band (4,664 on ellipses, 1,112 hyperbolas, 225 circles, 23 straight runs), 5,853 by parameter order — every one on a surface-pair curve — and 22 by progression |
+| overtake removals | 83 corpus, 383 sweep | 85 (P0007, P0055) and 394 |
+| curve points walked at the fixed points, corpus | 175,378 | 96,779: a point is walked once, not once per patch loop through it |
+| prospector seed 6, 200 documents | 189C / 9E / 2T | the same, no document moves |
 
-**Not landed.** Every score holds or improves, but the sweep makes more
-removals in a handful of cases and they are not read site by site. Two
-causes were found, fixed in the trial and ruled out as the whole of it —
-the table is the same with and without each: an edge where two faces touch
-without crossing counted as a boundary edge (P0020), and a loop that returns
-to its start read as an open chain (C0058). What is left to read is the
-test a site takes (the 1,718 sites) and the removals that follow from the
-first one that differs. The trial carries `YANG_453_SITE_PROBE` for that.
+Every test removal is at an interior point of a face-pair chain of §8.8:
+2,376 of 2,376 on the corpus, 11,868 of 11,899 over the rotation sweep (the
+other 31 on C0043 under two rotations, as before).
 
-**Next.** Read P0020, C0058, R0061 and P0053 site by site on one build; fix
-the rule for which test a chain's sites take, from the paper (Fig. 15 is
-the angle band; parameter order is matrix 4.5.3-07's substitute); land the
-chain walk with the cycle walk deleted from the sweep; then the early merge
-of §8.7 with P0053 as its customer run.
+**Pins.** `tests_unit/s453_curve_chains.rs`: a curve is one chain from end to
+end; a patch whose boundary is not a loop is read like any other, and the
+sweep corrects a reversal on it; a run that returns to its start is a closed
+ring; `reduce_overlap_incidence`.
+
+**Open here.** The walk direction of a chain (above). A conic stored with
+opposite normals on a site's two edges still takes parameter order (no
+corpus removal). The early merge of §8.7, whose P0053 stop was the
+patch-loop walk, is the next step.

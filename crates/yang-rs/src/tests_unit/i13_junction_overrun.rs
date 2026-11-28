@@ -340,7 +340,7 @@ fn vertical_unit_slope_cone_brep() -> crate::BRep {
 /// Build a planar-face `BRep` carrying the given outward `Surface::Plane` list
 /// (each materialized as an axis-aligned dummy quad so `BRep::new` validates
 /// while `compute_phase_a` inherits `b.faces()[idx].surface`).
-fn planes_carrier_brep(planes: &[Surface]) -> crate::BRep {
+pub(crate) fn planes_carrier_brep(planes: &[Surface]) -> crate::BRep {
     use crate::{BRep, BRepEdge, BRepFace, BRepVertex};
     let mut verts = Vec::new();
     let mut edges = Vec::new();

@@ -130,13 +130,17 @@ like this. the fixes must be principled. the principles are the paper."*
   two vertices; the render gate refuses the face loudly. That is a tangent
   crossing, a customer of the degenerate-contact matrix — not a reason to
   merge by position alone.
-- **The §4.5.3 sweep walks patch boundary loops, not curves.** Its loops
-  also carry edges of one operand, and the two overtake arms act there. A
-  chain of intersection edges (`stage4_chains`, print-only,
-  `YANG_CHAIN_CENSUS`) holds none of those edges, and on a coplanar plane
-  that `merge_same_plane_patches` merged, Phase A names a crease of B as
-  A × B. Do not swap the sweep onto chains before the overtake arms have a
-  home (spec `yang_f2_fig11b_cdt_input_merge.md` §8.8).
+- **The §4.5.3 sweep walks chains of mesh edges, never a patch's boundary
+  loop** (`stage4_correct/reversal.rs::curve_chains`). A chain is the run of
+  boundary edges one set of patches shares; the chains beside the
+  intersection curves — edges of one operand — are read too, because the two
+  overtake arms act there. Do not put a `patch_boundary_cycle` /
+  `compute_phase_a` call back into the sweep: a patch folded by a reversal has
+  no boundary loop, and the sweep is the pass that unfolds it. The site test
+  is per SITE: two edges on one planar conic, or one straight run, take
+  Fig. 15's angle band; do not key the test on a property of the whole chain.
+  `stage4_chains::IntersectionEdges` (chains per face pair) is print-only
+  census (`YANG_CHAIN_CENSUS`), not what the sweep walks.
 - **The contact matrix (`assay_contact_matrix`) reports findings; it does
   not fail on them.** A finding is read to its cause from its replay command
   and attached to a roadmap milestone before any kernel change answers it.

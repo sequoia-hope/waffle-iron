@@ -324,24 +324,17 @@ intersected patches.
       the sub-τ collapse after the update — and the sweep itself removes a
       third of the Fig. 11(b) pairs as reversals. Since increment 2a the
       place behind the sweep is one order-free merge and no pair reaches the
-      update. First step here: form the classes once, after the relocation,
-      so the sweep reads each class as one point. Tried 2026-11-26 (spec
-      §8.7, patch in `git stash`): the sweep then reads no same-point pair as
-      a reversal and one case moves — P0053 becomes a loud ERROR: the sweep
-      re-derives its curves from every patch's boundary cycles after each
-      removal, and stops on a fold the update would rebuild. It lands with
-      the sub-step that makes the sweep read each curve from its chain of
-      intersection edges, or makes its STOP name every face its vertex lies
-      on. The chain reading is built print-only and censused (spec §8.8):
-      every §4.5.3 test removal is at an interior point of a chain; open
-      before it is wired — a home for the overtake arms, which act on one
-      operand's own edge, the endpoint rule, incidence without Phase A, and
-      the merged coplanar planes. Tried 2026-11-27 (spec §8.9, patch in
-      `git stash`): the sweep walking chains of patch-boundary edges, with
-      Phase A's own patches, incidence and curves, holds the corpus and the
-      yang-rs suite and converts four rotation-sweep lines, none worse; it
-      makes more removals in a few cases that are not yet read site by
-      site, so it is not landed.)*
+      update. Landed 2026-11-28 (spec §8.9): the §4.5.3 sweep walks each
+      curve as a chain of patch-boundary edges and no patch's boundary loop,
+      so a patch folded by a reversal no longer stops the correction that
+      unfolds it, and it takes the paper's angle band at every site on one
+      planar conic. Next: form the same-point classes once, after the
+      relocation, so the sweep reads each class as one point — tried
+      2026-11-26 (spec §8.7, patch in `git stash`) on the patch-loop walk,
+      where one case moved (P0053, stopped in that walk on a fold the update
+      rebuilds); re-run it on the chains, P0053 the customer. Open after
+      that: the passes ahead of the sweep that make §4.3.3's removal, the
+      walk direction of a chain, and the order of the remaining passes.)*
 - [ ] Re-site the Stage-5 `merge_conic_seam_runs` /
       ~~`decimate_intersection_runs`~~ into §4.4.1 *(2026-10-28/30:
       `stage5_chain_decimate` deleted and re-sited to
@@ -568,3 +561,4 @@ the first known item.
 | 2026-11-26 | F2 sub-step split (N81), tried, not landed: the same-point classes merged right after the relocation (switch on against off in one binary). Classes at `before-453-sweep` 284 → 3 (corpus), 878 → 19 (sweep); yang-rs suite holds; one case moves — P0053 CORRECT → ERROR with its rotations, stopped in the §4.5.3 sweep's own patch-cycle walk on a fold the update rebuilds. Patch kept in `git stash` | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (unchanged; with the switch on 359C / 0W / 10E) | (this commit) |
 | 2026-11-26 | F2 sub-step split (N81), measured, nothing wired: each intersection curve read as its chain of intersection edges (`stage4_chains`, `YANG_CHAIN_CENSUS`) beside the loops the §4.5.3 sweep walks. Every test removal is at an interior point of a chain (2,272 corpus; 11,500 over the rotation sweep, 31 others on C0043); the overtake arms' 83 / 383 removals are on one operand's own edge; the readings differ in edges on 15 corpus cases, all at a merged coplanar plane or a touch without crossing. Rotation sweep line for line identical; yang-rs 1,537 passed | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json` byte-identical) | (this commit) |
 | 2026-11-27 | F2 sub-step split (N81), tried, not landed: the §4.5.3 sweep walking chains of patch-boundary edges instead of patch cycles (switch on against off in one binary). Same incidence and typed curve on every edge; yang-rs suite holds; rotation sweep 1,383 OK / 102 ERR for 1,379 / 106 (C0058, P0020 ×3 convert; none worse); test removals 2,272 → 2,376 on the corpus in five cases, not yet read site by site | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (unchanged with the switch on) | (this commit) |
+| 2026-11-28 | F2 sub-step split (N81): the §4.5.3 sweep walks each curve as a chain of patch-boundary edges (`reversal.rs::curve_chains`) and no patch's boundary loop, on the kept mesh and the full arrangement; a patch folded by a reversal no longer stops the correction. The site test is per site: the paper's angle band on every site of one planar conic (N29) — 812 corpus removals by the band for 50, the 1,561 left on parameter order all on surface-pair curves. The removals read call by call: the extra ones (2,272 → 2,376) are on four meshes the patch-loop walk refused (P0020, P0053, R0061, P0055) and one changed walk direction (P0007). Rotation sweep 1,383 OK / 102 ERR (was 1,379 / 106): C0058 once and P0020 three times convert, none worse. yang-rs 1,544 passed; seed 6 189C / 9E / 2T unchanged; rewrite tier and always-on harness (689 passed) green | 78 | 157 | 360C / 0W / 9E / 5EE / 0T (`results.json`: three detail strings — F0064, P0007, P0055) | (this commit) |

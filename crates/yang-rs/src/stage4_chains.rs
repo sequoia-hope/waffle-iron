@@ -2,18 +2,19 @@
 //! Fig. 15): the reversal correction walks "the intersection curve C between
 //! the two surfaces S_A and S_B" point by point — p_b, p_r, p_n.
 //!
-//! This module reads each such curve C from the mesh as what it is there: the
-//! CHAIN of intersection edges one face of A and one face of B share. An
-//! intersection edge is a mesh edge with a triangle of each operand on it, so
-//! the reading needs the triangles' face attribution and nothing else — no
-//! patch, no patch boundary walk, no surface type.
+//! In the mesh a curve is a CHAIN of edges. [`chains_by`] orders edges into
+//! chains per key, and it is what the §4.5.3 sweep walks
+//! (`stage4_correct::reversal::curve_chains`: the key is the set of patches
+//! an edge bounds).
 //!
-//! The §4.5.3 sweep (`stage4_correct::reversal::sweep_reversed_intersections`)
-//! does not read its curves this way today: it walks every patch's boundary
-//! cycle that holds an intersection edge, after re-deriving all patches on
-//! each pass (ledger N81). This module only READS the chains and, under
-//! `YANG_CHAIN_CENSUS`, prints how the two readings compare; it does not
-//! change the mesh. Spec `specs/yang_f2_fig11b_cdt_input_merge.md` §8.8.
+//! [`IntersectionEdges`] is a second, print-only reading for the
+//! `YANG_CHAIN_CENSUS` census: an intersection edge is a mesh edge with a
+//! triangle of each operand on it, and a curve is the chain of such edges one
+//! face of A and one face of B share. It needs the triangles' face
+//! attribution and nothing else — no patch, no surface type — so it does not
+//! follow the coplanar merge the sweep's patches do (spec
+//! `specs/yang_f2_fig11b_cdt_input_merge.md` §8.8). It does not change the
+//! mesh.
 
 use crate::brep::InputId;
 use crate::{Mesh, TriangleAttribution};
@@ -142,76 +143,84 @@ impl IntersectionEdges {
         }
     }
 
-    /// The curves C, each as its ordered chain of vertices.
-    ///
-    /// A chain runs between two vertices where its face pair has one edge or
-    /// more than two (its endpoints) through vertices where it has exactly
-    /// two; a pair's edges that meet no such vertex form a closed ring. The
-    /// order is fixed by vertex index alone: face pairs ascending, open
-    /// chains from their lowest endpoint, rings from their lowest vertex
-    /// toward its lower neighbour.
+    /// The curves C, each as its ordered chain of vertices ([`chains_by`]),
+    /// face pairs ascending.
     pub(crate) fn chains(&self) -> Vec<Chain> {
-        let mut by_pair: BTreeMap<FacePair, BTreeMap<u32, BTreeSet<u32>>> = BTreeMap::new();
-        for (&(u, v), set) in &self.pairs {
-            for &pair in set {
-                let adj = by_pair.entry(pair).or_default();
-                adj.entry(u).or_default().insert(v);
-                adj.entry(v).or_default().insert(u);
-            }
-        }
-        let mut out = Vec::new();
-        for (faces, adj) in by_pair {
-            let mut used: BTreeSet<EdgeKey> = BTreeSet::new();
-            let walk = |start: u32, first: u32, used: &mut BTreeSet<EdgeKey>| -> Vec<u32> {
-                let mut verts = vec![start, first];
-                used.insert(key(start, first));
-                loop {
-                    let at = verts[verts.len() - 1];
-                    if at == start || adj[&at].len() != 2 {
-                        return verts;
-                    }
-                    let Some(&next) = adj[&at].iter().find(|&&w| !used.contains(&key(at, w)))
-                    else {
-                        return verts;
-                    };
-                    used.insert(key(at, next));
-                    verts.push(next);
-                }
-            };
-            for (&v, nbrs) in &adj {
-                if nbrs.len() == 2 {
-                    continue;
-                }
-                for &w in nbrs {
-                    if used.contains(&key(v, w)) {
-                        continue;
-                    }
-                    let verts = walk(v, w, &mut used);
-                    out.push(Chain {
-                        faces,
-                        verts,
-                        closed: false,
-                    });
-                }
-            }
-            for (&v, nbrs) in &adj {
-                let Some(&w) = nbrs.iter().find(|&&w| !used.contains(&key(v, w))) else {
-                    continue;
-                };
-                let mut verts = walk(v, w, &mut used);
-                // A ring comes back to its start; the start is listed once.
-                if verts.len() > 1 && verts[verts.len() - 1] == v {
-                    verts.pop();
-                }
-                out.push(Chain {
-                    faces,
-                    verts,
-                    closed: true,
-                });
-            }
-        }
-        out
+        chains_by(
+            self.pairs
+                .iter()
+                .flat_map(|(&edge, set)| set.iter().map(move |&pair| (edge, pair))),
+        )
+        .into_iter()
+        .map(|(faces, verts, closed)| Chain {
+            faces,
+            verts,
+            closed,
+        })
+        .collect()
     }
+}
+
+/// Order edges into chains, per key.
+///
+/// A chain runs between two vertices where its key has one edge or more than
+/// two (its endpoints) through vertices where it has exactly two; a key's
+/// edges that meet no such vertex form a closed ring, which lists each vertex
+/// once. The order is fixed by key and vertex index alone: keys ascending,
+/// open chains from their lowest endpoint, rings from their lowest vertex
+/// toward its lower neighbour.
+pub(crate) fn chains_by<K: Ord + Clone>(
+    edges: impl IntoIterator<Item = (EdgeKey, K)>,
+) -> Vec<(K, Vec<u32>, bool)> {
+    let mut by_key: BTreeMap<K, BTreeMap<u32, BTreeSet<u32>>> = BTreeMap::new();
+    for ((u, v), k) in edges {
+        let adj = by_key.entry(k).or_default();
+        adj.entry(u).or_default().insert(v);
+        adj.entry(v).or_default().insert(u);
+    }
+    let mut out = Vec::new();
+    for (k, adj) in by_key {
+        let mut used: BTreeSet<EdgeKey> = BTreeSet::new();
+        let walk = |start: u32, first: u32, used: &mut BTreeSet<EdgeKey>| -> Vec<u32> {
+            let mut verts = vec![start, first];
+            used.insert(key(start, first));
+            loop {
+                let at = verts[verts.len() - 1];
+                if at == start || adj[&at].len() != 2 {
+                    return verts;
+                }
+                let Some(&next) = adj[&at].iter().find(|&&w| !used.contains(&key(at, w))) else {
+                    return verts;
+                };
+                used.insert(key(at, next));
+                verts.push(next);
+            }
+        };
+        for (&v, nbrs) in &adj {
+            if nbrs.len() == 2 {
+                continue;
+            }
+            for &w in nbrs {
+                if used.contains(&key(v, w)) {
+                    continue;
+                }
+                let verts = walk(v, w, &mut used);
+                out.push((k.clone(), verts, false));
+            }
+        }
+        for (&v, nbrs) in &adj {
+            let Some(&w) = nbrs.iter().find(|&&w| !used.contains(&key(v, w))) else {
+                continue;
+            };
+            let mut verts = walk(v, w, &mut used);
+            // A ring comes back to its start; the start is listed once.
+            if verts.len() > 1 && verts[verts.len() - 1] == v {
+                verts.pop();
+            }
+            out.push((k.clone(), verts, true));
+        }
+    }
+    out
 }
 
 /// One curve C between a face of A and a face of B, as its ordered chain of
@@ -242,14 +251,34 @@ pub(crate) fn log(line: &str) {
     }
 }
 
+/// A mesh's identity for the census — a hash of its vertex positions and
+/// triangles — so one sweep call can be found again in another run.
+pub(crate) fn mesh_identity(mesh: &Mesh) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |x: u64| {
+        h ^= x;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    };
+    for p in &mesh.verts {
+        mix(p.x().to_bits());
+        mix(p.y().to_bits());
+        mix(p.z().to_bits());
+    }
+    for t in &mesh.tris {
+        mix(u64::from(t[0]));
+        mix(u64::from(t[1]));
+        mix(u64::from(t[2]));
+    }
+    h
+}
+
 pub(crate) fn census_on() -> bool {
     std::env::var_os("YANG_CHAIN_CENSUS").is_some()
 }
 
-/// What the §4.5.3 sweep's loops and the chains each read at one pass, for
-/// the census. `loop_cross` are the sweep's own intersection edges: the
-/// edges of its loops that carry a surface of each operand in Phase A's
-/// incidence.
+/// What the §4.5.3 sweep's chains and the face-pair chains each read at one
+/// pass, for the census. `loop_cross` are the sweep's own intersection
+/// edges: the edges of its chains that bound a patch of each operand.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct EdgeAgreement {
     pub(crate) loop_cross: usize,

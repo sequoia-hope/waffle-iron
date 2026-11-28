@@ -1,19 +1,26 @@
 //! Stage-4 reversed-intersection sweep and the curve-comparison helpers it
-//! relies on: PR-YR10 §4.5.3 ordered-loop reversal correction
-//! (`sweep_reversed_intersections`), conic parameterization/equality tests,
-//! mixed-cycle shared-conic detection, and the collapse/merge direction
-//! predicates. Extracted move-only from stage4_correct.rs (#159 F9).
+//! relies on: the §4.5.3 reversal correction along each curve's chain of
+//! mesh edges (`sweep_reversed_intersections`, `curve_chains`), conic
+//! parameterization/equality tests, shared-conic detection, and the
+//! collapse/merge direction predicates.
 
 #[allow(clippy::wildcard_imports)]
 use crate::*;
 
-/// PR-YR10 (§4.5.3): walk every ordered intersection loop and correct reversed
-/// points in the paper's ORDER (`refs/text/yang2025_hybrid_boolean.txt:746-751`):
-/// "for a reversal point p_r, we remove its next point and reconnect … until
-/// there is no reversal. If no such next point can be found, we remove p_r and
-/// restart the correction from p_b" — on each intersection curve C between its
-/// endpoints, which are never removed ([`paper_order_removal`]). Returns
-/// `true` iff any point was removed. LOUD STOP on an unresolvable reversal.
+/// Yang §4.5.3 (`refs/text/yang2025_hybrid_boolean.txt:679-689, 718-751`,
+/// Fig. 15): walk every intersection curve C point by point and correct
+/// reversed points in the paper's ORDER (`:746-751`): "for a reversal point
+/// p_r, we remove its next point and reconnect … until there is no reversal.
+/// If no such next point can be found, we remove p_r and restart the
+/// correction from p_b" — between C's endpoints, which are never removed
+/// ([`paper_order_removal`]). Returns `true` iff any point was removed. LOUD
+/// STOP on an unresolvable reversal.
+///
+/// Each curve is read as a CHAIN of mesh edges ([`curve_chains`]): the edges
+/// one set of patches is bounded by, in order, from one end to the other (or
+/// around, for a closed ring). The chains are read again after every
+/// removal. No patch's boundary is walked as a loop, so a patch the removal
+/// has folded does not stop the correction that unfolds it.
 #[allow(clippy::too_many_arguments)] // the Stage-4 driver's own state, handed through once (§3e added the mint map)
 pub(crate) fn sweep_reversed_intersections(
     mesh: &mut Mesh,
@@ -62,8 +69,7 @@ pub(crate) fn sweep_reversed_intersections(
         // Reversals this pass leaves in place at the 2·d_ε gate below.
         let mut refused: Vec<(u32, u32, f64)> = Vec::new();
 
-        // Recompute Phase A so the loops reflect any prior collapse (spec §4.5.3
-        // step 3 — re-sweep on fresh loops, never stale ones).
+        // Read the chains on this pass's mesh (never a stale one).
         let map = TriangleAttributionMap {
             attributions: std::mem::take(attribution),
         };
@@ -74,20 +80,16 @@ pub(crate) fn sweep_reversed_intersections(
                 Vec::new()
             },
         };
-        // Post-relocation context: position keys are stale, pass no provenance.
-        let phase_a = compute_phase_a_with_side_labels(
-            mesh,
-            &map,
-            full_arrangement.then_some(&sl_map),
-            a,
-            b,
-            &crate::stage3_ssi::NO_EDGE_PROVENANCE,
-        );
+        let read = curve_chains(mesh, &map, full_arrangement.then_some(&sl_map), a, b);
         *attribution = map.attributions;
         if full_arrangement {
             *side_labels = sl_map.labels;
         }
-        let (infos, incidence, curves) = phase_a?;
+        let CurveChains {
+            chains: loops,
+            incidence,
+            curves,
+        } = read?;
         // Spec §3e (P0057): the Stage-1 junction MINTS present in this pass,
         // resolved by position bits (mint coordinates are never mutated). A
         // mint is an exact corner by construction — an operand edge through
@@ -114,59 +116,10 @@ pub(crate) fn sweep_reversed_intersections(
         // §3d rank, [`distinct_surfaces_at`]), read once per pass.
         let surfaces_at = surfaces_by_vertex(&incidence);
 
-        // Collect the ordered intersection loops. Dedup by sorted vertex set so
-        // the cylinder-side and cap-side copies of the same ring are swept once.
-        let mut seen: HashSet<Vec<u32>> = HashSet::new();
-        let mut loops: Vec<(Vec<(u32, u32)>, bool)> = Vec::new();
-        for info in &infos {
-            for cycle in &info.cycles {
-                if cycle.len() < 3 {
-                    continue;
-                }
-                // Yang et al. 2025 §4.5.3 (`refs/text/yang2025_hybrid_boolean.txt:679-689,
-                // 718-751`, Fig. 15; ledger N89 item 3): admit every boundary cycle that
-                // contains at least one cross-operand (`A × B`) intersection edge by
-                // Phase-A incidence alone, uniformly across all `Curve` variants (typed
-                // `Circle`/`Ellipse`/`Parabola`/`Hyperbola`/`LineSegment`/`SurfacePair`
-                // and untyped pair-relocated edges alike; `build_intersection_curves`
-                // requires `A × B` incidence, so this subsumes both typed and untyped
-                // intersection runs without enumerating curve types).
-                let any_cross_incidence = cycle.iter().any(|&(s, e)| {
-                    let key = if s < e { (s, e) } else { (e, s) };
-                    incidence.get(&key).is_some_and(|entries| {
-                        entries.iter().any(|&(i, _)| i == InputId::A)
-                            && entries.iter().any(|&(i, _)| i == InputId::B)
-                    })
-                });
-                if !any_cross_incidence {
-                    continue;
-                }
-                // Spec §3c final scope + N89 item 3: ALL-CONIC cycles (every edge a
-                // planar conic — `geom::curve_plane(c).is_some()`, covering closed
-                // `Circle`/`Ellipse` rings and multi-arc `Parabola`/`Hyperbola` loops
-                // alike without a curve-variant list) take the §4.5.3 angle band at
-                // every single-curve site; in MIXED cycles only straight-run sites
-                // (both incident edges `LineSegment`) take the band while conic sites
-                // take exact parameter order (`mixed_cycle_shared_conic` — spec §3c P10
-                // records: a 7-gon's 51° corners exceed it and overlay-adjacent conic
-                // runs repair unsupported Stage-0 crossings into silent geometry).
-                let all_conic = cycle.iter().all(|&(s, e)| {
-                    let key = if s < e { (s, e) } else { (e, s) };
-                    curves
-                        .get(&key)
-                        .is_some_and(|c| crate::geom::curve_plane(c).is_some())
-                });
-                let mut sorted: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
-                sorted.sort_unstable();
-                if seen.insert(sorted) {
-                    loops.push((cycle.clone(), all_conic));
-                }
-            }
-        }
-
         // `YANG_CHAIN_CENSUS` (print-only; spec
-        // `yang_f2_fig11b_cdt_input_merge.md` §8.8): each curve C read as its
-        // chain of intersection edges, beside the loops this sweep walks.
+        // `yang_f2_fig11b_cdt_input_merge.md` §8.8): each curve C read as the
+        // chain of intersection edges of one face pair, beside the chains
+        // this sweep walks.
         let chain_census = crate::stage4_chains::census_on()
             .then(|| crate::stage4_chains::IntersectionEdges::read(mesh, attribution));
         // [the sweep calls p_r an endpoint][the chains' reading of p_r].
@@ -175,8 +128,12 @@ pub(crate) fn sweep_reversed_intersections(
         if let (Some(edges), 1) = (&chain_census, passes) {
             let loop_cross: std::collections::BTreeSet<(u32, u32)> = loops
                 .iter()
-                .flat_map(|(cycle, _)| cycle.iter())
-                .map(|&(s, e)| if s < e { (s, e) } else { (e, s) })
+                .flat_map(|(verts, closed)| {
+                    let m = verts.len();
+                    (0..if *closed { m } else { m - 1 })
+                        .map(move |k| (verts[k], verts[(k + 1) % m]))
+                })
+                .map(|(s, e)| if s < e { (s, e) } else { (e, s) })
                 .filter(|key| {
                     incidence.get(key).is_some_and(|entries| {
                         entries.iter().any(|&(i, _)| i == InputId::A)
@@ -224,7 +181,8 @@ pub(crate) fn sweep_reversed_intersections(
             }
             let chains = edges.chains();
             crate::stage4_chains::log(&format!(
-                "entry\tloops={}\tchains={}\tclosed={}\tloop_cross={}\tchain_edges={}\tonly_loop={}\tonly_chain={}",
+                "entry\tmesh={:016x}\tloops={}\tchains={}\tclosed={}\tloop_cross={}\tchain_edges={}\tonly_loop={}\tonly_chain={}",
+                crate::stage4_chains::mesh_identity(mesh),
                 loops.len(),
                 chains.len(),
                 chains.iter().filter(|c| c.closed).count(),
@@ -235,24 +193,29 @@ pub(crate) fn sweep_reversed_intersections(
             ));
         }
 
-        // Find the FIRST reversal across all loops; remove one point, then
-        // restart the whole sweep (re-deriving loops). Deterministic: loops are
-        // in the deterministic patch/cycle order; within a loop the walk
-        // starts at a curve endpoint (the paper walks C from its start) and
-        // runs in loop order.
+        // Find the FIRST reversal across all chains; remove one point, then
+        // read the chains again. Deterministic: the chains come in the order
+        // of [`crate::stage4_chains::chains_by`] (by patch set, an open chain
+        // from its lowest-numbered end); a closed ring is walked from its
+        // first curve endpoint (the paper walks C from its start).
         let mut acted = false;
-        'outer: for (cycle, all_conic) in &loops {
-            let m = cycle.len();
+        'outer: for (raw, closed) in &loops {
+            let closed = *closed;
+            let m = raw.len();
             if m < 3 {
                 return Err(YangError::stage4_region_invalid(
-                    cycle.first().map(|&(s, _)| s).unwrap_or(u32::MAX),
+                    raw.first().copied().unwrap_or(u32::MAX),
                     Stage4InvalidReason::LoopTooSmall,
                 ));
             }
-            // Ordered vertex sequence of the loop (start vertices), rotated to
-            // begin at the first endpoint of a curve C when the loop has one.
-            let raw: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
+            // The chain's vertices in walk order. A closed ring is rotated to
+            // begin at the first endpoint of a curve C when it has one; an
+            // open chain already runs from one end to the other.
+            let raw: Vec<u32> = raw.clone();
             let end_at = |vs: &[u32], k: usize| {
+                if !closed && (k == 0 || k == m - 1) {
+                    return true;
+                }
                 let v = vs[k];
                 let rank = surfaces_at.get(&v).map_or(0, Vec::len);
                 let rank = if minted.contains(&v) {
@@ -276,14 +239,14 @@ pub(crate) fn sweep_reversed_intersections(
                 (verts, endpoint)
             } else {
                 // Zero topological corners (`end_at == false` around the entire
-                // cycle: `rank < 3` everywhere and one shared curve `c0`). A
+                // ring: `rank < 3` everywhere and one shared curve `c0`). A
                 // periodic conic (`conic_param_periodic` — `S¹`) legitimately
                 // closes with no endpoints; a non-periodic open conic
                 // (`!conic_param_periodic` — `ℝ`, cf. `stage4_splice::order_along_curve`)
                 // cannot wrap periodically, so its parameter extrema `[t_min, t_max]`
                 // bound the open arc (preserving any scaffold closing chord while
                 // keeping interior arc vertices live in the §4.5.3 sweep).
-                let e0 = cycle[0];
+                let e0 = (raw[0], raw[1]);
                 let key0 = if e0.0 < e0.1 { e0 } else { (e0.1, e0.0) };
                 if let Some(c0) = curves.get(&key0).filter(|c| !conic_param_periodic(c)) {
                     let params: Option<Vec<f64>> = raw
@@ -314,6 +277,10 @@ pub(crate) fn sweep_reversed_intersections(
                 }
             };
             for i in 0..m {
+                if !closed && (i == 0 || i == m - 1) {
+                    // The two ends of an open chain have one neighbour on it.
+                    continue;
+                }
                 let p_b = verts[(i + m - 1) % m];
                 let p_r = verts[i];
                 let p_n = verts[(i + 1) % m];
@@ -332,7 +299,16 @@ pub(crate) fn sweep_reversed_intersections(
                 // Otherwise the site's reversal test on curve C, evaluable
                 // against any later point of C for the paper's lookahead.
                 let mut test: Option<SiteTest> = None;
-                if !all_conic {
+                // Fig. 15's angle band is the test of a site whose two edges
+                // are one curve with an exact tangent here: one planar conic
+                // (`geom::curve_plane` — no curve-variant list), or one
+                // straight run. Every other site takes a substitute (matrix
+                // 4.5.3-07).
+                let one_planar_conic = matches!(
+                    (curves.get(&key_b), curves.get(&key_n)),
+                    (Some(cb), Some(cn)) if cb == cn && crate::geom::curve_plane(cb).is_some()
+                );
+                if !one_planar_conic {
                     if !curves.contains_key(&key_n) && !curves.contains_key(&key_b) {
                         // Spec `yang_453_line_overtake` §6 (P0036): a
                         // both-untyped site on ONE operand's own typed B-Rep
@@ -351,10 +327,9 @@ pub(crate) fn sweep_reversed_intersections(
                             test = Some(SiteTest::Progression(t));
                         }
                     } else if !both_line_edges(&curves, key_b, key_n) {
-                        // Task #145 branches 9–12: a shared-conic site in a
-                        // mixed cycle is tested in exact PARAMETER order
-                        // (never the angle band, whose coarse-chord false
-                        // positives are P10-disproven here).
+                        // The two edges are one conic stored with opposite
+                        // normals, or one surface-pair curve: exact
+                        // PARAMETER order (task #145 branches 9–12).
                         let Some(shared) = mixed_cycle_shared_conic(&curves, key_b, key_n) else {
                             continue;
                         };
@@ -449,7 +424,7 @@ pub(crate) fn sweep_reversed_intersections(
                     eprintln!(
                         "YANG_V_PROBE reversal collapse: p_b={p_b} p_r={p_r} p_n={p_n} \
                          victim={victim} survivor={survivor} at {:?} <- {:?} \
-                         all_conic={all_conic} loop={verts:?}",
+                         chain={verts:?}",
                         mesh.verts.get(survivor as usize),
                         mesh.verts.get(victim as usize),
                     );
@@ -461,7 +436,10 @@ pub(crate) fn sweep_reversed_intersections(
                 }
                 if let (Some(edges), Some(site)) = (&chain_census, census_site) {
                     crate::stage4_chains::log(&format!(
-                        "removal\tkind={census_kind}\tsite={}\tendpoint={}\tp_b={p_b}\tp_r={p_r}\tp_n={p_n}\tvictim={victim}\tsurvivor={survivor}\tjoin={}",
+                        "removal\tkind={census_kind}\tcurve={}\tsite={}\tendpoint={}\tp_b={p_b}\tp_r={p_r}\tp_n={p_n}\tvictim={victim}\tsurvivor={survivor}\tjoin={}",
+                        curves
+                            .get(&key_n)
+                            .map_or_else(|| "none".to_string(), crate::stage4_chains::variant_name),
                         site.tag(),
                         endpoint[i],
                         if edges.is_intersection_edge(victim, survivor) {
@@ -550,6 +528,152 @@ pub(crate) fn sweep_reversed_intersections(
             return Ok(collapsed_any);
         }
     }
+}
+
+/// What the §4.5.3 sweep reads from the mesh on each pass ([`curve_chains`]).
+pub(crate) struct CurveChains {
+    /// Each chain's vertices in order, and whether its last vertex joins its
+    /// first (a closed ring lists each vertex once).
+    pub(crate) chains: Vec<(Vec<u32>, bool)>,
+    /// Per mesh edge on a patch boundary: the `(operand, surface)` of every
+    /// patch it bounds.
+    pub(crate) incidence: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    /// Per intersection edge: its typed curve (`build_intersection_curves`).
+    pub(crate) curves: std::collections::BTreeMap<(u32, u32), Curve>,
+}
+
+/// Yang §4.5.3 walks "the intersection curve C between the two surfaces S_A
+/// and S_B" point by point (`refs/text/yang2025_hybrid_boolean.txt:709-745`,
+/// Fig. 15). This reads every such curve from the mesh as a CHAIN of edges.
+///
+/// The patches are Phase A's ([`compute_phase_a_with_side_labels`]: the same
+/// flood fill and the same coplanar merge), and so are the edge incidence and
+/// the typed curves. A mesh edge is on a patch's boundary when the patch's
+/// triangles along it do not cancel in direction — one triangle, or a fold's
+/// two on one side; two that face each other across the edge make it
+/// interior. A chain is the run of boundary edges ONE set of patches shares,
+/// between the vertices where that set has one such edge or more than two
+/// ([`crate::stage4_chains::chains_by`]); a run that returns to its start is
+/// a closed ring.
+///
+/// A chain is read when one of its patches has an intersection edge (one
+/// that bounds a patch of each operand) somewhere on its boundary: the
+/// chains of intersection edges themselves, and the operand's own edges
+/// beside them, which the two overtake arms test (ledger N89 item 6).
+///
+/// No patch boundary is walked as a loop, so a folded patch — whose boundary
+/// is not a loop — is read like any other.
+pub(crate) fn curve_chains(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    side_labels: Option<&TriangleSideLabelMap>,
+    a: &BRep,
+    b: &BRep,
+) -> Result<CurveChains, YangError> {
+    use std::collections::{BTreeMap, BTreeSet};
+    let adjacency = triangle_adjacency(mesh);
+    let patches = flood_fill_patches_with_side_labels(mesh, attribution, side_labels, &adjacency);
+    let patches = merge_same_plane_patches_with_side_labels(patches, &adjacency, side_labels, a, b);
+    // Per patch: its operand, its surface, and (on the full arrangement)
+    // whether it is a `[true, true]` common-surface sheet.
+    let mut surfaces: Vec<RawEdgeIncidence> = Vec::with_capacity(patches.len());
+    // Per edge and patch: the patch's triangles that run lo → hi along the
+    // edge, less those that run hi → lo.
+    let mut net: BTreeMap<(u32, u32), BTreeMap<u32, i32>> = BTreeMap::new();
+    for (pi, patch) in patches.iter().enumerate() {
+        let input = patch.attribution.input;
+        let brep = match input {
+            InputId::A => a,
+            InputId::B => b,
+        };
+        let face_idx = patch.attribution.face as usize;
+        let Some(face) = brep.faces().get(face_idx) else {
+            return Err(YangError::MalformedTopology(format!(
+                "attribution.face = {face_idx} out of range (input has {} faces)",
+                brep.faces().len()
+            )));
+        };
+        let is_overlap = side_labels.is_some_and(|sl| {
+            patch
+                .tri_indices
+                .first()
+                .and_then(|&t| sl.labels.get(t as usize))
+                .is_some_and(|l| l.surface == [true, true])
+        });
+        surfaces.push((input, face.surface, is_overlap));
+        for &t in &patch.tri_indices {
+            let tri = mesh.tris[t as usize];
+            for k in 0..3 {
+                let (s, e) = (tri[k], tri[(k + 1) % 3]);
+                if s != e {
+                    let (key, sign) = if s < e { ((s, e), 1) } else { ((e, s), -1) };
+                    *net.entry(key).or_default().entry(pi as u32).or_default() += sign;
+                }
+            }
+        }
+    }
+    // Per boundary edge: the patches it bounds, ascending.
+    let on_edge: BTreeMap<(u32, u32), Vec<u32>> = net
+        .into_iter()
+        .map(|(key, per_patch)| {
+            let set: Vec<u32> = per_patch
+                .into_iter()
+                .filter(|&(_, n)| n != 0)
+                .map(|(pi, _)| pi)
+                .collect();
+            (key, set)
+        })
+        .filter(|(_, set)| !set.is_empty())
+        .collect();
+    let mut incidence: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+    let mut has_cross: BTreeSet<u32> = BTreeSet::new();
+    for (&key, set) in &on_edge {
+        let raw = set.iter().map(|&pi| surfaces[pi as usize]);
+        let entries: Vec<(InputId, Surface)> = if side_labels.is_some() {
+            reduce_overlap_incidence(raw.collect())
+        } else {
+            raw.map(|(input, surface, _)| (input, surface)).collect()
+        };
+        if entries.iter().any(|&(i, _)| i == InputId::A)
+            && entries.iter().any(|&(i, _)| i == InputId::B)
+        {
+            has_cross.extend(set.iter().copied());
+        }
+        incidence.insert(key, entries);
+    }
+    let curves = build_intersection_curves(
+        &incidence,
+        mesh,
+        a,
+        b,
+        &crate::stage3_ssi::NO_EDGE_PROVENANCE,
+    )
+    .inspect_err(|err| {
+        if let YangError::SsiRefinementFailed { edge, .. } = err {
+            crate::boolean::failures::note_ssi_failure(mesh, attribution, *edge, format!("{err}"));
+        }
+    })?;
+    let chains = crate::stage4_chains::chains_by(on_edge)
+        .into_iter()
+        .filter(|(patches, verts, _)| {
+            verts.len() >= 3 && patches.iter().any(|pi| has_cross.contains(pi))
+        })
+        .map(|(_, mut verts, closed)| {
+            // A run that leaves a vertex and comes back to it is a closed
+            // ring through that vertex.
+            if !closed && verts.len() >= 4 && verts.first() == verts.last() {
+                verts.pop();
+                (verts, true)
+            } else {
+                (verts, closed)
+            }
+        })
+        .collect();
+    Ok(CurveChains {
+        chains,
+        incidence,
+        curves,
+    })
 }
 
 /// The reversal test of one §4.5.3 site `p_r` on its curve C, evaluable

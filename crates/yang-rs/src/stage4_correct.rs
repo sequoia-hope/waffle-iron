@@ -435,6 +435,53 @@ pub(crate) fn compute_phase_a(
     compute_phase_a_with_side_labels(mesh, attribution, None, a, b, edge_provenance)
 }
 
+/// One patch on a mesh edge of the full arrangement: its operand, its
+/// surface, and whether it is a `[true, true]` common-surface sheet (§4.5.5).
+pub(crate) type RawEdgeIncidence = (InputId, Surface, bool);
+
+/// The `(operand, surface)` incidence of one full-arrangement mesh edge from
+/// the patches bounded by it (`specs/yang_442_classify_after_update.md` §4).
+/// Along a transverse curve C = S_A ∩ S_B up to four sub-patches share the
+/// edge; they are deduplicated to the surface pair, and a `[true, true]`
+/// common-surface sheet is resolved against the pure operand sheets (§4.5.5).
+pub(crate) fn reduce_overlap_incidence(raw: Vec<RawEdgeIncidence>) -> Vec<(InputId, Surface)> {
+    let mut pure: Vec<(InputId, Surface)> = Vec::new();
+    let mut overlaps: Vec<(InputId, Surface)> = Vec::new();
+    for (inp, surf, is_ov) in raw {
+        let dst = if is_ov { &mut overlaps } else { &mut pure };
+        if !dst.contains(&(inp, surf)) {
+            dst.push((inp, surf));
+        }
+    }
+    for (ov_in, ov_surf) in overlaps {
+        if pure
+            .iter()
+            .any(|&(_, ps)| surfaces_coincide_unoriented(ov_surf, ps))
+        {
+            // Common surface is already represented by a pure continuation
+            // patch on this edge (e.g. cap overlap inside a larger face).
+            continue;
+        }
+        if pure.len() == 2 && pure[0].0 != pure[1].0 {
+            if surfaces_coincide_unoriented(pure[0].1, pure[1].1) {
+                // Both operands leave the common surface onto coincident
+                // walls (e.g. stacked equal-radius cylinders or flush box
+                // walls): replace the `ov_in` wall entry with the common
+                // surface so the edge names the transverse rim `S_common ∩ S_wall`.
+                if let Some(slot) = pure.iter_mut().find(|(i, _)| *i == ov_in) {
+                    *slot = (ov_in, ov_surf);
+                }
+            }
+            // Otherwise the two pure walls already intersect transversely.
+            continue;
+        }
+        if !pure.contains(&(ov_in, ov_surf)) {
+            pure.push((ov_in, ov_surf));
+        }
+    }
+    pure
+}
+
 #[track_caller]
 pub(crate) fn compute_phase_a_with_side_labels(
     mesh: &Mesh,
@@ -502,8 +549,7 @@ pub(crate) fn compute_phase_a_with_side_labels(
         // per edge so `build_intersection_curves` and `collect_rim_curves` see
         // the exact two-surface pair, and resolve `[true, true]` common-surface
         // sheets against pure operand sheets (§4.5.5).
-        type RawEdgeInc = (InputId, Surface, bool);
-        let mut raw_inc: std::collections::BTreeMap<(u32, u32), Vec<RawEdgeInc>> =
+        let mut raw_inc: std::collections::BTreeMap<(u32, u32), Vec<RawEdgeIncidence>> =
             std::collections::BTreeMap::new();
         for (patch, info) in patches.iter().zip(infos.iter()) {
             let is_overlap = patch
@@ -522,41 +568,7 @@ pub(crate) fn compute_phase_a_with_side_labels(
             }
         }
         for (key, raw) in raw_inc {
-            let mut pure: Vec<(InputId, Surface)> = Vec::new();
-            let mut overlaps: Vec<(InputId, Surface)> = Vec::new();
-            for (inp, surf, is_ov) in raw {
-                let dst = if is_ov { &mut overlaps } else { &mut pure };
-                if !dst.contains(&(inp, surf)) {
-                    dst.push((inp, surf));
-                }
-            }
-            for (ov_in, ov_surf) in overlaps {
-                if pure
-                    .iter()
-                    .any(|&(_, ps)| surfaces_coincide_unoriented(ov_surf, ps))
-                {
-                    // Common surface is already represented by a pure continuation
-                    // patch on this edge (e.g. cap overlap inside a larger face).
-                    continue;
-                }
-                if pure.len() == 2 && pure[0].0 != pure[1].0 {
-                    if surfaces_coincide_unoriented(pure[0].1, pure[1].1) {
-                        // Both operands leave the common surface onto coincident
-                        // walls (e.g. stacked equal-radius cylinders or flush box
-                        // walls): replace the `ov_in` wall entry with the common
-                        // surface so the edge names the transverse rim `S_common ∩ S_wall`.
-                        if let Some(slot) = pure.iter_mut().find(|(i, _)| *i == ov_in) {
-                            *slot = (ov_in, ov_surf);
-                        }
-                    }
-                    // Otherwise the two pure walls already intersect transversely.
-                    continue;
-                }
-                if !pure.contains(&(ov_in, ov_surf)) {
-                    pure.push((ov_in, ov_surf));
-                }
-            }
-            incidence.insert(key, pure);
+            incidence.insert(key, reduce_overlap_incidence(raw));
         }
     } else {
         for info in &infos {
